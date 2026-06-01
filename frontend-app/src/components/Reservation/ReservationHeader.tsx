@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import { useTopbar } from '../../contexts/TopbarContext';
 
 interface ReservationHeaderProps {
@@ -25,9 +26,9 @@ const ReservationHeader: React.FC<ReservationHeaderProps> = ({
         <button
           onClick={onRefresh}
           disabled={isLoading}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50 shadow-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-md text-xs font-bold text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.025)] transition-all disabled:opacity-50 shadow-sm"
         >
-          <i className={`fas fa-sync-alt ${isLoading ? 'animate-spin' : ''}`}></i>
+          <Icon icon="mdi:refresh" className={isLoading ? 'animate-spin' : ''} width={14} />
           <span>{isLoading ? 'Syncing...' : 'Refresh'}</span>
         </button>
       </div>

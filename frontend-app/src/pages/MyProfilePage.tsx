@@ -1,93 +1,85 @@
 /**
  * My Profile Page - React Component
- *
  * Converted from: my-profile.html
- *
- * Features:
- * - User profile display with cloud accounts
- * - Password change functionality
- * - Team member management (for primary users)
- * - Cloud account access control per team member
- * - Role-based API routing (XAMOPS/BILLOPS)
- *
- * All backend connections and functionality preserved
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import { useMyProfile } from '../hooks/useMyProfile';
 import { DialogRoot, DialogPanel } from '../components/ui';
 import { TeamUser, CloudAccount } from '../types/myProfile';
 
-const ProfileSkeleton: React.FC = () => {
-  return (
-    <div className="w-full space-y-4">
-      <div className="bg-white border border-gray-200 rounded-md overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-4">
-          <div className="skeleton h-14 w-14 rounded-md flex-shrink-0"></div>
-          <div>
-            <div className="skeleton h-5 w-40 rounded mb-2"></div>
-            <div className="skeleton h-4 w-56 rounded"></div>
-          </div>
-        </div>
-        <div className="p-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
-            <div className="skeleton h-16 rounded-md"></div>
-            <div className="skeleton h-16 rounded-md"></div>
-          </div>
-          <div className="pt-4 border-t border-gray-100">
-            <div className="skeleton h-9 w-48 rounded-md"></div>
-          </div>
+const PROVIDER_DOT: Record<string, string> = {
+  AWS:   'bg-amber-400',
+  GCP:   'bg-blue-400',
+  Azure: 'bg-sky-500',
+};
+
+const CloudBadge: React.FC<{ account: CloudAccount }> = ({ account }) => (
+  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] text-xs font-medium whitespace-nowrap max-w-[200px]">
+    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PROVIDER_DOT[account.provider] ?? 'bg-[rgba(0,0,0,0.3)]'}`} />
+    <span className="truncate">{account.accountName || account.accountId || `Account #${account.id}`}</span>
+    {account.accountId && (
+      <code className="text-[9px] font-mono text-[rgba(0,0,0,0.35)] flex-shrink-0">· {account.accountId}</code>
+    )}
+  </span>
+);
+
+const ProfileSkeleton: React.FC = () => (
+  <div className="space-y-4">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl overflow-hidden shadow-sm">
+      <div className="px-6 py-5 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-4">
+        <div className="h-16 w-16 rounded-2xl bg-[rgba(0,0,0,0.06)] animate-pulse flex-shrink-0" />
+        <div className="flex-1">
+          <div className="h-5 w-40 bg-[rgba(0,0,0,0.06)] animate-pulse rounded mb-2" />
+          <div className="h-4 w-56 bg-[rgba(0,0,0,0.06)] animate-pulse rounded" />
         </div>
       </div>
-      <div className="flex justify-between items-center">
-        <div className="skeleton h-5 w-48 rounded"></div>
-        <div className="skeleton h-9 w-40 rounded-md"></div>
+      <div className="p-5 grid grid-cols-2 gap-4">
+        <div className="h-20 bg-[rgba(0,0,0,0.06)] animate-pulse rounded-xl" />
+        <div className="h-20 bg-[rgba(0,0,0,0.06)] animate-pulse rounded-xl" />
       </div>
     </div>
-  );
-};
+  </div>
+);
 
 const MyProfilePage: React.FC = () => {
   const {
-    profile,
-    teamUsers,
-    selectedUser,
-    isEditing,
-    showPasswordModal,
-    passwordForm,
-    loading,
-    error,
-    newTeamUser,
-    editTeamUser,
-    cancelEdit,
-    saveTeamUser,
-    deleteTeamUser,
-    changePassword,
-    updateSelectedUser,
-    updatePasswordForm,
-    toggleAccountId,
-    toggleTab,
-    setShowPasswordModal
+    profile, teamUsers, selectedUser, isEditing,
+    showPasswordModal, passwordForm, loading, error,
+    newTeamUser, editTeamUser, cancelEdit, saveTeamUser,
+    deleteTeamUser, changePassword, updateSelectedUser,
+    updatePasswordForm, toggleAccountId, toggleTab, setShowPasswordModal,
   } = useMyProfile();
 
   const BILLOPS_ADMIN_TABS = [
-    { key: 'admin-dashboard', label: 'Admin Dashboard', icon: 'fas fa-chart-bar' },
-    { key: 'support-inbox', label: 'Support Inbox', icon: 'fas fa-headset' },
-    { key: 'all-tickets', label: 'All Tickets', icon: 'fas fa-ticket-alt' },
-    { key: 'all-invoices', label: 'All Invoices', icon: 'fas fa-file-invoice' },
-    { key: 'credit-requests', label: 'Credit Requests', icon: 'fas fa-coins' },
-    { key: 'agreement-admin', label: 'Agreement Admin', icon: 'fas fa-file-signature' },
-    { key: 'client-details', label: 'Client Details', icon: 'fas fa-users-cog' },
-    { key: 'autospotting-admin', label: 'AutoSpotting Admin', icon: 'fas fa-magic' },
-    { key: 'user-manager', label: 'User Manager', icon: 'fas fa-user-cog' },
+    { key: 'admin-dashboard',    label: 'Admin Dashboard',    icon: 'mdi:chart-bar' },
+    { key: 'support-inbox',      label: 'Support Inbox',      icon: 'mdi:headset' },
+    { key: 'all-tickets',        label: 'All Tickets',        icon: 'mdi:ticket-outline' },
+    { key: 'all-invoices',       label: 'All Invoices',       icon: 'mdi:file-document-outline' },
+    { key: 'credit-requests',    label: 'Credit Requests',    icon: 'mdi:cash-multiple' },
+    { key: 'agreement-admin',    label: 'Agreement Admin',    icon: 'mdi:file-sign' },
+    { key: 'client-details',     label: 'Client Details',     icon: 'mdi:account-cog-outline' },
+    { key: 'autospotting-admin', label: 'AutoSpotting Admin', icon: 'mdi:auto-fix' },
+    { key: 'user-manager',       label: 'User Manager',       icon: 'mdi:account-settings-outline' },
   ];
 
-  // ── Account Access UI state ──────────────────────────────────────────
+  const TAB_COLORS: Record<string, string> = {
+    'admin-dashboard':    'bg-purple-50 text-purple-700 border-purple-100',
+    'support-inbox':      'bg-sky-50 text-sky-700 border-sky-100',
+    'all-tickets':        'bg-blue-50 text-blue-700 border-blue-100',
+    'all-invoices':       'bg-teal-50 text-teal-700 border-teal-100',
+    'credit-requests':    'bg-emerald-50 text-emerald-700 border-emerald-100',
+    'agreement-admin':    'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.08)]',
+    'client-details':     'bg-indigo-50 text-indigo-700 border-indigo-100',
+    'autospotting-admin': 'bg-orange-50 text-orange-700 border-orange-100',
+    'user-manager':       'bg-rose-50 text-rose-700 border-rose-100',
+  };
+
   const [accountAccessMode, setAccountAccessMode] = useState<'all' | 'selected'>('selected');
   const [accountSearch, setAccountSearch] = useState('');
   const [accountProviderFilter, setAccountProviderFilter] = useState<'All' | 'AWS' | 'GCP' | 'Azure'>('All');
 
-  // When a form opens, restore mode from allAccountsAccess flag
   useEffect(() => {
     if (isEditing) {
       setAccountAccessMode(selectedUser.allAccountsAccess ? 'all' : 'selected');
@@ -96,13 +88,13 @@ const MyProfilePage: React.FC = () => {
     }
   }, [isEditing]);
 
-  // Accounts visible in the picker after search + provider filter
   const filteredAccounts = useMemo(() => {
     const accounts: CloudAccount[] = profile.cloudAccounts ?? [];
     return accounts.filter(a => {
       const matchProvider = accountProviderFilter === 'All' || a.provider === accountProviderFilter;
       const matchSearch = !accountSearch ||
-        a.accountName.toLowerCase().includes(accountSearch.toLowerCase()) ||
+        (a.accountName ?? '').toLowerCase().includes(accountSearch.toLowerCase()) ||
+        (a.accountId ?? '').toLowerCase().includes(accountSearch.toLowerCase()) ||
         a.provider.toLowerCase().includes(accountSearch.toLowerCase());
       return matchProvider && matchSearch;
     });
@@ -110,17 +102,12 @@ const MyProfilePage: React.FC = () => {
 
   const handleAccountModeChange = (mode: 'all' | 'selected') => {
     setAccountAccessMode(mode);
-    if (mode === 'all') {
-      updateSelectedUser('allAccountsAccess', true);
-      updateSelectedUser('accountIds', []);
-    } else {
-      updateSelectedUser('allAccountsAccess', false);
-    }
+    updateSelectedUser('allAccountsAccess', mode === 'all');
+    if (mode === 'all') updateSelectedUser('accountIds', []);
   };
 
   const selectVisibleAccounts = () => {
-    const visibleIds = filteredAccounts.map(a => a.id);
-    const merged = Array.from(new Set([...selectedUser.accountIds, ...visibleIds]));
+    const merged = Array.from(new Set([...selectedUser.accountIds, ...filteredAccounts.map(a => a.id)]));
     updateSelectedUser('accountIds', merged);
   };
 
@@ -128,16 +115,15 @@ const MyProfilePage: React.FC = () => {
     const visibleIds = new Set(filteredAccounts.map(a => a.id));
     updateSelectedUser('accountIds', selectedUser.accountIds.filter(id => !visibleIds.has(id)));
   };
-  // ─────────────────────────────────────────────────────────────────────
 
   if (error) {
     return (
-      <div className="flex items-center justify-center flex-1 bg-[#f8fafc] p-10">
-        <div className="bg-red-50 text-red-700 p-6 rounded-md border border-red-100 max-w-md text-center">
-          <i className="fas fa-circle-exclamation text-2xl mb-3"></i>
-          <h2 className="text-base font-semibold mb-2">Access Denied</h2>
-          <p className="text-sm mb-4">{error}</p>
-          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition-colors">
+      <div className="flex items-center justify-center flex-1 p-10">
+        <div className="bg-rose-50 border border-rose-100 rounded-xl p-6 max-w-md text-center">
+          <Icon icon="mdi:alert-circle-outline" width={32} color="#F43F5E" className="mx-auto mb-3" />
+          <h2 className="text-sm font-bold text-rose-700 mb-2">Access Denied</h2>
+          <p className="text-sm text-rose-600 mb-4">{error}</p>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-md text-xs font-semibold transition-colors">
             Try Reauthenticating
           </button>
         </div>
@@ -146,193 +132,165 @@ const MyProfilePage: React.FC = () => {
   }
 
   return (
-    <main id="profile-main-container" className="flex-1 w-full flex flex-col items-stretch p-6 bg-[#f5f6f8] my-profile-page">
-      {loading && !profile.username ? (
-        <ProfileSkeleton />
-      ) : (
-        <div className="w-full space-y-4">
-          {/* Profile Card */}
-          <div className="profile-card-container">
-            <div className="profile-header-gradient px-6 py-5">
-              <div className="flex items-center gap-4">
-                <div className="profile-avatar">
-                  <span className="text-xl font-bold text-white">
-                    {profile.username ? profile.username.charAt(0).toUpperCase() : 'U'}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h2 className="text-[15px] font-semibold text-gray-900 truncate">{profile.username || 'Loading...'}</h2>
-                    {profile.isPrimaryUser && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border border-amber-200 bg-amber-50 text-amber-700 flex items-center gap-1 flex-shrink-0">
-                        <i className="fas fa-crown text-amber-500 text-[9px]"></i>
-                        Admin
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <p className="text-xs text-gray-500 flex items-center gap-1.5">
-                      <i className="fas fa-envelope text-gray-400 text-[10px]"></i>
-                      {profile.email || ''}
-                    </p>
-                    <span className="inline-flex items-center px-2 py-0.5 bg-white rounded text-[11px] font-medium text-gray-600 border border-gray-200">
-                      <i className="fas fa-user-shield mr-1.5 text-indigo-400 text-[10px]"></i>
-                      {profile.role || ''}
+    <div className="px-6 pb-12 pt-6 space-y-5">
+      {loading && !profile.username ? <ProfileSkeleton /> : (
+        <>
+          {/* ── Profile Card ───────────────────────────────── */}
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+            {/* Identity row */}
+            <div className="px-6 py-5 flex items-center gap-5 border-b border-[rgba(0,0,0,0.06)]">
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 bg-[rgba(0,0,0,0.88)]">
+                <span className="text-xl font-bold text-white tracking-tight">
+                  {profile.username ? profile.username.charAt(0).toUpperCase() : 'U'}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <h2 className="text-base font-black text-[rgba(0,0,0,0.88)] truncate">{profile.username || 'Loading...'}</h2>
+                  {profile.isPrimaryUser && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border border-amber-200 bg-amber-50 text-amber-700 flex-shrink-0">
+                      <Icon icon="mdi:crown" width={9} color="#D97706" />
+                      ADMIN
                     </span>
-                  </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="flex items-center gap-1.5 text-xs text-[rgba(0,0,0,0.5)]">
+                    <Icon icon="mdi:email-outline" width={12} color="rgba(0,0,0,0.35)" />
+                    {profile.email || ''}
+                  </span>
+                  <code className="px-2 py-0.5 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded text-[11px] font-mono text-[rgba(0,0,0,0.5)]">
+                    {profile.role || ''}
+                  </code>
                 </div>
               </div>
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.07)] transition-colors flex-shrink-0"
+              >
+                <Icon icon="mdi:lock-outline" width={13} />
+                Security Settings
+              </button>
             </div>
 
-            <div className="p-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
-                <div className="profile-info-item">
-                  <label className="profile-info-label">
-                    <i className="fas fa-building-columns mr-2"></i>
+            {/* Info + Environments body */}
+            <div className="px-6 py-5 space-y-5">
+              {/* Org + Account type */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-4 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-xl group hover:border-indigo-200 hover:bg-indigo-50/20 transition-colors">
+                  <p className="flex items-center gap-1.5 text-[10px] font-bold text-[rgba(0,0,0,0.4)] uppercase tracking-widest mb-1.5">
+                    <Icon icon="mdi:bank-outline" width={11} />
                     Organization
-                  </label>
-                  <p className="profile-info-value">{profile.clientName || 'N/A'}</p>
+                  </p>
+                  <p className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{profile.clientName || 'N/A'}</p>
                 </div>
-                <div className="profile-info-item">
-                  <label className="profile-info-label">
-                    <i className="fas fa-fingerprint mr-2"></i>
+                <div className="p-4 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-xl group hover:border-indigo-200 hover:bg-indigo-50/20 transition-colors">
+                  <p className="flex items-center gap-1.5 text-[10px] font-bold text-[rgba(0,0,0,0.4)] uppercase tracking-widest mb-1.5">
+                    <Icon icon="mdi:fingerprint" width={11} />
                     Account Type
-                  </label>
-                  <p className="profile-info-value text-indigo-600">
+                  </p>
+                  <p className="text-sm font-bold text-indigo-600">
                     {profile.isPrimaryUser ? 'Primary Administrator' : 'Standard Team Member'}
                   </p>
                 </div>
               </div>
 
-              {/* Connected Cloud Accounts */}
-              <div className="mb-5">
-                <label className="profile-info-label mb-3 flex items-center">
-                  <i className="fas fa-network-wired mr-2"></i>
+              {/* Authorized Cloud Environments */}
+              <div>
+                <p className="flex items-center gap-1.5 text-[10px] font-bold text-[rgba(0,0,0,0.4)] uppercase tracking-widest mb-3">
+                  <Icon icon="mdi:server-network-outline" width={11} />
                   Authorized Cloud Environments
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {profile.cloudAccounts && profile.cloudAccounts.length > 0 ? (
-                    profile.cloudAccounts.map((account: CloudAccount) => (
-                      <span
-                        key={account.id}
-                        className={`cloud-account-badge ${account.provider === 'AWS'
-                          ? 'cloud-account-aws'
-                          : account.provider === 'GCP'
-                            ? 'cloud-account-gcp'
-                            : 'cloud-account-azure'
-                          }`}
-                      >
-                        <i className={account.provider === 'AWS' ? 'fab fa-aws' : account.provider === 'GCP' ? 'fab fa-google' : 'fab fa-microsoft'}></i>
-                        {account.accountName}
-                      </span>
-                    ))
-                  ) : (
-                    <div className="p-4 bg-gray-50 rounded-md border border-dashed border-gray-200 text-gray-400 w-full text-center text-sm">
-                      <i className="fas fa-cloud-slash mr-2"></i>
-                      No cloud environments linked to this profile
-                    </div>
+                  {profile.cloudAccounts?.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 bg-[rgba(0,0,0,0.06)] rounded-full text-[9px] font-bold text-[rgba(0,0,0,0.4)]">
+                      {profile.cloudAccounts.length}
+                    </span>
                   )}
-                </div>
+                </p>
+                {profile.cloudAccounts && profile.cloudAccounts.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {profile.cloudAccounts.map((account: CloudAccount) => (
+                      <CloudBadge key={account.id} account={account} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 p-4 bg-[rgba(0,0,0,0.02)] border border-dashed border-[rgba(0,0,0,0.1)] rounded-xl text-[rgba(0,0,0,0.35)] text-xs">
+                    <Icon icon="mdi:cloud-off-outline" width={16} />
+                    No cloud environments linked to this profile
+                  </div>
+                )}
               </div>
 
-              {/* Change Password Button */}
-              <div className="pt-4 border-t border-gray-100 flex items-center gap-3">
+              {/* Mobile security button */}
+              <div className="sm:hidden pt-2 border-t border-[rgba(0,0,0,0.06)]">
                 <button
                   onClick={() => setShowPasswordModal(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.07)] transition-colors"
                 >
-                  <i className="fas fa-shield-halved text-indigo-500 text-xs"></i>
+                  <Icon icon="mdi:lock-outline" width={13} />
                   Security & Password Settings
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Team Users Section (Only for Primary Users) */}
+          {/* ── Team Management (Primary Users only) ───────── */}
           {profile.isPrimaryUser && (
-            <div className="team-members-section space-y-3">
-              <div className="bg-white border border-gray-200 rounded-md px-5 py-4 flex justify-between items-center shadow-sm">
+            <div className="space-y-3">
+              {/* Section header */}
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl px-5 py-4 flex items-center justify-between shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-md bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
-                    <i className="fas fa-users-gear text-indigo-500 text-xs"></i>
+                  <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
+                    <Icon icon="mdi:account-group-outline" width={17} color="#4F46E5" />
                   </div>
                   <div>
-                    <h2 className="text-[13px] font-semibold text-gray-900">Team Management</h2>
-                    <p className="text-xs text-gray-400 mt-0.5">Manage access and permissions for your organization's team members.</p>
+                    <h2 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Team Management</h2>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">Manage access and permissions for your team.</p>
                   </div>
                 </div>
                 <button
                   onClick={newTeamUser}
-                  className="btn-add-team-member"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-xs font-semibold rounded-lg transition-colors"
                 >
-                  <i className="fas fa-plus mr-2 text-xs"></i>
+                  <Icon icon="mdi:plus" width={14} />
                   Add Member
                 </button>
               </div>
 
-              {/* Team User Form */}
+              {/* Edit form */}
               {isEditing && (
-                <div className="bg-white p-5 rounded-md border border-gray-200 team-user-form relative z-10">
-                  <h3 className="text-[13px] font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-100 flex items-center gap-2">
-                    <i className="fas fa-user-plus text-indigo-500 text-xs"></i>
-                    {selectedUser.id ? 'Modify Permissions' : 'Onboard Team Member'}
-                  </h3>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      saveTeamUser();
-                    }}
-                  >
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="form-group">
-                        <label className="form-label">
-                          <i className="fas fa-user mr-2"></i>
-                          Username
-                        </label>
-                        <input
-                          type="text"
-                          value={selectedUser.username}
-                          onChange={(e) => updateSelectedUser('username', e.target.value)}
-                          required
-                          className="form-input"
-                          placeholder="Enter username"
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">
-                          <i className="fas fa-envelope mr-2"></i>
-                          Email
-                        </label>
-                        <input
-                          type="email"
-                          value={selectedUser.email}
-                          onChange={(e) => updateSelectedUser('email', e.target.value)}
-                          required
-                          className="form-input"
-                          placeholder="Enter email address"
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">
-                          <i className="fas fa-lock mr-2"></i>
-                          Password
-                        </label>
-                        <input
-                          type="password"
-                          value={selectedUser.password}
-                          onChange={(e) => updateSelectedUser('password', e.target.value)}
-                          required={!selectedUser.id}
-                          className="form-input"
-                          placeholder={
-                            selectedUser.id
-                              ? 'Leave blank to keep current password'
-                              : 'Enter password'
-                          }
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">
-                          <i className="fas fa-user-tag mr-2"></i>
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+                  <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-2">
+                    <Icon icon="mdi:account-plus-outline" width={14} color="#4F46E5" />
+                    <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">
+                      {selectedUser.id ? 'Modify Permissions' : 'Onboard Team Member'}
+                    </h3>
+                  </div>
+                  <form onSubmit={(e) => { e.preventDefault(); saveTeamUser(); }} className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {[
+                        { key: 'username',  label: 'Username', icon: 'mdi:account-outline',  type: 'text',     placeholder: 'Enter username', required: true },
+                        { key: 'email',     label: 'Email',    icon: 'mdi:email-outline',      type: 'email',    placeholder: 'Enter email', required: true },
+                        { key: 'password',  label: 'Password', icon: 'mdi:lock-outline',       type: 'password', placeholder: selectedUser.id ? 'Leave blank to keep current' : 'Enter password', required: !selectedUser.id },
+                      ].map(field => (
+                        <div key={field.key}>
+                          <label className="flex items-center gap-1.5 text-[10px] font-bold text-[rgba(0,0,0,0.45)] uppercase tracking-wider mb-1.5">
+                            <Icon icon={field.icon} width={11} />
+                            {field.label}
+                          </label>
+                          <input
+                            type={field.type}
+                            value={(selectedUser as any)[field.key]}
+                            onChange={(e) => updateSelectedUser(field.key as any, e.target.value)}
+                            required={field.required}
+                            placeholder={field.placeholder}
+                            className="w-full px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] focus:border-[rgba(0,0,0,0.2)] transition-colors"
+                          />
+                        </div>
+                      ))}
+                      {/* Role */}
+                      <div>
+                        <label className="flex items-center gap-1.5 text-[10px] font-bold text-[rgba(0,0,0,0.45)] uppercase tracking-wider mb-1.5">
+                          <Icon icon="mdi:account-tag-outline" width={11} />
                           Role
                         </label>
                         {profile.role === 'ROLE_BILLOPS_ADMIN' ? (
@@ -340,192 +298,85 @@ const MyProfilePage: React.FC = () => {
                             <select
                               value={selectedUser.role || profile.role}
                               onChange={(e) => updateSelectedUser('role', e.target.value)}
-                              className="form-input"
+                              className="w-full px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] transition-colors"
                             >
-                              <option value="ROLE_BILLOPS_ADMIN">BILLOPS ADMIN (sub-user, scoped to accounts)</option>
-                              <option value="ROLE_BILLOPS_ADMIN_SUB">BILLOPS ADMIN SUB (sub-admin, scoped to assigned clients)</option>
+                              <option value="ROLE_BILLOPS_ADMIN">BILLOPS ADMIN</option>
+                              <option value="ROLE_BILLOPS_ADMIN_SUB">BILLOPS ADMIN SUB</option>
                             </select>
                             {(selectedUser.role || profile.role) === 'ROLE_BILLOPS_ADMIN_SUB' && (
-                              <p className="form-helper-text text-amber-600">
-                                <i className="fas fa-info-circle mr-1"></i>
-                                Sub-admin will only see clients assigned to them. Assign clients after creation via Support → Sub-Admin Clients.
+                              <p className="mt-1.5 text-[11px] text-amber-600 flex items-center gap-1">
+                                <Icon icon="mdi:information-outline" width={11} />
+                                Sub-admin sees only assigned clients.
                               </p>
                             )}
                           </>
                         ) : (
-                          <>
-                            <input
-                              type="text"
-                              value={profile.role}
-                              disabled
-                              className="form-input-disabled"
-                            />
-                            <p className="form-helper-text">Role is inherited from your account</p>
-                          </>
+                          <input type="text" value={profile.role} disabled className="w-full px-3 py-2 text-xs bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-lg text-[rgba(0,0,0,0.35)] cursor-not-allowed" />
                         )}
                       </div>
                     </div>
 
-                    {/* Cloud Account Access Selection — hidden for ROLE_BILLOPS_ADMIN_SUB (uses client scoping instead) */}
+                    {/* Cloud Account Access */}
                     {(selectedUser.role || profile.role) !== 'ROLE_BILLOPS_ADMIN_SUB' && profile.cloudAccounts && profile.cloudAccounts.length > 0 && (
                       <div className="mt-6">
-                        <label className="form-label mb-3 block">
-                          <i className="fas fa-cloud mr-2"></i>
+                        <p className="flex items-center gap-1.5 text-[10px] font-bold text-[rgba(0,0,0,0.45)] uppercase tracking-wider mb-3">
+                          <Icon icon="mdi:cloud-outline" width={11} />
                           Cloud Account Access
-                        </label>
-
-                        {/* Mode toggle: All vs Selected */}
+                        </p>
                         <div className="grid grid-cols-2 gap-3 mb-4">
-                          <button
-                            type="button"
-                            onClick={() => handleAccountModeChange('all')}
-                            className={`flex items-center gap-3 p-3 rounded-md border transition-all text-left ${
-                              accountAccessMode === 'all'
-                                ? 'border-indigo-400 bg-indigo-50'
-                                : 'border-gray-200 bg-white hover:border-indigo-300'
-                            }`}
-                          >
-                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                              accountAccessMode === 'all' ? 'border-indigo-500' : 'border-gray-300'
-                            }`}>
-                              {accountAccessMode === 'all' && <div className="w-2 h-2 rounded-full bg-indigo-500" />}
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-gray-800">All Accounts</p>
-                              <p className="text-xs text-gray-500">Includes future accounts</p>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleAccountModeChange('selected')}
-                            className={`flex items-center gap-3 p-3 rounded-md border transition-all text-left ${
-                              accountAccessMode === 'selected'
-                                ? 'border-indigo-400 bg-indigo-50'
-                                : 'border-gray-200 bg-white hover:border-indigo-300'
-                            }`}
-                          >
-                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                              accountAccessMode === 'selected' ? 'border-indigo-500' : 'border-gray-300'
-                            }`}>
-                              {accountAccessMode === 'selected' && <div className="w-2 h-2 rounded-full bg-indigo-500" />}
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-gray-800">Selected Accounts</p>
-                              <p className="text-xs text-gray-500">
-                                {accountAccessMode === 'selected' ? `${selectedUser.accountIds.length} selected` : 'Choose specific accounts'}
-                              </p>
-                            </div>
-                          </button>
+                          {(['all', 'selected'] as const).map(mode => (
+                            <button key={mode} type="button" onClick={() => handleAccountModeChange(mode)}
+                              className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${accountAccessMode === mode ? 'border-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.03)]' : 'border-[rgba(0,0,0,0.08)] bg-white hover:border-[rgba(0,0,0,0.15)]'}`}>
+                              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${accountAccessMode === mode ? 'border-[rgba(0,0,0,0.88)]' : 'border-[rgba(0,0,0,0.2)]'}`}>
+                                {accountAccessMode === mode && <div className="w-2 h-2 rounded-full bg-[rgba(0,0,0,0.88)]" />}
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-[rgba(0,0,0,0.88)]">{mode === 'all' ? 'All Accounts' : 'Selected Accounts'}</p>
+                                <p className="text-[11px] text-[rgba(0,0,0,0.4)]">{mode === 'all' ? 'Includes future accounts' : accountAccessMode === 'selected' ? `${selectedUser.accountIds.length} selected` : 'Choose specific accounts'}</p>
+                              </div>
+                            </button>
+                          ))}
                         </div>
-
-                        {/* Selected mode: search + filter + scrollable list */}
                         {accountAccessMode === 'selected' && (
-                          <div className="border border-gray-200 rounded-md overflow-hidden">
-                            {/* Search bar */}
-                            <div className="p-3 border-b border-gray-100 bg-gray-50">
+                          <div className="border border-[rgba(0,0,0,0.1)] rounded-xl overflow-hidden">
+                            <div className="p-3 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
                               <div className="relative">
-                                <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
-                                <input
-                                  type="text"
-                                  value={accountSearch}
-                                  onChange={e => setAccountSearch(e.target.value)}
-                                  placeholder="Search by name or provider..."
-                                  className="w-full pl-8 pr-8 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
-                                />
-                                {accountSearch && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setAccountSearch('')}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                                  >
-                                    <i className="fas fa-times text-xs"></i>
-                                  </button>
-                                )}
+                                <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none"><Icon icon="mdi:magnify" width={13} color="rgba(0,0,0,0.35)" /></div>
+                                <input type="text" value={accountSearch} onChange={e => setAccountSearch(e.target.value)} placeholder="Search accounts..." className="w-full pl-8 pr-3 py-2 text-xs bg-white border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]" />
                               </div>
                             </div>
-
-                            {/* Provider filter pills + shortcuts */}
-                            <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+                            <div className="px-3 py-2 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] flex items-center justify-between flex-wrap gap-2">
                               <div className="flex items-center gap-1.5">
                                 {(['All', 'AWS', 'GCP', 'Azure'] as const).map(p => (
-                                  <button
-                                    key={p}
-                                    type="button"
-                                    onClick={() => setAccountProviderFilter(p)}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                                      accountProviderFilter === p
-                                        ? 'bg-indigo-600 text-white'
-                                        : 'bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-600'
-                                    }`}
-                                  >
-                                    {p === 'AWS' && <i className="fab fa-aws mr-1"></i>}
-                                    {p === 'GCP' && <i className="fab fa-google mr-1"></i>}
-                                    {p === 'Azure' && <i className="fab fa-microsoft mr-1"></i>}
+                                  <button key={p} type="button" onClick={() => setAccountProviderFilter(p)}
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${accountProviderFilter === p ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-white border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:border-[rgba(0,0,0,0.2)]'}`}>
+                                    {p !== 'All' && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${accountProviderFilter === p ? 'bg-white' : (PROVIDER_DOT[p] ?? 'bg-[rgba(0,0,0,0.3)]')}`} />}
                                     {p}
-                                    {p !== 'All' && (
-                                      <span className="ml-1 opacity-70">
-                                        {(profile.cloudAccounts ?? []).filter(a => a.provider === p).length}
-                                      </span>
-                                    )}
                                   </button>
                                 ))}
                               </div>
-                              <div className="flex items-center gap-3 text-xs">
-                                <button
-                                  type="button"
-                                  onClick={selectVisibleAccounts}
-                                  className="text-indigo-600 hover:text-indigo-800 font-semibold"
-                                >
-                                  <i className="fas fa-check-double mr-1"></i>
-                                  Select all ({filteredAccounts.length})
-                                </button>
-                                <span className="text-gray-300">|</span>
-                                <button
-                                  type="button"
-                                  onClick={clearVisibleAccounts}
-                                  className="text-red-500 hover:text-red-700 font-semibold"
-                                >
-                                  <i className="fas fa-times mr-1"></i>
-                                  Clear
-                                </button>
-                                <span className="text-gray-300">|</span>
-                                <span className="font-bold text-indigo-700">
-                                  {selectedUser.accountIds.length} selected
-                                </span>
+                              <div className="flex items-center gap-3 text-[11px]">
+                                <button type="button" onClick={selectVisibleAccounts} className="font-semibold text-[rgba(0,0,0,0.88)] hover:text-black flex items-center gap-1"><Icon icon="mdi:check-all" width={12} />Select all</button>
+                                <span className="text-[rgba(0,0,0,0.15)]">|</span>
+                                <button type="button" onClick={clearVisibleAccounts} className="font-semibold text-rose-500 hover:text-rose-700 flex items-center gap-1"><Icon icon="mdi:close" width={11} />Clear</button>
+                                <span className="text-[rgba(0,0,0,0.15)]">|</span>
+                                <span className="font-bold text-[rgba(0,0,0,0.88)]">{selectedUser.accountIds.length} selected</span>
                               </div>
                             </div>
-
-                            {/* Scrollable account list */}
-                            <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+                            <div className="max-h-56 overflow-y-auto divide-y divide-[rgba(0,0,0,0.04)]">
                               {filteredAccounts.length === 0 ? (
-                                <div className="py-8 text-center text-sm text-gray-400">
-                                  <i className="fas fa-search mb-2 block text-lg"></i>
-                                  No accounts match your search
-                                </div>
+                                <div className="py-6 text-center text-xs text-[rgba(0,0,0,0.4)]">No accounts match your search</div>
                               ) : filteredAccounts.map((account: CloudAccount) => (
-                                <label
-                                  key={account.id}
-                                  className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors hover:bg-indigo-50/50 ${
-                                    selectedUser.accountIds.includes(account.id) ? 'bg-indigo-50/30' : ''
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedUser.accountIds.includes(account.id)}
-                                    onChange={() => toggleAccountId(account.id)}
-                                    className="checkbox-input flex-shrink-0"
-                                  />
-                                  <i className={`text-sm flex-shrink-0 ${
-                                    account.provider === 'AWS' ? 'fab fa-aws text-orange-500'
-                                    : account.provider === 'GCP' ? 'fab fa-google text-blue-500'
-                                    : 'fab fa-microsoft text-sky-500'
-                                  }`}></i>
-                                  <span className="text-sm text-gray-700 truncate">{account.accountName}</span>
-                                  <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
-                                    account.provider === 'AWS' ? 'bg-orange-50 text-orange-600'
-                                    : account.provider === 'GCP' ? 'bg-blue-50 text-blue-600'
-                                    : 'bg-sky-50 text-sky-600'
-                                  }`}>{account.provider}</span>
+                                <label key={account.id} className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-[rgba(0,0,0,0.025)] ${selectedUser.accountIds.includes(account.id) ? 'bg-[rgba(0,0,0,0.02)]' : ''}`}>
+                                  <input type="checkbox" checked={selectedUser.accountIds.includes(account.id)} onChange={() => toggleAccountId(account.id)} className="w-4 h-4 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0" />
+                                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${PROVIDER_DOT[account.provider] ?? 'bg-[rgba(0,0,0,0.3)]'}`} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-[rgba(0,0,0,0.88)] truncate">{account.accountName || account.accountId || `Account #${account.id}`}</p>
+                                    {account.accountId && (
+                                      <p className="text-[10px] font-mono text-[rgba(0,0,0,0.4)] truncate mt-0.5">{account.accountId}</p>
+                                    )}
+                                  </div>
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0 ${account.provider === 'AWS' ? 'bg-amber-50 text-amber-600' : account.provider === 'GCP' ? 'bg-blue-50 text-blue-600' : 'bg-sky-50 text-sky-600'}`}>{account.provider}</span>
                                 </label>
                               ))}
                             </div>
@@ -534,66 +385,35 @@ const MyProfilePage: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Tab Access Selection — only for ROLE_BILLOPS_ADMIN */}
+                    {/* Tab Access (BILLOPS only) */}
                     {profile.role === 'ROLE_BILLOPS_ADMIN' && (
                       <div className="mt-6">
-                        <label className="form-label mb-3 block">
-                          <i className="fas fa-th-large mr-2"></i>
+                        <p className="flex items-center gap-1.5 text-[10px] font-bold text-[rgba(0,0,0,0.45)] uppercase tracking-wider mb-3">
+                          <Icon icon="mdi:view-grid-outline" width={11} />
                           Tab Access
-                        </label>
-                        <p className="text-sm text-gray-500 mb-3">
-                          Select which admin tabs this team member can access
                         </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                           {BILLOPS_ADMIN_TABS.map(tab => (
-                            <label
-                              key={tab.key}
-                              className="cloud-account-checkbox"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedUser.allowedTabs.includes(tab.key)}
-                                onChange={() => toggleTab(tab.key)}
-                                className="checkbox-input"
-                              />
-                              <div className="ml-3 flex items-center">
-                                <i className={`${tab.icon} mr-2 text-indigo-500`}></i>
-                                <span className="text-sm font-medium text-gray-700">
-                                  {tab.label}
-                                </span>
-                              </div>
+                            <label key={tab.key} className="flex items-center gap-3 p-3 border border-[rgba(0,0,0,0.08)] rounded-xl cursor-pointer hover:bg-[rgba(0,0,0,0.025)] transition-colors bg-white">
+                              <input type="checkbox" checked={selectedUser.allowedTabs.includes(tab.key)} onChange={() => toggleTab(tab.key)} className="w-4 h-4 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0" />
+                              <Icon icon={tab.icon} width={14} color="rgba(99,102,241,0.7)" />
+                              <span className="text-xs font-medium text-[rgba(0,0,0,0.7)]">{tab.label}</span>
                             </label>
                           ))}
                         </div>
-
-                        {/* Ticket Category Sub-Access — shown when All Tickets tab is enabled */}
                         {selectedUser.allowedTabs.includes('all-tickets') && (
-                          <div className="mt-3 ml-4 p-4 bg-indigo-50 rounded-md border border-indigo-200">
-                            <p className="text-xs font-bold text-indigo-700 uppercase tracking-widest mb-3">
-                              <i className="fas fa-filter mr-1.5"></i>
-                              Ticket Category Access
-                            </p>
-                            <p className="text-xs text-indigo-500 mb-3">
-                              Choose which ticket categories this member can view
-                            </p>
+                          <div className="mt-3 ml-4 p-4 bg-[rgba(0,0,0,0.02)] rounded-xl border border-[rgba(0,0,0,0.08)]">
+                            <p className="text-[10px] font-bold text-[rgba(0,0,0,0.5)] uppercase tracking-widest mb-2 flex items-center gap-1.5"><Icon icon="mdi:filter-outline" width={11} />Ticket Category Access</p>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                               {[
-                                { key: 'tickets-account-billing', label: 'Account & Billing', icon: 'fas fa-file-invoice-dollar' },
-                                { key: 'tickets-technical', label: 'Technical Support', icon: 'fas fa-server' },
-                                { key: 'tickets-all', label: 'All Categories', icon: 'fas fa-list' },
+                                { key: 'tickets-account-billing', label: 'Account & Billing', icon: 'mdi:file-chart-outline' },
+                                { key: 'tickets-technical', label: 'Technical Support', icon: 'mdi:server-outline' },
+                                { key: 'tickets-all', label: 'All Categories', icon: 'mdi:format-list-bulleted' },
                               ].map(cat => (
-                                <label
-                                  key={cat.key}
-                                  className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-indigo-100 cursor-pointer hover:border-indigo-300 transition-colors"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedUser.allowedTabs.includes(cat.key)}
-                                    onChange={() => toggleTab(cat.key)}
-                                    className="checkbox-input"
-                                  />
-                                  <i className={`${cat.icon} text-indigo-400 text-xs`}></i>
-                                  <span className="text-xs font-medium text-gray-700">{cat.label}</span>
+                                <label key={cat.key} className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-[rgba(0,0,0,0.08)] cursor-pointer hover:border-[rgba(0,0,0,0.15)] transition-colors">
+                                  <input type="checkbox" checked={selectedUser.allowedTabs.includes(cat.key)} onChange={() => toggleTab(cat.key)} className="w-4 h-4 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0" />
+                                  <Icon icon={cat.icon} width={12} color="rgba(99,102,241,0.6)" />
+                                  <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)]">{cat.label}</span>
                                 </label>
                               ))}
                             </div>
@@ -602,18 +422,12 @@ const MyProfilePage: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="mt-8 flex justify-end space-x-4">
-                      <button
-                        type="button"
-                        onClick={cancelEdit}
-                        className="btn-cancel"
-                      >
-                        <i className="fas fa-times mr-2"></i>
-                        Cancel
+                    <div className="mt-6 pt-4 border-t border-[rgba(0,0,0,0.06)] flex justify-end gap-3">
+                      <button type="button" onClick={cancelEdit} className="inline-flex items-center gap-2 px-4 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg bg-white text-[rgba(0,0,0,0.5)] text-xs font-semibold hover:bg-[rgba(0,0,0,0.03)] transition-colors">
+                        <Icon icon="mdi:close" width={13} />Cancel
                       </button>
-                      <button type="submit" className="btn-save">
-                        <i className="fas fa-check mr-2"></i>
-                        Save Team Member
+                      <button type="submit" className="inline-flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-lg text-xs font-semibold transition-colors">
+                        <Icon icon="mdi:check" width={13} />Save Member
                       </button>
                     </div>
                   </form>
@@ -622,40 +436,29 @@ const MyProfilePage: React.FC = () => {
 
               {/* Stats bar */}
               {teamUsers.length > 0 && (
-                <div className="bg-white border border-gray-200 rounded-md grid grid-cols-3 divide-x divide-gray-100 shadow-sm">
-                  <div className="px-5 py-3 flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-md bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
-                      <i className="fas fa-users text-indigo-500 text-xs"></i>
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden grid grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)]">
+                  {[
+                    { icon: 'mdi:account-group-outline', color: '#4F46E5', bg: 'bg-indigo-50 border-indigo-100',
+                      value: teamUsers.length, label: 'Members' },
+                    { icon: 'mdi:cloud-outline', color: '#10B981', bg: 'bg-emerald-50 border-emerald-100',
+                      value: teamUsers.filter(u => u.allAccountsAccess).length > 0
+                        ? `${teamUsers.filter(u => u.allAccountsAccess).length} all`
+                        : teamUsers.reduce((s, u) => s + (u.cloudAccounts?.length ?? 0), 0),
+                      label: 'Env. grants' },
+                    { icon: 'mdi:view-grid-outline', color: '#7C3AED', bg: 'bg-purple-50 border-purple-100',
+                      value: teamUsers.reduce((s, u) => s + (u.allowedTabs?.filter(t => !t.startsWith('tickets-')).length ?? 0), 0),
+                      label: 'Tab grants' },
+                  ].map((stat, i) => (
+                    <div key={i} className="px-5 py-4 flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-xl ${stat.bg} border flex items-center justify-center flex-shrink-0`}>
+                        <Icon icon={stat.icon} width={16} color={stat.color} />
+                      </div>
+                      <div>
+                        <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '24px', fontWeight: 400, lineHeight: '24px', color: 'rgb(10,10,10)' }}>{stat.value}</p>
+                        <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">{stat.label}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-lg font-bold text-gray-900 leading-none">{teamUsers.length}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">Members</p>
-                    </div>
-                  </div>
-                  <div className="px-5 py-3 flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-md bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
-                      <i className="fas fa-cloud text-emerald-500 text-xs"></i>
-                    </div>
-                    <div>
-                      <p className="text-lg font-bold text-gray-900 leading-none">
-                        {teamUsers.filter(u => u.allAccountsAccess).length > 0
-                          ? `${teamUsers.filter(u => u.allAccountsAccess).length} all-access`
-                          : teamUsers.reduce((sum, u) => sum + (u.cloudAccounts?.length ?? 0), 0)}
-                      </p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">Env. grants</p>
-                    </div>
-                  </div>
-                  <div className="px-5 py-3 flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-md bg-purple-50 border border-purple-100 flex items-center justify-center flex-shrink-0">
-                      <i className="fas fa-th-large text-purple-500 text-xs"></i>
-                    </div>
-                    <div>
-                      <p className="text-lg font-bold text-gray-900 leading-none">
-                        {teamUsers.reduce((sum, u) => sum + (u.allowedTabs?.filter(t => !t.startsWith('tickets-')).length ?? 0), 0)}
-                      </p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">Tab grants</p>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               )}
 
@@ -663,122 +466,74 @@ const MyProfilePage: React.FC = () => {
               {teamUsers.length > 0 ? (
                 <div className="space-y-2">
                   {teamUsers.map((user: TeamUser) => {
-                    const TICKET_CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
-                      'tickets-account-billing': { label: 'Account & Billing', icon: 'fas fa-file-invoice-dollar' },
-                      'tickets-technical':       { label: 'Technical Support', icon: 'fas fa-server' },
-                      'tickets-all':             { label: 'All Categories', icon: 'fas fa-list' },
-                    };
-                    const TAB_COLORS: Record<string, string> = {
-                      'admin-dashboard':    'bg-purple-50 text-purple-700 border-purple-200',
-                      'support-inbox':      'bg-sky-50 text-sky-700 border-sky-200',
-                      'all-tickets':        'bg-blue-50 text-blue-700 border-blue-200',
-                      'all-invoices':       'bg-teal-50 text-teal-700 border-teal-200',
-                      'credit-requests':    'bg-emerald-50 text-emerald-700 border-emerald-200',
-                      'agreement-admin':    'bg-gray-50 text-gray-600 border-gray-300',
-                      'client-details':     'bg-indigo-50 text-indigo-700 border-indigo-200',
-                      'autospotting-admin': 'bg-orange-50 text-orange-700 border-orange-200',
-                      'user-manager':       'bg-rose-50 text-rose-700 border-rose-200',
+                    const TICKET_LABELS: Record<string, { label: string; icon: string }> = {
+                      'tickets-account-billing': { label: 'Account & Billing', icon: 'mdi:file-chart-outline' },
+                      'tickets-technical':       { label: 'Technical Support', icon: 'mdi:server-outline' },
+                      'tickets-all':             { label: 'All Categories', icon: 'mdi:format-list-bulleted' },
                     };
                     const mainTabs = (user.allowedTabs ?? []).filter(k => !k.startsWith('tickets-'));
                     const ticketCats = (user.allowedTabs ?? []).filter(k => k.startsWith('tickets-'));
-                    const AVATAR_GRADIENTS = [
-                      'linear-gradient(135deg, #6366f1, #a855f7)',
-                      'linear-gradient(135deg, #ec4899, #f97316)',
-                      'linear-gradient(135deg, #06b6d4, #3b82f6)',
-                      'linear-gradient(135deg, #84cc16, #10b981)',
-                      'linear-gradient(135deg, #f43f5e, #ec4899)',
-                      'linear-gradient(135deg, #8b5cf6, #06b6d4)',
-                      'linear-gradient(135deg, #f97316, #eab308)',
-                      'linear-gradient(135deg, #14b8a6, #6366f1)',
-                    ];
-                    const avatarColor = AVATAR_GRADIENTS[(user.username?.charCodeAt(0) ?? 0) % AVATAR_GRADIENTS.length];
-
                     return (
-                      <div key={user.id} className="member-card bg-white border border-gray-200 rounded-md shadow-sm overflow-hidden">
-                        {/* Card top — identity + actions */}
-                        <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100">
-                          {/* Avatar */}
-                          <div
-                            className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-white text-sm font-bold shadow-sm"
-                            style={{ background: avatarColor }}
-                          >
+                      <div key={user.id} className="bg-white border border-[rgba(0,0,0,0.1)] rounded-xl shadow-sm overflow-hidden hover:border-[rgba(0,0,0,0.18)] transition-colors">
+                        {/* Top row */}
+                        <div className="px-4 py-3 flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-[rgba(0,0,0,0.88)] text-white text-sm font-bold">
                             {user.username ? user.username.charAt(0).toUpperCase() : '?'}
                           </div>
-                          {/* Name + email */}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-900 truncate">{user.username}</p>
-                            <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                            <p className="text-sm font-bold text-[rgba(0,0,0,0.88)] truncate leading-tight">{user.username}</p>
+                            <p className="text-[11px] text-[rgba(0,0,0,0.4)] truncate">{user.email}</p>
                           </div>
-                          {/* Role badge */}
-                          <span className="role-badge flex-shrink-0">{user.role?.replace('ROLE_', '')}</span>
-                          {/* Actions */}
-                          <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                            <button
-                              onClick={() => editTeamUser(user)}
-                              className="action-btn action-btn-edit"
-                            >
-                              <i className="fas fa-pen text-[10px] mr-1"></i>Edit
+                          <span className="px-2 py-0.5 bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-black uppercase tracking-wider rounded-md flex-shrink-0">
+                            {user.role?.replace('ROLE_', '')}
+                          </span>
+                          <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
+                            <button onClick={() => editTeamUser(user)} className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold bg-blue-50 border border-blue-100 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors">
+                              <Icon icon="mdi:pencil-outline" width={11} />Edit
                             </button>
-                            <button
-                              onClick={() => deleteTeamUser(user.id)}
-                              className="action-btn action-btn-delete"
-                            >
-                              <i className="fas fa-trash text-[10px] mr-1"></i>Delete
+                            <button onClick={() => deleteTeamUser(user.id)} className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold bg-rose-50 border border-rose-100 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors">
+                              <Icon icon="mdi:trash-can-outline" width={11} />Delete
                             </button>
                           </div>
                         </div>
 
-                        {/* Card bottom — environments + tabs */}
-                        <div className="px-4 py-2.5 bg-gray-50 flex flex-wrap items-center gap-x-6 gap-y-2">
-                          {/* Environments */}
+                        {/* Bottom env row */}
+                        <div className="px-4 py-2.5 bg-[rgba(0,0,0,0.02)] border-t border-[rgba(0,0,0,0.05)] flex flex-wrap items-center gap-x-5 gap-y-2">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mr-0.5">Env</span>
+                            <span className="text-[10px] font-bold text-[rgba(0,0,0,0.3)] uppercase tracking-wider">Env</span>
                             {user.allAccountsAccess ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-green-50 text-green-700 border border-green-200">
-                                <i className="fas fa-globe mr-1 text-[9px]"></i>All accounts
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 border border-emerald-100 text-emerald-700">
+                                <Icon icon="mdi:earth" width={10} />All accounts
                               </span>
                             ) : user.cloudAccounts && user.cloudAccounts.length > 0 ? (
-                              user.cloudAccounts.map((account: CloudAccount) => (
-                                <span
-                                  key={account.id}
-                                  className={`cloud-account-badge-small ${account.provider === 'AWS' ? 'cloud-account-aws' : account.provider === 'GCP' ? 'cloud-account-gcp' : 'cloud-account-azure'}`}
-                                >
-                                  <i className={account.provider === 'AWS' ? 'fab fa-aws' : account.provider === 'GCP' ? 'fab fa-google' : 'fab fa-microsoft'}></i>
-                                  {account.accountName}
-                                </span>
+                              user.cloudAccounts.map((a: CloudAccount) => (
+                                <CloudBadge key={a.id} account={a} />
                               ))
                             ) : (
-                              <span className="text-[11px] text-gray-400 italic">None</span>
+                              <span className="text-[11px] text-[rgba(0,0,0,0.3)] italic">None</span>
                             )}
                           </div>
 
-                          {/* Tab access */}
-                          {profile.role === 'ROLE_BILLOPS_ADMIN' && (
+                          {profile.role === 'ROLE_BILLOPS_ADMIN' && (mainTabs.length > 0 || ticketCats.length > 0) && (
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mr-0.5">Tabs</span>
-                              {mainTabs.length === 0 && ticketCats.length === 0 ? (
-                                <span className="text-[11px] text-gray-400 italic">None</span>
-                              ) : (
-                                <>
-                                  {mainTabs.map(tabKey => {
-                                    const tab = BILLOPS_ADMIN_TABS.find(t => t.key === tabKey);
-                                    const color = TAB_COLORS[tabKey] ?? 'bg-gray-50 text-gray-600 border-gray-300';
-                                    return tab ? (
-                                      <span key={tabKey} className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${color}`}>
-                                        <i className={`${tab.icon} mr-1 text-[9px]`}></i>{tab.label}
-                                      </span>
-                                    ) : null;
-                                  })}
-                                  {ticketCats.map(catKey => {
-                                    const cat = TICKET_CATEGORY_LABELS[catKey];
-                                    return cat ? (
-                                      <span key={catKey} className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                                        <i className={`${cat.icon} mr-1 text-[9px]`}></i>{cat.label}
-                                      </span>
-                                    ) : null;
-                                  })}
-                                </>
-                              )}
+                              <span className="text-[10px] font-bold text-[rgba(0,0,0,0.3)] uppercase tracking-wider">Tabs</span>
+                              {mainTabs.map(tabKey => {
+                                const tab = BILLOPS_ADMIN_TABS.find(t => t.key === tabKey);
+                                const color = TAB_COLORS[tabKey] ?? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.08)]';
+                                return tab ? (
+                                  <span key={tabKey} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border ${color}`}>
+                                    <Icon icon={tab.icon} width={9} />{tab.label}
+                                  </span>
+                                ) : null;
+                              })}
+                              {ticketCats.map(k => {
+                                const cat = TICKET_LABELS[k];
+                                return cat ? (
+                                  <span key={k} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-amber-50 border-amber-100 text-amber-700">
+                                    <Icon icon={cat.icon} width={9} />{cat.label}
+                                  </span>
+                                ) : null;
+                              })}
                             </div>
                           )}
                         </div>
@@ -787,86 +542,61 @@ const MyProfilePage: React.FC = () => {
                   })}
                 </div>
               ) : (
-                <div className="bg-white border border-dashed border-gray-200 rounded-md py-12 text-center">
-                  <div className="w-12 h-12 rounded-md bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-3">
-                    <i className="fas fa-users text-gray-300 text-lg"></i>
+                <div className="bg-white border border-dashed border-[rgba(0,0,0,0.1)] rounded-xl py-14 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] flex items-center justify-center mx-auto mb-3">
+                    <Icon icon="mdi:account-group-outline" width={28} color="rgba(0,0,0,0.22)" />
                   </div>
-                  <p className="text-sm font-medium text-gray-400">No team members yet</p>
-                  <p className="text-xs text-gray-300 mt-1">Click "Add Member" to get started</p>
+                  <p className="text-sm font-bold text-[rgba(0,0,0,0.4)]">No team members yet</p>
+                  <p className="text-xs text-[rgba(0,0,0,0.3)] mt-1">Click "Add Member" to get started</p>
                 </div>
               )}
             </div>
           )}
 
-          {/* Password Change Modal */}
+          {/* ── Password Modal ─────────────────────────────── */}
           <DialogRoot isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)}>
             <DialogPanel
-              title={<><i className="fas fa-shield-halved mr-3 text-indigo-600"></i>Security Authentication</>}
+              title={<span className="flex items-center gap-2"><Icon icon="mdi:shield-lock-outline" width={16} color="#4F46E5" />Security Authentication</span>}
               onClose={() => setShowPasswordModal(false)}
               footer={
                 <>
-                  <button type="button" onClick={() => setShowPasswordModal(false)} className="btn-cancel">Cancel</button>
-                  <button type="submit" form="password-change-form" className="btn-primary-gradient"><i className="fas fa-check mr-2"></i>Update Password</button>
+                  <button type="button" onClick={() => setShowPasswordModal(false)} className="inline-flex items-center gap-2 px-4 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg bg-white text-[rgba(0,0,0,0.5)] text-xs font-semibold hover:bg-[rgba(0,0,0,0.03)] transition-colors">
+                    Cancel
+                  </button>
+                  <button type="submit" form="password-change-form" className="inline-flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-lg text-xs font-semibold transition-colors">
+                    <Icon icon="mdi:check" width={13} />Update Password
+                  </button>
                 </>
               }
             >
-                <form
-                  id="password-change-form"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    changePassword();
-                  }}
-                >
-                  <div className="modal-body">
-                    <div className="form-group">
-                      <label className="form-label">
-                        <i className="fas fa-lock mr-2"></i>
-                        Current Password
+              <form id="password-change-form" onSubmit={(e) => { e.preventDefault(); changePassword(); }}>
+                <div className="space-y-4 p-4">
+                  {[
+                    { key: 'oldPassword',     label: 'Current Password',     icon: 'mdi:lock-outline',         placeholder: 'Enter current password' },
+                    { key: 'newPassword',     label: 'New Password',         icon: 'mdi:key-outline',           placeholder: 'Min 6 characters' },
+                    { key: 'confirmPassword', label: 'Confirm New Password', icon: 'mdi:check-circle-outline',  placeholder: 'Re-enter new password' },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <label className="flex items-center gap-1.5 text-[10px] font-bold text-[rgba(0,0,0,0.45)] uppercase tracking-wider mb-1.5">
+                        <Icon icon={f.icon} width={11} />{f.label}
                       </label>
                       <input
                         type="password"
-                        value={passwordForm.oldPassword}
-                        onChange={(e) => updatePasswordForm('oldPassword', e.target.value)}
+                        value={passwordForm[f.key as keyof typeof passwordForm]}
+                        onChange={(e) => updatePasswordForm(f.key as keyof typeof passwordForm, e.target.value)}
                         required
-                        className="form-input"
-                        placeholder="Enter current password"
+                        placeholder={f.placeholder}
+                        className="w-full px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] transition-colors"
                       />
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">
-                        <i className="fas fa-key mr-2"></i>
-                        New Password
-                      </label>
-                      <input
-                        type="password"
-                        value={passwordForm.newPassword}
-                        onChange={(e) => updatePasswordForm('newPassword', e.target.value)}
-                        required
-                        className="form-input"
-                        placeholder="Enter new password (min 6 characters)"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">
-                        <i className="fas fa-check-circle mr-2"></i>
-                        Confirm New Password
-                      </label>
-                      <input
-                        type="password"
-                        value={passwordForm.confirmPassword}
-                        onChange={(e) => updatePasswordForm('confirmPassword', e.target.value)}
-                        required
-                        className="form-input"
-                        placeholder="Re-enter new password"
-                      />
-                    </div>
-                  </div>
-                </form>
+                  ))}
+                </div>
+              </form>
             </DialogPanel>
           </DialogRoot>
-        </div>
+        </>
       )}
-    </main>
+    </div>
   );
 };
 

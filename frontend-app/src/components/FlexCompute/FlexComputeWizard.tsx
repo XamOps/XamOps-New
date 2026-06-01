@@ -1,11 +1,5 @@
-/**
- * FlexCompute Wizard Component
- *
- * Multi-step wizard container managing the capacity creation flow:
- * search -> searching -> configure -> review -> complete
- */
-
 import React, { useState } from 'react';
+import { Icon } from '@iconify/react';
 import { gooeyToast } from 'goey-toast';
 import type {
   SearchCapacityForm,
@@ -25,11 +19,7 @@ interface LinkedAccount {
   alias: string;
   accountRegions?: Array<{
     id: number;
-    operatingCspRegionAz: {
-      regionCode: string;
-      regionType: string;
-      availabilityZoneId: string;
-    };
+    operatingCspRegionAz: { regionCode: string; regionType: string; availabilityZoneId: string };
   }>;
 }
 
@@ -58,12 +48,12 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   onComplete,
   initialPricing,
 }) => {
-  const [step, setStep] = useState<WizardStep>(initialPricing ? 'review' : 'search');
-  const [searchForm, setSearchForm] = useState<SearchCapacityForm>(INITIAL_SEARCH_FORM);
+  const [step, setStep]               = useState<WizardStep>(initialPricing ? 'review' : 'search');
+  const [searchForm, setSearchForm]   = useState<SearchCapacityForm>(INITIAL_SEARCH_FORM);
   const [configureForm, setConfigureForm] = useState<ConfigureCapacityForm>(
     initialPricing ? { ...INITIAL_CONFIGURE_FORM, capacityId: initialPricing.capacityId } : INITIAL_CONFIGURE_FORM
   );
-  const [pricing, setPricing] = useState<CapacityPricing | null>(initialPricing || null);
+  const [pricing, setPricing]         = useState<CapacityPricing | null>(initialPricing || null);
   const [searchStatus, setSearchStatus] = useState<string | undefined>(undefined);
   const [isReserving, setIsReserving] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
@@ -71,62 +61,51 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   const handleSearch = async () => {
     setStep('searching');
     setSearchStatus(undefined);
-
     const result = await searchCapacity(searchForm);
-
     if (result) {
       setPricing(result);
       setConfigureForm((prev) => ({ ...prev, capacityId: result.capacityId }));
       setSearchStatus(result.status);
-      // Stay on searching step - user will click Next to continue
     } else {
       setStep('search');
     }
   };
 
   const handleSearchNext = async () => {
-    // Call Reserve API to create 15-minute temporary reservation
     setIsReserving(true);
     try {
       const reservation = await reserveCapacity(searchForm);
       if (reservation && reservation.myPolicy) {
-        console.log('Reserve API response:', reservation);
-
         setConfigureForm((prev) => ({ ...prev, capacityId: reservation.myPolicy.cidrId }));
-
-        // Update pricing with data from Reserve API response
         if (reservation.myPolicy.pricing) {
-          const reservePricing = reservation.myPolicy.pricing;
+          const rp = reservation.myPolicy.pricing;
           const updatedPricing: CapacityPricing = {
-            capacityId: reservation.myPolicy.cidrId,
-            capacityName: searchForm.capacityName,
-            instanceType: reservation.myPolicy.policyInstance?.instanceType || searchForm.instanceType,
-            region: reservation.myPolicy.cspRegion?.regionCode || searchForm.region,
-            zoneId: reservation.myPolicy.cspRegion?.availabilityZoneId || searchForm.zoneId,
-            quantity: reservation.myPolicy.policyInstance?.qty || searchForm.quantity,
-            platform: reservation.myPolicy.policyInstance?.platformCode || searchForm.platform,
-            tenancy: reservation.myPolicy.policyInstance?.tenancyCode || searchForm.tenancy,
-            ourPrice: (reservePricing.cspProviderPrice || 0) * 0.75,
-            awsPrice: reservePricing.cspProviderPrice || 0,
+            capacityId:    reservation.myPolicy.cidrId,
+            capacityName:  searchForm.capacityName,
+            instanceType:  reservation.myPolicy.policyInstance?.instanceType || searchForm.instanceType,
+            region:        reservation.myPolicy.cspRegion?.regionCode || searchForm.region,
+            zoneId:        reservation.myPolicy.cspRegion?.availabilityZoneId || searchForm.zoneId,
+            quantity:      reservation.myPolicy.policyInstance?.qty || searchForm.quantity,
+            platform:      reservation.myPolicy.policyInstance?.platformCode || searchForm.platform,
+            tenancy:       reservation.myPolicy.policyInstance?.tenancyCode || searchForm.tenancy,
+            ourPrice:      (rp.cspProviderPrice || 0) * 0.75,
+            awsPrice:      rp.cspProviderPrice || 0,
             savingsPercent: 25,
-            fees: reservePricing.creditCardProcessingFee || reservePricing.bankAccountProcessingFee || 0,
-            total: (reservePricing.cspProviderPrice || 0) * 0.75 + (reservePricing.creditCardProcessingFee || reservePricing.bankAccountProcessingFee || 0),
-            startDate: searchForm.startDate,
-            endDate: searchForm.endDate,
-            status: reservation.myPolicy.policyStatus || 'READY_FOR_PURCHASE',
-            reservedAt: Date.now(),
+            fees:          rp.creditCardProcessingFee || rp.bankAccountProcessingFee || 0,
+            total:         (rp.cspProviderPrice || 0) * 0.75 + (rp.creditCardProcessingFee || rp.bankAccountProcessingFee || 0),
+            startDate:     searchForm.startDate,
+            endDate:       searchForm.endDate,
+            status:        reservation.myPolicy.policyStatus || 'READY_FOR_PURCHASE',
+            reservedAt:    Date.now(),
           };
-
-          console.log('Updated pricing:', updatedPricing);
           setPricing(updatedPricing);
         }
-
         setStep('configure');
       } else {
         gooeyToast.error('Failed to reserve capacity', { description: 'Please try again.' });
         setStep('search');
       }
-    } catch (error) {
+    } catch {
       gooeyToast.error('Failed to reserve capacity', { description: 'Please try again.' });
       setStep('search');
     } finally {
@@ -134,23 +113,12 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
     }
   };
 
-  const handleSearchBack = () => {
-    setStep('search');
-  };
-
-  const handleConfigure = async () => {
-    // Just advance to review — configure is applied after purchase
-    setStep('review');
-  };
-
   const handlePurchase = async () => {
     if (!pricing?.capacityId) return;
-
     if ((pricing.total ?? pricing.ourPrice ?? 0) < 1.00) {
       setPurchaseError('Purchase not allowed: minimum order value is $1.00.');
       return;
     }
-
     setPurchaseError(null);
     const errMsg = await purchaseCapacity(pricing.capacityId);
     if (errMsg === null) {
@@ -172,11 +140,10 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
     onComplete();
   };
 
-  // Step progress indicator
   const stepLabels = [
-    { key: 'search', label: 'Search', icon: 'fas fa-search' },
-    { key: 'configure', label: 'Configure', icon: 'fas fa-cog' },
-    { key: 'review', label: 'Review', icon: 'fas fa-check-circle' },
+    { key: 'search',    label: 'Search',    icon: 'mdi:magnify' },
+    { key: 'configure', label: 'Configure', icon: 'mdi:cog-outline' },
+    { key: 'review',    label: 'Review',    icon: 'mdi:check-circle-outline' },
   ];
 
   const getStepIndex = (): number => {
@@ -187,30 +154,28 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Progress Indicator */}
       {step !== 'complete' && (
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex items-center justify-center gap-3">
           {stepLabels.map((s, index) => {
             const currentIndex = getStepIndex();
-            const isCompleted = index < currentIndex;
-            const isCurrent = index === currentIndex;
-
+            const isCompleted  = index < currentIndex;
+            const isCurrent    = index === currentIndex;
             return (
               <React.Fragment key={s.key}>
                 {index > 0 && (
-                  <div className={`h-0.5 w-12 ${isCompleted ? 'bg-blue-500' : 'bg-gray-200'}`}></div>
+                  <div className={`h-0.5 w-10 ${isCompleted ? 'bg-indigo-500' : 'bg-[rgba(0,0,0,0.1)]'}`} />
                 )}
                 <div className="flex items-center gap-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${isCompleted
-                    ? 'bg-blue-500 text-white'
-                    : isCurrent
-                      ? 'bg-blue-100 text-blue-700 ring-2 ring-blue-500'
-                      : 'bg-gray-100 text-gray-400'
-                    }`}>
-                    {isCompleted ? <i className="fas fa-check"></i> : index + 1}
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold transition-all ${
+                    isCompleted ? 'bg-indigo-600 text-white' :
+                    isCurrent   ? 'bg-indigo-50 text-indigo-700 ring-2 ring-indigo-500' :
+                                  'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.3)]'
+                  }`}>
+                    {isCompleted ? <Icon icon="mdi:check" width={13} /> : index + 1}
                   </div>
-                  <span className={`text-sm font-medium ${isCurrent ? 'text-gray-900' : 'text-gray-500'}`}>
+                  <span className={`text-[12px] font-medium ${isCurrent ? 'text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.4)]'}`}>
                     {s.label}
                   </span>
                 </div>
@@ -220,7 +185,6 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
         </div>
       )}
 
-      {/* Step Content */}
       {step === 'search' && (
         <WizardStep1Search
           form={searchForm}
@@ -236,7 +200,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
           status={searchStatus}
           isSearching={isSearching || isReserving}
           onNext={handleSearchNext}
-          onBack={handleSearchBack}
+          onBack={() => setStep('search')}
         />
       )}
 
@@ -244,7 +208,7 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
         <WizardStep2Configure
           form={configureForm}
           onChange={(updates) => setConfigureForm((prev) => ({ ...prev, ...updates }))}
-          onNext={handleConfigure}
+          onNext={() => setStep('review')}
           onBack={() => setStep('search')}
         />
       )}
@@ -263,19 +227,19 @@ const FlexComputeWizard: React.FC<FlexComputeWizardProps> = ({
       )}
 
       {step === 'complete' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-16 text-center">
-          <div className="w-24 h-24 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
-            <i className="fas fa-check text-white text-4xl"></i>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-2xl shadow-sm p-16 text-center">
+          <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+            <Icon icon="mdi:check" color="#fff" width={36} />
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-3">Purchase Complete!</h3>
-          <p className="text-gray-500 max-w-md mx-auto mb-8">
+          <h3 className="text-[22px] font-bold text-[rgba(0,0,0,0.88)] mb-3">Purchase Complete!</h3>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] max-w-md mx-auto mb-8">
             Your capacity reservation has been successfully created. You can view it in the Dashboard tab.
           </p>
           <button
             onClick={handleReset}
-            className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg"
+            className="flex items-center gap-2 px-7 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-colors mx-auto"
           >
-            <i className="fas fa-tachometer-alt mr-2"></i>
+            <Icon icon="mdi:view-dashboard-outline" width={16} />
             Go to Dashboard
           </button>
         </div>

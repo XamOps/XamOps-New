@@ -1,522 +1,303 @@
-/**
- * AutoSpotting Admin Dashboard Page
- * 
- * Centralized monitoring dashboard for AutoSpotting cost savings across all customer accounts.
- * 
- * Features:
- * - Total savings metrics (all-time, monthly, daily)
- * - Active spot instances count and conversion rate
- * - Historical savings trend chart
- * - Recent activity table with real-time updates
- * - Account breakdown visualization
- */
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Icon } from '@iconify/react';
 import Chart from 'chart.js/auto';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAutoSpottingCache } from '../contexts/AutoSpottingCacheContext';
-import { useTheme } from '../contexts/ThemeContext';
-import { DashboardSkeleton } from '../components/Shared/Skeleton';
 import {
-    SavingsMetrics,
-    SpotActivity,
-    HistoricalSavings,
-    AccountSavings
+  SavingsMetrics,
+  SpotActivity,
+  HistoricalSavings,
+  AccountSavings,
 } from '../types/autospotting';
 
-const AutoSpottingAdminDashboardPage: React.FC = () => {
-    const { setActions, clearActions } = useTopbar();
-    const { getAdminData, setAdminData } = useAutoSpottingCache();
-    const { theme } = useTheme();
-
-    // State
-    const [metrics, setMetrics] = useState<SavingsMetrics | null>(null);
-    const [recentActivity, setRecentActivity] = useState<SpotActivity[]>([]);
-    const [historicalData, setHistoricalData] = useState<HistoricalSavings[]>([]);
-    const [accountBreakdown, setAccountBreakdown] = useState<AccountSavings[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [dateRange, setDateRange] = useState('7d'); // 7d, 30d, 90d
-    const [isInitialLoad, setIsInitialLoad] = useState(true);
-
-    // Chart refs
-    const savingsChartRef = useRef<HTMLCanvasElement>(null);
-    const accountChartRef = useRef<HTMLCanvasElement>(null);
-    const savingsChartInstance = useRef<Chart<'line'> | null>(null);
-    const accountChartInstance = useRef<Chart<'doughnut'> | null>(null);
-
-    // Fetch dashboard data
-    const fetchDashboardData = useCallback(async (isRefresh = false) => {
-        try {
-            if (!isRefresh && !metrics) {
-                setLoading(true);
-            }
-            setError(null);
-
-            // Check cache first
-            if (!isRefresh && isInitialLoad) {
-                const cachedData = getAdminData(dateRange);
-                if (cachedData) {
-                    console.log('[AutoSpotting Admin] Using cached data');
-                    setMetrics(cachedData.metrics);
-                    setRecentActivity(cachedData.recentActivity);
-                    setHistoricalData(cachedData.historicalData);
-                    setAccountBreakdown(cachedData.accountBreakdown);
-                    setLoading(false);
-                    setIsInitialLoad(false);
-                    // Refresh in background
-                }
-            }
-
-            // Fetch all data in parallel
-            const [metricsRes, activityRes, historicalRes, breakdownRes] = await Promise.all([
-                fetch('/api/admin/autospotting/total-savings'),
-                fetch('/api/admin/autospotting/recent-activity?limit=50'),
-                fetch(`/api/admin/autospotting/historical-savings?days=${dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90}`),
-                fetch('/api/admin/autospotting/account-breakdown')
-            ]);
-
-            if (!metricsRes.ok || !activityRes.ok || !historicalRes.ok || !breakdownRes.ok) {
-                throw new Error('Failed to fetch dashboard data');
-            }
-
-            const [metricsData, activityData, historicalData, breakdownData] = await Promise.all([
-                metricsRes.json(),
-                activityRes.json(),
-                historicalRes.json(),
-                breakdownRes.json()
-            ]);
-
-            setMetrics(metricsData);
-            setRecentActivity(activityData);
-            setHistoricalData(historicalData);
-            setAccountBreakdown(breakdownData);
-
-            // Update cache
-            setAdminData(dateRange, {
-                metrics: metricsData,
-                recentActivity: activityData,
-                historicalData,
-                accountBreakdown: breakdownData
-            });
-        } catch (err) {
-            console.error('Error fetching dashboard data:', err);
-            setError(err instanceof Error ? err.message : 'Failed to load dashboard');
-        } finally {
-            setLoading(false);
-            setIsInitialLoad(false);
-        }
-    }, [dateRange, metrics, isInitialLoad, getAdminData, setAdminData]);
-
-    // Topbar actions
-    useEffect(() => {
-        setActions(
-            <div className="flex items-center gap-2">
-                <button
-                    onClick={() => fetchDashboardData(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all"
-                >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Refresh
-                </button>
-            </div>
-        );
-
-        return () => clearActions();
-    }, [setActions, clearActions, fetchDashboardData]);
-
-    // Initial data fetch
-    useEffect(() => {
-        fetchDashboardData();
-    }, [dateRange]);
-
-    // Savings trend chart
-    useEffect(() => {
-        if (!savingsChartRef.current || !historicalData.length) return;
-
-        // Destroy existing chart
-        if (savingsChartInstance.current) {
-            savingsChartInstance.current.destroy();
-        }
-
-        const ctx = savingsChartRef.current.getContext('2d');
-        if (!ctx) return;
-
-        savingsChartInstance.current = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: historicalData.map(d => new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
-                datasets: [{
-                    label: 'Daily Savings',
-                    data: historicalData.map(d => d.savings),
-                    borderColor: '#F59E0B',
-                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 4,
-                    pointHoverRadius: 6,
-                    pointBackgroundColor: '#F59E0B',
-                    pointBorderColor: theme === 'dark' ? '#0F172A' : '#ffffff',
-                    pointBorderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        backgroundColor: theme === 'dark' ? '#1E293B' : 'rgba(255,255,255,0.95)',
-                        titleColor: theme === 'dark' ? '#F8FAFC' : '#111827',
-                        bodyColor: theme === 'dark' ? '#F8FAFC' : '#374151',
-                        borderColor: theme === 'dark' ? '#334155' : '#e5e7eb',
-                        borderWidth: 1,
-                        padding: 12,
-                        displayColors: false,
-                        callbacks: {
-                            label: (context) => `Savings: $${context.parsed.y.toFixed(2)}`
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        grid: {
-                            color: theme === 'dark' ? '#1E293B' : '#f3f4f6',
-                            drawBorder: false
-                        },
-                        ticks: {
-                            color: theme === 'dark' ? '#94A3B8' : '#6b7280',
-                            font: {
-                                family: 'Fira Sans',
-                                size: 11
-                            }
-                        }
-                    },
-                    y: {
-                        grid: {
-                            color: theme === 'dark' ? '#1E293B' : '#f3f4f6',
-                            drawBorder: false
-                        },
-                        ticks: {
-                            color: theme === 'dark' ? '#94A3B8' : '#6b7280',
-                            font: {
-                                family: 'Fira Sans',
-                                size: 11
-                            },
-                            callback: (value) => `$${value}`
-                        }
-                    }
-                }
-            }
-        });
-
-        return () => {
-            if (savingsChartInstance.current) {
-                savingsChartInstance.current.destroy();
-            }
-        };
-    }, [historicalData, theme]);
-
-    // Account breakdown chart
-    useEffect(() => {
-        if (!accountChartRef.current || !accountBreakdown.length) return;
-
-        // Destroy existing chart
-        if (accountChartInstance.current) {
-            accountChartInstance.current.destroy();
-        }
-
-        const ctx = accountChartRef.current.getContext('2d');
-        if (!ctx) return;
-
-        const colors = ['#F59E0B', '#FBBF24', '#8B5CF6', '#EC4899', '#10B981', '#3B82F6'];
-
-        accountChartInstance.current = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: accountBreakdown.map(a => a.accountName),
-                datasets: [{
-                    data: accountBreakdown.map(a => a.totalSavings),
-                    backgroundColor: colors.slice(0, accountBreakdown.length),
-                    borderColor: theme === 'dark' ? '#0F172A' : '#ffffff',
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: {
-                            color: theme === 'dark' ? '#F8FAFC' : '#374151',
-                            font: {
-                                family: 'Fira Sans',
-                                size: 12
-                            },
-                            padding: 15,
-                            usePointStyle: true,
-                            pointStyle: 'circle'
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: theme === 'dark' ? '#1E293B' : 'rgba(255,255,255,0.95)',
-                        titleColor: theme === 'dark' ? '#F8FAFC' : '#111827',
-                        bodyColor: theme === 'dark' ? '#F8FAFC' : '#374151',
-                        borderColor: theme === 'dark' ? '#334155' : '#e5e7eb',
-                        borderWidth: 1,
-                        padding: 12,
-                        callbacks: {
-                            label: (context) => {
-                                const account = accountBreakdown[context.dataIndex];
-                                return [
-                                    `Savings: $${account.totalSavings.toFixed(2)}`,
-                                    `Instances: ${account.instanceCount}`
-                                ];
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        return () => {
-            if (accountChartInstance.current) {
-                accountChartInstance.current.destroy();
-            }
-        };
-    }, [accountBreakdown, theme]);
-
-    if (loading && !metrics) {
-        return <DashboardSkeleton />;
-    }
-
-    if (error) {
-        return (
-            <div className={`flex items-center justify-center min-h-screen ${theme === 'dark' ? 'bg-slate-900' : 'bg-gray-50'}`}>
-                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-6 max-w-md">
-                    <h3 className="text-red-400 font-['Fira_Code'] text-lg mb-2">Error Loading Dashboard</h3>
-                    <p className={`font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>{error}</p>
-                    <button
-                        onClick={() => fetchDashboardData(true)}
-                        className="mt-4 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors font-['Fira_Sans']"
-                    >
-                        Retry
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className={`min-h-screen p-6 ${theme === 'dark' ? 'bg-slate-900' : 'bg-gray-50'}`}>
-            <div className="max-w-7xl mx-auto space-y-6">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className={`text-3xl font-bold font-['Fira_Code'] ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
-                            AutoSpotting Dashboard
-                        </h1>
-                        <p className={`mt-1 font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
-                            Monitor spot instance cost savings across all customer accounts
-                        </p>
-                    </div>
-
-                    {/* Date Range Selector */}
-                    <div className="flex gap-2">
-                        {['7d', '30d', '90d'].map((range) => (
-                            <button
-                                key={range}
-                                onClick={() => setDateRange(range)}
-                                className={`px-4 py-2 rounded-lg font-['Fira_Sans'] transition-all ${dateRange === range
-                                    ? 'bg-amber-500 text-slate-900'
-                                    : theme === 'dark' ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
-                                    }`}
-                            >
-                                {range === '7d' ? 'Last 7 Days' : range === '30d' ? 'Last 30 Days' : 'Last 90 Days'}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* KPI Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <KPICard
-                        title="Total Savings"
-                        value={`$${metrics?.totalSavings.toFixed(2) || '0.00'}`}
-                        subtitle="All-time cost reduction"
-                        icon={
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                        }
-                        color="amber"
-                    />
-
-                    <KPICard
-                        title="Monthly Savings"
-                        value={`$${metrics?.monthlySavings.toFixed(2) || '0.00'}`}
-                        subtitle="Current month"
-                        icon={
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                            </svg>
-                        }
-                        color="yellow"
-                    />
-
-                    <KPICard
-                        title="Active Spot Instances"
-                        value={metrics?.activeSpotInstances.toString() || '0'}
-                        subtitle="Currently running"
-                        icon={
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                            </svg>
-                        }
-                        color="purple"
-                    />
-
-                    <KPICard
-                        title="Conversion Rate"
-                        value={`${metrics?.conversionRate.toFixed(1) || '0.0'}%`}
-                        subtitle="On-demand → Spot"
-                        icon={
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                            </svg>
-                        }
-                        color="green"
-                    />
-                </div>
-
-                {/* Charts Row */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Savings Trend Chart */}
-                    <div className={`lg:col-span-2 backdrop-blur-sm border rounded-xl p-6 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white border-gray-200 shadow-sm'}`}>
-                        <h2 className={`text-xl font-semibold mb-4 font-['Fira_Code'] ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
-                            Savings Trend
-                        </h2>
-                        <div className="h-80">
-                            <canvas ref={savingsChartRef}></canvas>
-                        </div>
-                    </div>
-
-                    {/* Account Breakdown Chart */}
-                    <div className={`backdrop-blur-sm border rounded-xl p-6 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white border-gray-200 shadow-sm'}`}>
-                        <h2 className={`text-xl font-semibold mb-4 font-['Fira_Code'] ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
-                            Savings by Account
-                        </h2>
-                        <div className="h-80">
-                            <canvas ref={accountChartRef}></canvas>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Recent Activity Table */}
-                <div className={`backdrop-blur-sm border rounded-xl p-6 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white border-gray-200 shadow-sm'}`}>
-                    <h2 className={`text-xl font-semibold mb-4 font-['Fira_Code'] ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>
-                        Recent Activity
-                    </h2>
-                    <div className="overflow-x-auto">
-                        <table className="w-full">
-                            <thead>
-                                <tr className={`border-b ${theme === 'dark' ? 'border-slate-700' : 'border-gray-200'}`}>
-                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Timestamp</th>
-                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Account</th>
-                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Instance</th>
-                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Type</th>
-                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Event</th>
-                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Hourly Savings</th>
-                                    <th className={`text-left py-3 px-4 font-['Fira_Sans'] font-medium text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Region</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {recentActivity.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={7} className={`text-center py-8 font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>
-                                            No recent activity
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    recentActivity.map((activity) => (
-                                        <tr key={activity.id} className={`border-b transition-colors ${theme === 'dark' ? 'border-slate-700/50 hover:bg-slate-700/30' : 'border-gray-100 hover:bg-gray-50'}`}>
-                                            <td className={`py-3 px-4 font-['Fira_Code'] text-sm ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
-                                                {new Date(activity.timestamp).toLocaleString()}
-                                            </td>
-                                            <td className={`py-3 px-4 font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
-                                                {activity.accountName}
-                                            </td>
-                                            <td className={`py-3 px-4 font-['Fira_Code'] text-sm ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
-                                                {activity.instanceId}
-                                            </td>
-                                            <td className={`py-3 px-4 font-['Fira_Sans'] ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
-                                                {activity.instanceType} → {activity.spotInstanceType}
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                <span className={`px-2 py-1 rounded text-xs font-['Fira_Sans'] ${activity.eventType === 'LAUNCH'
-                                                    ? 'bg-green-500/20 text-green-400'
-                                                    : 'bg-red-500/20 text-red-400'
-                                                    }`}>
-                                                    {activity.eventType}
-                                                </span>
-                                            </td>
-                                            <td className="py-3 px-4 text-amber-500 font-['Fira_Code']">
-                                                ${activity.hourlySavings.toFixed(4)}/hr
-                                            </td>
-                                            <td className={`py-3 px-4 font-['Fira_Sans'] text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
-                                                {activity.region}
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
+const NUM_STYLE: React.CSSProperties = {
+  fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
+  fontSize: '26px',
+  fontWeight: 400,
+  lineHeight: '28px',
+  color: 'rgb(10,10,10)',
+  fontVariantNumeric: 'tabular-nums',
 };
 
-// KPI Card Component
-interface KPICardProps {
-    title: string;
-    value: string;
-    subtitle: string;
-    icon: React.ReactNode;
-    color: 'amber' | 'yellow' | 'purple' | 'green';
-}
+const fmt = (v: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(v);
 
-const KPICard: React.FC<KPICardProps> = ({ title, value, subtitle, icon, color }) => {
-    const { theme } = useTheme();
-    const colorClasses = {
-        amber: 'text-amber-500',
-        yellow: 'text-yellow-500',
-        purple: 'text-purple-500',
-        green: 'text-green-500'
-    };
+const AutoSpottingAdminDashboardPage: React.FC = () => {
+  const { setActions, clearActions } = useTopbar();
+  const { getAdminData, setAdminData } = useAutoSpottingCache();
 
-    return (
-        <div className={`backdrop-blur-sm border rounded-xl p-6 transition-all cursor-pointer group ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600/50' : 'bg-white border-gray-200 hover:border-gray-300 shadow-sm'}`}>
-            <div className="flex items-start justify-between">
-                <div className="flex-1">
-                    <p className={`text-sm font-['Fira_Sans'] mb-1 ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>{title}</p>
-                    <p className={`text-3xl font-bold font-['Fira_Code'] ${colorClasses[color]} group-hover:scale-105 transition-transform`}>
-                        {value}
-                    </p>
-                    <p className={`text-xs font-['Fira_Sans'] mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>{subtitle}</p>
-                </div>
-                <div className={`${colorClasses[color]} opacity-60 group-hover:opacity-100 transition-opacity`}>
-                    {icon}
-                </div>
-            </div>
-        </div>
+  const [metrics,          setMetrics]          = useState<SavingsMetrics | null>(null);
+  const [recentActivity,   setRecentActivity]   = useState<SpotActivity[]>([]);
+  const [historicalData,   setHistoricalData]   = useState<HistoricalSavings[]>([]);
+  const [accountBreakdown, setAccountBreakdown] = useState<AccountSavings[]>([]);
+  const [loading,          setLoading]          = useState(true);
+  const [error,            setError]            = useState<string | null>(null);
+  const [dateRange,        setDateRange]        = useState('7d');
+  const [isInitialLoad,    setIsInitialLoad]    = useState(true);
+
+  const savingsChartRef      = useRef<HTMLCanvasElement>(null);
+  const accountChartRef      = useRef<HTMLCanvasElement>(null);
+  const savingsChartInstance = useRef<Chart<'line'> | null>(null);
+  const accountChartInstance = useRef<Chart<'doughnut'> | null>(null);
+
+  const fetchDashboardData = useCallback(async (isRefresh = false) => {
+    try {
+      if (!isRefresh && !metrics) setLoading(true);
+      setError(null);
+
+      if (!isRefresh && isInitialLoad) {
+        const cached = getAdminData(dateRange);
+        if (cached) {
+          setMetrics(cached.metrics);
+          setRecentActivity(cached.recentActivity);
+          setHistoricalData(cached.historicalData);
+          setAccountBreakdown(cached.accountBreakdown);
+          setLoading(false);
+          setIsInitialLoad(false);
+        }
+      }
+
+      const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90;
+      const [metricsRes, activityRes, historicalRes, breakdownRes] = await Promise.all([
+        fetch('/api/admin/autospotting/total-savings'),
+        fetch('/api/admin/autospotting/recent-activity?limit=50'),
+        fetch(`/api/admin/autospotting/historical-savings?days=${days}`),
+        fetch('/api/admin/autospotting/account-breakdown'),
+      ]);
+
+      if (!metricsRes.ok || !activityRes.ok || !historicalRes.ok || !breakdownRes.ok) throw new Error('Failed to fetch dashboard data');
+
+      const [metricsData, activityData, historicalDt, breakdownData] = await Promise.all([
+        metricsRes.json(), activityRes.json(), historicalRes.json(), breakdownRes.json(),
+      ]);
+
+      setMetrics(metricsData);
+      setRecentActivity(activityData);
+      setHistoricalData(historicalDt);
+      setAccountBreakdown(breakdownData);
+      setAdminData(dateRange, { metrics: metricsData, recentActivity: activityData, historicalData: historicalDt, accountBreakdown: breakdownData });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
+    } finally {
+      setLoading(false);
+      setIsInitialLoad(false);
+    }
+  }, [dateRange, metrics, isInitialLoad, getAdminData, setAdminData]);
+
+  useEffect(() => {
+    setActions(
+      <div className="flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+        <span className="text-[11px] font-medium uppercase tracking-wide text-[rgba(0,0,0,0.4)]">AutoSpotting Admin</span>
+        <span className="text-[rgba(0,0,0,0.15)] text-[12px] select-none">|</span>
+        <button
+          onClick={() => fetchDashboardData(true)}
+          className="flex items-center gap-1 text-[11px] font-semibold text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors"
+        >
+          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Refresh
+        </button>
+      </div>
     );
+    return () => clearActions();
+  }, [setActions, clearActions, fetchDashboardData]);
+
+  useEffect(() => { fetchDashboardData(); }, [dateRange]);
+
+  useEffect(() => {
+    if (!savingsChartRef.current || !historicalData.length) return;
+    if (savingsChartInstance.current) savingsChartInstance.current.destroy();
+    const ctx = savingsChartRef.current.getContext('2d');
+    if (!ctx) return;
+    savingsChartInstance.current = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: historicalData.map((d) => new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+        datasets: [{ label: 'Daily Savings', data: historicalData.map((d) => d.savings), borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.08)', fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: '#F59E0B', pointBorderColor: '#fff', pointBorderWidth: 2 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { padding: 12, callbacks: { label: (c) => `Savings: $${c.parsed.y.toFixed(2)}` } } },
+        scales: {
+          x: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280', font: { size: 11 } } },
+          y: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280', font: { size: 11 }, callback: (v) => `$${v}` } },
+        },
+      },
+    });
+    return () => { if (savingsChartInstance.current) savingsChartInstance.current.destroy(); };
+  }, [historicalData]);
+
+  useEffect(() => {
+    if (!accountChartRef.current || !accountBreakdown.length) return;
+    if (accountChartInstance.current) accountChartInstance.current.destroy();
+    const ctx = accountChartRef.current.getContext('2d');
+    if (!ctx) return;
+    const colors = ['#F59E0B', '#FBBF24', '#8B5CF6', '#EC4899', '#10B981', '#3B82F6'];
+    accountChartInstance.current = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: accountBreakdown.map((a) => a.accountName),
+        datasets: [{ data: accountBreakdown.map((a) => a.totalSavings), backgroundColor: colors.slice(0, accountBreakdown.length), borderColor: '#fff', borderWidth: 2 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { color: '#374151', font: { size: 12 }, padding: 12, usePointStyle: true } },
+          tooltip: { padding: 12, callbacks: { label: (c) => [`Savings: $${accountBreakdown[c.dataIndex].totalSavings.toFixed(2)}`, `Instances: ${accountBreakdown[c.dataIndex].instanceCount}`] } },
+        },
+      },
+    });
+    return () => { if (accountChartInstance.current) accountChartInstance.current.destroy(); };
+  }, [accountBreakdown]);
+
+  if (loading && !metrics) {
+    return (
+      <main className="flex-1 px-6 pt-4 pb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-28 bg-[rgba(0,0,0,0.04)] rounded-xl animate-pulse" />)}
+        </div>
+        <div className="h-72 bg-[rgba(0,0,0,0.04)] rounded-xl animate-pulse" />
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="flex-1 px-6 pt-4 pb-6">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-8 text-center max-w-md mx-auto mt-10">
+          <Icon icon="mdi:alert-circle-outline" width={36} color="#DC2626" className="mx-auto mb-3" />
+          <h3 className="text-[15px] font-bold text-red-800 mb-2">Error Loading Dashboard</h3>
+          <p className="text-[13px] text-red-700 mb-4">{error}</p>
+          <button onClick={() => fetchDashboardData(true)} className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white text-[13px] font-semibold rounded-xl transition-colors mx-auto">
+            <Icon icon="mdi:refresh" width={14} />Retry
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  const DATE_RANGES = [
+    { key: '7d', label: 'Last 7 Days' },
+    { key: '30d', label: 'Last 30 Days' },
+    { key: '90d', label: 'Last 90 Days' },
+  ];
+
+  const COL = 'px-4 py-3.5 text-[12px]';
+  const HEAD = 'px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.07em] text-[rgba(0,0,0,0.45)] bg-[rgba(0,0,0,0.02)]';
+
+  return (
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
+      {/* Title + date range */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-[18px] font-bold text-[rgba(0,0,0,0.88)]">AutoSpotting Dashboard</h1>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mt-0.5">Monitor spot instance cost savings across all customer accounts</p>
+        </div>
+        <div className="flex items-center gap-1 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.07)] rounded-xl p-1">
+          {DATE_RANGES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setDateRange(r.key)}
+              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${
+                dateRange === r.key
+                  ? 'bg-white shadow-sm border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)]'
+                  : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Total Savings',         value: fmt(metrics?.totalSavings || 0),                          sub: 'All-time cost reduction',  icon: 'mdi:piggy-bank-outline', iconColor: '#D97706', iconBg: '#D9770614' },
+          { label: 'Monthly Savings',       value: fmt(metrics?.monthlySavings || 0),                        sub: 'Current month',            icon: 'mdi:trending-up',        iconColor: '#16A34A', iconBg: '#16A34A14' },
+          { label: 'Active Spot Instances', value: String(metrics?.activeSpotInstances || 0),                sub: 'Currently running',        icon: 'mdi:server-outline',     iconColor: '#8B5CF6', iconBg: '#8B5CF614' },
+          { label: 'Conversion Rate',       value: `${(metrics?.conversionRate || 0).toFixed(1)}%`,          sub: 'On-demand → Spot',         icon: 'mdi:chart-bar',          iconColor: '#3B82F6', iconBg: '#3B82F614' },
+        ].map((kpi) => (
+          <div key={kpi.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+              <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+                <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z" />
+              </svg>
+            </div>
+            <div className="relative z-10">
+              <div className="flex items-start justify-between mb-2">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">{kpi.label}</p>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: kpi.iconBg }}>
+                  <Icon icon={kpi.icon} width={18} color={kpi.iconColor} />
+                </div>
+              </div>
+              <p style={NUM_STYLE}>{kpi.value}</p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">{kpi.sub}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
+          <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)] mb-4">Savings Trend</h3>
+          <div className="h-72"><canvas ref={savingsChartRef} /></div>
+        </div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
+          <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)] mb-4">Savings by Account</h3>
+          <div className="h-72"><canvas ref={accountChartRef} /></div>
+        </div>
+      </div>
+
+      {/* Recent Activity Table */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)]">
+          <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Recent Activity</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b border-[rgba(0,0,0,0.06)]">
+                {['Timestamp', 'Account', 'Instance', 'Type', 'Event', 'Hourly Savings', 'Region'].map((h) => (
+                  <th key={h} className={HEAD}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
+              {recentActivity.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-10 text-center text-[13px] text-[rgba(0,0,0,0.4)]">No recent activity</td>
+                </tr>
+              ) : recentActivity.map((activity) => (
+                <tr key={activity.id} className="hover:bg-[rgba(0,0,0,0.01)] transition-colors">
+                  <td className={`${COL} font-mono text-[11px] text-[rgba(0,0,0,0.55)]`}>{new Date(activity.timestamp).toLocaleString()}</td>
+                  <td className={`${COL} text-[rgba(0,0,0,0.65)]`}>{activity.accountName}</td>
+                  <td className={`${COL} font-mono text-[11px] text-[rgba(0,0,0,0.65)]`}>{activity.instanceId}</td>
+                  <td className={`${COL} text-[rgba(0,0,0,0.65)]`}>{activity.instanceType} → {activity.spotInstanceType}</td>
+                  <td className={COL}>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      activity.eventType === 'LAUNCH'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                        : 'bg-red-50 text-red-600 border-red-100'
+                    }`}>
+                      {activity.eventType}
+                    </span>
+                  </td>
+                  <td className={`${COL} font-bold text-amber-600`}>${activity.hourlySavings.toFixed(4)}/hr</td>
+                  <td className={`${COL} text-[rgba(0,0,0,0.45)]`}>{activity.region}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  );
 };
 
 export default AutoSpottingAdminDashboardPage;

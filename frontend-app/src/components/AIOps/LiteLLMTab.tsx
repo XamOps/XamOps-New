@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import { useGatewayData } from '../../hooks/useGatewayData';
 import { useKeyGroups } from '../../hooks/useKeyGroups';
 import { useGroupKeys, type ProviderKey } from '../../hooks/useProviderKeys';
@@ -36,7 +37,7 @@ function Tooltip({ text, children }: { text: string; children: React.ReactNode }
 function InfoIcon({ tip }: { tip: string }) {
   return (
     <Tooltip text={tip}>
-      <i className="fas fa-info-circle text-gray-400 hover:text-indigo-500 text-xs cursor-help ml-1" />
+      <Icon icon="mdi:information-outline" width={13} color="#9CA3AF" className="cursor-help ml-1 hover:text-indigo-500" />
     </Tooltip>
   );
 }
@@ -53,8 +54,8 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <button onClick={handle} className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-gray-500 hover:text-indigo-600 bg-gray-100 hover:bg-indigo-50 rounded-lg transition-colors">
-      <i className={copied ? 'fas fa-check text-green-500' : 'fas fa-copy'} />
+    <button onClick={handle} className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-[rgba(0,0,0,0.5)] hover:text-indigo-600 bg-[rgba(0,0,0,0.06)] hover:bg-indigo-50 rounded-lg transition-colors">
+      {copied ? <Icon icon="mdi:check" width={13} color="#22c55e" /> : <Icon icon="mdi:content-copy" width={13} />}
       {label ? (copied ? 'Copied!' : label) : (copied ? 'Copied!' : 'Copy')}
     </button>
   );
@@ -80,7 +81,7 @@ const STRATEGY_OPTIONS = [
 const KEY_STATUS_BADGE: Record<string, { bg: string; text: string }> = {
   ACTIVE:       { bg: 'bg-emerald-100', text: 'text-emerald-700' },
   RATE_LIMITED: { bg: 'bg-amber-100',   text: 'text-amber-700'   },
-  DISABLED:     { bg: 'bg-gray-100',    text: 'text-gray-500'    },
+  DISABLED:     { bg: 'bg-[rgba(0,0,0,0.06)]',    text: 'text-[rgba(0,0,0,0.5)]'    },
 };
 
 const PROVIDER_OPTIONS = ['OPENAI', 'ANTHROPIC', 'GEMINI', 'BEDROCK'];
@@ -145,7 +146,7 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
           className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 rounded-xl transition-colors"
         >
           <span className="flex items-center gap-2">
-            <i className="fas fa-layer-group text-indigo-400" />
+            <Icon icon="mdi:layers-outline" width={14} color="#818cf8" />
             Key Pool
             {!loading && keys.length > 0 && (
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${keys.length > 1 ? 'bg-emerald-200 text-emerald-800' : 'bg-indigo-200 text-indigo-800'}`}>
@@ -158,7 +159,7 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
           </span>
           <span className="flex items-center gap-2">
             <span className="text-[10px] font-normal text-indigo-400">{strategy.replace(/_/g, ' ')}</span>
-            <i className={`fas fa-chevron-${expanded ? 'up' : 'down'} text-indigo-400 text-[10px]`} />
+            <Icon icon={expanded ? 'mdi:chevron-up' : 'mdi:chevron-down'} width={14} color="#818cf8" />
           </span>
         </button>
       </Tooltip>
@@ -168,7 +169,7 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
 
           {/* Strategy selector */}
           <div className="flex items-center gap-2 flex-wrap pt-1">
-            <span className="text-[11px] text-gray-500 font-medium flex items-center gap-1">
+            <span className="text-[11px] text-[rgba(0,0,0,0.5)] font-medium flex items-center gap-1">
               Load Balance:
               <InfoIcon tip="How XamOps picks a key when multiple keys are in the pool for the same provider. Has no effect with 0 or 1 key." />
             </span>
@@ -179,20 +180,20 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
                   className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium transition-all ${
                     strategy === opt.value
                       ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                      : 'bg-white text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.12)] hover:border-indigo-300'
                   }`}>
                   {opt.label}
                 </button>
               </Tooltip>
             ))}
             {strategyChanged && (
-              <span className="text-[11px] text-emerald-600"><i className="fas fa-check mr-1" />Saved</span>
+              <span className="text-[11px] text-emerald-600"><Icon icon="mdi:check" width={13} color="#16a34a" className="inline mr-1" />Saved</span>
             )}
           </div>
 
           {/* Keys list */}
           {loading ? (
-            <p className="text-xs text-gray-400">Loading keys…</p>
+            <p className="text-xs text-[rgba(0,0,0,0.4)]">Loading keys…</p>
           ) : keys.length === 0 ? (
             <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
               <p className="text-xs text-amber-700 font-medium">No keys in pool yet — load balancing is inactive.</p>
@@ -211,18 +212,18 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
                   ? 'Key hit a 429 rate limit — temporarily skipped. Will auto-recover in ~60s'
                   : 'Key is manually disabled — not used by the load balancer';
                 return (
-                  <div key={k.id} className="bg-white border border-gray-200 rounded-xl p-3">
+                  <div key={k.id} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-3">
                     {rotatingId === k.id ? (
                       <div className="flex items-center gap-2">
                         <input type="password" value={rotateValue} onChange={e => setRotateValue(e.target.value)}
                           placeholder="New API key…"
-                          className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                          className="flex-1 text-xs bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-2 py-1 font-mono focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
                         <button onClick={() => handleRotate(k.id)} disabled={saving}
                           className="text-xs px-2.5 py-1 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50">
                           {saving ? '…' : 'Save'}
                         </button>
                         <button onClick={() => { setRotatingId(null); setRotateValue(''); }}
-                          className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700">Cancel</button>
+                          className="text-xs px-2 py-1 text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]">Cancel</button>
                       </div>
                     ) : (
                       <div className="flex items-center justify-between gap-2">
@@ -231,13 +232,13 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
                             <span className="text-[10px] font-bold text-white bg-indigo-500 px-2 py-0.5 rounded cursor-help">{k.provider}</span>
                           </Tooltip>
                           <Tooltip text="Last 4 characters of the stored key — full key is encrypted and never shown">
-                            <code className="text-xs font-mono text-gray-700 bg-gray-100 px-2 py-0.5 rounded cursor-help">{k.keyHint}</code>
+                            <code className="text-xs font-mono text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.06)] px-2 py-0.5 rounded cursor-help">{k.keyHint}</code>
                           </Tooltip>
                           <Tooltip text={statusTip}>
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full cursor-help ${badge.bg} ${badge.text}`}>{k.status}</span>
                           </Tooltip>
                           <Tooltip text="Total requests made using this key · estimated cost">
-                            <span className="text-[10px] text-gray-400 cursor-help">
+                            <span className="text-[10px] text-[rgba(0,0,0,0.4)] cursor-help">
                               {k.totalRequests.toLocaleString()} req · ${Number(k.totalCost).toFixed(4)}
                             </span>
                           </Tooltip>
@@ -246,7 +247,7 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
                           {k.status === 'ACTIVE' ? (
                             <Tooltip text="Temporarily disable this key — it will be skipped by the load balancer but not deleted">
                               <button onClick={() => updateKeyStatus(k.id, 'DISABLED')}
-                                className="text-[10px] px-2 py-1 text-gray-500 hover:text-amber-600 border border-gray-200 rounded hover:border-amber-300 transition-colors">
+                                className="text-[10px] px-2 py-1 text-[rgba(0,0,0,0.5)] hover:text-amber-600 border border-[rgba(0,0,0,0.12)] rounded hover:border-amber-300 transition-colors">
                                 Disable
                               </button>
                             </Tooltip>
@@ -267,7 +268,7 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
                           <Tooltip text="Permanently delete this key from the pool">
                             <button onClick={() => deleteKey(k.id)}
                               className="text-[10px] px-2 py-1 text-red-500 hover:text-red-700 border border-red-200 rounded hover:border-red-400 transition-colors">
-                              <i className="fas fa-trash-alt" />
+                              <Icon icon="mdi:trash-can-outline" width={13} />
                             </button>
                           </Tooltip>
                         </div>
@@ -285,22 +286,22 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
               <div className="flex items-center gap-2">
                 <Tooltip text="Select which provider this API key belongs to. Must match a provider in this group. Add multiple keys for the same provider to enable load balancing.">
                   <select value={newKeyProvider} onChange={e => setNewKeyProvider(e.target.value)}
-                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 cursor-help">
+                    className="text-xs bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-2 py-1.5 text-[rgba(0,0,0,0.7)] focus:outline-none focus:border-[rgba(0,0,0,0.2)] cursor-help">
                     {PROVIDER_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </Tooltip>
                 <input type="password" value={newKeyValue} onChange={e => setNewKeyValue(e.target.value)}
                   placeholder="Paste API key… (e.g. sk-... or AIza...)"
-                  className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  className="flex-1 text-xs bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-2 py-1.5 font-mono focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
                 <button onClick={handleAddKey} disabled={saving || !newKeyValue.trim()}
-                  className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                  className="text-xs px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white rounded-md hover:bg-black disabled:opacity-50">
                   {saving ? '…' : 'Add'}
                 </button>
                 <button onClick={() => { setAddingKey(false); setNewKeyValue(''); }}
-                  className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700">Cancel</button>
+                  className="text-xs px-2 py-1 text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]">Cancel</button>
               </div>
-              <p className="text-[11px] text-gray-400">
-                <i className="fas fa-lock mr-1 text-indigo-400" />
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)]">
+                <Icon icon="mdi:lock-outline" width={12} color="#818cf8" className="inline mr-1" />
                 Stored encrypted (AES-256). Only the last 4 characters are shown after saving.
                 XamOps picks keys using the strategy above — callers don't need to send their own API key.
               </p>
@@ -309,7 +310,7 @@ function GroupKeyPool({ groupId, strategy: initialStrategy, onStrategyChange }: 
             <Tooltip text="Add a real provider API key to the pool. XamOps stores it encrypted and uses it automatically. Add 2+ keys for the same provider to activate load balancing.">
               <button onClick={() => setAddingKey(true)}
                 className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors">
-                <i className="fas fa-plus-circle" /> Add key to pool
+                <Icon icon="mdi:plus-circle-outline" width={14} color="#4F46E5" /> Add key to pool
               </button>
             </Tooltip>
           )}
@@ -379,28 +380,28 @@ export default function LiteLLMTab({ providers, serverBaseUrl = 'https://api.xam
   const steps = [
     {
       num: 1, done: step1Done, active: !step1Done,
-      icon: 'fas fa-plug',
+      icon: 'mdi:plug-outline',
       title: 'Add an AI Provider',
       desc: 'Go to the API Keys tab → connect OpenAI, Anthropic, Gemini or Bedrock.',
       copyText: null as string | null,
     },
     {
       num: 2, done: step2Done, active: step1Done && !step2Done,
-      icon: 'fas fa-key',
+      icon: 'mdi:key-outline',
       title: 'Copy Your Master Key',
       desc: masterKey ? masterKey : 'Auto-generated when you add your first provider.',
       copyText: masterKey,
     },
     {
       num: 3, done: step3Done, active: step2Done && !step3Done,
-      icon: 'fas fa-paper-plane',
+      icon: 'mdi:send-outline',
       title: 'Point Your App to the Gateway',
       desc: proxyEndpoint,
       copyText: proxyEndpoint,
     },
     {
       num: 4, done: allDone, active: step3Done,
-      icon: 'fas fa-chart-bar',
+      icon: 'mdi:chart-bar',
       title: 'Monitor in the Dashboard',
       desc: 'Every request is logged — check spend, tokens and latency on the LLM Dashboard.',
       copyText: null,
@@ -523,23 +524,23 @@ console.log(response.choices[0].message.content)`;
     <div className="space-y-5">
 
       {/* ── Header + Status ── */}
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              <i className="fas fa-network-wired text-indigo-500" /> AI Gateway
+            <h2 className="text-lg font-bold text-[rgba(0,0,0,0.88)] flex items-center gap-2">
+              <Icon icon="mdi:access-point-network" width={18} color="#4F46E5" /> AI Gateway
               <InfoIcon tip="A single proxy that routes your requests to OpenAI, Anthropic, Gemini or Bedrock — and logs every token and dollar spent." />
             </h2>
-            <p className="text-sm text-gray-500 mt-0.5">
+            <p className="text-sm text-[rgba(0,0,0,0.5)] mt-0.5">
               One master key for all your AI providers — full cost visibility and control.
             </p>
           </div>
           <div className="flex items-center gap-3">
             {statusLoading ? (
-              <span className="text-xs text-gray-400 flex items-center gap-1.5"><i className="fas fa-circle-notch fa-spin" /> Checking…</span>
+              <span className="text-xs text-[rgba(0,0,0,0.4)] flex items-center gap-1.5"><Icon icon="mdi:loading" width={14} className="animate-spin" /> Checking…</span>
             ) : (
               <Tooltip text={status?.online ? 'Gateway is reachable and processing requests.' : 'Gateway is offline. Check your server or sync config.'}>
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm cursor-help">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.12)] rounded-lg text-sm cursor-help">
                   <StatusDot online={status?.online ?? false} />
                   <span className={`font-medium ${status?.online ? 'text-green-700' : 'text-red-600'}`}>
                     {status?.online ? 'Gateway Online' : 'Gateway Offline'}
@@ -550,7 +551,7 @@ console.log(response.choices[0].message.content)`;
             <Tooltip text="Pushes your latest provider config to the gateway so new providers are active immediately.">
               <button onClick={syncGateway} disabled={syncing}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors disabled:opacity-50">
-                <i className={`fas fa-sync-alt text-xs ${syncing ? 'fa-spin' : ''}`} />
+                <Icon icon={syncing ? "mdi:loading" : "mdi:sync"} width={14} className={syncing ? "animate-spin" : ""} />
                 {syncing ? 'Syncing…' : 'Sync Config'}
               </button>
             </Tooltip>
@@ -562,7 +563,7 @@ console.log(response.choices[0].message.content)`;
           <div className="mt-4 space-y-2">
             <div className="flex items-center gap-2 bg-violet-50 border-2 border-violet-300 rounded-xl px-4 py-3">
               <div className="flex-shrink-0 w-8 h-8 bg-violet-100 rounded-lg flex items-center justify-center">
-                <i className="fas fa-key text-violet-600 text-sm" />
+                <Icon icon="mdi:key-outline" width={18} color="#7c3aed" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -578,28 +579,28 @@ console.log(response.choices[0].message.content)`;
             </div>
             {/* Quick comparison hint */}
             <div className="flex items-start gap-2 px-1">
-              <i className="fas fa-info-circle text-gray-400 text-xs mt-0.5 flex-shrink-0" />
-              <p className="text-[11px] text-gray-400">
+              <Icon icon="mdi:information-outline" width={13} color="#9CA3AF" className="mt-0.5 flex-shrink-0" />
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)]">
                 <strong className="text-violet-600">Master Key</strong> = access all providers, no restrictions, no load balancing. &nbsp;
-                <strong className="text-indigo-600">Group Key</strong> (<code className="bg-gray-100 px-1 rounded">sk-xamops-grp-...</code>) = restricted to selected providers, supports load balancing via Key Pool.
+                <strong className="text-indigo-600">Group Key</strong> (<code className="bg-[rgba(0,0,0,0.06)] px-1 rounded">sk-xamops-grp-...</code>) = restricted to selected providers, supports load balancing via Key Pool.
                 Find Group Keys in the <strong>Key Groups</strong> tab.
               </p>
             </div>
           </div>
         ) : (
-          <div className="mt-4 flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
-            <i className="fas fa-link text-gray-400 text-xs" />
-            <code className="text-sm text-gray-700 font-mono flex-1 truncate">{proxyEndpoint}</code>
+          <div className="mt-4 flex items-center gap-2 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.12)] rounded-xl px-4 py-2.5">
+            <Icon icon="mdi:link-variant" width={14} color="#9CA3AF" />
+            <code className="text-sm text-[rgba(0,0,0,0.7)] font-mono flex-1 truncate">{proxyEndpoint}</code>
             <CopyButton text={proxyEndpoint} label="Copy URL" />
           </div>
         )}
       </div>
 
       {/* ── Get Started Checklist ── */}
-      <div className={`rounded-2xl border shadow-sm p-5 ${allDone ? 'bg-green-50 border-green-200' : 'bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200'}`}>
+      <div className={`rounded-xl border shadow-sm p-5 ${allDone ? 'bg-green-50 border-green-200' : 'bg-indigo-50 border-indigo-200'}`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <i className={`fas ${allDone ? 'fa-check-circle text-green-500' : 'fa-rocket text-indigo-500'}`} />
+            {allDone ? <Icon icon="mdi:check-circle-outline" width={16} color="#16a34a" /> : <Icon icon="mdi:rocket-launch-outline" width={16} color="#4F46E5" />}
             <h3 className={`text-sm font-bold ${allDone ? 'text-green-800' : 'text-indigo-800'}`}>
               {allDone ? "Gateway is live — you're all set!" : 'Get Started — 4 steps to go live'}
             </h3>
@@ -611,23 +612,23 @@ console.log(response.choices[0].message.content)`;
         <div className="space-y-3">
           {steps.map(step => (
             <div key={step.num} className={`flex gap-3 p-3.5 rounded-xl border transition-all ${
-              step.done ? 'bg-white/60 border-green-200' : step.active ? 'bg-white border-indigo-300 shadow-sm' : 'bg-white/40 border-gray-200 opacity-50'
+              step.done ? 'bg-white/60 border-green-200' : step.active ? 'bg-white border-indigo-300 shadow-sm' : 'bg-white/40 border-[rgba(0,0,0,0.12)] opacity-50'
             }`}>
-              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${step.done ? 'bg-green-100' : step.active ? 'bg-indigo-100' : 'bg-gray-100'}`}>
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${step.done ? 'bg-green-100' : step.active ? 'bg-indigo-100' : 'bg-[rgba(0,0,0,0.06)]'}`}>
                 {step.done
-                  ? <i className="fas fa-check text-green-600 text-xs" />
-                  : <i className={`${step.icon} text-xs ${step.active ? 'text-indigo-600' : 'text-gray-400'}`} />}
+                  ? <Icon icon="mdi:check" width={14} color="#16a34a" />
+                  : <Icon icon={step.icon} width={14} color={step.active ? '#4F46E5' : '#9CA3AF'} />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className={`text-xs font-semibold ${step.done ? 'text-green-700 line-through' : step.active ? 'text-gray-800' : 'text-gray-500'}`}>
+                  <p className={`text-xs font-semibold ${step.done ? 'text-green-700 line-through' : step.active ? 'text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.5)]'}`}>
                     Step {step.num}: {step.title}
                   </p>
                   {step.active && !step.done && (
                     <span className="text-[10px] font-bold text-white bg-indigo-500 px-2 py-0.5 rounded-full uppercase tracking-wide">Do this now</span>
                   )}
                 </div>
-                <p className={`text-xs mt-1 font-mono ${step.copyText && !step.done ? 'text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded inline-block truncate max-w-xs' : 'text-gray-500'}`}>
+                <p className={`text-xs mt-1 font-mono ${step.copyText && !step.done ? 'text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded inline-block truncate max-w-xs' : 'text-[rgba(0,0,0,0.5)]'}`}>
                   {step.desc}
                 </p>
               </div>
@@ -641,25 +642,25 @@ console.log(response.choices[0].message.content)`;
 
       {/* ── Connected Providers ── */}
       {activeProviders.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <i className="fas fa-plug text-indigo-400" /> Connected Providers
-            <span className="ml-auto text-xs font-normal text-gray-400">All accessible via one master key</span>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+          <h3 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-3 flex items-center gap-2">
+            <Icon icon="mdi:plug-outline" width={14} color="#818cf8" /> Connected Providers
+            <span className="ml-auto text-xs font-normal text-[rgba(0,0,0,0.4)]">All accessible via one master key</span>
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {activeProviders.map(p => (
-              <div key={p.id} className="flex items-center gap-2.5 p-3 border border-gray-100 rounded-xl bg-gray-50 group">
+              <div key={p.id} className="flex items-center gap-2.5 p-3 border border-[rgba(0,0,0,0.06)] rounded-xl bg-[rgba(0,0,0,0.02)] group">
                 <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: PROVIDER_COLORS[p.provider] ?? '#94a3b8' }} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-gray-800 truncate">{p.displayName ?? p.provider}</p>
-                  <p className="text-[10px] text-gray-400 truncate">{getEnabledModels(p).length} models</p>
+                  <p className="text-xs font-semibold text-[rgba(0,0,0,0.88)] truncate">{p.displayName ?? p.provider}</p>
+                  <p className="text-[10px] text-[rgba(0,0,0,0.4)] truncate">{getEnabledModels(p).length} models</p>
                 </div>
                 {onEditProvider && (
                   <button
                     onClick={() => onEditProvider(p)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-indigo-600 flex-shrink-0"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-[rgba(0,0,0,0.4)] hover:text-indigo-600 flex-shrink-0"
                     title="Edit provider">
-                    <i className="fas fa-edit text-xs" />
+                    <Icon icon="mdi:pencil-outline" width={13} />
                   </button>
                 )}
               </div>
@@ -669,7 +670,7 @@ console.log(response.choices[0].message.content)`;
       )}
 
       {/* ── Section Tabs ── */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-[rgba(0,0,0,0.06)] rounded-xl p-1 w-fit">
         {(['overview', 'connect', 'groups', 'test'] as const).map(s => {
           const tabTips: Record<string, string> = {
             overview: 'Setup checklist — add providers, copy your master key, point your app to the gateway.',
@@ -680,7 +681,7 @@ console.log(response.choices[0].message.content)`;
           return (
             <Tooltip key={s} text={tabTips[s]}>
               <button onClick={() => setActiveSection(s)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${activeSection === s ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${activeSection === s ? 'bg-white text-indigo-700 shadow-sm' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'}`}>
                 {s === 'overview' ? 'Overview' : s === 'connect' ? 'How to Connect' : s === 'groups' ? (
                   <span className="flex items-center gap-1.5">
                     Key Groups
@@ -696,47 +697,47 @@ console.log(response.choices[0].message.content)`;
       {/* ── Overview ── */}
       {activeSection === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              <i className="fas fa-map-signs text-indigo-400" /> How It Works
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+            <h3 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-4 flex items-center gap-2">
+              <Icon icon="mdi:sign-direction" width={14} color="#818cf8" /> How It Works
             </h3>
             <div className="space-y-3">
               {[
-                { icon: 'fas fa-plug',         title: 'Add Providers',       desc: 'Connect OpenAI, Anthropic, Gemini or Bedrock via API Keys tab.' },
-                { icon: 'fas fa-key',           title: 'Get One Master Key',  desc: 'XamOps gives you one key that works for all connected providers.' },
-                { icon: 'fas fa-layer-group',   title: 'Create Key Groups',   desc: 'Group specific providers together and get a separate key per group.' },
-                { icon: 'fas fa-chart-bar',     title: 'Monitor Everything',  desc: 'Spend, tokens, latency per model and team — all in the dashboard.' },
+                { icon: 'mdi:plug-outline',   title: 'Add Providers',       desc: 'Connect OpenAI, Anthropic, Gemini or Bedrock via API Keys tab.' },
+                { icon: 'mdi:key-outline',    title: 'Get One Master Key',  desc: 'XamOps gives you one key that works for all connected providers.' },
+                { icon: 'mdi:layers-outline', title: 'Create Key Groups',   desc: 'Group specific providers together and get a separate key per group.' },
+                { icon: 'mdi:chart-bar',      title: 'Monitor Everything',  desc: 'Spend, tokens, latency per model and team — all in the dashboard.' },
               ].map(item => (
                 <div key={item.title} className="flex gap-3">
                   <div className="flex-shrink-0 w-8 h-8 bg-indigo-50 rounded-full flex items-center justify-center">
-                    <i className={`${item.icon} text-indigo-600 text-xs`} />
+                    <Icon icon={item.icon} width={14} color="#4F46E5" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-gray-800">{item.title}</p>
-                    <p className="text-xs text-gray-500">{item.desc}</p>
+                    <p className="text-xs font-semibold text-[rgba(0,0,0,0.88)]">{item.title}</p>
+                    <p className="text-xs text-[rgba(0,0,0,0.5)]">{item.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
           </div>
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              <i className="fas fa-star text-indigo-400" /> Capabilities
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+            <h3 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-4 flex items-center gap-2">
+              <Icon icon="mdi:star-outline" width={14} color="#818cf8" /> Capabilities
             </h3>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { icon: 'fas fa-random',        label: 'Load Balancing',    desc: 'Distribute across providers' },
-                { icon: 'fas fa-shield-alt',    label: 'Auto Fallback',     desc: 'Retry on provider failure' },
-                { icon: 'fas fa-dollar-sign',   label: 'Cost Tracking',     desc: 'Per-request spend logging' },
-                { icon: 'fas fa-users',         label: 'Team Budgets',      desc: 'Spend limits per team' },
-                { icon: 'fas fa-tachometer-alt',label: 'Rate Limiting',     desc: 'Control request volume' },
-                { icon: 'fas fa-plug',          label: 'OpenAI Compatible', desc: 'Drop-in replacement' },
+                { icon: 'mdi:shuffle-variant',     label: 'Load Balancing',    desc: 'Distribute across providers' },
+                { icon: 'mdi:shield-outline',      label: 'Auto Fallback',     desc: 'Retry on provider failure' },
+                { icon: 'mdi:currency-usd',        label: 'Cost Tracking',     desc: 'Per-request spend logging' },
+                { icon: 'mdi:account-group-outline',label: 'Team Budgets',     desc: 'Spend limits per team' },
+                { icon: 'mdi:speedometer',         label: 'Rate Limiting',     desc: 'Control request volume' },
+                { icon: 'mdi:plug-outline',        label: 'OpenAI Compatible', desc: 'Drop-in replacement' },
               ].map(f => (
                 <div key={f.label} className="flex gap-2 p-2.5 bg-indigo-50/60 rounded-xl border border-indigo-100">
-                  <i className={`${f.icon} text-indigo-500 text-xs mt-0.5`} />
+                  <Icon icon={f.icon} width={14} color="#6366f1" className="mt-0.5" />
                   <div>
-                    <p className="text-xs font-semibold text-gray-800">{f.label}</p>
-                    <p className="text-[10px] text-gray-500">{f.desc}</p>
+                    <p className="text-xs font-semibold text-[rgba(0,0,0,0.88)]">{f.label}</p>
+                    <p className="text-[10px] text-[rgba(0,0,0,0.5)]">{f.desc}</p>
                   </div>
                 </div>
               ))}
@@ -749,14 +750,14 @@ console.log(response.choices[0].message.content)`;
       {activeSection === 'connect' && (
         <div className="space-y-5">
           {/* Provider selector — one click, one snippet */}
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+            <h3 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-3 flex items-center">
               Choose provider
               <InfoIcon tip="Select a provider to generate a ready-to-run code snippet for that provider. The snippet uses your master key and the provider's default model." />
             </h3>
             <div className="flex flex-wrap gap-2">
               {activeProviders.length === 0 && (
-                <p className="text-sm text-gray-400">Add a provider first.</p>
+                <p className="text-sm text-[rgba(0,0,0,0.4)]">Add a provider first.</p>
               )}
               {activeProviders.map(p => {
                 const prov = p.provider?.toUpperCase() ?? '';
@@ -768,7 +769,7 @@ console.log(response.choices[0].message.content)`;
                     className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
                       isActive
                         ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-400 hover:text-indigo-600'
+                        : 'bg-white text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.12)] hover:border-indigo-400 hover:text-indigo-600'
                     }`}
                   >
                     {p.displayName ?? p.provider}
@@ -777,13 +778,13 @@ console.log(response.choices[0].message.content)`;
               })}
             </div>
             {connectModel && (
-              <p className="text-xs text-gray-400 mt-2">Using model: <span className="font-mono text-gray-600">{connectModel}</span></p>
+              <p className="text-xs text-[rgba(0,0,0,0.4)] mt-2">Using model: <span className="font-mono text-[rgba(0,0,0,0.6)]">{connectModel}</span></p>
             )}
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <i className="fas fa-terminal text-gray-500" /> cURL
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+            <h3 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-3 flex items-center gap-2">
+              <Icon icon="mdi:console" width={14} color="#6b7280" /> cURL
               <InfoIcon tip="Copy this command and run it in your terminal to test the gateway. Replace YOUR_API_KEY with your real provider API key." />
             </h3>
             <CodeBlock code={curlExample} />
@@ -793,7 +794,7 @@ console.log(response.choices[0].message.content)`;
               return cpModels.length > 1 ? (
                 <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-xl">
                   <p className="text-xs font-semibold text-blue-700 mb-1.5">
-                    <i className="fas fa-info-circle mr-1" />
+                    <Icon icon="mdi:information-outline" width={13} color="#3b82f6" className="inline mr-1" />
                     To use a different model — click any model below. Same key, same endpoint.
                   </p>
                   <div className="flex flex-wrap gap-1.5">
@@ -817,17 +818,17 @@ console.log(response.choices[0].message.content)`;
             })()}
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <i className="fab fa-python text-yellow-500" /> Python (OpenAI SDK)
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+            <h3 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-3 flex items-center gap-2">
+              <Icon icon="mdi:language-python" width={16} color="#eab308" /> Python (OpenAI SDK)
               <InfoIcon tip="Uses the OpenAI Python SDK pointed at the XamOps gateway. Works for all providers — just change the model name." />
             </h3>
             <CodeBlock code={pythonExample} />
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <i className="fab fa-node-js text-green-600" /> Node.js (OpenAI SDK)
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+            <h3 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-3 flex items-center gap-2">
+              <Icon icon="mdi:nodejs" width={16} color="#16a34a" /> Node.js (OpenAI SDK)
               <InfoIcon tip="Uses the OpenAI Node.js SDK pointed at the XamOps gateway. Works for all providers — just change the model name." />
             </h3>
             <CodeBlock code={nodeExample} />
@@ -839,8 +840,8 @@ console.log(response.choices[0].message.content)`;
       {activeSection === 'groups' && (
         <div className="space-y-4">
           {/* Info banner */}
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3">
-            <i className="fas fa-layer-group text-amber-500 mt-0.5 flex-shrink-0" />
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+            <Icon icon="mdi:layers-outline" width={16} color="#f59e0b" className="mt-0.5 flex-shrink-0" />
             <div className="space-y-2">
               <p className="text-sm font-semibold text-amber-800">What are Key Groups?</p>
               <p className="text-xs text-amber-700">
@@ -851,7 +852,7 @@ console.log(response.choices[0].message.content)`;
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                 <div className="bg-white/70 border border-amber-200 rounded-xl p-3">
                   <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-1">
-                    <i className="fas fa-check-circle text-emerald-500" /> Use grouping when:
+                    <Icon icon="mdi:check-circle-outline" width={14} color="#059669" /> Use grouping when:
                   </p>
                   <ul className="text-xs text-amber-700 space-y-1 list-none">
                     <li>• Different teams need isolated access (backend vs frontend)</li>
@@ -862,7 +863,7 @@ console.log(response.choices[0].message.content)`;
                 </div>
                 <div className="bg-white/70 border border-amber-200 rounded-xl p-3">
                   <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-1">
-                    <i className="fas fa-times-circle text-red-400" /> Skip grouping when:
+                    <Icon icon="mdi:close-circle-outline" width={14} color="#f87171" /> Skip grouping when:
                   </p>
                   <ul className="text-xs text-amber-700 space-y-1 list-none">
                     <li>• You only have one API key per provider</li>
@@ -874,7 +875,7 @@ console.log(response.choices[0].message.content)`;
               {/* Same provider grouping tip */}
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 mt-1">
                 <p className="text-xs font-semibold text-indigo-800 flex items-center gap-1.5 mb-1">
-                  <i className="fas fa-lightbulb text-indigo-500" /> Load balancing across same provider
+                  <Icon icon="mdi:lightbulb-outline" width={14} color="#4F46E5" /> Load balancing across same provider
                 </p>
                 <p className="text-xs text-indigo-700">
                   If you have <strong>3 OpenAI API keys</strong> (from different accounts), create a group with OpenAI,
@@ -889,13 +890,13 @@ console.log(response.choices[0].message.content)`;
           {/* Create button */}
           {!showGroupForm && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-[rgba(0,0,0,0.5)]">
                 {groupsLoading ? 'Loading…' : groups.length === 0 ? 'No key groups yet.' : `${groups.length} group${groups.length > 1 ? 's' : ''}`}
               </p>
               <Tooltip text="Create a new group key that restricts access to specific providers. You can have unlimited groups — one per team, environment, or use case.">
                 <button onClick={openNewGroup} disabled={activeProviders.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-all disabled:opacity-40">
-                  <i className="fas fa-plus text-xs" /> Create Key Group
+                  className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-sm font-semibold rounded-md transition-all disabled:opacity-40">
+                  <Icon icon="mdi:plus" width={14} /> Create Key Group
                 </button>
               </Tooltip>
             </div>
@@ -903,39 +904,39 @@ console.log(response.choices[0].message.content)`;
 
           {/* Create / Edit form */}
           {showGroupForm && (
-            <div className="bg-white border border-indigo-200 rounded-2xl shadow-sm p-5 space-y-4">
-              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+            <div className="bg-white border border-indigo-200 rounded-xl shadow-sm p-5 space-y-4">
+              <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)] flex items-center gap-2">
                 {editingGroup != null ? 'Edit Key Group' : 'New Key Group'}
                 <InfoIcon tip="Each group gets its own unique sk-xamops-grp-... key automatically. Share that key with the team that should have access." />
               </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                  <label className="block text-xs font-medium text-[rgba(0,0,0,0.6)] mb-1">
                     Group Name <span className="text-red-500">*</span>
                     <InfoIcon tip='Give it a name that reflects the team or environment. e.g. "Production", "Dev Team", "Analytics Pipeline"' />
                   </label>
                   <input value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="e.g. Production App"
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                    className="w-full text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Description (optional)</label>
+                  <label className="block text-xs font-medium text-[rgba(0,0,0,0.6)] mb-1">Description (optional)</label>
                   <input value={groupDesc} onChange={e => setGroupDesc(e.target.value)} placeholder="e.g. For the prod backend service"
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                    className="w-full text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-2 flex items-center">
+                <label className="block text-xs font-medium text-[rgba(0,0,0,0.6)] mb-2 flex items-center">
                   Select Providers to include in this group
                   <InfoIcon tip="Only these providers will be accessible via this group key. If a request comes in for a provider not in this group, it will be blocked. You can select multiple providers." />
                 </label>
-                <p className="text-[11px] text-gray-400 mb-2">
-                  <i className="fas fa-info-circle mr-1 text-indigo-400" />
+                <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-2">
+                  <Icon icon="mdi:information-outline" width={13} color="#818cf8" className="inline mr-1" />
                   Tip: Select the same provider type multiple times if you have multiple accounts — then add each API key to the Key Pool for load balancing.
                 </p>
                 {activeProviders.length === 0 ? (
-                  <p className="text-xs text-gray-400">Add a provider first from the API Keys tab.</p>
+                  <p className="text-xs text-[rgba(0,0,0,0.4)]">Add a provider first from the API Keys tab.</p>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {activeProviders.map(p => {
@@ -944,15 +945,15 @@ console.log(response.choices[0].message.content)`;
                         <Tooltip key={p.id} text={`${selected ? 'Remove' : 'Add'} ${p.displayName ?? p.provider} — requests for ${p.provider} models will ${selected ? 'no longer' : ''} route through this group`}>
                           <button onClick={() => toggleGroupProvider(p.id!)}
                             className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all w-full ${
-                              selected ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-gray-50 hover:border-indigo-200'
+                              selected ? 'border-indigo-400 bg-indigo-50' : 'border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] hover:border-indigo-200'
                             }`}>
                             <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                               style={{ backgroundColor: PROVIDER_COLORS[p.provider] ?? '#94a3b8' }} />
                             <div className="min-w-0 flex-1">
-                              <p className="text-xs font-semibold text-gray-800 truncate">{p.displayName ?? p.provider}</p>
-                              <p className="text-[10px] text-gray-400">{p.provider}</p>
+                              <p className="text-xs font-semibold text-[rgba(0,0,0,0.88)] truncate">{p.displayName ?? p.provider}</p>
+                              <p className="text-[10px] text-[rgba(0,0,0,0.4)]">{p.provider}</p>
                             </div>
-                            {selected && <i className="fas fa-check text-indigo-500 text-xs flex-shrink-0" />}
+                            {selected && <Icon icon="mdi:check" width={14} color="#4F46E5" className="flex-shrink-0" />}
                           </button>
                         </Tooltip>
                       );
@@ -963,12 +964,12 @@ console.log(response.choices[0].message.content)`;
 
               <div className="flex gap-3 pt-1">
                 <button onClick={saveGroup} disabled={savingGroup || !groupName.trim() || groupProviderIds.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-all disabled:opacity-40">
-                  <i className={`fas ${savingGroup ? 'fa-circle-notch fa-spin' : 'fa-save'} text-xs`} />
+                  className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-sm font-semibold rounded-md transition-all disabled:opacity-40">
+                  {savingGroup ? <Icon icon="mdi:loading" width={14} className="animate-spin" /> : <Icon icon="mdi:content-save-outline" width={14} />}
                   {savingGroup ? 'Saving…' : editingGroup != null ? 'Save Changes' : 'Create Group'}
                 </button>
                 <button onClick={cancelGroupForm}
-                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-xl transition-all">
+                  className="px-4 py-2 text-sm text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-md hover:bg-[rgba(0,0,0,0.06)] transition-all">
                   Cancel
                 </button>
               </div>
@@ -979,18 +980,18 @@ console.log(response.choices[0].message.content)`;
           {!showGroupForm && groups.length > 0 && (
             <div className="space-y-3">
               {groups.map(g => (
-                <div key={g.id} className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
+                <div key={g.id} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-sm font-bold text-gray-800">{g.name}</h4>
+                        <h4 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{g.name}</h4>
                         {g.description && (
-                          <span className="text-xs text-gray-400">{g.description}</span>
+                          <span className="text-xs text-[rgba(0,0,0,0.4)]">{g.description}</span>
                         )}
                         {g.keyCount > 0 && (
                           <Tooltip text={`${g.keyCount} API key${g.keyCount > 1 ? 's' : ''} stored in the key pool — load balancing is ${g.keyCount > 1 ? 'active' : 'inactive (need 2+ keys)'}`}>
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full cursor-help ${g.keyCount > 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                              <i className={`fas ${g.keyCount > 1 ? 'fa-random' : 'fa-key'} mr-1`} />
+                              {g.keyCount > 1 ? <Icon icon="mdi:shuffle-variant" width={11} className="inline mr-1" /> : <Icon icon="mdi:key-outline" width={11} className="inline mr-1" />}
                               {g.keyCount} key{g.keyCount > 1 ? 's' : ''} in pool {g.keyCount > 1 ? '· LB active' : '· add 1 more for LB'}
                             </span>
                           </Tooltip>
@@ -1004,41 +1005,41 @@ console.log(response.choices[0].message.content)`;
                               Group Key
                             </span>
                           </div>
-                          <i className="fas fa-key text-indigo-400 text-[10px]" />
+                          <Icon icon="mdi:key-outline" width={12} color="#818cf8" />
                           <code className="text-xs text-indigo-800 font-mono font-semibold">{g.groupKey}</code>
                           <CopyButton text={g.groupKey} />
                         </div>
                       </Tooltip>
-                      <p className="text-[10px] text-gray-400 mt-1 ml-1">
-                        <i className="fas fa-ban text-red-300 mr-1" />Not the same as your <span className="text-violet-600 font-semibold">Master Key</span> — restricted to providers in this group only.
+                      <p className="text-[10px] text-[rgba(0,0,0,0.4)] mt-1 ml-1">
+                        <Icon icon="mdi:cancel" width={13} color="#fca5a5" className="inline mr-1" />Not the same as your <span className="text-violet-600 font-semibold">Master Key</span> — restricted to providers in this group only.
                       </p>
                       {/* Providers in group */}
                       <div className="mt-3 flex flex-wrap gap-2 items-center">
-                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Providers:</span>
+                        <span className="text-[10px] text-[rgba(0,0,0,0.4)] font-medium uppercase tracking-wide">Providers:</span>
                         {g.providerNames.map((name, i) => (
                           <Tooltip key={i} text={`Requests for ${name} models will route through this group. Add ${name} API keys to the Key Pool below to enable load balancing.`}>
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-700 text-xs rounded-full font-medium cursor-help">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.7)] text-xs rounded-full font-medium cursor-help">
                               <span className="w-2 h-2 rounded-full bg-indigo-400" />
                               {name}
                             </span>
                           </Tooltip>
                         ))}
                         {g.providerNames.length === 0 && (
-                          <span className="text-xs text-gray-400 italic">No providers — edit to add some</span>
+                          <span className="text-xs text-[rgba(0,0,0,0.4)] italic">No providers — edit to add some</span>
                         )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Tooltip text="Edit this group — change name, description or providers">
                         <button onClick={() => openEditGroup(g)}
-                          className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                          <i className="fas fa-pen text-xs" />
+                          className="p-2 text-[rgba(0,0,0,0.4)] hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                          <Icon icon="mdi:pencil-outline" width={13} />
                         </button>
                       </Tooltip>
                       <Tooltip text="Delete this group and its group key permanently. Keys in the pool will also be deleted.">
                         <button onClick={() => deleteGroup(g.id)}
-                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                          <i className="fas fa-trash text-xs" />
+                          className="p-2 text-[rgba(0,0,0,0.4)] hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                          <Icon icon="mdi:trash-can-outline" width={13} />
                         </button>
                       </Tooltip>
                     </div>
@@ -1070,7 +1071,7 @@ console.log(response.choices[0].message.content)`;
                         const keyPlaceholder = providerLabel[provKey] ?? 'YOUR_API_KEY';
                         return (
                           <div key={i}>
-                            <p className="text-[11px] text-gray-500 font-semibold mb-1 uppercase tracking-wide">{providerName}</p>
+                            <p className="text-[11px] text-[rgba(0,0,0,0.5)] font-semibold mb-1 uppercase tracking-wide">{providerName}</p>
                             <CodeBlock code={
 `curl -X POST "${proxyEndpoint}/chat/completions" \\
   -H "Content-Type: application/json" \\
@@ -1092,19 +1093,19 @@ console.log(response.choices[0].message.content)`;
 
       {/* ── Test Gateway ── */}
       {activeSection === 'test' && (
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-4">
-          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <i className="fas fa-flask text-indigo-400" /> Test Gateway
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] flex items-center gap-2">
+            <Icon icon="mdi:test-tube" width={14} color="#818cf8" /> Test Gateway
             <InfoIcon tip="Send a live request through the gateway. Choose Master Key to test all providers, or pick a Group Key to test only that group's providers." />
           </h3>
 
           {!masterKey || activeProviders.length === 0 ? (
-            <p className="text-sm text-gray-500">Add a provider first — your master key will appear here.</p>
+            <p className="text-sm text-[rgba(0,0,0,0.5)]">Add a provider first — your master key will appear here.</p>
           ) : (
             <>
               {/* Key selector — Master vs Group */}
               <div>
-                <label className="block text-xs text-gray-500 mb-2 flex items-center gap-1">
+                <label className="block text-xs text-[rgba(0,0,0,0.5)] mb-2 flex items-center gap-1">
                   Test with key
                   <InfoIcon tip="Master Key tests all providers. Group Key tests only the providers in that group — use this to verify group isolation and load balancing." />
                 </label>
@@ -1116,7 +1117,7 @@ console.log(response.choices[0].message.content)`;
                       className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${
                         testKeyMode === 'master'
                           ? 'border-violet-500 bg-violet-50 text-violet-700'
-                          : 'border-gray-200 bg-white text-gray-500 hover:border-violet-300'
+                          : 'border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.5)] hover:border-violet-300'
                       }`}>
                       <span className="text-[9px] font-bold text-white bg-violet-500 px-1.5 py-0.5 rounded uppercase">Master</span>
                       <code className="font-mono">{masterKey?.slice(0, 18)}…</code>
@@ -1140,18 +1141,18 @@ console.log(response.choices[0].message.content)`;
                         className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${
                           testKeyMode === 'group' && testGroupKey === g.groupKey
                             ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                            : 'border-gray-200 bg-white text-gray-500 hover:border-indigo-300'
+                            : 'border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.5)] hover:border-indigo-300'
                         }`}>
                         <span className="text-[9px] font-bold text-white bg-indigo-500 px-1.5 py-0.5 rounded uppercase">Group</span>
                         <span>{g.name}</span>
-                        <code className="font-mono text-[10px] text-gray-400">{g.groupKey.slice(0, 16)}…</code>
+                        <code className="font-mono text-[10px] text-[rgba(0,0,0,0.4)]">{g.groupKey.slice(0, 16)}…</code>
                       </button>
                     </Tooltip>
                   ))}
                 </div>
                 {/* Active key display */}
                 <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${testKeyMode === 'master' ? 'bg-violet-50 border border-violet-200' : 'bg-indigo-50 border border-indigo-200'}`}>
-                  <i className={`fas fa-key text-xs ${testKeyMode === 'master' ? 'text-violet-400' : 'text-indigo-400'}`} />
+                  <Icon icon="mdi:key-outline" width={14} color={testKeyMode === 'master' ? '#7c3aed' : '#4F46E5'} />
                   <span className={`font-semibold ${testKeyMode === 'master' ? 'text-violet-600' : 'text-indigo-600'}`}>
                     {testKeyMode === 'master' ? 'Master Key' : `Group: ${testGroupName}`}
                   </span>
@@ -1163,12 +1164,12 @@ console.log(response.choices[0].message.content)`;
 
               {/* Model selector */}
               <div>
-                <label className="block text-xs text-gray-500 mb-1 flex items-center gap-1">
+                <label className="block text-xs text-[rgba(0,0,0,0.5)] mb-1 flex items-center gap-1">
                   Model
                   <InfoIcon tip="Model name determines the provider. claude-* → Anthropic, gpt-* → OpenAI, gemini-* → Gemini. For Group Key, only models from providers in that group are shown." />
                 </label>
                 <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)}
-                  className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                  className="text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-1.5 text-[rgba(0,0,0,0.7)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]">
                   {(() => {
                     let providersToShow = activeProviders;
                     if (testKeyMode === 'group' && testGroupKey) {
@@ -1192,14 +1193,14 @@ console.log(response.choices[0].message.content)`;
 
               {/* Prompt */}
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Prompt</label>
+                <label className="block text-xs text-[rgba(0,0,0,0.5)] mb-1">Prompt</label>
                 <textarea value={testPrompt} onChange={e => setTestPrompt(e.target.value)} rows={2}
-                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  className="w-full text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 text-[rgba(0,0,0,0.7)] resize-none focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
               </div>
 
               <button onClick={handleTest} disabled={testing || !selectedModel || (testKeyMode === 'group' && !testGroupKey)}
-                className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-all disabled:opacity-50">
-                <i className={`fas ${testing ? 'fa-circle-notch fa-spin' : 'fa-paper-plane'} text-xs`} />
+                className="flex items-center gap-2 px-5 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-sm font-semibold rounded-md transition-all disabled:opacity-50">
+                {testing ? <Icon icon="mdi:loading" width={14} className="animate-spin" /> : <Icon icon="mdi:send-outline" width={14} />}
                 {testing ? 'Sending…' : 'Send Request'}
               </button>
 
@@ -1208,20 +1209,20 @@ console.log(response.choices[0].message.content)`;
                   {testResult.error ? (
                     <>
                       <p className="text-xs font-semibold text-red-700 mb-1 flex items-center gap-1.5">
-                        <i className="fas fa-times-circle" /> Error
+                        <Icon icon="mdi:close-circle-outline" width={14} color="#dc2626" /> Error
                       </p>
                       <p className="text-xs text-red-600 font-mono">{testResult.error}</p>
                     </>
                   ) : (
                     <>
                       <p className="text-xs font-semibold text-green-700 mb-1 flex items-center gap-1.5">
-                        <i className="fas fa-check-circle" /> Success
+                        <Icon icon="mdi:check-circle-outline" width={14} color="#16a34a" /> Success
                         {testResult.latency != null && <span className="ml-2 text-[10px] text-green-600 font-normal">{testResult.latency}ms</span>}
                         <span className="ml-2 text-[10px] text-green-500 font-normal">
                           via {testKeyMode === 'master' ? 'Master Key' : `Group: ${testGroupName}`}
                         </span>
                       </p>
-                      <p className="text-sm text-gray-700">{testResult.response}</p>
+                      <p className="text-sm text-[rgba(0,0,0,0.7)]">{testResult.response}</p>
                     </>
                   )}
                 </div>

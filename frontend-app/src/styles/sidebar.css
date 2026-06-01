@@ -1,85 +1,42 @@
-/**
- * Sidebar Styles
- *
- * Converted from: _sidebar.html (inline styles)
- * These styles match the original sidebar exactly
- */
-
-/* Hide elements with x-cloak until Alpine is ready (not needed in React, but keeping for consistency) */
-[x-cloak] {
-  display: none !important;
+/* Pump-style sidebar scrollbar — minimal, nearly invisible */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
 }
 
-/* Toggle Switch Styles */
-.toggle-switch {
-  position: relative;
-  width: 48px;
-  height: 24px;
-  background-color: #cbd5e1;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.toggle-switch.active {
-  background-color: #4f46e5;
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
 }
 
-.toggle-slider {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  background-color: white;
-  border-radius: 50%;
-  transition: transform 0.3s ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.18);
 }
 
-.toggle-switch.active .toggle-slider {
-  transform: translateX(24px);
-}
-
-/* Account Avatar Styles */
-.account-avatar {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
+/* Connection indicator dot (used in AccountSelector) */
 .connection-indicator {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 10px;
-  height: 10px;
-  background-color: #10b981;
-  border: 2px solid white;
+  width: 8px;
+  height: 8px;
+  background-color: #1BE68B;
+  border: 1.5px solid white;
   border-radius: 50%;
 }
 
 .account-status {
-  width: 8px;
-  height: 8px;
-  background-color: #10b981;
+  width: 6px;
+  height: 6px;
+  background-color: #1BE68B;
   border-radius: 50%;
   display: inline-block;
 }
 
-/* Custom Scrollbar for Sidebar */
-.sidebar-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-
-.sidebar-scroll::-webkit-scrollbar-track {
-  background: #f1f5f9;
-  border-radius: 3px;
-}
-
-.sidebar-scroll::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
-}
-
-.sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+/* Account avatar — neutral dark circle */
+.account-avatar {
+  background: rgba(0, 0, 0, 0.88);
 }

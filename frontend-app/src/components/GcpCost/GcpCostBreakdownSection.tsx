@@ -1,13 +1,7 @@
-/**
- * GcpCostBreakdownSection Component
- * Displays cost breakdown with filters, donut chart, and detailed table
- */
-
 import React, { useEffect, useRef, useMemo } from 'react';
 import { Chart, ChartConfiguration, ArcElement, DoughnutController, Tooltip, Legend } from 'chart.js';
 import type { GcpCostDataItem, GcpCostFilters, GcpGroupByType } from '../../types/gcpCost';
 
-// Register Chart.js components
 Chart.register(ArcElement, DoughnutController, Tooltip, Legend);
 
 interface GcpCostBreakdownSectionProps {
@@ -16,6 +10,13 @@ interface GcpCostBreakdownSectionProps {
   isLoading: boolean;
   onFiltersChange: (filters: Partial<GcpCostFilters>) => void;
 }
+
+const COLORS = [
+  '#f97316', '#f59e0b', '#ef4444', '#fb923c', '#fbbf24',
+  '#e11d48', '#f43f5e', '#dc2626', '#ea580c', '#d97706', '#b45309',
+];
+
+const inputCls = 'px-2.5 py-1.5 text-[12px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.25)] transition-colors';
 
 const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
   costData,
@@ -26,39 +27,18 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart<'doughnut'> | null>(null);
 
-  // Format currency in INR
-  const formatCurrency = (value: number): string => {
-    return (value || 0).toLocaleString('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 2,
-    });
-  };
+  const formatCurrency = (value: number): string =>
+    '$' + (value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const sortedData = useMemo(() =>
-    [...costData].sort((a, b) => b.amount - a.amount),
-    [costData]
-  );
+    [...costData].sort((a, b) => b.amount - a.amount), [costData]);
 
   const totalCost = useMemo(() =>
-    costData.reduce((sum, item) => sum + item.amount, 0),
-    [costData]
-  );
+    costData.reduce((sum, item) => sum + item.amount, 0), [costData]);
 
-  // Color palette
-  const colors = [
-    '#4285F4', '#34A853', '#FBBC04', '#EA4335', '#9AA0A6',
-    '#5F6368', '#1A73E8', '#0D652D', '#E37400', '#B31412', '#fb923c'
-  ];
-
-  // Render chart
   useEffect(() => {
     if (!chartRef.current || costData.length === 0) return;
-
-    // Destroy previous chart
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-    }
+    if (chartInstanceRef.current) chartInstanceRef.current.destroy();
 
     const topN = 10;
     const chartData = sortedData.slice(0, topN);
@@ -76,41 +56,43 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
       data: {
         labels,
         datasets: [{
-          label: 'Cost',
           data,
-          backgroundColor: colors,
-          borderWidth: 0,
-          hoverOffset: 8,
+          backgroundColor: COLORS,
+          borderWidth: 2,
+          borderColor: '#ffffff',
+          hoverOffset: 4,
         }],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '60%',
+        cutout: '68%',
         plugins: {
           legend: {
             position: 'bottom',
             labels: {
-              boxWidth: 12,
-              font: { size: 11, weight: '500' },
+              boxWidth: 8,
+              boxHeight: 8,
+              font: { size: 11 },
               usePointStyle: true,
+              pointStyle: 'circle',
               padding: 12,
-              color: '#374151',
+              color: 'rgba(0,0,0,0.55)',
             },
           },
           tooltip: {
-            backgroundColor: 'rgba(31, 41, 55, 0.95)',
+            backgroundColor: 'rgba(0,0,0,0.88)',
             titleColor: 'white',
-            bodyColor: 'white',
-            borderColor: 'rgba(66, 133, 244, 0.8)',
+            bodyColor: 'rgba(255,255,255,0.7)',
+            borderColor: 'rgba(255,255,255,0.08)',
             borderWidth: 1,
             cornerRadius: 8,
-            padding: 12,
+            padding: 10,
             callbacks: {
-              label: (context) => {
+              label: (ctx) => {
                 const total = data.reduce((a, b) => a + b, 0);
-                const pct = ((context.parsed / total) * 100).toFixed(1);
-                return `${context.label}: ${formatCurrency(context.parsed)} (${pct}%)`;
+                const pct = ((ctx.parsed / total) * 100).toFixed(1);
+                return ` ${formatCurrency(ctx.parsed)}  (${pct}%)`;
               },
             },
           },
@@ -119,132 +101,102 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
     };
 
     chartInstanceRef.current = new Chart(chartRef.current, config);
-
-    return () => {
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.destroy();
-      }
-    };
+    return () => { chartInstanceRef.current?.destroy(); };
   }, [costData, sortedData]);
 
   return (
-    <div className="gcp-cost-breakdown-section">
-      <div className="gcp-cost-breakdown-header">
-        <div className="gcp-cost-breakdown-title">
-          <div className="gcp-cost-breakdown-icon">
-            <i className="fas fa-chart-pie"></i>
-          </div>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm">
+
+      {/* Header + Filters */}
+      <div className="px-5 pt-5 pb-4 border-b border-[rgba(0,0,0,0.06)]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2>Cost Breakdown</h2>
-            <p>Spending analysis for the last 90 days</p>
+            <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost Breakdown</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">Spending analysis for the last 90 days</p>
           </div>
-        </div>
-
-        {/* Filters */}
-        <div className="gcp-cost-filters">
-          <span className="gcp-cost-filter-label">Group by:</span>
-          <select
-            value={filters.groupBy}
-            onChange={(e) => onFiltersChange({ groupBy: e.target.value as GcpGroupByType })}
-            className="gcp-cost-filter-select"
-          >
-            <option value="SERVICE">Service</option>
-            <option value="PROJECT">Project</option>
-            <option value="TAG">Tag Key</option>
-          </select>
-
-          {filters.groupBy === 'TAG' && (
-            <input
-              type="text"
-              value={filters.tagKey}
-              onChange={(e) => onFiltersChange({ tagKey: e.target.value })}
-              placeholder="Enter tag key..."
-              className="gcp-cost-filter-input"
-            />
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">Group by:</span>
+            <select value={filters.groupBy} onChange={e => onFiltersChange({ groupBy: e.target.value as GcpGroupByType })} className={inputCls}>
+              <option value="SERVICE">Service</option>
+              <option value="PROJECT">Project</option>
+              <option value="TAG">Tag Key</option>
+            </select>
+            {filters.groupBy === 'TAG' && (
+              <input type="text" value={filters.tagKey} onChange={e => onFiltersChange({ tagKey: e.target.value })} placeholder="Enter tag key..." className={`${inputCls} w-32`} />
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Loading State */}
+      {/* Loading */}
       {isLoading && (
-        <div className="gcp-cost-breakdown-loading">
-          <div className="gcp-cost-breakdown-chart-skeleton"></div>
-          <div className="gcp-cost-breakdown-table-skeleton"></div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 p-5">
+          <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-72 rounded-xl"></div>
+          <div className="lg:col-span-2 animate-pulse bg-[rgba(0,0,0,0.04)] h-72 rounded-xl"></div>
         </div>
       )}
 
-      {/* Empty State */}
+      {/* Empty */}
       {!isLoading && costData.length === 0 && (
-        <div className="gcp-cost-empty-state">
-          <div className="gcp-cost-empty-icon">
-            <i className="fas fa-dollar-sign"></i>
+        <div className="py-16 text-center">
+          <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-4">
+            <i className="fas fa-dollar-sign text-[rgba(0,0,0,0.2)] text-xl"></i>
           </div>
-          <h3>No Cost Data Available</h3>
-          <p>There is no cost data for the selected criteria.</p>
+          <p className="text-[14px] font-medium text-[rgba(0,0,0,0.5)]">No cost data available</p>
         </div>
       )}
 
-      {/* Chart and Table */}
+      {/* Chart + Table */}
       {!isLoading && costData.length > 0 && (
-        <div className="gcp-cost-breakdown-content">
-          {/* Donut Chart */}
-          <div className="gcp-cost-chart-container">
-            <h3 className="gcp-cost-chart-title">
-              <i className="fas fa-chart-pie"></i>
-              Cost Distribution
-            </h3>
-            <div className="gcp-cost-chart-wrapper">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-0 divide-x divide-[rgba(0,0,0,0.06)]">
+
+          {/* Donut */}
+          <div className="lg:col-span-2 p-5">
+            <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] mb-4">Cost Distribution</p>
+            <div className="h-72 relative">
               <canvas ref={chartRef}></canvas>
             </div>
           </div>
 
           {/* Table */}
-          <div className="gcp-cost-table-container">
-            <div className="gcp-cost-table-header">
-              <h3>
-                <i className="fas fa-table"></i>
-                Detailed Breakdown
-              </h3>
+          <div className="lg:col-span-3 flex flex-col">
+            <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)]">
+              <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">Detailed Breakdown</p>
             </div>
-            <div className="gcp-cost-table-wrapper">
-              <table className="gcp-cost-table">
-                <thead>
+            <div className="overflow-auto flex-1" style={{ maxHeight: '340px' }}>
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-[rgba(247,247,247,0.95)]">
                   <tr>
-                    <th>
+                    <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">
                       {filters.groupBy.charAt(0) + filters.groupBy.slice(1).toLowerCase()}
                     </th>
-                    <th className="text-right">Cost</th>
-                    <th className="text-right">% of Total</th>
+                    <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">Cost (USD)</th>
+                    <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">%</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedData.map((item, index) => (
-                    <tr key={item.name || `item-${index}`}>
-                      <td>
-                        <div className="gcp-cost-table-name">
-                          <span
-                            className="gcp-cost-color-dot"
-                            style={{ backgroundColor: colors[index % colors.length] }}
-                          ></span>
-                          <span>{item.name || '(Not Set)'}</span>
-                        </div>
-                      </td>
-                      <td className="text-right">
-                        <span className="gcp-cost-amount">
-                          {formatCurrency(item.amount)}
-                        </span>
-                      </td>
-                      <td className="text-right">
-                        <span className="gcp-cost-percentage">
-                          {((item.amount / totalCost) * 100).toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {sortedData.map((item, index) => {
+                    const pct = ((item.amount / totalCost) * 100).toFixed(1);
+                    return (
+                      <tr key={item.name || index} className="border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }}></span>
+                            <span className="text-[13px] font-medium text-[rgba(0,0,0,0.88)] truncate">{item.name || '(Not Set)'}</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <span className="text-[13px] font-semibold tabular-nums text-[rgba(0,0,0,0.88)]">{formatCurrency(item.amount)}</span>
+                        </td>
+                        <td className="px-5 py-3 text-right text-[13px] text-[rgba(0,0,0,0.4)] tabular-nums">{pct}%</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
+
         </div>
       )}
     </div>

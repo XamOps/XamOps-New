@@ -16,8 +16,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Plus } from 'lucide-react';
+import { Icon } from '@iconify/react';
 import { useAccountManager } from '../hooks/useAccountManager';
 import { useTopbar } from '../contexts/TopbarContext';
 import {
@@ -30,8 +29,6 @@ import {
 } from '../components/AccountManager';
 import type { CloudAccount, GitHubConfig, JenkinsConfig } from '../types/accountManager';
 
-// Import styles
-import '../styles/accountManager.css';
 
 const AccountManagerPage: React.FC = () => {
   const {
@@ -54,17 +51,13 @@ const AccountManagerPage: React.FC = () => {
   React.useEffect(() => {
     // Register Topbar actions
     setActions(
-      <div className="flex items-center gap-2">
-        <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-          <Link
-            to="/add-account"
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-violet-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:from-indigo-600 hover:to-violet-700 transition-all"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Account</span>
-          </Link>
-        </motion.div>
-      </div>
+      <Link
+        to="/add-account"
+        className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-md text-xs font-medium transition-colors"
+      >
+        <Icon icon="mdi:plus" width={14} />
+        Add Account
+      </Link>
     );
 
     // Register help button click handler
@@ -141,8 +134,8 @@ const AccountManagerPage: React.FC = () => {
   }, [removeJenkinsConfig]);
 
   return (
-    <div className="account-manager-page pb-12">
-      <div className="account-manager-content pt-6">
+    <div className="px-6 pb-12 pt-6">
+      <div className="space-y-6">
         {/* KPI Cards */}
         <AccountManagerKPICards
           accounts={accounts}

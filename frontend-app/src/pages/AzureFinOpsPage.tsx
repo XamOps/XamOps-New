@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureFinOpsData } from '../hooks/useAzureFinOpsData';
-import { useTheme } from '../contexts/ThemeContext';
 import { AzureNewSchedule } from '../types/azureFinops';
-import clsx from 'clsx';
+import { Icon } from '@iconify/react';
 import {
   AzureFinOpsHeader,
   AzureFinOpsKPICards,
@@ -17,7 +16,6 @@ import { DialogRoot, DialogPanel } from '../components/ui';
 const AzureFinOpsPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const subscriptionId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-  const { theme } = useTheme();
 
   const {
     reportData,
@@ -31,7 +29,6 @@ const AzureFinOpsPage: React.FC = () => {
     handleDeleteSchedule,
   } = useAzureFinOpsData(subscriptionId);
 
-  // Schedule modal state
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [lastFrequency, setLastFrequency] = useState('');
@@ -74,18 +71,28 @@ const AzureFinOpsPage: React.FC = () => {
     }
   };
 
-  const inputCls = clsx(
-    'w-full px-3 py-2.5 rounded-lg text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500',
-    theme === 'dark'
-      ? 'bg-slate-700 border-slate-600 text-slate-100 placeholder-slate-400'
-      : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
-  );
-
-  const labelCls = clsx('block text-sm font-medium mb-1.5', theme === 'dark' ? 'text-slate-300' : 'text-gray-700');
+  if (error && !reportData) {
+    return (
+      <div className="flex-1 px-6 pt-4 pb-6 flex items-center justify-center">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-8 max-w-md w-full text-center">
+          <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:alert-circle-outline" width={24} color="#dc2626" />
+          </div>
+          <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">Failed to Load Report</h2>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-6">{error}</p>
+          <button
+            onClick={handleRefresh}
+            className="px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <main className="p-6 space-y-6">
-      {/* Header */}
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <AzureFinOpsHeader
         selectedAccountId={subscriptionId}
         isRefreshing={isRefreshing}
@@ -94,63 +101,23 @@ const AzureFinOpsPage: React.FC = () => {
 
       {/* No account selected */}
       {!subscriptionId && !isLoading && (
-        <div className="glass-card rounded-xl p-16 text-center">
-          <div className="flex flex-col items-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-              <i className="fas fa-chart-pie text-blue-500 text-2xl" />
-            </div>
-            <h3 className={clsx('text-lg font-bold mb-1', theme === 'dark' ? 'text-slate-200' : 'text-gray-700')}>
-              No Account Selected
-            </h3>
-            <p className={clsx('text-sm max-w-md', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
-              Please select an Azure account from the sidebar to view the FinOps report.
-            </p>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-12 text-center">
+          <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:chart-pie-outline" width={24} color="rgba(0,0,0,0.3)" />
           </div>
+          <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Account Selected</h3>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
+            Please select an Azure account from the sidebar to view the FinOps report.
+          </p>
         </div>
       )}
 
-      {/* Error state */}
-      {subscriptionId && error && !reportData && (
-        <div className={clsx(
-          'glass-card rounded-xl p-6 border',
-          theme === 'dark' ? 'border-red-800 bg-red-900/20' : 'border-red-200 bg-red-50'
-        )}>
-          <div className="flex items-center gap-3">
-            <i className="fas fa-exclamation-circle text-red-500 text-xl" />
-            <div>
-              <p className={clsx('text-sm font-semibold', theme === 'dark' ? 'text-red-300' : 'text-red-700')}>
-                Failed to load FinOps report
-              </p>
-              <p className={clsx('text-xs mt-0.5', theme === 'dark' ? 'text-red-400' : 'text-red-500')}>
-                {error}
-              </p>
-            </div>
-            <button
-              onClick={handleRefresh}
-              className="ml-auto text-sm font-medium text-red-600 hover:text-red-800"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Main content */}
       {subscriptionId && (
         <>
-          {/* Savings callout */}
-          <AzureFinOpsSavingsCallout reportData={reportData} />
-
-          {/* KPI Cards */}
           <AzureFinOpsKPICards reportData={reportData} isLoading={isLoading} />
-
-          {/* Cost Charts */}
+          <AzureFinOpsSavingsCallout reportData={reportData} />
           <AzureFinOpsCostCharts reportData={reportData} isLoading={isLoading} />
-
-          {/* Insights: Rightsizing + Waste */}
           <AzureFinOpsInsightsSection reportData={reportData} isLoading={isLoading} />
-
-          {/* Schedule section */}
           <AzureFinOpsScheduleSection
             schedules={schedules}
             onDeleteSchedule={onDeleteSchedule}
@@ -164,12 +131,10 @@ const AzureFinOpsPage: React.FC = () => {
         <DialogPanel
           title={
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
-                <i className="fas fa-envelope text-white" />
+              <div className="w-10 h-10 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl flex items-center justify-center">
+                <Icon icon="mdi:email-outline" width={20} color="#2563eb" />
               </div>
-              <span className={clsx('text-xl font-bold', theme === 'dark' ? 'text-slate-100' : 'text-gray-900')}>
-                Schedule FinOps Report
-              </span>
+              <span className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Schedule FinOps Report</span>
             </div>
           }
           onClose={() => setIsScheduleModalOpen(false)}
@@ -178,24 +143,19 @@ const AzureFinOpsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsScheduleModalOpen(false)}
-                className={clsx(
-                  'px-5 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                  theme === 'dark'
-                    ? 'bg-slate-700 text-slate-200 hover:bg-slate-600'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                )}
+                className="px-5 py-2.5 rounded-lg text-sm font-medium bg-slate-100 text-[rgba(0,0,0,0.6)] hover:bg-slate-200 transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                form="schedule-finops-form"
+                form="azure-schedule-finops-form"
                 disabled={isCreatingSchedule}
-                className="px-5 py-2.5 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+                className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-2"
               >
                 {isCreatingSchedule ? (
                   <>
-                    <i className="fas fa-circle-notch fa-spin text-xs" />
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     Saving...
                   </>
                 ) : 'Create Schedule'}
@@ -203,24 +163,24 @@ const AzureFinOpsPage: React.FC = () => {
             </>
           }
         >
-          <form id="schedule-finops-form" onSubmit={onCreateSchedule} className="space-y-5">
+          <form id="azure-schedule-finops-form" onSubmit={onCreateSchedule} className="space-y-5">
             <div>
-              <label className={labelCls}>Email Address</label>
+              <label className="block text-[13px] font-semibold text-[rgba(0,0,0,0.6)] mb-1.5">Email Address</label>
               <input
                 type="email"
                 value={newSchedule.email}
                 onChange={e => setNewSchedule({ ...newSchedule, email: e.target.value })}
                 placeholder="report-recipient@example.com"
-                className={inputCls}
+                className="w-full px-3 py-2.5 rounded-lg text-sm border border-[rgba(0,0,0,0.15)] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
                 required
               />
             </div>
             <div>
-              <label className={labelCls}>Frequency</label>
+              <label className="block text-[13px] font-semibold text-[rgba(0,0,0,0.6)] mb-1.5">Frequency</label>
               <select
                 value={newSchedule.frequency}
                 onChange={e => setNewSchedule({ ...newSchedule, frequency: e.target.value })}
-                className={inputCls}
+                className="w-full px-3 py-2.5 rounded-lg text-sm border border-[rgba(0,0,0,0.15)] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
                 required
               >
                 <option value="" disabled>Select a frequency</option>
@@ -235,17 +195,17 @@ const AzureFinOpsPage: React.FC = () => {
 
       {/* Success toast */}
       {showToast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 bg-emerald-600 text-white rounded-xl shadow-2xl animate-fade-in">
-          <i className="fas fa-check-circle text-xl" />
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-lg">
+          <div className="w-8 h-8 rounded-lg bg-[#1BE68B]/20 flex items-center justify-center flex-shrink-0">
+            <Icon icon="mdi:check-circle" width={18} color="#158045" />
+          </div>
           <div>
-            <p className="font-semibold text-sm">Schedule Created!</p>
-            <p className="text-xs text-emerald-100">
+            <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">Schedule Created!</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.45)]">
               Your {lastFrequency.toLowerCase()} report is set up.
             </p>
           </div>
-          <button onClick={() => setShowToast(false)} className="ml-2 text-emerald-200 hover:text-white text-lg leading-none">
-            &times;
-          </button>
+          <button onClick={() => setShowToast(false)} className="ml-2 text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.6)] text-lg leading-none">&times;</button>
         </div>
       )}
     </main>

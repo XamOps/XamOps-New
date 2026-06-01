@@ -9,29 +9,15 @@
  * - Form validation
  * - Loading states
  * - Error handling with user-friendly messages
- * - Professional, modern UI with glass morphism design
  *
- * What changed:
- * - Migrated from Alpine.js to React with TypeScript
- * - Uses React Router for navigation
- * - Integrated with existing React infrastructure
- * - Enhanced UI with existing addAccount styling patterns
- *
- * What stayed the same:
- * - API endpoint: POST /api/cicd/config/github
- * - Same business logic preserved exactly
- * - Same validation and error handling
- * - Same success flow (redirect to account-manager)
+ * All API endpoints and functionality preserved from original.
  */
 
 import React, { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Icon } from '@iconify/react';
 import { useGitHubConfig } from '../hooks/useGitHubConfig';
 import { useTopbarActions } from '../contexts/TopbarContext';
-
-// Import styles
-import '../styles/addAccount.css';
-import '../styles/githubConfig.css';
 
 const GitHubConfigPage: React.FC = () => {
   const navigate = useNavigate();
@@ -45,34 +31,26 @@ const GitHubConfigPage: React.FC = () => {
     connectGitHub,
   } = useGitHubConfig();
 
-  useEffect(() => {
-    console.log('🚀 [GitHubConfig] Page Mounted');
-    console.log('📍 [GitHubConfig] Current URL:', globalThis.location.pathname);
-  }, []);
-
-  // Memoize the navigate handler
   const handleBackToAddAccount = useCallback(() => {
     navigate('/add-account');
   }, [navigate]);
 
-  // Set topbar actions
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
         <button
           onClick={handleBackToAddAccount}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+          className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.07)] rounded-md transition-colors"
         >
-          <i className="fas fa-arrow-left"></i>
-          <span>Back to Add Account</span>
+          <Icon icon="mdi:arrow-left" width={14} />
+          Back to Add Account
         </button>
-        <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-gradient-to-r from-gray-800/10 to-gray-700/10 border border-gray-300 text-gray-700">
-          <i className="fab fa-github"></i>
-          <span>GitHub</span>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium bg-[rgba(0,0,0,0.88)] text-white">
+          <Icon icon="mdi:github" width={14} />
+          GitHub
         </div>
       </div>
     );
-
     return () => clearActions();
   }, [setActions, clearActions, handleBackToAddAccount]);
 
@@ -82,180 +60,182 @@ const GitHubConfigPage: React.FC = () => {
   };
 
   return (
-    <main className="github-config-page">
-      {/* Content */}
-      <div className="github-config-content">
-        <div className="github-config-container">
-          {/* Info Card */}
-          <div className="github-info-card fade-in">
-            <div className="info-icon">
-              <i className="fas fa-shield-alt" />
+    <div className="px-6 pb-12 pt-6">
+      <div className="max-w-2xl mx-auto space-y-4">
+
+        {/* Security info banner */}
+        <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-xl">
+          <div className="w-9 h-9 rounded-lg bg-emerald-100 border border-emerald-200 flex items-center justify-center flex-shrink-0">
+            <Icon icon="mdi:shield-check-outline" width={16} color="#059669" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-emerald-800 mb-0.5">Security Information</h3>
+            <p className="text-xs text-emerald-700 leading-relaxed">
+              Your Personal Access Token will be stored securely encrypted. We recommend using a token with minimal required permissions.
+            </p>
+          </div>
+        </div>
+
+        {/* Main form card */}
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+          {/* Card header */}
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-[rgba(0,0,0,0.06)]">
+            <div className="w-10 h-10 rounded-xl bg-[rgba(0,0,0,0.88)] flex items-center justify-center flex-shrink-0">
+              <Icon icon="mdi:github" width={20} color="white" />
             </div>
-            <div className="info-content">
-              <h3>Security Information</h3>
-              <p>
-                Your Personal Access Token will be stored securely encrypted. We recommend using a
-                token with minimal required permissions.
+            <div>
+              <h2 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Repository Details</h2>
+              <p className="text-xs text-[rgba(0,0,0,0.4)] mt-0.5">
+                Provide a Personal Access Token (PAT) with{' '}
+                <code className="px-1 py-0.5 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded text-[10px] font-mono">repo:status</code>
+                {' '}or full{' '}
+                <code className="px-1 py-0.5 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded text-[10px] font-mono">repo</code> scope.
               </p>
             </div>
           </div>
 
-          {/* Main Form Card */}
-          <div className="form-card github-form-card fade-in">
-            <div className="form-card-header">
-              <div className="github-header-icon">
-                <i className="fab fa-github" />
-              </div>
-              <div>
-                <h2 className="form-card-title">Repository Details</h2>
-                <p className="form-card-subtitle">
-                  Provide a Personal Access Token (PAT) with{' '}
-                  <code className="inline-code">repo:status</code> or full{' '}
-                  <code className="inline-code">repo</code> scope.
-                </p>
-              </div>
+          <form onSubmit={handleSubmit} className="p-6 space-y-5">
+            {/* GitHub Owner */}
+            <div>
+              <label htmlFor="githubOwner" className="flex items-center gap-1.5 text-[10px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1.5">
+                <Icon icon="mdi:folder-outline" width={11} />
+                GitHub Owner (User or Organization)
+              </label>
+              <input
+                type="text"
+                id="githubOwner"
+                placeholder="e.g., 'my-organization'"
+                value={githubDetails.owner}
+                onChange={(e) => setGitHubDetails({ owner: e.target.value })}
+                disabled={isLoading}
+                required
+                className="w-full px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] focus:border-[rgba(0,0,0,0.2)] disabled:opacity-60 transition-colors"
+              />
+              <p className="mt-1 text-[11px] text-[rgba(0,0,0,0.4)]">Enter the GitHub username or organization name that owns the repository.</p>
             </div>
 
-            <form onSubmit={handleSubmit}>
-              {/* GitHub Owner */}
-              <div className="form-group">
-                <label htmlFor="githubOwner" className="form-label">
-                  <i className="fas fa-folder mr-2" />
-                  GitHub Owner (User or Organization)
-                </label>
-                <input
-                  type="text"
-                  id="githubOwner"
-                  className="form-input"
-                  placeholder="e.g., 'my-organization'"
-                  value={githubDetails.owner}
-                  onChange={(e) => setGitHubDetails({ owner: e.target.value })}
-                  disabled={isLoading}
-                  required
-                />
-                <p className="form-hint">
-                  Enter the GitHub username or organization name that owns the repository.
-                </p>
+            {/* Repository Name */}
+            <div>
+              <label htmlFor="githubRepo" className="flex items-center gap-1.5 text-[10px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1.5">
+                <Icon icon="mdi:source-branch" width={11} />
+                Repository Name
+              </label>
+              <input
+                type="text"
+                id="githubRepo"
+                placeholder="e.g., 'my-awesome-project'"
+                value={githubDetails.repo}
+                onChange={(e) => setGitHubDetails({ repo: e.target.value })}
+                disabled={isLoading}
+                required
+                className="w-full px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] focus:border-[rgba(0,0,0,0.2)] disabled:opacity-60 transition-colors"
+              />
+              <p className="mt-1 text-[11px] text-[rgba(0,0,0,0.4)]">The name of the repository you want to monitor.</p>
+            </div>
+
+            {/* Personal Access Token */}
+            <div>
+              <label htmlFor="githubPat" className="flex items-center gap-1.5 text-[10px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1.5">
+                <Icon icon="mdi:key-outline" width={11} />
+                Personal Access Token (PAT)
+              </label>
+              <input
+                type="password"
+                id="githubPat"
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                value={githubDetails.pat}
+                onChange={(e) => setGitHubDetails({ pat: e.target.value })}
+                disabled={isLoading}
+                required
+                className="w-full px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] focus:border-[rgba(0,0,0,0.2)] disabled:opacity-60 transition-colors"
+              />
+              <p className="mt-1 text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1">
+                <Icon icon="mdi:lock-outline" width={10} />
+                Your token will be stored securely encrypted.
+              </p>
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-rose-50 border border-rose-100 rounded-lg">
+                <Icon icon="mdi:alert-circle-outline" width={14} color="#F43F5E" className="flex-shrink-0" />
+                <p className="text-xs text-rose-600">{error}</p>
               </div>
+            )}
 
-              {/* Repository Name */}
-              <div className="form-group">
-                <label htmlFor="githubRepo" className="form-label">
-                  <i className="fas fa-code-branch mr-2" />
-                  Repository Name
-                </label>
-                <input
-                  type="text"
-                  id="githubRepo"
-                  className="form-input"
-                  placeholder="e.g., 'my-awesome-project'"
-                  value={githubDetails.repo}
-                  onChange={(e) => setGitHubDetails({ repo: e.target.value })}
-                  disabled={isLoading}
-                  required
-                />
-                <p className="form-hint">
-                  The name of the repository you want to monitor.
-                </p>
-              </div>
+            {/* How to create a PAT */}
+            <div className="p-4 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-xl">
+              <h4 className="flex items-center gap-2 text-xs font-bold text-[rgba(0,0,0,0.7)] mb-3">
+                <Icon icon="mdi:information-outline" width={13} color="#4F46E5" />
+                How to create a Personal Access Token
+              </h4>
+              <ol className="space-y-2 pl-0 list-none counter-reset-step">
+                {[
+                  <>Go to GitHub Settings → Developer settings → Personal access tokens</>,
+                  <>Click "Generate new token (classic)"</>,
+                  <>Give it a descriptive name (e.g., "XamOps Integration")</>,
+                  <>Select the <code className="px-1 py-0.5 bg-[rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.08)] rounded text-[10px] font-mono">repo:status</code> scope (or full <code className="px-1 py-0.5 bg-[rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.08)] rounded text-[10px] font-mono">repo</code> for private repos)</>,
+                  <>Click "Generate token" and copy it immediately</>,
+                ].map((step, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-xs text-[rgba(0,0,0,0.5)]">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] text-[10px] font-bold flex items-center justify-center mt-0.5">{i + 1}</span>
+                    <span className="leading-relaxed">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
 
-              {/* Personal Access Token */}
-              <div className="form-group">
-                <label htmlFor="githubPat" className="form-label">
-                  <i className="fas fa-key mr-2" />
-                  Personal Access Token (PAT)
-                </label>
-                <input
-                  type="password"
-                  id="githubPat"
-                  className="form-input"
-                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                  value={githubDetails.pat}
-                  onChange={(e) => setGitHubDetails({ pat: e.target.value })}
-                  disabled={isLoading}
-                  required
-                />
-                <p className="form-hint">
-                  <i className="fas fa-lock mr-2" />
-                  Your token will be stored securely encrypted.
-                </p>
-              </div>
-
-              {/* Error Message */}
-              {error && (
-                <div className="error-message">
-                  <i className="fas fa-exclamation-circle" />
-                  {error}
-                </div>
-              )}
-
-              {/* Token Help Section */}
-              <div className="token-help-section">
-                <h4>
-                  <i className="fas fa-info-circle mr-2" />
-                  How to create a Personal Access Token
-                </h4>
-                <ol>
-                  <li>Go to GitHub Settings &rarr; Developer settings &rarr; Personal access tokens</li>
-                  <li>Click "Generate new token (classic)"</li>
-                  <li>Give it a descriptive name (e.g., "XamOps Integration")</li>
-                  <li>Select the <code className="inline-code">repo:status</code> scope (or full <code className="inline-code">repo</code> for private repos)</li>
-                  <li>Click "Generate token" and copy it immediately</li>
-                </ol>
-              </div>
-
-              {/* Submit Button */}
-              <div className="form-actions">
-                <button
-                  type="button"
-                  onClick={() => navigate('/add-account')}
-                  className="btn-secondary"
-                >
-                  <i className="fas fa-times" />
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary github" disabled={isLoading}>
-                  {isLoading ? (
-                    <>
-                      <span className="loading-spinner mr-2" />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fab fa-github" />
-                      Connect GitHub Repository
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* Features Card */}
-          <div className="github-features-card fade-in">
-            <h3>What you'll get</h3>
-            <ul>
-              <li>
-                <i className="fas fa-check-circle" />
-                <span>Real-time GitHub Actions workflow status</span>
-              </li>
-              <li>
-                <i className="fas fa-check-circle" />
-                <span>Build success/failure notifications</span>
-              </li>
-              <li>
-                <i className="fas fa-check-circle" />
-                <span>CI/CD pipeline monitoring</span>
-              </li>
-              <li>
-                <i className="fas fa-check-circle" />
-                <span>Integration with XamOps dashboard</span>
-              </li>
-            </ul>
-          </div>
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => navigate('/add-account')}
+                className="inline-flex items-center gap-2 px-4 py-2 border border-[rgba(0,0,0,0.12)] rounded-md bg-white text-[rgba(0,0,0,0.5)] text-xs font-medium hover:bg-[rgba(0,0,0,0.03)] transition-colors"
+              >
+                <Icon icon="mdi:close" width={13} />
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-60"
+              >
+                {isLoading ? (
+                  <>
+                    <Icon icon="mdi:loading" width={13} className="animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Icon icon="mdi:github" width={13} />
+                    Connect GitHub Repository
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
         </div>
+
+        {/* What you'll get */}
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+          <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)] mb-4">What you'll get</h3>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[
+              'Real-time GitHub Actions workflow status',
+              'Build success/failure notifications',
+              'CI/CD pipeline monitoring',
+              'Integration with XamOps dashboard',
+            ].map((feature) => (
+              <li key={feature} className="flex items-center gap-2 text-xs text-[rgba(0,0,0,0.7)]">
+                <Icon icon="mdi:check-circle-outline" width={14} color="#059669" className="flex-shrink-0" />
+                {feature}
+              </li>
+            ))}
+          </ul>
+        </div>
+
       </div>
-    </main>
+    </div>
   );
 };
 

@@ -1,8 +1,3 @@
-/**
- * CostKPICards Component
- * Displays key performance indicators for cost management
- */
-
 import React from 'react';
 import type { CostDataItem, CostFilters } from '../../types/cost';
 
@@ -18,69 +13,111 @@ const CostKPICards: React.FC<CostKPICardsProps> = ({ costData, filters, isLoadin
   const sortedData = [...costData].sort((a, b) => b.amount - a.amount);
   const topSpender = sortedData.length > 0 ? sortedData[0] : null;
 
+  const formatCurrency = (num: number) =>
+    '$' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const formatSplit = (str: string) => {
+    const dot = str.lastIndexOf('.');
+    return dot === -1 ? { main: str, cents: '' } : { main: str.slice(0, dot), cents: str.slice(dot) };
+  };
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-[110px] animate-pulse">
+            <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3"></div>
+            <div className="h-7 w-28 bg-[rgba(0,0,0,0.06)] rounded mb-3"></div>
+            <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] rounded"></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const totalSplit = formatSplit(formatCurrency(totalCost));
+  const topSplit = formatSplit(formatCurrency(topSpender?.amount ?? 0));
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-      {/* Total Cost Card */}
-      <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 border-t-blue-500">
-        <div className="flex items-center justify-between mb-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-chart-line text-white text-xl"></i>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-gray-600 font-medium">Total Cost</p>
-            <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
-              {isLoading ? '...' : `$${totalCost.toFixed(2)}`}
-            </p>
-          </div>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+
+      {/* Total Cost */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+          <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+            <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
+          </svg>
         </div>
-        <div className="text-sm text-gray-500 flex items-center gap-2 flex-wrap">
-          <i className="far fa-calendar-alt mr-1"></i>
-          <span>Spending for {filters.startDate} to {filters.endDate}</span>
-          {labelFilterActive && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
-              <i className="fas fa-tag text-indigo-500" style={{ fontSize: '9px' }} />
-              Label filtered
+        <div className="relative z-10">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Total Cost</p>
+          <p className="leading-8 mb-3 flex items-baseline gap-0.5">
+            <span style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+              {totalSplit.main}
             </span>
-          )}
+            {totalSplit.cents && (
+              <span style={{ fontFamily: "'Inter',sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10,10,10)' }}>
+                {totalSplit.cents}
+              </span>
+            )}
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-[rgba(0,0,0,0.35)]">
+              {filters.startDate} → {filters.endDate}
+            </span>
+            {labelFilterActive && (
+              <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
+                Label filtered
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Categories Card */}
-      <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 border-t-purple-500">
-        <div className="flex items-center justify-between mb-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-layer-group text-white text-xl"></i>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-gray-600 font-medium">Categories</p>
-            <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">
-              {isLoading ? '...' : costData.length}
-            </p>
-          </div>
+      {/* Categories */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+          <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+            <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
+          </svg>
         </div>
-        <div className="text-sm text-gray-500 flex items-center">
-          <i className="fas fa-filter mr-2"></i>
-          <span>Grouped by {filters.groupBy.toLowerCase()}</span>
+        <div className="relative z-10">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Categories</p>
+          <p className="leading-8 mb-3">
+            <span style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+              {costData.length}
+            </span>
+          </p>
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">
+            Grouped by {filters.groupBy.toLowerCase()}
+          </span>
         </div>
       </div>
 
-      {/* Top Spender Card */}
-      <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 border-t-amber-500">
-        <div className="flex items-center justify-between mb-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-crown text-white text-xl"></i>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-gray-600 font-medium">Top Spender</p>
-            <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600">
-              {isLoading ? '...' : (topSpender ? `$${topSpender.amount.toFixed(2)}` : '$0.00')}
-            </p>
-          </div>
+      {/* Top Spender */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+          <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+            <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
+          </svg>
         </div>
-        <div className="text-sm text-gray-500 truncate">
-          {isLoading ? '...' : (topSpender ? topSpender.name : 'No data')}
+        <div className="relative z-10">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Top Spender</p>
+          <p className="leading-8 mb-3 flex items-baseline gap-0.5">
+            <span style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+              {topSplit.main}
+            </span>
+            {topSplit.cents && (
+              <span style={{ fontFamily: "'Inter',sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10,10,10)' }}>
+                {topSplit.cents}
+              </span>
+            )}
+          </p>
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)] truncate block">
+            {topSpender?.name ?? 'No data'}
+          </span>
         </div>
       </div>
+
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureCloudSitter } from '../hooks/useAzureCloudSitter';
 import CloudSitterHeader from '../components/CloudSitter/CloudSitterHeader';
@@ -17,24 +18,27 @@ const AzureCloudSitterPage: React.FC = () => {
 
   if (!isAzure) {
     return (
-      <main className="flex-1 flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <i className="fas fa-cloud text-4xl text-gray-300 mb-4" />
-          <p className="text-gray-500 text-lg">Please select an Azure account to use Azure CloudSitter.</p>
+      <main className="flex-1 px-6 pt-4 pb-6">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:microsoft-azure" width={22} color="rgba(0,0,0,0.3)" />
+          </div>
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Azure Account Selected</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Please select an Azure account to use Azure CloudSitter.</p>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="flex-1 flex flex-col min-h-screen bg-gray-50">
+    <main className="flex-1 px-6 pt-4 pb-6">
       <CloudSitterHeader
         currentView={cs.currentView}
         editMode={cs.editMode}
         onNavigateToDashboard={() => cs.setCurrentView('dashboard')}
       />
 
-      <div className="flex-1 p-8 overflow-y-auto">
+      <div className="flex-1">
         {cs.currentView === 'dashboard' && (
           <CloudSitterDashboard
             accountId={subscriptionId}

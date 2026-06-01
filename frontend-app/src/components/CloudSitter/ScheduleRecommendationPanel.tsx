@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import type { ScheduleRecommendation } from '../../types/cloudsitter';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -169,7 +170,7 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: '#1a3a3a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <i className="fas fa-chart-bar" style={{ color: '#fff', fontSize: 16 }}></i>
+            <Icon icon="mdi:chart-bar" color="#fff" width={18} />
           </div>
           <div>
             <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 600, color: '#0a0a0a', margin: 0 }}>
@@ -203,7 +204,7 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
       {/* ── Loading ── */}
       {loading && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0' }}>
-          <i className="fas fa-spinner fa-spin" style={{ color: '#1a3a3a', fontSize: 16 }}></i>
+          <Icon icon="mdi:loading" color="#1a3a3a" width={16} className="animate-spin" />
           <span style={{ fontSize: 14, color: '#6a6a6a', fontFamily: 'Inter, sans-serif' }}>
             Analyzing {lookbackDays} days of CloudWatch data…
           </span>
@@ -213,7 +214,7 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
       {/* ── Error ── */}
       {error && (
         <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-          <i className="fas fa-exclamation-circle" style={{ color: '#ef4444' }}></i>
+          <Icon icon="mdi:alert-circle-outline" color="#ef4444" width={14} />
           <span style={{ fontSize: 13, color: '#b91c1c', fontFamily: 'Inter, sans-serif' }}>{error}</span>
           <button onClick={fetchRecommendation} style={{ marginLeft: 'auto', fontSize: 12, color: '#6a6a6a', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Retry</button>
         </div>
@@ -224,20 +225,20 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
         <>
           {/* Stats pills */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-            <StatPill icon="fa-database"      label={`${rec.dataPoints} data points`}                bg="#e8f4fd" color="#1e6fa3" />
-            <StatPill icon="fa-calendar-alt"  label={`${rec.lookbackDays}-day window`}               bg="#f0fdf4" color="#166534" />
-            <StatPill icon="fa-moon"          label={`${offHoursPerWeek} off-hours/week suggested`}  bg="#fef3c7" color="#92400e" />
-            <StatPill icon="fa-microchip"     label={`CPU idle < ${rec.cpuIdleThreshold}%`}          bg="#f5f3ff" color="#5b21b6" />
+            <StatPill icon="mdi:database-outline"    label={`${rec.dataPoints} data points`}                bg="#e8f4fd" color="#1e6fa3" />
+            <StatPill icon="mdi:calendar-outline"    label={`${rec.lookbackDays}-day window`}               bg="#f0fdf4" color="#166534" />
+            <StatPill icon="mdi:moon-waning-crescent" label={`${offHoursPerWeek} off-hours/week suggested`} bg="#fef3c7" color="#92400e" />
+            <StatPill icon="mdi:chip"                label={`CPU idle < ${rec.cpuIdleThreshold}%`}          bg="#f5f3ff" color="#5b21b6" />
             {rec.memAvailable
-              ? <StatPill icon="fa-memory"    label={`Mem idle < ${rec.memIdleThreshold}%`}          bg="#ecfdf5" color="#065f46" />
-              : <StatPill icon="fa-memory"    label="Memory: CWAgent not detected"                   bg="#fef3c7" color="#92400e" />
+              ? <StatPill icon="mdi:memory"          label={`Mem idle < ${rec.memIdleThreshold}%`}          bg="#ecfdf5" color="#065f46" />
+              : <StatPill icon="mdi:memory"          label="Memory: CWAgent not detected"                   bg="#fef3c7" color="#92400e" />
             }
           </div>
 
           {/* Memory not-available notice */}
           {!rec.memAvailable && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 14px', marginBottom: 14 }}>
-              <i className="fas fa-info-circle" style={{ color: '#d97706', fontSize: 13 }}></i>
+              <Icon icon="mdi:information-outline" color="#d97706" width={14} />
               <span style={{ fontSize: 12, color: '#92400e', fontFamily: 'Inter, sans-serif' }}>
                 Memory metrics require the <strong>CloudWatch Agent</strong> installed on this instance.
                 Recommendation is based on CPU only.
@@ -303,7 +304,7 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
 
           {/* Threshold explanation */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
-            <i className="fas fa-info-circle" style={{ fontSize: 11, color: '#9a9a9a' }}></i>
+            <Icon icon="mdi:information-outline" color="#9a9a9a" width={12} />
             <span style={{ fontSize: 12, color: '#9a9a9a', fontFamily: 'Inter, sans-serif' }}>
               {rec.memAvailable
                 ? `A slot is recommended OFF when CPU < ${rec.cpuIdleThreshold}% AND Memory < ${rec.memIdleThreshold}%`
@@ -317,14 +318,14 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
               onClick={handleApply}
               style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0a0a0a', color: '#fff', border: 'none', borderRadius: 12, padding: '10px 20px', fontSize: 14, fontWeight: 600, fontFamily: 'Inter, sans-serif', cursor: 'pointer' }}
             >
-              <i className="fas fa-check"></i>
+              <Icon icon="mdi:check" width={14} color="#fff" />
               Apply Recommendation to Schedule
             </button>
             <button
               onClick={fetchRecommendation}
-              style={{ background: 'none', border: '1px solid #e5e5e5', borderRadius: 12, padding: '10px 16px', fontSize: 13, fontWeight: 500, color: '#6a6a6a', fontFamily: 'Inter, sans-serif', cursor: 'pointer' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid #e5e5e5', borderRadius: 12, padding: '10px 16px', fontSize: 13, fontWeight: 500, color: '#6a6a6a', fontFamily: 'Inter, sans-serif', cursor: 'pointer' }}
             >
-              <i className="fas fa-sync-alt" style={{ marginRight: 6 }}></i>
+              <Icon icon="mdi:refresh" width={14} color="#6a6a6a" />
               Refresh
             </button>
           </div>
@@ -337,7 +338,7 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
 // ── Small helpers ─────────────────────────────────────────────────────────────
 const StatPill: React.FC<{ icon: string; label: string; bg: string; color: string }> = ({ icon, label, bg, color }) => (
   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: bg, borderRadius: 9999, padding: '4px 12px' }}>
-    <i className={`fas ${icon}`} style={{ fontSize: 11, color }}></i>
+    <Icon icon={icon} width={11} color={color} />
     <span style={{ fontSize: 12, fontWeight: 600, color, fontFamily: 'Inter, sans-serif' }}>{label}</span>
   </div>
 );

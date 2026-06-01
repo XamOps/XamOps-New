@@ -1,158 +1,119 @@
-/**
- * GCP Waste Management Page
- *
- * Converted from: gcp_waste.html
- *
- * Features:
- * - KPI cards (Potential Savings, Wasted Resources, Savings by Category)
- * - Grouped resource display by type
- * - Expandable resource groups
- * - Real-time data fetching from backend
- * - Resource scanning with force refresh
- * - LocalStorage caching for 24 hours
- * - Improved UI with modern GCP styling
- */
-
 import React, { useState, useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpWasteData } from '../hooks/useGcpWasteData';
 import type { GcpWasteGroup } from '../types/gcpWaste';
-
-// Component imports
-import {
-  GcpWasteHeader,
-  GcpWasteKPICards,
-  GcpWasteResourceGroup,
-} from '../components/GcpWaste';
-
-// Import styles
-import '../styles/gcpWaste.css';
+import { GcpWasteHeader, GcpWasteKPICards, GcpWasteResourceGroup } from '../components/GcpWaste';
 
 const GcpWastePage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  // Get waste data using custom hook
-  const { wasteItems, isLoading, isRefreshing, isPartial, loadWasteReport } = useGcpWasteData({
-    selectedAccountId,
-  });
+  const { wasteItems, isLoading, isRefreshing, isPartial, loadWasteReport } = useGcpWasteData({ selectedAccountId });
 
-  // Track which groups are expanded (all open by default)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  // Group resources by type
   const groupedResources = useMemo((): GcpWasteGroup[] => {
     if (!Array.isArray(wasteItems)) return [];
-
     const groups = wasteItems.reduce((acc, resource) => {
       const key = resource.type || 'Other';
-      if (!acc[key]) {
-        acc[key] = {
-          type: key,
-          resources: [],
-          open: true, // All groups open by default
-          totalSavings: 0,
-        };
-      }
+      if (!acc[key]) acc[key] = { type: key, resources: [], open: true, totalSavings: 0 };
       acc[key].resources.push(resource);
       acc[key].totalSavings += resource.monthlySavings || 0;
       return acc;
     }, {} as Record<string, GcpWasteGroup>);
-
-    // Sort by total savings (highest first)
     return Object.values(groups).sort((a, b) => b.totalSavings - a.totalSavings);
   }, [wasteItems]);
 
-  // Initialize expanded groups when data loads
   React.useEffect(() => {
     if (groupedResources.length > 0 && expandedGroups.size === 0) {
       setExpandedGroups(new Set(groupedResources.map(g => g.type)));
     }
   }, [groupedResources]);
 
-  // Toggle group expansion
   const toggleGroup = (type: string) => {
     setExpandedGroups(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(type)) {
-        newSet.delete(type);
-      } else {
-        newSet.add(type);
-      }
-      return newSet;
+      const next = new Set(prev);
+      next.has(type) ? next.delete(type) : next.add(type);
+      return next;
     });
   };
 
-  // Refresh handler
-  const handleRefresh = () => {
-    loadWasteReport(true);
-  };
-
   return (
-    <main className="gcp-waste-page">
-      <GcpWasteHeader isRefreshing={isRefreshing} onRefresh={handleRefresh} />
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
+      <GcpWasteHeader isRefreshing={isRefreshing} onRefresh={() => loadWasteReport(true)} />
 
-      <div className="gcp-waste-content">
-        {/* No Account State */}
-        {!selectedAccountId && !isLoading && (
-          <div className="gcp-waste-no-account">
-            <div className="gcp-waste-no-account-icon">
-              <i className="fas fa-recycle"></i>
-            </div>
-            <h4>No Account Selected</h4>
-            <p>Please select a GCP account from the sidebar to view waste management data.</p>
+      {/* No account */}
+      {!selectedAccountId && !isLoading && (
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:recycle" width={22} color="rgba(0,0,0,0.3)" />
           </div>
-        )}
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Account Selected</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Select a GCP account from the sidebar to view waste data.</p>
+        </div>
+      )}
 
-        {/* Loading State */}
-        {selectedAccountId && isLoading && wasteItems.length === 0 && (
-          <div className="gcp-waste-loading">
-            <div className="gcp-waste-kpi-cards">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="gcp-waste-skeleton gcp-waste-skeleton-card"></div>
-              ))}
-            </div>
-            <div className="gcp-waste-loading-groups">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="gcp-waste-skeleton gcp-waste-skeleton-group"></div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Waste Data Content */}
-        {selectedAccountId && !isLoading && (
-          <>
-            {/* Partial scan warning */}
-            {isPartial && (
-              <div className="gcp-waste-partial-banner">
-                <i className="fas fa-exclamation-triangle"></i>
-                <span>
-                  Some detectors timed out — results may be incomplete. Use{' '}
-                  <button onClick={() => loadWasteReport(true)} className="gcp-waste-partial-refresh">
-                    Force Refresh
-                  </button>{' '}
-                  to run a full scan.
-                </span>
+      {/* Loading */}
+      {selectedAccountId && isLoading && wasteItems.length === 0 && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-[110px] animate-pulse">
+                <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+                <div className="h-7 w-28 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+                <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] rounded" />
               </div>
-            )}
-
-            {/* KPI Cards */}
-            <GcpWasteKPICards wasteItems={wasteItems} isLoading={isLoading} />
-
-            {/* No Waste Found State */}
-            {groupedResources.length === 0 && (
-              <div className="gcp-waste-no-waste">
-                <div className="gcp-waste-no-waste-icon">
-                  <i className="fas fa-leaf"></i>
+            ))}
+          </div>
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)]" />
+                  <div className="flex-1">
+                    <div className="h-3 w-32 bg-[rgba(0,0,0,0.06)] rounded mb-2" />
+                    <div className="h-2 w-20 bg-[rgba(0,0,0,0.04)] rounded" />
+                  </div>
                 </div>
-                <h3>No Waste Found!</h3>
-                <p>Your GCP environment is looking clean and optimized.</p>
               </div>
-            )}
+            ))}
+          </div>
+        </>
+      )}
 
-            {/* Resource Groups */}
-            <div className="gcp-waste-groups">
+      {/* Content */}
+      {selectedAccountId && !isLoading && (
+        <>
+          {/* Partial scan warning */}
+          {isPartial && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3.5 flex items-center gap-3">
+              <Icon icon="mdi:alert-outline" width={18} color="#D97706" />
+              <p className="text-[13px] text-amber-800 flex-1">
+                Some detectors timed out — results may be incomplete.{' '}
+                <button
+                  onClick={() => loadWasteReport(true)}
+                  className="font-semibold underline underline-offset-2 hover:text-amber-900"
+                >
+                  Force Refresh
+                </button>{' '}
+                to run a full scan.
+              </p>
+            </div>
+          )}
+
+          <GcpWasteKPICards wasteItems={wasteItems} isLoading={isLoading} />
+
+          {groupedResources.length === 0 ? (
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
+                <Icon icon="mdi:leaf" width={24} color="#16A34A" />
+              </div>
+              <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Waste Found</p>
+              <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Your GCP environment is looking clean and optimized.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
               {groupedResources.map(group => (
                 <GcpWasteResourceGroup
                   key={group.type}
@@ -163,9 +124,9 @@ const GcpWastePage: React.FC = () => {
                 />
               ))}
             </div>
-          </>
-        )}
-      </div>
+          )}
+        </>
+      )}
     </main>
   );
 };

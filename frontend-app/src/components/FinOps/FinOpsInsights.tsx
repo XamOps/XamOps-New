@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type {
   CostAnomaly,
   RightsizingRecommendation,
@@ -33,10 +34,7 @@ const FinOpsInsights: React.FC<FinOpsInsightsProps> = ({
   onWastedPaginationChange,
 }) => {
   const formatCurrency = (value: number): string => {
-    return value.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    });
+    return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   };
 
   // Rightsizing pagination
@@ -52,39 +50,43 @@ const FinOpsInsights: React.FC<FinOpsInsightsProps> = ({
   const paginatedWasted = wastedResources.slice(wastedStart, wastedEnd);
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md fade-in">
-      <div className="flex items-center space-x-3 mb-6">
-        <div className="w-10 h-10 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center shadow-md">
-          <i className="fas fa-lightbulb text-white"></i>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      {/* Section header */}
+      <div className="flex items-center gap-2 pb-4 border-b border-[rgba(0,0,0,0.06)] mb-5">
+        <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]">
+          <Icon icon="mdi:lightbulb-outline" width={16} color="#F4A429" />
         </div>
         <div>
-          <h3 className="text-xl font-bold text-gray-800">Insights & Opportunities</h3>
-          <p className="text-sm text-gray-600">Optimize your cloud spending</p>
+          <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Insights & Opportunities</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse inline-block"></span>
+            Optimize your cloud spending
+          </p>
         </div>
       </div>
 
       {/* Cost Anomalies */}
       {costAnomalies.length > 0 && (
-        <div className="mb-8">
-          <h4 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-            <i className="fas fa-exclamation-triangle text-red-500 mr-2"></i>
-            Cost Anomaly Detection
-          </h4>
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="w-full text-sm text-left text-gray-600">
-              <thead className="bg-gray-50 text-xs text-gray-700 uppercase font-semibold">
-                <tr>
-                  <th className="px-6 py-4">Service</th>
-                  <th className="px-6 py-4">Date Range</th>
-                  <th className="px-6 py-4">Unexpected Spend</th>
+        <div className="mb-7">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+            <h4 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">Cost Anomaly Detection</h4>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[rgba(0,0,0,0.06)]">
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Service</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Date Range</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Unexpected Spend</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody>
                 {costAnomalies.map((anomaly) => (
-                  <tr key={anomaly.anomalyId} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-semibold">{anomaly.service}</td>
-                    <td className="px-6 py-4">{`${anomaly.startDate} to ${anomaly.endDate}`}</td>
-                    <td className="px-6 py-4 text-red-600 font-bold">
+                  <tr key={anomaly.anomalyId} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)]">
+                    <td className="px-4 py-3 text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">{anomaly.service}</td>
+                    <td className="px-4 py-3 text-[14px] text-[rgba(0,0,0,0.88)]">{`${anomaly.startDate} to ${anomaly.endDate}`}</td>
+                    <td className="px-4 py-3 text-red-600 font-semibold text-[14px]">
                       {formatCurrency(anomaly.unexpectedSpend)}
                     </td>
                   </tr>
@@ -97,17 +99,19 @@ const FinOpsInsights: React.FC<FinOpsInsightsProps> = ({
 
       {/* Rightsizing Recommendations */}
       {rightsizingRecommendations.length > 0 && (
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-lg font-semibold text-gray-800 flex items-center">
-              <i className="fas fa-cogs text-green-500 mr-2"></i>
-              Rightsizing Recommendations
-              <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-green-100 text-green-600 rounded-full">
+        <div className="mb-7">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>
+              <h4 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">
+                Rightsizing Recommendations
+              </h4>
+              <span className="px-2 py-0.5 text-[11px] font-medium bg-green-50 text-green-600 border border-green-100 rounded-full">
                 {rightsizingRecommendations.length} total
               </span>
-            </h4>
-            <div className="flex items-center space-x-2">
-              <label htmlFor="rightsizingItemsPerPage" className="text-sm text-gray-600">
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="rightsizingItemsPerPage" className="text-[12px] text-[rgba(0,0,0,0.45)]">
                 Show:
               </label>
               <select
@@ -116,7 +120,7 @@ const FinOpsInsights: React.FC<FinOpsInsightsProps> = ({
                 onChange={(e) =>
                   onRightsizingPaginationChange({ itemsPerPage: Number(e.target.value), currentPage: 1 })
                 }
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                className="px-2 py-1 text-[12px] border border-[rgba(0,0,0,0.12)] rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none"
               >
                 <option value="10">10</option>
                 <option value="25">25</option>
@@ -125,25 +129,25 @@ const FinOpsInsights: React.FC<FinOpsInsightsProps> = ({
               </select>
             </div>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="w-full text-sm text-left text-gray-600">
-              <thead className="bg-gray-50 text-xs text-gray-700 uppercase font-semibold">
-                <tr>
-                  <th className="px-6 py-4">Resource ID</th>
-                  <th className="px-6 py-4">Service</th>
-                  <th className="px-6 py-4">Current</th>
-                  <th className="px-6 py-4">Recommended</th>
-                  <th className="px-6 py-4">Savings</th>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[rgba(0,0,0,0.06)]">
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Resource ID</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Service</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Current</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Recommended</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Savings</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody>
                 {paginatedRightsizing.map((rec) => (
-                  <tr key={rec.resourceId} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-mono text-xs text-gray-800">{rec.resourceId}</td>
-                    <td className="px-6 py-4">{rec.service}</td>
-                    <td className="px-6 py-4">{rec.currentType}</td>
-                    <td className="px-6 py-4 text-green-700 font-semibold">{rec.recommendedType}</td>
-                    <td className="px-6 py-4 text-green-700 font-bold">
+                  <tr key={rec.resourceId} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)]">
+                    <td className="px-4 py-3 font-mono text-[12px] text-[rgba(0,0,0,0.88)]">{rec.resourceId}</td>
+                    <td className="px-4 py-3 text-[14px] text-[rgba(0,0,0,0.88)]">{rec.service}</td>
+                    <td className="px-4 py-3 text-[14px] text-[rgba(0,0,0,0.88)]">{rec.currentType}</td>
+                    <td className="px-4 py-3 text-[14px] text-[#158045] font-semibold">{rec.recommendedType}</td>
+                    <td className="px-4 py-3 text-[14px] text-[#158045] font-semibold">
                       {formatCurrency(rec.estimatedMonthlySavings)}
                     </td>
                   </tr>
@@ -164,16 +168,18 @@ const FinOpsInsights: React.FC<FinOpsInsightsProps> = ({
       {/* Wasted Resources */}
       {wastedResources.length > 0 && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-lg font-semibold text-gray-800 flex items-center">
-              <i className="fas fa-trash-alt text-red-500 mr-2"></i>
-              Wasted Resources
-              <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-red-100 text-red-600 rounded-full">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+              <h4 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">
+                Wasted Resources
+              </h4>
+              <span className="px-2 py-0.5 text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 rounded-full">
                 {wastedResources.length} total
               </span>
-            </h4>
-            <div className="flex items-center space-x-2">
-              <label htmlFor="wastedItemsPerPage" className="text-sm text-gray-600">
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="wastedItemsPerPage" className="text-[12px] text-[rgba(0,0,0,0.45)]">
                 Show:
               </label>
               <select
@@ -182,7 +188,7 @@ const FinOpsInsights: React.FC<FinOpsInsightsProps> = ({
                 onChange={(e) =>
                   onWastedPaginationChange({ itemsPerPage: Number(e.target.value), currentPage: 1 })
                 }
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                className="px-2 py-1 text-[12px] border border-[rgba(0,0,0,0.12)] rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none"
               >
                 <option value="10">10</option>
                 <option value="25">25</option>
@@ -191,25 +197,25 @@ const FinOpsInsights: React.FC<FinOpsInsightsProps> = ({
               </select>
             </div>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="w-full text-sm text-left text-gray-600">
-              <thead className="bg-gray-50 text-xs text-gray-700 uppercase font-semibold">
-                <tr>
-                  <th className="px-6 py-4">Resource ID</th>
-                  <th className="px-6 py-4">Type</th>
-                  <th className="px-6 py-4">Region</th>
-                  <th className="px-6 py-4">Reason</th>
-                  <th className="px-6 py-4">Savings</th>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[rgba(0,0,0,0.06)]">
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Resource ID</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Type</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Region</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Reason</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Savings</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody>
                 {paginatedWasted.map((res) => (
-                  <tr key={res.resourceId} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-mono text-xs text-gray-800">{res.resourceId}</td>
-                    <td className="px-6 py-4">{res.resourceType}</td>
-                    <td className="px-6 py-4">{res.region}</td>
-                    <td className="px-6 py-4">{res.reason}</td>
-                    <td className="px-6 py-4 text-red-600 font-bold">{formatCurrency(res.monthlySavings)}</td>
+                  <tr key={res.resourceId} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)]">
+                    <td className="px-4 py-3 font-mono text-[12px] text-[rgba(0,0,0,0.88)]">{res.resourceId}</td>
+                    <td className="px-4 py-3 text-[14px] text-[rgba(0,0,0,0.88)]">{res.resourceType}</td>
+                    <td className="px-4 py-3 text-[14px] text-[rgba(0,0,0,0.88)]">{res.region}</td>
+                    <td className="px-4 py-3 text-[14px] text-[rgba(0,0,0,0.88)]">{res.reason}</td>
+                    <td className="px-4 py-3 text-red-600 font-semibold text-[14px]">{formatCurrency(res.monthlySavings)}</td>
                   </tr>
                 ))}
               </tbody>

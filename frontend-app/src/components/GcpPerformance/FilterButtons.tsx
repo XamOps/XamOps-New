@@ -29,15 +29,15 @@ const FilterButtons: React.FC<FilterButtonsProps> = ({
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-4">
+    <div className="flex flex-wrap items-center gap-2">
       {filters.map((filter) => (
         <button
           key={filter.value}
           onClick={() => onFilterChange(filter.value)}
-          className={`filter-button px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
             currentSeverity === filter.value
-              ? 'active'
-              : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-100'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'border border-[rgba(0,0,0,0.12)] text-gray-600 hover:bg-gray-50'
           }`}
         >
           {filter.label}

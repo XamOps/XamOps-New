@@ -7,6 +7,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
+import { Icon } from '@iconify/react';
 import type { HistoricalData } from '../../types/reservation';
 
 // Chart.js global type (loaded via CDN in index.html)
@@ -129,15 +130,15 @@ const ReservationChart: React.FC<ReservationChartProps> = ({ historicalData }) =
     <div className="glass-card rounded-xl p-5 mb-6 border-t-4 border-t-indigo-500">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
-            <i className="fas fa-chart-area text-indigo-600"></i>
+          <h3 className="text-lg font-black text-[rgba(0,0,0,0.88)] flex items-center gap-2">
+            <Icon icon="mdi:chart-areaspline" className="text-indigo-600" width={20} />
             Historical Utilization & Coverage
           </h3>
-          <p className="text-xs text-gray-500 mt-1 font-medium">30-day trend analysis</p>
+          <p className="text-xs text-[rgba(0,0,0,0.5)] mt-1 font-medium">30-day trend analysis</p>
         </div>
         <div className="flex gap-2">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
-            <i className="fas fa-chart-line text-indigo-600 text-sm"></i>
+            <Icon icon="mdi:chart-line" className="text-indigo-600" width={16} />
           </div>
         </div>
       </div>

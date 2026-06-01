@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import apiClient from '../utils/apiClient';
-import clsx from 'clsx';
+import { Icon } from '@iconify/react';
 import AzureCloudK8sClusterTable from '../components/AzureCloudK8s/AzureCloudK8sClusterTable';
 import AzureCloudK8sIntegrations from '../components/AzureCloudK8s/AzureCloudK8sIntegrations';
 import AzureCloudK8sHelpModal from '../components/AzureCloudK8s/AzureCloudK8sHelpModal';
@@ -81,17 +81,27 @@ const AzureCloudK8sPage: React.FC = () => {
     }
   }, [selectedAccountDisplay.provider, navigate]);
 
-  // Topbar: Refresh button
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-amber-400" />
+        <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.65)]">AKS Dashboard</span>
+        <span className="text-[rgba(0,0,0,0.2)]">|</span>
         <button
           onClick={() => fetchClusters(true)}
           disabled={isRefreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all disabled:opacity-50 active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors disabled:opacity-50"
         >
-          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
-          <span>{isRefreshing ? 'Refreshing...' : 'Refresh Now'}</span>
+          <Icon icon={isRefreshing ? 'mdi:loading' : 'mdi:refresh'} width={13} className={isRefreshing ? 'animate-spin' : ''} />
+          {isRefreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+        <span className="text-[rgba(0,0,0,0.2)]">|</span>
+        <button
+          onClick={() => setIsHelpModalOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors"
+        >
+          <Icon icon="mdi:book-open-outline" width={13} />
+          Setup Guide
         </button>
       </div>
     );
@@ -99,25 +109,13 @@ const AzureCloudK8sPage: React.FC = () => {
   }, [setActions, clearActions, isRefreshing, fetchClusters]);
 
   return (
-    <main className="flex-1 flex flex-col min-h-screen bg-gray-50">
-      <div className="flex-1 p-4 md:p-8 space-y-8">
-        <AzureCloudK8sClusterTable
-          clusters={clusters}
-          isLoading={isLoading}
-          onViewDetails={navigateToDetails}
-        />
-        <AzureCloudK8sIntegrations />
-      </div>
-
-      {/* Floating Help Button */}
-      <button
-        onClick={() => setIsHelpModalOpen(true)}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 hover:shadow-xl transition-all z-30 group"
-        aria-label="Open setup guide"
-      >
-        <i className="fas fa-question group-hover:animate-pulse"></i>
-      </button>
-
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
+      <AzureCloudK8sClusterTable
+        clusters={clusters}
+        isLoading={isLoading}
+        onViewDetails={navigateToDetails}
+      />
+      <AzureCloudK8sIntegrations />
       <AzureCloudK8sHelpModal
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}

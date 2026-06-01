@@ -11,16 +11,13 @@ import {
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAccounts } from '../contexts/AccountContext';
 import apiClient from '../utils/apiClient';
-import '../styles/gcpDashboard.css'; // Keeping for some specific styles if needed, but mostly relying on Tailwind now
-
-// Import new components
 // Import new components
 import GcpKPISection from '../components/GcpDashboard/GcpKPISection';
 import GcpMapSection from '../components/GcpDashboard/GcpMapSection';
 import GcpInventorySection from '../components/GcpDashboard/GcpInventorySection';
 import GcpCostSection from '../components/GcpDashboard/GcpCostSection';
 import GcpOptimizationSection from '../components/GcpDashboard/GcpOptimizationSection';
-import GcpAutoSpottingSection from '../components/GcpDashboard/GcpAutoSpottingSection';
+
 
 // Highcharts loaded from CDN (still needed for map if GcpMapSection uses window.Highcharts)
 declare global {
@@ -364,7 +361,7 @@ const GcpDashboard: React.FC = () => {
   if (accountsLoading && selectedAccountIds.length === 0) {
     return (
       <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
-        <div className="text-center p-8 glass-card max-w-lg w-full">
+        <div className="text-center p-8 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm max-w-lg w-full">
           <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
             <i className="fas fa-spinner fa-spin text-3xl text-blue-600"></i>
           </div>
@@ -379,8 +376,8 @@ const GcpDashboard: React.FC = () => {
   if (selectedAccountIds.length === 0) {
     return (
       <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
-        <div className="text-center p-8 glass-card max-w-lg w-full">
-          <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
+        <div className="text-center p-8 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm max-w-lg w-full">
+          <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
             <img src="/icons/gcp-icon.png" alt="GCP" className="w-10 h-10 object-contain" />
           </div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">No GCP Project Selected</h2>
@@ -394,7 +391,7 @@ const GcpDashboard: React.FC = () => {
   if (error && !dashboardData) {
     return (
       <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
-        <div className="text-center p-8 glass-card max-w-lg w-full border-red-100">
+        <div className="text-center p-8 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm max-w-lg w-full">
           <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
             <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -414,7 +411,7 @@ const GcpDashboard: React.FC = () => {
   }
 
   return (
-    <main className="flex-1 p-6 bg-transparent space-y-6">
+    <main className="flex-1 p-8 bg-white space-y-6">
       {/* Notification Toast */}
       {notification && (
         <div className={`fixed top-4 right-4 z-50 transform transition-all duration-300 ${notification ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
@@ -465,22 +462,6 @@ const GcpDashboard: React.FC = () => {
         )}
       </div>
 
-      {/* Cost & Billing Grid */}
-      <div className="grid gap-6 lg:grid-cols-3 fade-in">
-        {(widgetVisibility.cost || widgetVisibility.billing) && singleData && (
-          <GcpCostSection
-            costHistory={singleData.costHistory}
-            billingSummary={singleData.billingSummary}
-            isLoading={loading.cost}
-          />
-        )}
-      </div>
-
-      {/* AutoSpotting Section */}
-      {selectedAccountIds.length === 1 && (
-        <GcpAutoSpottingSection accountId={selectedAccountIds[0]} />
-      )}
-
       {/* Optimization Section */}
       {widgetVisibility.optimization && singleData && singleData.optimization && (
         <GcpOptimizationSection
@@ -489,24 +470,17 @@ const GcpDashboard: React.FC = () => {
         />
       )}
 
-      {/* Floating Action Button */}
-      <button
-        className="gcp-fab"
-        onClick={() => showNotification('Quick actions are coming soon!', 'info')}
-      >
-        <i className="fas fa-bolt"></i>
-      </button>
-
-      {/* Notifications */}
-      {notification && (
-        <div className="gcp-notification fade-in">
-          <div className={`gcp-status-dot ${notification.type}`}></div>
-          <div className="flex-1">
-            <p className="text-sm font-bold text-gray-800">{notification.message}</p>
-            <p className="text-xs text-gray-500">Live Notification</p>
-          </div>
-        </div>
-      )}
+      {/* Cost & Billing Grid */}
+      <div className="grid gap-6 lg:grid-cols-3 fade-in">
+        {(widgetVisibility.cost || widgetVisibility.billing) && singleData && (
+          <GcpCostSection
+            costHistory={singleData.costHistory}
+            billingSummary={singleData.billingSummary}
+            isLoading={loading.cost}
+            accountId={selectedAccountIds[0]}
+          />
+        )}
+      </div>
     </main>
   );
 };

@@ -109,6 +109,12 @@ const Topbar: React.FC = () => {
         if (path === '/' || path === '/unified-dashboard') return 'Unified Command Center';
         if (path === '/my-profile') return 'Account Settings';
         if (path === '/user-management') return 'User Management';
+        if (path === '/dashboard') return 'Dashboard';
+        if (path === '/gcp-dashboard') return 'GCP Dashboard';
+        if (path === '/azure-dashboard') return 'Azure Dashboard';
+        if (path === '/cost') return 'Cost Management';
+        if (path === '/gcp-cost') return 'GCP Cost Management';
+        if (path === '/azure-cost') return 'Azure Cost Management';
 
         const segments = path.split('/').filter(Boolean);
         if (segments.length === 0) return 'Unified Command Center';
@@ -128,26 +134,25 @@ const Topbar: React.FC = () => {
         ? (userProfile?.username || 'User')
         : (userProfile?.email?.split('@')[0] || userProfile?.username || 'User');
 
-    // Debug theme
-    console.log('🌗 [Topbar] Render - theme:', theme);
+    // First letter of display name for the avatar initial
+    const avatarInitial = displayName.charAt(0).toUpperCase();
 
     return (
-        <header className="sticky top-0 z-40 w-full transition-colors duration-300">
-            <div className={clsx(
-                'mx-auto flex h-20 items-center justify-between px-8 border-b shadow-sm transition-all duration-300',
-                theme === 'dark' ? 'bg-[#0a0f1a] border-slate-800 text-slate-100' : 'bg-white/90 backdrop-blur-md border-gray-200/50 text-slate-800'
-            )}>
-                <div className="flex items-center gap-4">
+        <header className={`sticky top-0 z-40 w-full transition-colors duration-200 ${theme === 'dark' ? 'bg-[#1f1f1f]' : 'bg-white'}`}>
+            <div className="flex h-12 items-center justify-between px-6">
+
+                {/* Left — page title */}
+                <div className="flex items-center gap-4 min-w-0">
                     {pageTitle && (
-                        <div className="flex flex-col min-w-0 overflow-hidden">
-                            <h1 className={clsx(
-                                'text-xl font-bold tracking-tight truncate',
-                                theme === 'dark' ? 'text-slate-100' : 'text-slate-800'
-                            )}>
+                        <div className="flex flex-col min-w-0">
+                            <h1
+                                className="text-[24px] font-semibold leading-8 truncate text-nowrap transition-colors duration-200"
+                                style={{ fontFamily: "'Barlow Condensed', 'Inter', sans-serif", letterSpacing: '0px', color: theme === 'dark' ? 'rgb(255,255,255)' : 'rgb(17,24,39)', fontStretch: '100%' }}
+                            >
                                 {pageTitle}
                             </h1>
                             {contextSubtitle && (
-                                <p className="text-xs text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                                <p className={`text-[11px] truncate leading-tight transition-colors duration-200 ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.4)]'}`}>
                                     {contextSubtitle}
                                 </p>
                             )}
@@ -155,85 +160,28 @@ const Topbar: React.FC = () => {
                     )}
                 </div>
 
-                {/* Super Admin Panel */}
+                {/* Centre — super admin panel */}
                 <div className="flex-1 flex justify-center px-4">
                     {hasAnyRole('ROLE_SUPER_ADMIN') && <SuperAdminTopBar />}
                 </div>
 
-                <div className="flex items-center gap-6">
-                    {/* Dynamic Actions */}
-                    <div className="flex items-center gap-4 min-w-0">
-                        {actions}
-                    </div>
+                {/* Right — actions + notifications + profile */}
+                <div className="flex items-center gap-2">
 
-                    <div className="flex items-center gap-3">
-                        {/* Notifications - Show for XamOps and BillOps users, but not BillOps Admin (they have their own on dashboard) */}
-                        {!isBillOpsAdmin && (
-                            <div className="relative" ref={notificationRef}>
-                                <button
-                                    onClick={toggleNotifications}
-                                    className={clsx(
-                                        'w-10 h-10 flex items-center justify-center rounded-xl transition-all relative',
-                                        theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                    )}
-                                >
-                                    <i className="fas fa-bell"></i>
-                                    {counts.total > 0 && (
-                                        <span className={clsx(
-                                            'absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2',
-                                            theme === 'dark' ? 'border-slate-800' : 'border-white'
-                                        )}></span>
-                                    )}
-                                </button>
+                    {/* Dynamic page actions */}
+                    {actions && (
+                        <div className="flex items-center gap-2 mr-1">
+                            {actions}
+                        </div>
+                    )}
 
-                                {isNotificationOpen && (
-                                    <>
-                                        {isBillOpsUser ? (
-                                            <BillOpsUserNotificationDropdown
-                                                notifications={billOpsUserNotifications}
-                                                counts={billOpsUserCounts}
-                                                isLoading={billOpsUserLoading}
-                                                onClose={() => setIsNotificationOpen(false)}
-                                            />
-                                        ) : (
-                                            <NotificationDropdown
-                                                notifications={xamOpsNotifications}
-                                                counts={xamOpsCounts}
-                                                isLoading={xamOpsLoading}
-                                                onClose={() => setIsNotificationOpen(false)}
-                                            />
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        )}
-
-                        {onHelpClick && (
-                            <button
-                                onClick={onHelpClick}
-                                className={clsx(
-                                    'w-10 h-10 flex items-center justify-center rounded-xl transition-all',
-                                    theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-400' : 'bg-slate-100/50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                                )}
-                                aria-label="Open help guide"
-                            >
-                                <i className="fas fa-question-circle"></i>
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Demo shortcuts — only for BillOps Admin, not in demo mode itself */}
+                    {/* Demo shortcuts — BillOps Admin only */}
                     {isBillOpsAdmin && !isDemoMode() && (
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1 mr-1">
                             <button
                                 onClick={() => openDemoTab('xamops')}
                                 title="Open XamOps Demo"
-                                className={clsx(
-                                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border',
-                                    theme === 'dark'
-                                        ? 'bg-indigo-900/40 border-indigo-700/50 text-indigo-300 hover:bg-indigo-800/60 hover:text-indigo-200'
-                                        : 'bg-indigo-50 border-indigo-200 text-indigo-600 hover:bg-indigo-100'
-                                )}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border transition-colors ${theme === 'dark' ? 'border-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.6)] hover:bg-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.04)]'}`}
                             >
                                 <i className="fas fa-cloud text-[10px]"></i>
                                 XamOps
@@ -241,12 +189,7 @@ const Topbar: React.FC = () => {
                             <button
                                 onClick={() => openDemoTab('billops')}
                                 title="Open BillOps Demo"
-                                className={clsx(
-                                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border',
-                                    theme === 'dark'
-                                        ? 'bg-purple-900/40 border-purple-700/50 text-purple-300 hover:bg-purple-800/60 hover:text-purple-200'
-                                        : 'bg-purple-50 border-purple-200 text-purple-600 hover:bg-purple-100'
-                                )}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border transition-colors ${theme === 'dark' ? 'border-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.6)] hover:bg-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.04)]'}`}
                             >
                                 <i className="fas fa-file-invoice-dollar text-[10px]"></i>
                                 BillOps
@@ -254,111 +197,111 @@ const Topbar: React.FC = () => {
                         </div>
                     )}
 
-                    <div className={clsx(
-                        'h-8 w-[1px] mx-1',
-                        theme === 'dark' ? 'bg-slate-800' : 'bg-slate-200'
-                    )}></div>
+                    {/* Help button */}
+                    {onHelpClick && (
+                        <button
+                            onClick={onHelpClick}
+                            className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
+                            aria-label="Open help guide"
+                        >
+                            <i className="fas fa-question-circle text-[13px]"></i>
+                        </button>
+                    )}
 
-                    {/* User Profile Dropdown */}
+                    {/* Notifications */}
+                    {!isBillOpsAdmin && (
+                        <div className="relative" ref={notificationRef}>
+                            <button
+                                onClick={toggleNotifications}
+                                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors relative ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
+                            >
+                                <i className="fas fa-bell text-[13px]"></i>
+                                {counts.total > 0 && (
+                                    <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-rose-500 rounded-full ${theme === 'dark' ? 'border border-[#1f1f1f]' : 'border border-white'}`}></span>
+                                )}
+                            </button>
+
+                            {isNotificationOpen && (
+                                <>
+                                    {isBillOpsUser ? (
+                                        <BillOpsUserNotificationDropdown
+                                            notifications={billOpsUserNotifications}
+                                            counts={billOpsUserCounts}
+                                            isLoading={billOpsUserLoading}
+                                            onClose={() => setIsNotificationOpen(false)}
+                                        />
+                                    ) : (
+                                        <NotificationDropdown
+                                            notifications={xamOpsNotifications}
+                                            counts={xamOpsCounts}
+                                            isLoading={xamOpsLoading}
+                                            onClose={() => setIsNotificationOpen(false)}
+                                        />
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Theme toggle */}
+                    <button
+                        onClick={toggleTheme}
+                        title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                        className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
+                    >
+                        <i className={`fas ${theme === 'dark' ? 'fa-sun' : 'fa-moon'} text-[13px]`}></i>
+                    </button>
+
+                    {/* Divider */}
+                    <div className={`w-px h-5 mx-1 ${theme === 'dark' ? 'bg-[rgba(255,255,255,0.12)]' : 'bg-[rgba(0,0,0,0.08)]'}`}></div>
+
+                    {/* User profile */}
                     <div className="relative" ref={dropdownRef}>
                         <button
                             onClick={toggleProfile}
                             className={clsx(
-                                'flex items-center gap-3 pl-2 p-1.5 rounded-2xl transition-all duration-200',
-                                isProfileOpen ? (theme === 'dark' ? 'bg-slate-800' : 'bg-indigo-50') : (theme === 'dark' ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50')
+                                'flex items-center gap-2 px-2 py-1 rounded-md transition-colors duration-150',
+                                theme === 'dark'
+                                    ? isProfileOpen ? 'bg-[rgba(255,255,255,0.1)]' : 'hover:bg-[rgba(255,255,255,0.08)]'
+                                    : isProfileOpen ? 'bg-[rgba(0,0,0,0.06)]' : 'hover:bg-[rgba(0,0,0,0.06)]'
                             )}
                         >
-                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-                                <i className="fas fa-user text-sm"></i>
+                            {/* Letter avatar */}
+                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-semibold flex-shrink-0 ${theme === 'dark' ? 'bg-[rgba(255,255,255,0.15)]' : 'bg-[rgba(0,0,0,0.88)]'}`}>
+                                {avatarInitial}
                             </div>
-                            <div className="hidden lg:flex flex-col items-start pr-2">
-                                <span className={clsx(
-                                    'text-sm font-semibold',
-                                    theme === 'dark' ? 'text-slate-200' : 'text-slate-700'
-                                )}>{displayName}</span>
-                                <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Member</span>
-                            </div>
-                            <i className={`fas fa-chevron-down text-[10px] text-slate-400 transition-transform duration-200 ${isProfileOpen ? 'rotate-180' : ''}`}></i>
+                            <span className={`hidden lg:block text-[13px] font-medium max-w-[120px] truncate ${theme === 'dark' ? 'text-[rgba(255,255,255,0.7)]' : 'text-[rgba(0,0,0,0.7)]'}`}>
+                                {displayName}
+                            </span>
+                            <i className={`fas fa-chevron-down text-[9px] transition-transform duration-150 ${theme === 'dark' ? 'text-[rgba(255,255,255,0.3)]' : 'text-[rgba(0,0,0,0.3)]'} ${isProfileOpen ? 'rotate-180' : ''}`}></i>
                         </button>
 
-                        {/* Dropdown Menu */}
+                        {/* Dropdown */}
                         {isProfileOpen && (
-                            <div className={clsx(
-                                'absolute top-full right-0 mt-3 w-56 rounded-2xl shadow-2xl border py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200',
-                                theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-slate-300' : 'bg-white border-slate-100 text-slate-600'
-                            )}>
-                                <div className={clsx(
-                                    'px-4 py-3 border-b mb-1',
-                                    theme === 'dark' ? 'border-slate-800' : 'border-slate-50'
-                                )}>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Signed in as</p>
-                                    <p className={clsx(
-                                        'text-sm font-semibold truncate',
-                                        theme === 'dark' ? 'text-slate-200' : 'text-slate-700'
-                                    )}>{userProfile?.email || displayName}</p>
+                            <div className="absolute top-full right-0 mt-1.5 w-52 rounded-xl border border-[rgba(0,0,0,0.06)] bg-white shadow-lg py-1 z-50">
+                                {/* User info */}
+                                <div className="px-3 py-2.5 border-b border-[rgba(0,0,0,0.06)]">
+                                    <p className="text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest mb-0.5">Signed in as</p>
+                                    <p className="text-[13px] font-medium text-[rgba(0,0,0,0.88)] truncate">{userProfile?.email || displayName}</p>
                                 </div>
 
                                 <Link
                                     to="/my-profile"
                                     onClick={() => setIsProfileOpen(false)}
-                                    className={clsx(
-                                        'flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
-                                        theme === 'dark' ? 'hover:bg-slate-800 hover:text-indigo-400' : 'hover:bg-indigo-50 hover:text-indigo-600'
-                                    )}
+                                    className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)] transition-colors"
                                 >
-                                    <div className={clsx(
-                                        'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
-                                        theme === 'dark' ? 'bg-slate-800 group-hover:bg-slate-700' : 'bg-slate-100 group-hover:bg-white'
-                                    )}>
-                                        <i className="fas fa-user-circle text-xs"></i>
-                                    </div>
-                                    <span>My Profile</span>
+                                    <i className="fas fa-user-circle w-4 text-center text-[rgba(0,0,0,0.35)] text-[12px]"></i>
+                                    My Profile
                                 </Link>
 
-                                {/* Theme Toggle Switch */}
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleTheme();
-                                    }}
-                                    className={clsx(
-                                        'w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors',
-                                        theme === 'dark' ? 'hover:bg-slate-800 hover:text-indigo-400' : 'hover:bg-indigo-50 hover:text-indigo-600'
-                                    )}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className={clsx(
-                                            'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
-                                            theme === 'dark' ? 'bg-slate-800 text-yellow-400' : 'bg-slate-100 text-slate-500'
-                                        )}>
-                                            <i className={clsx('fas', theme === 'dark' ? 'fa-moon' : 'fa-sun', 'text-xs')}></i>
-                                        </div>
-                                        <span>Dark Mode</span>
-                                    </div>
-                                    <div className={clsx(
-                                        'w-8 h-4 rounded-full relative transition-colors duration-200',
-                                        theme === 'dark' ? 'bg-indigo-600' : 'bg-gray-300'
-                                    )}>
-                                        <div className={clsx(
-                                            'absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200',
-                                            theme === 'dark' ? 'left-4.5' : 'left-0.5'
-                                        )}></div>
-                                    </div>
-                                </button>
-
-                                <div className={clsx(
-                                    'mx-2 my-1 border-t',
-                                    theme === 'dark' ? 'border-slate-800' : 'border-slate-50'
-                                )}></div>
+                                <div className="mx-2 my-0.5 border-t border-[rgba(0,0,0,0.05)]"></div>
 
                                 <button
                                     onClick={handleLogoutClick}
-                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 transition-colors"
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-rose-600 hover:bg-rose-50 transition-colors"
                                 >
-                                    <div className="w-7 h-7 rounded-lg bg-rose-100/50 flex items-center justify-center transition-colors">
-                                        <i className="fas fa-sign-out-alt text-xs"></i>
-                                    </div>
-                                    <span>Sign Out</span>
+                                    <i className="fas fa-sign-out-alt w-4 text-center text-[12px]"></i>
+                                    Sign Out
                                 </button>
                             </div>
                         )}

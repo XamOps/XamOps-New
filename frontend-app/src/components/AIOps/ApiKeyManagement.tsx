@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Icon } from '@iconify/react';
 import { DialogRoot, DialogPanel } from '../ui/Dialog';
 import type { ApiKeyStats, ApiKeyRotateRequest } from '../../types/aiops';
 import { PROVIDER_COLORS } from '../../types/aiops';
@@ -16,10 +17,10 @@ interface ApiKeyManagementProps {
 }
 
 const HEALTH_BADGE: Record<string, { bg: string; text: string; icon: string }> = {
-  HEALTHY: { bg: 'bg-emerald-100', text: 'text-emerald-700', icon: 'fas fa-check-circle' },
-  DEGRADED: { bg: 'bg-amber-100', text: 'text-amber-700', icon: 'fas fa-exclamation-triangle' },
-  ERROR: { bg: 'bg-red-100', text: 'text-red-700', icon: 'fas fa-times-circle' },
-  UNKNOWN: { bg: 'bg-gray-100', text: 'text-gray-500', icon: 'fas fa-question-circle' },
+  HEALTHY: { bg: 'bg-emerald-100', text: 'text-emerald-700', icon: 'mdi:check-circle-outline' },
+  DEGRADED: { bg: 'bg-amber-100', text: 'text-amber-700', icon: 'mdi:alert-outline' },
+  ERROR: { bg: 'bg-red-100', text: 'text-red-700', icon: 'mdi:close' },
+  UNKNOWN: { bg: 'bg-[rgba(0,0,0,0.04)]', text: 'text-[rgba(0,0,0,0.5)]', icon: 'mdi:help-circle-outline' },
 };
 
 function timeAgo(isoString: string | null): string {
@@ -79,19 +80,19 @@ function RotateKeyModal({
       <DialogPanel title={`Rotate Key — ${keyInfo?.displayName || keyInfo?.provider}`}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
-            <i className="fas fa-exclamation-triangle mr-1" />
+            <Icon icon="mdi:alert-outline" width={12} className="inline mr-1" />
             Enter the new key value. The old key will be replaced immediately.
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">
+            <label className="block text-xs font-semibold text-[rgba(0,0,0,0.6)] mb-1">
               {isBedrock ? 'API Key (optional for Bedrock)' : 'New API Key'}
             </label>
             <input
               type="password"
               value={apiKey}
               onChange={e => setApiKey(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+              className="w-full bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[rgba(0,0,0,0.2)] font-mono"
               placeholder="sk-..."
               required={!isBedrock}
             />
@@ -100,22 +101,22 @@ function RotateKeyModal({
           {isBedrock && (
             <>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">New AWS Access Key</label>
+                <label className="block text-xs font-semibold text-[rgba(0,0,0,0.6)] mb-1">New AWS Access Key</label>
                 <input
                   type="password"
                   value={awsAccess}
                   onChange={e => setAwsAccess(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                  className="w-full bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[rgba(0,0,0,0.2)] font-mono"
                   placeholder="AKIA..."
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">New AWS Secret Key</label>
+                <label className="block text-xs font-semibold text-[rgba(0,0,0,0.6)] mb-1">New AWS Secret Key</label>
                 <input
                   type="password"
                   value={awsSecret}
                   onChange={e => setAwsSecret(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                  className="w-full bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[rgba(0,0,0,0.2)] font-mono"
                   placeholder="wJal..."
                 />
               </div>
@@ -126,14 +127,14 @@ function RotateKeyModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-md hover:bg-[rgba(0,0,0,0.06)] transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-amber-500 to-orange-600 rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md transition-all disabled:opacity-50"
             >
               {saving ? 'Rotating...' : 'Rotate Key'}
             </button>
@@ -187,19 +188,19 @@ function AssignTeamModal({
       <DialogPanel title={`Assign Team — ${keyInfo?.displayName || keyInfo?.provider}`}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700">
-            <i className="fas fa-info-circle mr-1" />
+            <Icon icon="mdi:information-outline" width={12} className="inline mr-1" />
             All requests made through this key will be automatically tagged with this team name and appear in team analytics.
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">
-              Team Name <span className="text-gray-400 font-normal">(e.g. backend-team, data-science, product)</span>
+            <label className="block text-xs font-semibold text-[rgba(0,0,0,0.6)] mb-1">
+              Team Name <span className="text-[rgba(0,0,0,0.4)] font-normal">(e.g. backend-team, data-science, product)</span>
             </label>
             <input
               type="text"
               value={teamName}
               onChange={e => setTeamName(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              className="w-full bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
               placeholder="Enter team name..."
             />
           </div>
@@ -213,7 +214,7 @@ function AssignTeamModal({
                   disabled={saving}
                   className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
                 >
-                  <i className="fas fa-times mr-1" />Remove Assignment
+                  <Icon icon="mdi:close" width={12} className="inline mr-1" />Remove Assignment
                 </button>
               )}
             </div>
@@ -221,14 +222,14 @@ function AssignTeamModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-md hover:bg-[rgba(0,0,0,0.06)] transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={saving || !teamName.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50"
+                className="px-4 py-2 text-sm font-medium text-white bg-[rgba(0,0,0,0.88)] hover:bg-black rounded-md transition-all disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Assign Team'}
               </button>
@@ -257,7 +258,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
     return (
       <div className="space-y-4">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="animate-pulse bg-gray-200/60 rounded-2xl h-32" />
+          <div key={i} className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded-xl h-32" />
         ))}
       </div>
     );
@@ -265,12 +266,12 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
 
   if (keys.length === 0) {
     return (
-      <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-12 text-center">
-        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <i className="fas fa-key text-gray-400 text-2xl" />
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-12 text-center">
+        <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] rounded-xl flex items-center justify-center mx-auto mb-4">
+          <Icon icon="mdi:key-outline" width={28} color="rgba(0,0,0,0.3)" />
         </div>
-        <p className="text-gray-500 font-medium">No API keys configured</p>
-        <p className="text-xs text-gray-400 mt-1">Add a provider to manage API keys</p>
+        <p className="text-[rgba(0,0,0,0.5)] font-medium">No API keys configured</p>
+        <p className="text-xs text-[rgba(0,0,0,0.4)] mt-1">Add a provider to manage API keys</p>
       </div>
     );
   }
@@ -281,13 +282,13 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
       {onCleanupOrphanedLogs && (
         <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
           <div className="flex items-center gap-2 text-sm text-amber-800">
-            <i className="fas fa-broom" />
+            <Icon icon="mdi:broom" width={16} />
             <span>If you see data from a deleted provider, run a cleanup to remove orphaned log entries.</span>
           </div>
           <div className="flex items-center gap-3">
             {cleanupMsg && (
-              <span className="text-xs font-medium text-emerald-700">
-                <i className="fas fa-check-circle mr-1" />{cleanupMsg}
+              <span className="text-xs font-medium text-emerald-700 inline-flex items-center gap-1">
+                <Icon icon="mdi:check-circle-outline" width={12} />{cleanupMsg}
               </span>
             )}
             <button
@@ -302,7 +303,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-100 border border-amber-300 rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50"
             >
-              <i className={`fas fa-broom ${cleaning ? 'fa-spin' : ''}`} />
+              <Icon icon="mdi:broom" width={12} />
               {cleaning ? 'Cleaning...' : 'Clean Up Orphaned Logs'}
             </button>
           </div>
@@ -311,41 +312,41 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
 
       {/* Summary KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Total Keys <InfoTooltip placement="bottom">Number of API keys configured across all providers.</InfoTooltip></span>
-            <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-              <i className="fas fa-key text-white text-xs" />
+            <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-[0.09em] leading-[15px] inline-flex items-center gap-1">Total Keys <InfoTooltip placement="bottom">Number of API keys configured across all providers.</InfoTooltip></span>
+            <div className="w-8 h-8 flex items-center justify-center bg-indigo-50 border border-indigo-100 rounded-lg">
+              <Icon icon="mdi:key-outline" width={16} color="#4F46E5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{keys.length}</p>
+          <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{keys.length}</p>
         </div>
-        <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Active <InfoTooltip placement="bottom">Keys with ACTIVE status that can receive requests.</InfoTooltip></span>
-            <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-green-600 rounded-lg flex items-center justify-center">
-              <i className="fas fa-check-circle text-white text-xs" />
+            <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-[0.09em] leading-[15px] inline-flex items-center gap-1">Active <InfoTooltip placement="bottom">Keys with ACTIVE status that can receive requests.</InfoTooltip></span>
+            <div className="w-8 h-8 flex items-center justify-center bg-indigo-50 border border-indigo-100 rounded-lg">
+              <Icon icon="mdi:check-circle-outline" width={16} color="#4F46E5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{keys.filter(k => k.status === 'ACTIVE').length}</p>
+          <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{keys.filter(k => k.status === 'ACTIVE').length}</p>
         </div>
-        <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Healthy <InfoTooltip placement="bottom">Keys that responded without errors recently.</InfoTooltip></span>
-            <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
-              <i className="fas fa-heartbeat text-white text-xs" />
+            <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-[0.09em] leading-[15px] inline-flex items-center gap-1">Healthy <InfoTooltip placement="bottom">Keys that responded without errors recently.</InfoTooltip></span>
+            <div className="w-8 h-8 flex items-center justify-center bg-indigo-50 border border-indigo-100 rounded-lg">
+              <Icon icon="mdi:heart-pulse" width={16} color="#4F46E5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{keys.filter(k => k.healthStatus === 'HEALTHY').length}</p>
+          <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{keys.filter(k => k.healthStatus === 'HEALTHY').length}</p>
         </div>
-        <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">Team Assigned <InfoTooltip placement="bottom">Keys that have a team assigned for automatic usage attribution.</InfoTooltip></span>
-            <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-lg flex items-center justify-center">
-              <i className="fas fa-users text-white text-xs" />
+            <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-[0.09em] leading-[15px] inline-flex items-center gap-1">Team Assigned <InfoTooltip placement="bottom">Keys that have a team assigned for automatic usage attribution.</InfoTooltip></span>
+            <div className="w-8 h-8 flex items-center justify-center bg-indigo-50 border border-indigo-100 rounded-lg">
+              <Icon icon="mdi:account-group-outline" width={16} color="#4F46E5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{keys.filter(k => k.assignedTeam).length}</p>
+          <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{keys.filter(k => k.assignedTeam).length}</p>
         </div>
       </div>
 
@@ -358,34 +359,34 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
             : null;
 
           return (
-            <div key={key.id} className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+            <div key={key.id} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
               {/* Header */}
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span
                     className="w-3 h-3 rounded-full"
                     style={{ backgroundColor: PROVIDER_COLORS[key.provider] || '#94a3b8' }}
                   />
                   <div>
-                    <h4 className="text-sm font-bold text-gray-900">{key.displayName || key.provider}</h4>
-                    <p className="text-xs text-gray-400">{key.provider}</p>
+                    <h4 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{key.displayName || key.provider}</h4>
+                    <p className="text-xs text-[rgba(0,0,0,0.4)]">{key.provider}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {/* Team badge */}
                   {key.assignedTeam ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
-                      <i className="fas fa-users text-[10px]" />
+                      <Icon icon="mdi:account-group-outline" width={10} />
                       {key.assignedTeam}
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-400 border border-gray-200">
-                      <i className="fas fa-user-slash text-[9px]" />
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.4)] border border-[rgba(0,0,0,0.08)]">
+                      <Icon icon="mdi:account-off-outline" width={9} />
                       No Team
                     </span>
                   )}
                   <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${health.bg} ${health.text}`}>
-                    <i className={`${health.icon} text-[10px]`} />
+                    <Icon icon={health.icon} width={10} />
                     {key.healthStatus}
                   </span>
                 </div>
@@ -395,25 +396,25 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
               <div className="px-5 py-4 space-y-3">
                 {/* Masked Key */}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">API Key</span>
-                  <code className="text-xs font-mono text-gray-700 bg-gray-100 px-2 py-0.5 rounded">{key.maskedKey}</code>
+                  <span className="text-xs text-[rgba(0,0,0,0.5)]">API Key</span>
+                  <code className="text-xs font-mono text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] px-2 py-0.5 rounded">{key.maskedKey}</code>
                 </div>
 
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="text-center">
-                    <p className="text-lg font-bold text-gray-900">{key.requestCount.toLocaleString()}</p>
-                    <p className="text-xs text-gray-400 inline-flex items-center gap-1">Requests <InfoTooltip placement="bottom">Total API calls made with this key.</InfoTooltip></p>
+                    <p className="text-lg font-bold text-[rgba(0,0,0,0.88)]">{key.requestCount.toLocaleString()}</p>
+                    <p className="text-xs text-[rgba(0,0,0,0.4)] inline-flex items-center gap-1">Requests <InfoTooltip placement="bottom">Total API calls made with this key.</InfoTooltip></p>
                   </div>
                   <div className="text-center">
-                    <p className="text-lg font-bold text-gray-900">{key.errorCount.toLocaleString()}</p>
-                    <p className="text-xs text-gray-400 inline-flex items-center gap-1">Errors <InfoTooltip placement="bottom">Failed requests (4xx/5xx responses).</InfoTooltip></p>
+                    <p className="text-lg font-bold text-[rgba(0,0,0,0.88)]">{key.errorCount.toLocaleString()}</p>
+                    <p className="text-xs text-[rgba(0,0,0,0.4)] inline-flex items-center gap-1">Errors <InfoTooltip placement="bottom">Failed requests (4xx/5xx responses).</InfoTooltip></p>
                   </div>
                   <div className="text-center">
-                    <p className="text-lg font-bold text-gray-900">
+                    <p className="text-lg font-bold text-[rgba(0,0,0,0.88)]">
                       {key.requestCount > 0 ? ((key.errorCount / key.requestCount) * 100).toFixed(1) : '0.0'}%
                     </p>
-                    <p className="text-xs text-gray-400 inline-flex items-center gap-1">Error Rate <InfoTooltip placement="bottom">Percentage of requests that returned errors.</InfoTooltip></p>
+                    <p className="text-xs text-[rgba(0,0,0,0.4)] inline-flex items-center gap-1">Error Rate <InfoTooltip placement="bottom">Percentage of requests that returned errors.</InfoTooltip></p>
                   </div>
                 </div>
 
@@ -421,12 +422,12 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                 {usagePct !== null && (
                   <div>
                     <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="text-gray-500">Usage Limit</span>
-                      <span className="text-gray-700 font-medium">
+                      <span className="text-[rgba(0,0,0,0.5)]">Usage Limit</span>
+                      <span className="text-[rgba(0,0,0,0.7)] font-medium">
                         {key.requestCount.toLocaleString()} / {key.usageLimit!.toLocaleString()}
                       </span>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-2 bg-[rgba(0,0,0,0.04)] rounded-full overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all ${
                           usagePct > 90 ? 'bg-red-500' : usagePct > 70 ? 'bg-amber-500' : 'bg-emerald-500'
@@ -439,20 +440,20 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
 
                 {/* Last Used / Last Error */}
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-400">
-                    <i className="fas fa-clock mr-1" />Last used: {timeAgo(key.lastUsedAt)}
+                  <span className="text-[rgba(0,0,0,0.4)] inline-flex items-center gap-1">
+                    <Icon icon="mdi:clock-outline" width={12} className="inline mr-1" />Last used: {timeAgo(key.lastUsedAt)}
                   </span>
                   {key.lastErrorAt && (
-                    <span className="text-red-400" title={key.lastErrorMessage || ''}>
-                      <i className="fas fa-exclamation-triangle mr-1" />Error: {timeAgo(key.lastErrorAt)}
+                    <span className="text-red-400 inline-flex items-center gap-1" title={key.lastErrorMessage || ''}>
+                      <Icon icon="mdi:alert-outline" width={12} className="inline mr-1" />Error: {timeAgo(key.lastErrorAt)}
                     </span>
                   )}
                 </div>
 
                 {key.lastErrorMessage && (
                   <div className="p-2 bg-red-50 border border-red-100 rounded-lg">
-                    <p className="text-xs text-red-600 truncate" title={key.lastErrorMessage}>
-                      <i className="fas fa-bug mr-1" />{key.lastErrorMessage}
+                    <p className="text-xs text-red-600 truncate inline-flex items-center gap-1" title={key.lastErrorMessage}>
+                      <Icon icon="mdi:bug-outline" width={12} className="inline mr-1" />{key.lastErrorMessage}
                     </p>
                   </div>
                 )}
@@ -460,26 +461,26 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
 
               {/* Tracking Token */}
               {key.trackingToken && (
-                <div className="mx-5 mb-3 flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                  <i className="fas fa-fingerprint text-gray-400 text-xs flex-shrink-0" />
+                <div className="mx-5 mb-3 flex items-center gap-2 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2">
+                  <Icon icon="mdi:fingerprint" width={14} color="#9ca3af" className="flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold mb-0.5">Tracking Key (X-XamOps-Key)</p>
-                    <code className="text-xs text-gray-700 font-mono truncate block">{key.trackingToken}</code>
+                    <p className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase tracking-wide font-semibold mb-0.5">Tracking Key (X-XamOps-Key)</p>
+                    <code className="text-xs text-[rgba(0,0,0,0.7)] font-mono truncate block">{key.trackingToken}</code>
                   </div>
                   <button onClick={() => { navigator.clipboard.writeText(key.trackingToken!); }}
-                    className="flex-shrink-0 px-2 py-1 text-xs text-gray-500 hover:text-indigo-600 bg-white border border-gray-200 rounded hover:border-indigo-300 transition-colors">
-                    <i className="fas fa-copy" />
+                    className="flex-shrink-0 px-2 py-1 text-xs text-[rgba(0,0,0,0.5)] hover:text-indigo-600 bg-white border border-[rgba(0,0,0,0.08)] rounded hover:border-indigo-300 transition-colors">
+                    <Icon icon="mdi:content-copy" width={12} />
                   </button>
                 </div>
               )}
 
               {/* Actions */}
-              <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center gap-2 flex-wrap">
+              <div className="px-5 py-3 border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => setRotatingKey(key)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 transition-colors"
                 >
-                  <i className="fas fa-sync-alt" />
+                  <Icon icon="mdi:refresh" width={12} />
                   Rotate Key
                 </button>
                 {onAssignTeam && (
@@ -491,7 +492,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                         : 'text-violet-700 bg-violet-100 hover:bg-violet-200'
                     }`}
                   >
-                    <i className="fas fa-users" />
+                    <Icon icon="mdi:account-group-outline" width={12} />
                     {key.assignedTeam ? 'Change Team' : 'Assign Team'}
                   </button>
                 )}
@@ -500,7 +501,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                     onClick={() => setDeletingKey(key)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors"
                   >
-                    <i className="fas fa-trash-alt" />
+                    <Icon icon="mdi:trash-can-outline" width={12} />
                     Remove
                   </button>
                 )}
@@ -510,7 +511,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                       type="number"
                       value={limitValue}
                       onChange={e => setLimitValue(e.target.value)}
-                      className="w-24 border border-gray-200 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-indigo-500"
+                      className="w-24 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded px-2 py-1 text-xs outline-none focus:border-[rgba(0,0,0,0.2)]"
                       placeholder="e.g. 10000"
                     />
                     <button
@@ -524,7 +525,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                     </button>
                     <button
                       onClick={() => setEditingLimit(null)}
-                      className="text-gray-400 hover:text-gray-600 text-xs"
+                      className="text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.6)] text-xs"
                     >
                       Cancel
                     </button>
@@ -537,7 +538,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-100 rounded-lg hover:bg-indigo-200 transition-colors ml-auto"
                   >
-                    <i className="fas fa-tachometer-alt" />
+                    <Icon icon="mdi:speedometer" width={12} />
                     {key.usageLimit ? 'Edit Limit' : 'Set Limit'}
                   </button>
                 )}
@@ -570,18 +571,18 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
         <DialogPanel title="Remove Provider">
           <div className="space-y-4">
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
-              <i className="fas fa-exclamation-triangle mr-1" />
+              <Icon icon="mdi:alert-outline" width={12} className="inline mr-1" />
               This will permanently remove <strong>{deletingKey?.displayName || deletingKey?.provider}</strong> along with its API key,
               tracking token, and all associated usage logs.
             </div>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-[rgba(0,0,0,0.6)]">
               Are you sure you want to remove this provider? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setDeletingKey(null)}
-                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-md hover:bg-[rgba(0,0,0,0.06)] transition-colors"
               >
                 Cancel
               </button>
@@ -595,7 +596,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                   setDeleting(false);
                   setDeletingKey(null);
                 }}
-                className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-red-500 to-red-600 rounded-lg hover:from-red-600 hover:to-red-700 transition-all disabled:opacity-50"
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-all disabled:opacity-50"
               >
                 {deleting ? 'Removing...' : 'Remove Provider'}
               </button>

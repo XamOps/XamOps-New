@@ -54,36 +54,20 @@ body {
   font-family: 'Plus Jakarta Sans', sans-serif;
 }
 
-/* Glass Card - The Core Component */
+/* Glass Card - neutralized to flat white */
 .glass-card {
-  background: var(--bg-glass);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-glass);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.4);
-  border-right: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 1.25rem;
-  /* 20px - smoother corners */
-  box-shadow: var(--shadow-glass);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
   position: relative;
   overflow: hidden;
 }
 
-.glass-card:hover {
-  background: var(--bg-glass-hover);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-hover);
-  border-color: rgba(255, 255, 255, 0.9);
-}
-
-/* Metric Value Gradient */
+/* Metric Value - plain bold text */
 .metric-value {
-  background: linear-gradient(135deg, var(--text-primary) 0%, #334155 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  font-weight: 700;
+  color: rgba(0, 0, 0, 0.88);
+  font-weight: 800;
   letter-spacing: -0.02em;
 }
 
@@ -262,32 +246,3 @@ body {
   color: #DC2626;
 }
 
-/* ===== DARK MODE - SOLID BACKGROUNDS (NO GLASS EFFECT) ===== */
-
-/* Ticker/Headline bar - solid dark background */
-.dark .ticker-wrap {
-  background: #0a0f1a !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  border-bottom: 1px solid #1e293b !important;
-}
-
-.dark .ticker-item {
-  color: #94a3b8 !important;
-}
-
-.dark .ticker-item strong {
-  color: #f8fafc !important;
-}
-
-/* Glass card - solid dark background in dark mode */
-.dark .glass-card {
-  background: #0f172a !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  border: 1px solid #1e293b !important;
-}
-
-.dark .glass-card:hover {
-  background: #1e293b !important;
-}

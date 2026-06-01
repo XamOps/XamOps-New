@@ -1,90 +1,56 @@
-/**
- * FlexCompute KPI Cards Component
- *
- * Displays 4 key metrics: Total Savings, Total Cost, Usage Hours, Remaining Hours
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { FlexComputeKPIs } from '../../types/flexCompute';
 
 interface FlexComputeKPICardsProps {
   kpis: FlexComputeKPIs;
 }
 
-const formatCurrency = (value: number): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
+const NUM_STYLE: React.CSSProperties = {
+  fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
+  fontSize: '28px',
+  fontWeight: 400,
+  lineHeight: '28px',
+  color: 'rgb(10,10,10)',
+  fontVariantNumeric: 'tabular-nums',
 };
 
-const formatHours = (value: number): string => {
-  return new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 1,
-  }).format(value);
-};
+const CLOUD_SVG = (
+  <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+    <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+      <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
+    </svg>
+  </div>
+);
+
+const formatCurrency = (value: number): string =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+
+const formatHours = (value: number): string =>
+  `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 }).format(value)} hrs`;
 
 const kpiConfig = [
-  {
-    key: 'totalSavings' as const,
-    label: 'Total Savings',
-    icon: 'fas fa-piggy-bank',
-    gradient: 'from-green-500 to-emerald-600',
-    bgColor: 'bg-green-50',
-    textColor: 'text-green-700',
-    format: formatCurrency,
-  },
-  {
-    key: 'awsCost' as const,
-    label: 'AWS On-Demand Cost',
-    icon: 'fas fa-dollar-sign',
-    gradient: 'from-blue-500 to-indigo-600',
-    bgColor: 'bg-blue-50',
-    textColor: 'text-blue-700',
-    format: formatCurrency,
-  },
-  {
-    key: 'totalUsageHours' as const,
-    label: 'Total Usage Hours',
-    icon: 'fas fa-clock',
-    gradient: 'from-purple-500 to-violet-600',
-    bgColor: 'bg-purple-50',
-    textColor: 'text-purple-700',
-    format: (v: number) => `${formatHours(v)} hrs`,
-  },
-  {
-    key: 'remainingHours' as const,
-    label: 'Remaining Hours',
-    icon: 'fas fa-hourglass-half',
-    gradient: 'from-amber-500 to-orange-600',
-    bgColor: 'bg-amber-50',
-    textColor: 'text-amber-700',
-    format: (v: number) => `${formatHours(v)} hrs`,
-  },
+  { key: 'totalSavings' as const,    label: 'Total Savings',      icon: 'mdi:piggy-bank',       iconColor: '#16A34A', iconBg: '#16A34A14', format: formatCurrency },
+  { key: 'awsCost' as const,         label: 'AWS On-Demand Cost', icon: 'mdi:currency-usd',     iconColor: '#3B82F6', iconBg: '#3B82F614', format: formatCurrency },
+  { key: 'totalUsageHours' as const, label: 'Total Usage Hours',  icon: 'mdi:clock-outline',    iconColor: '#8B5CF6', iconBg: '#8B5CF614', format: formatHours },
+  { key: 'remainingHours' as const,  label: 'Remaining Hours',    icon: 'mdi:timer-sand',       iconColor: '#D97706', iconBg: '#D9770614', format: formatHours },
 ];
 
 const FlexComputeKPICards: React.FC<FlexComputeKPICardsProps> = ({ kpis }) => {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {kpiConfig.map((config) => (
-        <div
-          key={config.key}
-          className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <span className={`text-xs font-semibold uppercase tracking-wide ${config.textColor}`}>
-              {config.label}
-            </span>
-            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${config.gradient} flex items-center justify-center shadow-sm`}>
-              <i className={`${config.icon} text-white text-sm`}></i>
+        <div key={config.key} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+          {CLOUD_SVG}
+          <div className="relative z-10">
+            <div className="flex items-start justify-between mb-2">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">{config.label}</p>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: config.iconBg }}>
+                <Icon icon={config.icon} width={18} color={config.iconColor} />
+              </div>
             </div>
+            <p style={NUM_STYLE}>{config.format(kpis[config.key])}</p>
           </div>
-          <p className="text-2xl font-bold text-gray-900">
-            {config.format(kpis[config.key])}
-          </p>
         </div>
       ))}
     </div>

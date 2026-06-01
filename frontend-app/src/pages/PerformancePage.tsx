@@ -17,14 +17,12 @@
  */
 
 import React, { useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { usePerformanceData } from '../hooks/usePerformanceData';
 import type { SeverityFilter } from '../types/performance';
-import Skeleton from '../components/Shared/Skeleton';
-import clsx from 'clsx';
 import { AlertDialog } from '../components/ui';
-import '../styles/performance.css';
 
 const PerformancePage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -63,18 +61,22 @@ const PerformancePage: React.FC = () => {
         <button
           onClick={exportData}
           disabled={isExporting}
-          className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-600 text-xs font-bold rounded-xl border border-emerald-100 shadow-sm hover:shadow-md transition-all disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-1.5 bg-white text-emerald-600 text-xs font-medium rounded-md border border-[rgba(0,0,0,0.12)] hover:shadow-sm transition-all disabled:opacity-50"
         >
-          <i className={clsx('fas', isExporting ? 'fa-spinner fa-spin' : 'fa-file-excel')}></i>
+          {isExporting ? (
+            <Icon icon="mdi:loading" width={14} className="animate-spin" />
+          ) : (
+            <Icon icon="mdi:microsoft-excel" width={14} />
+          )}
           <span>{isExporting ? 'Exporting...' : 'Export CSV'}</span>
         </button>
 
         <button
           onClick={refresh}
           disabled={isRefreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+          className="flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-medium rounded-md hover:bg-black transition-colors disabled:opacity-50"
         >
-          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
+          <Icon icon="mdi:refresh" width={14} className={isRefreshing ? 'animate-spin' : ''} />
           <span>{isRefreshing ? 'Scanning...' : 'Refresh Insights'}</span>
         </button>
       </div>
@@ -89,19 +91,6 @@ const PerformancePage: React.FC = () => {
     { value: 'WEAK_WARNING', label: 'Weak Warning' },
   ];
 
-  const getSeverityIcon = (severity: string) => {
-    switch (severity) {
-      case 'CRITICAL':
-        return 'fa-exclamation-triangle text-red-500';
-      case 'WARNING':
-        return 'fa-exclamation-circle text-orange-500';
-      case 'WEAK_WARNING':
-        return 'fa-info-circle text-yellow-500';
-      default:
-        return 'fa-info-circle text-gray-500';
-    }
-  };
-
   const handleInsightSelection = (id: string) => {
     setSelectedInsights((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
@@ -109,7 +98,7 @@ const PerformancePage: React.FC = () => {
   };
 
   return (
-    <main className="performance-page">
+    <main className="flex-1 p-6 bg-white min-h-screen">
       <AlertDialog
         isOpen={pendingBulkArchive}
         title={`Archive ${selectedInsights.length} insights?`}
@@ -119,223 +108,194 @@ const PerformancePage: React.FC = () => {
         onConfirm={bulkArchive}
         onCancel={cancelBulkArchive}
       />
-      {/* Toast Notification */}
-      <div className={`performance-toast ${toast.show ? 'show' : ''} ${toast.type}`}>
-        <div className="performance-toast-content">
-          <i className={`fas ${toast.type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}`} />
-          <span>{toast.message}</span>
+
+      {/* Toast */}
+      {toast.show && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-md shadow-md text-sm font-medium ${
+          toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          <Icon icon={toast.type === 'success' ? 'mdi:check-circle-outline' : 'mdi:alert-circle-outline'} width={16} />
+          {toast.message}
         </div>
-      </div>
+      )}
 
-      {/* Header Removed - Integrated into Topbar */}
-
-      <div className="performance-content">
-        {/* No Account State */}
+      <div className="space-y-6">
+        {/* No account state */}
         {!selectedAccountId && !isLoading && (
-          <div className="performance-no-account">
-            <div className="performance-no-account-icon">
-              <i className="fas fa-chart-line" />
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-14 h-14 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4">
+              <Icon icon="mdi:chart-line" width={28} color="#4f46e5" />
             </div>
-            <h4>No Account Selected</h4>
-            <p>Please select an account from the sidebar to view performance insights.</p>
+            <h3 className="text-base font-bold text-[rgba(0,0,0,0.88)] mb-1">No Account Selected</h3>
+            <p className="text-sm text-[rgba(0,0,0,0.5)]">Select an account from the sidebar to view performance insights.</p>
           </div>
         )}
 
-        {/* KPI Cards */}
         {selectedAccountId && (
           <>
-            {!isLoading ? (
-              <div className="performance-metrics-grid">
-                <div className="performance-metric-card">
-                  <div className="performance-metric-content">
-                    <div>
-                      <h3>Performance Score</h3>
-                      <p className="performance-metric-value">{summary.performanceScore || 0}</p>
-                    </div>
-                    <div className="performance-metric-icon bg-blue-100">
-                      <i className="fas fa-tachometer-alt text-blue-600" />
-                    </div>
+            {/* KPI Cards */}
+            {isLoading ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 animate-pulse">
+                    <div className="h-3 bg-[rgba(0,0,0,0.06)] rounded w-24 mb-3" />
+                    <div className="h-7 bg-[rgba(0,0,0,0.06)] rounded w-16 mb-2" />
+                    <div className="h-3 bg-[rgba(0,0,0,0.04)] rounded w-20" />
                   </div>
-                </div>
-                <div className="performance-metric-card">
-                  <div className="performance-metric-content">
-                    <div>
-                      <h3>Total Insights</h3>
-                      <p className="performance-metric-value">{summary.totalInsights || 0}</p>
-                    </div>
-                    <div className="performance-metric-icon bg-blue-100">
-                      <i className="fas fa-lightbulb text-blue-600" />
-                    </div>
-                  </div>
-                </div>
-                <div className="performance-metric-card">
-                  <div className="performance-metric-content">
-                    <div>
-                      <h3>Critical</h3>
-                      <p className="performance-metric-value text-red-600">{summary.critical || 0}</p>
-                    </div>
-                    <div className="performance-metric-icon bg-red-100">
-                      <i className="fas fa-exclamation-triangle text-red-600" />
-                    </div>
-                  </div>
-                </div>
-                <div className="performance-metric-card">
-                  <div className="performance-metric-content">
-                    <div>
-                      <h3>Warnings</h3>
-                      <p className="performance-metric-value text-orange-600">
-                        {(summary.warning || 0) + (summary.weakWarning || 0)}
-                      </p>
-                    </div>
-                    <div className="performance-metric-icon bg-orange-100">
-                      <i className="fas fa-exclamation-circle text-orange-600" />
-                    </div>
-                  </div>
-                </div>
+                ))}
               </div>
             ) : (
-              <div className="performance-metrics-grid">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="performance-metric-card">
-                    <div className="performance-metric-content">
-                      <div className="flex-1 space-y-2">
-                        <Skeleton variant="text" height={16} width={80} />
-                        <Skeleton variant="text" height={32} width={64} />
-                      </div>
-                      <Skeleton variant="rounded" height={48} width={48} className="rounded-xl" />
-                    </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { label: 'Performance Score', value: summary.performanceScore || 0, sub: 'Overall score', valueColor: 'rgb(10,10,10)' },
+                  { label: 'Total Insights', value: summary.totalInsights || 0, sub: 'All findings', valueColor: 'rgb(10,10,10)' },
+                  { label: 'Critical', value: summary.critical || 0, sub: 'Immediate attention', valueColor: 'rgb(220,38,38)' },
+                  { label: 'Warnings', value: (summary.warning || 0) + (summary.weakWarning || 0), sub: 'Review needed', valueColor: 'rgb(234,88,12)' },
+                ].map(c => (
+                  <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)] mb-2">{c.label}</p>
+                    <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: c.valueColor, fontVariantNumeric: 'tabular-nums' }}>{c.value}</p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">{c.sub}</p>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Main Content Card */}
-            <div className="performance-card">
+            {/* Main content card */}
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
               {/* Tabs */}
-              <div className="performance-tabs">
-                <button
-                  onClick={() => setActiveTab('insights')}
-                  className={`performance-tab ${activeTab === 'insights' ? 'active' : ''}`}
-                >
-                  Critical Insights
-                </button>
-                <button
-                  onClick={() => setActiveTab('best_practices')}
-                  className={`performance-tab ${activeTab === 'best_practices' ? 'active' : ''}`}
-                >
-                  Best Practice Audits
-                </button>
+              <div className="border-b border-[rgba(0,0,0,0.06)] px-6">
+                <nav className="flex gap-6">
+                  {[
+                    { key: 'insights', label: 'Critical Insights', icon: 'mdi:alert-circle-outline' },
+                    { key: 'best_practices', label: 'Best Practice Audits', icon: 'mdi:check-circle-outline' },
+                  ].map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setActiveTab(tab.key as any)}
+                      className={`flex items-center gap-2 py-4 px-1 text-[13px] font-medium border-b-2 transition-colors ${
+                        activeTab === tab.key
+                          ? 'border-indigo-600 text-indigo-600'
+                          : 'border-transparent text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)] hover:border-[rgba(0,0,0,0.2)]'
+                      }`}
+                    >
+                      <Icon icon={tab.icon} width={14} />
+                      {tab.label}
+                    </button>
+                  ))}
+                </nav>
               </div>
 
-              {/* Insights Tab Content */}
+              {/* Insights Tab */}
               {activeTab === 'insights' && (
-                <div className="performance-tab-content">
-                  {/* Filters or Bulk Actions */}
-                  <div className="performance-actions-bar">
+                <div className="p-6 space-y-4">
+                  {/* Filter / Bulk action bar */}
+                  <div className="flex flex-wrap items-center gap-3">
                     {selectedInsights.length === 0 ? (
-                      <div className="performance-filters">
-                        {severityFilters.map((filter) => (
+                      <div className="flex flex-wrap gap-2">
+                        {severityFilters.map(f => (
                           <button
-                            key={filter.value}
-                            onClick={() => setCurrentSeverity(filter.value)}
-                            className={`performance-filter-btn ${currentSeverity === filter.value ? 'active' : ''}`}
+                            key={f.value}
+                            onClick={() => setCurrentSeverity(f.value)}
+                            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                              currentSeverity === f.value
+                                ? 'bg-[rgba(0,0,0,0.88)] text-white'
+                                : 'border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.04)]'
+                            }`}
                           >
-                            {filter.label}
+                            {f.label}
                           </button>
                         ))}
                       </div>
                     ) : (
-                      <div className="performance-bulk-actions">
-                        <div className="performance-bulk-info">
-                          <i className="fas fa-check-circle text-blue-600" />
-                          <span>
+                      <div className="flex items-center gap-4 w-full bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <Icon icon="mdi:check-circle-outline" width={16} className="text-blue-600" />
+                          <span className="text-sm font-bold text-blue-800">
                             {selectedInsights.length} insight{selectedInsights.length > 1 ? 's' : ''} selected
                           </span>
                         </div>
-                        <div className="performance-bulk-buttons">
-                          <button onClick={requestBulkArchive} className="performance-btn performance-btn-outline">
-                            <i className="fas fa-archive" />
+                        <div className="flex items-center gap-3 ml-auto">
+                          <button
+                            onClick={requestBulkArchive}
+                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.7)] border border-[rgba(0,0,0,0.12)] rounded-md hover:bg-white transition-all"
+                          >
+                            <Icon icon="mdi:archive-outline" width={13} />
                             Archive Selected
                           </button>
-                          <button
-                            onClick={() => setSelectedInsights([])}
-                            className="performance-btn-icon"
-                          >
-                            <i className="fas fa-times" />
+                          <button onClick={() => setSelectedInsights([])} className="text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.6)]">
+                            <Icon icon="mdi:close" width={16} />
                           </button>
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Loading State */}
+                  {/* Loading */}
                   {isLoading && (
-                    <div className="performance-skeleton-list space-y-4">
-                      {[1, 2, 3, 4, 5].map((i) => (
-                        <div key={i} className="performance-skeleton-row flex items-center gap-4 p-4 border-b border-gray-100">
-                          <Skeleton variant="rounded" width={24} height={24} />
+                    <div className="space-y-3">
+                      {[1, 2, 3, 4, 5].map(i => (
+                        <div key={i} className="flex items-center gap-4 p-4 border-b border-gray-100 animate-pulse">
+                          <div className="w-5 h-5 bg-[rgba(0,0,0,0.06)] rounded" />
                           <div className="flex-1 space-y-2">
-                            <Skeleton variant="text" height={16} width="75%" />
-                            <Skeleton variant="text" height={12} width="50%" />
+                            <div className="h-3 bg-[rgba(0,0,0,0.06)] rounded w-3/4" />
+                            <div className="h-2.5 bg-[rgba(0,0,0,0.04)] rounded w-1/2" />
                           </div>
-                          <Skeleton variant="rounded" height={24} width={64} className="rounded-full" />
+                          <div className="h-5 w-16 bg-[rgba(0,0,0,0.06)] rounded-full" />
                         </div>
                       ))}
                     </div>
                   )}
 
-                  {/* Insights Table */}
+                  {/* Table */}
                   {!isLoading && filteredInsights.length > 0 && (
-                    <div className="performance-table-container">
-                      <table className="performance-table">
-                        <thead>
+                    <div className="overflow-x-auto rounded-xl border border-[rgba(0,0,0,0.12)]">
+                      <table className="w-full text-sm">
+                        <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
                           <tr>
-                            <th className="w-12">
-                              <input
-                                type="checkbox"
-                                onChange={toggleAllInsights}
-                                checked={isAllSelected}
-                                className="performance-checkbox"
-                              />
+                            <th className="px-4 py-2 w-12">
+                              <input type="checkbox" onChange={toggleAllInsights} checked={isAllSelected} className="rounded cursor-pointer" />
                             </th>
-                            <th>Insight</th>
-                            <th className="text-center w-20">Qty</th>
-                            <th className="w-48">Account</th>
+                            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Insight</th>
+                            <th className="px-4 py-2 text-center text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)] w-20">Qty</th>
+                            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)] w-48">Account</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredInsights.map((insight) => (
+                          {filteredInsights.map(insight => (
                             <tr
                               key={insight.id}
-                              className={`performance-insight-row ${selectedInsights.includes(insight.id) ? 'selected' : ''}`}
+                              className={`border-t border-[rgba(0,0,0,0.04)] transition-colors ${
+                                selectedInsights.includes(insight.id) ? 'bg-blue-50/60 border-l-2 border-l-indigo-500' : 'hover:bg-[rgba(0,0,0,0.025)]'
+                              }`}
                             >
-                              <td>
+                              <td className="px-4 py-3">
                                 <input
                                   type="checkbox"
                                   checked={selectedInsights.includes(insight.id)}
                                   onChange={() => handleInsightSelection(insight.id)}
-                                  className="performance-checkbox"
+                                  className="rounded cursor-pointer"
                                 />
                               </td>
-                              <td>
-                                <div className="performance-insight-cell">
-                                  <i className={`fas ${getSeverityIcon(insight.severity)}`} />
+                              <td className="px-4 py-3">
+                                <div className="flex items-start gap-3">
+                                  <Icon
+                                    icon={insight.severity === 'CRITICAL' ? 'mdi:alert' : insight.severity === 'WARNING' ? 'mdi:alert-circle-outline' : 'mdi:information-outline'}
+                                    width={16}
+                                    className={`mt-0.5 flex-shrink-0 ${insight.severity === 'CRITICAL' ? 'text-red-500' : insight.severity === 'WARNING' ? 'text-orange-500' : 'text-yellow-500'}`}
+                                  />
                                   <div>
-                                    <p className="performance-insight-title">{insight.insight}</p>
-                                    {insight.description && (
-                                      <p className="performance-insight-desc">{insight.description}</p>
-                                    )}
+                                    <p className="font-medium text-[rgba(0,0,0,0.88)] text-sm">{insight.insight}</p>
+                                    {insight.description && <p className="text-xs text-[rgba(0,0,0,0.5)] mt-0.5">{insight.description}</p>}
                                   </div>
                                 </div>
                               </td>
-                              <td className="text-center">
-                                <span className="performance-quantity-badge">{insight.quantity}</span>
+                              <td className="px-4 py-3 text-center">
+                                <span className="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.06)] rounded-full">{insight.quantity}</span>
                               </td>
-                              <td>
-                                <span className="performance-account-name">{insight.account}</span>
-                                {insight.region && (
-                                  <p className="performance-account-region">{insight.region}</p>
-                                )}
+                              <td className="px-4 py-3">
+                                <span className="text-sm font-medium text-[rgba(0,0,0,0.88)]">{insight.account}</span>
+                                {insight.region && <p className="text-xs text-[rgba(0,0,0,0.4)] mt-0.5">{insight.region}</p>}
                               </td>
                             </tr>
                           ))}
@@ -344,16 +304,19 @@ const PerformancePage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Empty State */}
+                  {/* Empty */}
                   {!isLoading && filteredInsights.length === 0 && (
-                    <div className="performance-empty">
-                      <div className="performance-empty-icon">
-                        <i className="fas fa-search" />
+                    <div className="flex flex-col items-center py-16">
+                      <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mb-3">
+                        <Icon icon="mdi:magnify" width={24} className="text-[rgba(0,0,0,0.3)]" />
                       </div>
-                      <h3>No insights found</h3>
-                      <p>No performance insights available for the selected severity.</p>
-                      <button onClick={refresh} className="performance-btn performance-btn-primary">
-                        <i className="fas fa-sync-alt" />
+                      <h3 className="text-base font-bold text-[rgba(0,0,0,0.88)] mb-1">No insights found</h3>
+                      <p className="text-sm text-[rgba(0,0,0,0.5)] mb-4">No performance insights available for the selected severity.</p>
+                      <button
+                        onClick={refresh}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white rounded-md text-[12px] font-medium hover:bg-black transition-colors"
+                      >
+                        <Icon icon="mdi:refresh" width={14} />
                         Refresh Insights
                       </button>
                     </div>
@@ -361,35 +324,31 @@ const PerformancePage: React.FC = () => {
                 </div>
               )}
 
-              {/* Best Practices Tab Content */}
+              {/* Best Practices Tab */}
               {activeTab === 'best_practices' && (
-                <div className="performance-tab-content">
+                <div className="p-6">
                   {!isLoading && bestPracticeInsights.length > 0 && (
-                    <div className="performance-table-container">
-                      <table className="performance-table">
-                        <thead>
+                    <div className="overflow-x-auto rounded-xl border border-[rgba(0,0,0,0.12)]">
+                      <table className="w-full text-sm">
+                        <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
                           <tr>
-                            <th>Recommendation</th>
-                            <th>Resource</th>
-                            <th className="text-center w-32">Savings</th>
+                            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Recommendation</th>
+                            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Resource</th>
+                            <th className="px-4 py-2 text-center text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)] w-32">Savings</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {bestPracticeInsights.map((insight) => (
-                            <tr key={insight.id} className="performance-insight-row">
-                              <td>
-                                <p className="performance-insight-title">{insight.insight}</p>
-                                {insight.description && (
-                                  <p className="performance-insight-desc">{insight.description}</p>
-                                )}
+                          {bestPracticeInsights.map(insight => (
+                            <tr key={insight.id} className="border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                              <td className="px-4 py-3">
+                                <p className="font-medium text-[rgba(0,0,0,0.88)] text-sm">{insight.insight}</p>
+                                {insight.description && <p className="text-xs text-[rgba(0,0,0,0.5)] mt-0.5">{insight.description}</p>}
                               </td>
-                              <td>
-                                <code className="performance-resource-id">{insight.resourceId}</code>
+                              <td className="px-4 py-3">
+                                <code className="text-xs font-mono text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">{insight.resourceId}</code>
                               </td>
-                              <td className="text-center">
-                                <span className="performance-savings">
-                                  ${insight.potentialSavings.toFixed(2)}
-                                </span>
+                              <td className="px-4 py-3 text-center">
+                                <span className="text-sm font-bold text-emerald-600">${insight.potentialSavings.toFixed(2)}</span>
                               </td>
                             </tr>
                           ))}
@@ -399,12 +358,12 @@ const PerformancePage: React.FC = () => {
                   )}
 
                   {!isLoading && bestPracticeInsights.length === 0 && (
-                    <div className="performance-empty">
-                      <div className="performance-empty-icon success">
-                        <i className="fas fa-check-circle" />
+                    <div className="flex flex-col items-center py-16">
+                      <div className="w-14 h-14 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center mb-3">
+                        <Icon icon="mdi:check-circle-outline" width={24} className="text-emerald-600" />
                       </div>
-                      <h3>No Best Practice violations found!</h3>
-                      <p>Your infrastructure follows AWS best practices.</p>
+                      <h3 className="text-base font-bold text-[rgba(0,0,0,0.88)] mb-1">No Best Practice violations found!</h3>
+                      <p className="text-sm text-[rgba(0,0,0,0.5)]">Your infrastructure follows AWS best practices.</p>
                     </div>
                   )}
                 </div>

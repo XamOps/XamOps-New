@@ -27,7 +27,7 @@ public class ProfileDTO {
     @AllArgsConstructor
     public static class CloudAccountInfo {
         private Long id;
-        private String name;
+        private String accountName;
         private String provider;
     }
 }

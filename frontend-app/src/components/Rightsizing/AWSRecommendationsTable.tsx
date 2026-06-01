@@ -1,10 +1,5 @@
-/**
- * AWS Recommendations Table Component
- *
- * Displays AWS rightsizing recommendations in a table format
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { AWSRecommendation } from '../../hooks/useRightsizingData';
 
 interface AWSRecommendationsTableProps {
@@ -14,146 +9,133 @@ interface AWSRecommendationsTableProps {
   onApply?: (instanceId: string, targetType: string, region: string) => void;
 }
 
+const SERVICE_ICONS: Record<string, { icon: string; color: string; bg: string }> = {
+  'EC2':    { icon: 'mdi:server',          color: '#FF9900', bg: '#FF990014' },
+  'EBS':    { icon: 'mdi:harddisk',        color: '#4285F4', bg: '#4285F414' },
+  'Lambda': { icon: 'mdi:lambda',          color: '#FF9900', bg: '#FF990014' },
+};
+
 const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
   recommendations,
   isLoading,
   canApply = false,
   onApply,
 }) => {
-  // Get service icon based on service type
-  const getServiceIcon = (serviceType: string): string => {
-    const iconMap: Record<string, string> = {
-      'EC2': 'ec2-instances.png',
-      'EBS': 'aws-ebs.png',
-      'Lambda': 'aws-lambda.png',
-    };
-    return iconMap[serviceType] || 'default-icon.png';
-  };
-
-  // Loading State
   if (isLoading) {
     return (
-      <div className="glass-card-table p-8">
-        <div className="skeleton h-96 rounded-2xl"></div>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
+          <div className="h-2.5 w-48 bg-[rgba(0,0,0,0.06)] rounded" />
+        </div>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="px-5 py-4 border-t border-[rgba(0,0,0,0.04)] animate-pulse flex items-center gap-4">
+            <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)] flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="h-2.5 w-40 bg-[rgba(0,0,0,0.06)] rounded" />
+              <div className="h-2 w-24 bg-[rgba(0,0,0,0.04)] rounded" />
+            </div>
+            <div className="h-2.5 w-20 bg-[rgba(0,0,0,0.06)] rounded" />
+            <div className="h-2.5 w-16 bg-[rgba(0,0,0,0.06)] rounded" />
+          </div>
+        ))}
       </div>
     );
   }
 
-  // Table with Data
   return (
-    <div className="glass-card-table p-8">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-          <i className="fab fa-aws text-orange-500"></i>
-          <span className="text-xs italic">These recommendations are coming directly from AWS</span>
-        </div>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      {/* Subheader */}
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
+        <Icon icon="mdi:aws" width={14} color="#FF9900" />
+        <span className="text-[11px] text-[rgba(0,0,0,0.4)] italic">Recommendations sourced directly from AWS Cost Optimization Hub</span>
+        <span className="ml-auto text-[11px] font-semibold text-[rgba(0,0,0,0.4)]">{recommendations.length} item{recommendations.length !== 1 ? 's' : ''}</span>
       </div>
 
-      <div
-        className="table-scroll-container"
-        onScroll={(e) => {
-          const target = e.currentTarget;
-          const isAtEnd = target.scrollLeft + target.clientWidth >= target.scrollWidth - 10;
-          if (isAtEnd) {
-            target.classList.add('scrolled-to-end');
-          } else {
-            target.classList.remove('scrolled-to-end');
-          }
-        }}
-      >
-        <div className="table-enhanced">
-          <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: '22%' }} />
-              <col style={{ width: '23%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '30%' }} />
-              <col style={{ width: '12%' }} />
-            </colgroup>
-            <thead className="text-xs !text-gray-700 dark:!text-gray-300 uppercase !bg-gradient-to-r !from-gray-50 !to-gray-100 dark:!from-gray-800 dark:!to-gray-900 sticky top-0 z-10">
-              <tr>
-                <th className="px-6 py-4 text-left font-bold">Instance</th>
-                <th className="px-6 py-4 text-left font-bold">Cost Comparison</th>
-                <th className="px-6 py-4 text-left font-bold">Savings</th>
-                <th className="px-6 py-4 text-left font-bold">Reason</th>
-                <th className="px-6 py-4 text-left font-bold">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {recommendations.map((rec, index) => (
-                <tr key={`${rec.resourceId}-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-all">
-                  <td className="px-6 py-4 first-cell-indicator">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 rounded-lg flex-shrink-0">
-                        <img
-                          src={`/icons/${getServiceIcon(rec.service)}`}
-                          alt={rec.service}
-                          className="w-full h-full rounded-lg object-cover"
-                        />
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-semibold text-gray-800 dark:text-gray-200 truncate">
-                          {rec.instanceName || rec.resourceId}
-                        </span>
-                        {rec.instanceName && (
-                          <span className="font-mono text-xs text-gray-400 dark:text-gray-500 truncate">{rec.resourceId}</span>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-start space-x-2">
-                      <div className="text-left min-w-0">
-                        <p className="font-bold text-red-600 dark:text-red-400">${rec.currentMonthlyCost.toFixed(2)}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{rec.currentType}</p>
-                      </div>
-                      <i className="fas fa-arrow-right text-gray-400 dark:text-gray-500 text-xs"></i>
-                      <div className="text-left min-w-0">
-                        <p className="font-bold text-green-600 dark:text-green-400">${rec.recommendedMonthlyCost.toFixed(2)}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{rec.recommendedType}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col space-y-1">
-                      <span className="savings-badge px-3 py-1 text-xs font-semibold">
-                        ${rec.estimatedMonthlySavings.toFixed(2)}
-                      </span>
-                      {rec.currentMonthlyCost > 0 && (
-                        <span className="text-xs text-gray-500">
-                          {((rec.estimatedMonthlySavings / rec.currentMonthlyCost) * 100).toFixed(1)}% savings
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-sm text-gray-900 dark:text-gray-100 reason-text">{rec.recommendationReason}</p>
-                  </td>
-                  <td className="px-6 py-4">
-                    {rec.service === 'EC2' ? (
-                      <button
-                        onClick={() => onApply && rec.region && onApply(rec.resourceId, rec.recommendedType, rec.region)}
-                        disabled={!canApply || !rec.region || !onApply}
-                        title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply: change to ${rec.recommendedType}`}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                          canApply && rec.region
-                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                        }`}
-                      >
-                        <i className="fas fa-magic text-xs"></i>
-                        Apply
-                      </button>
-                    ) : (
-                      <span className="text-xs text-gray-400 dark:text-gray-500 italic">N/A</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Column headers */}
+      <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
+        <div className="col-span-4">Instance</div>
+        <div className="col-span-3">Cost Comparison</div>
+        <div className="col-span-2">Savings / mo</div>
+        <div className="col-span-2">Reason</div>
+        <div className="col-span-1 text-right">Action</div>
       </div>
+
+      {/* Rows */}
+      {recommendations.map((rec, idx) => {
+        const meta = SERVICE_ICONS[rec.service] ?? { icon: 'mdi:cloud-outline', color: '#6B7280', bg: '#6B728014' };
+        const savingsPct = rec.currentMonthlyCost > 0
+          ? ((rec.estimatedMonthlySavings / rec.currentMonthlyCost) * 100).toFixed(1)
+          : null;
+
+        return (
+          <div
+            key={`${rec.resourceId}-${idx}`}
+            className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+          >
+            {/* Instance */}
+            <div className="col-span-4 flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 border border-[rgba(0,0,0,0.08)]" style={{ backgroundColor: meta.bg }}>
+                <Icon icon={meta.icon} width={16} color={meta.color} />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-[rgba(0,0,0,0.88)] truncate">{rec.instanceName || rec.resourceId}</p>
+                {rec.instanceName && (
+                  <p className="text-[11px] font-mono text-[rgba(0,0,0,0.35)] truncate">{rec.resourceId}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Cost comparison */}
+            <div className="col-span-3 flex items-center gap-2">
+              <div>
+                <p className="font-semibold text-rose-600 text-[12px]">${rec.currentMonthlyCost.toFixed(2)}</p>
+                <p className="text-[11px] text-[rgba(0,0,0,0.4)]">{rec.currentType}</p>
+              </div>
+              <svg className="w-3 h-3 text-[rgba(0,0,0,0.25)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              <div>
+                <p className="font-semibold text-emerald-600 text-[12px]">${rec.recommendedMonthlyCost.toFixed(2)}</p>
+                <p className="text-[11px] text-[rgba(0,0,0,0.4)]">{rec.recommendedType}</p>
+              </div>
+            </div>
+
+            {/* Savings */}
+            <div className="col-span-2">
+              <p className="font-semibold text-emerald-600 text-[13px]">${rec.estimatedMonthlySavings.toFixed(2)}</p>
+              {savingsPct && (
+                <p className="text-[11px] text-[rgba(0,0,0,0.35)]">{savingsPct}% savings</p>
+              )}
+            </div>
+
+            {/* Reason */}
+            <div className="col-span-2 text-[12px] text-[rgba(0,0,0,0.55)] leading-relaxed pr-2">
+              {rec.recommendationReason}
+            </div>
+
+            {/* Action */}
+            <div className="col-span-1 flex justify-end">
+              {rec.service === 'EC2' ? (
+                <button
+                  onClick={() => onApply && rec.region && onApply(rec.resourceId, rec.recommendedType, rec.region)}
+                  disabled={!canApply || !rec.region || !onApply}
+                  title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply: change to ${rec.recommendedType}`}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
+                    canApply && rec.region
+                      ? 'border-indigo-200 text-indigo-600 hover:bg-indigo-50 cursor-pointer'
+                      : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.25)] cursor-not-allowed'
+                  }`}
+                >
+                  <Icon icon="mdi:magic-staff" width={12} />
+                  Apply
+                </button>
+              ) : (
+                <span className="text-[11px] text-[rgba(0,0,0,0.25)] italic">N/A</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };

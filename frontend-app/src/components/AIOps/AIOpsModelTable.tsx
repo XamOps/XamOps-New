@@ -51,30 +51,30 @@ const AIOpsModelTable: React.FC<AIOpsModelTableProps> = ({ modelUsage }) => {
     });
 
   const SortIcon = ({ field }: { field: SortField }) => (
-    <i className={`fas fa-sort${sortField === field ? (sortDir === 'asc' ? '-up' : '-down') : ''} ml-1 text-[10px] ${sortField === field ? 'text-indigo-500' : 'text-gray-300'}`} />
+    <i className={`fas fa-sort${sortField === field ? (sortDir === 'asc' ? '-up' : '-down') : ''} ml-1 text-[10px] ${sortField === field ? 'text-indigo-500' : 'text-[rgba(0,0,0,0.3)]'}`} />
   );
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+    <div className="bg-white/95 backdrop-blur border border-[rgba(0,0,0,0.12)] rounded-2xl shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-lg flex items-center justify-center">
             <i className="fas fa-table text-white text-xs" />
           </div>
-          <h3 className="text-sm font-bold text-gray-800">Model Usage</h3>
-          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+          <h3 className="text-sm font-bold text-[rgba(0,0,0,0.7)]">Model Usage</h3>
+          <span className="text-xs text-[rgba(0,0,0,0.4)] bg-[rgba(0,0,0,0.04)] px-2 py-0.5 rounded-full">
             {modelUsage.length} models
           </span>
         </div>
         <div className="relative">
-          <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
+          <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.4)] text-xs" />
           <input
             type="text"
             placeholder="Search models..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none w-48"
+            className="pl-8 pr-3 py-1.5 text-xs bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.2)] w-48"
           />
         </div>
       </div>
@@ -83,7 +83,7 @@ const AIOpsModelTable: React.FC<AIOpsModelTableProps> = ({ modelUsage }) => {
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="bg-gray-50/80">
+            <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
               {[
                 { field: 'model' as SortField, label: 'Model' },
                 { field: 'provider' as SortField, label: 'Provider' },
@@ -95,7 +95,7 @@ const AIOpsModelTable: React.FC<AIOpsModelTableProps> = ({ modelUsage }) => {
                 <th
                   key={col.field}
                   onClick={() => handleSort(col.field)}
-                  className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:text-indigo-600 select-none"
+                  className="px-6 py-3 text-left text-xs font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider cursor-pointer hover:text-indigo-600 select-none"
                 >
                   {col.label}
                   <SortIcon field={col.field} />
@@ -103,18 +103,18 @@ const AIOpsModelTable: React.FC<AIOpsModelTableProps> = ({ modelUsage }) => {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-gray-400 text-sm">
+                <td colSpan={6} className="px-6 py-8 text-center text-[rgba(0,0,0,0.4)] text-sm">
                   {search ? 'No models match your search' : 'No model usage data yet'}
                 </td>
               </tr>
             ) : (
               filtered.map((row) => (
-                <tr key={`${row.model}-${row.provider}`} className="hover:bg-indigo-50/30 transition-colors">
+                <tr key={`${row.model}-${row.provider}`} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                   <td className="px-6 py-3">
-                    <span className="text-sm font-medium text-gray-900">{row.model}</span>
+                    <span className="text-sm font-medium text-[rgba(0,0,0,0.88)]">{row.model}</span>
                   </td>
                   <td className="px-6 py-3">
                     <span
@@ -127,10 +127,10 @@ const AIOpsModelTable: React.FC<AIOpsModelTableProps> = ({ modelUsage }) => {
                       {row.provider}
                     </span>
                   </td>
-                  <td className="px-6 py-3 text-sm text-gray-700">{formatNumber(row.requests)}</td>
-                  <td className="px-6 py-3 text-sm text-gray-700">{formatNumber(row.totalTokens)}</td>
-                  <td className="px-6 py-3 text-sm font-semibold text-gray-900">{formatCurrency(row.cost)}</td>
-                  <td className="px-6 py-3 text-sm text-gray-700">
+                  <td className="px-6 py-3 text-sm text-[rgba(0,0,0,0.7)]">{formatNumber(row.requests)}</td>
+                  <td className="px-6 py-3 text-sm text-[rgba(0,0,0,0.7)]">{formatNumber(row.totalTokens)}</td>
+                  <td className="px-6 py-3 text-sm font-semibold text-[rgba(0,0,0,0.88)]">{formatCurrency(row.cost)}</td>
+                  <td className="px-6 py-3 text-sm text-[rgba(0,0,0,0.7)]">
                     {row.avgLatencyMs >= 1000
                       ? (row.avgLatencyMs / 1000).toFixed(1) + 's'
                       : Math.round(row.avgLatencyMs) + 'ms'}

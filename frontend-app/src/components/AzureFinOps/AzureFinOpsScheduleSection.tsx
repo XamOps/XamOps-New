@@ -1,7 +1,6 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { AzureReportSchedule } from '../../types/azureFinops';
-import { useTheme } from '../../contexts/ThemeContext';
-import clsx from 'clsx';
 
 interface AzureFinOpsScheduleSectionProps {
   schedules: AzureReportSchedule[];
@@ -14,77 +13,79 @@ const AzureFinOpsScheduleSection: React.FC<AzureFinOpsScheduleSectionProps> = ({
   onDeleteSchedule,
   onOpenScheduleModal,
 }) => {
-  const { theme } = useTheme();
-
-  const cardCls = clsx('glass-card rounded-xl p-6', theme === 'dark' ? 'bg-slate-800/50' : '');
-  const thCls = clsx('px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide', theme === 'dark' ? 'text-slate-400' : 'text-gray-500');
-  const tdCls = clsx('px-4 py-3 text-sm', theme === 'dark' ? 'text-slate-300' : 'text-gray-700');
-  const trCls = clsx('border-t', theme === 'dark' ? 'border-slate-700 hover:bg-slate-700/30' : 'border-gray-100 hover:bg-gray-50');
-
   return (
-    <div className={cardCls}>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center shadow">
-            <i className="fas fa-calendar-alt text-white text-sm" />
+          <div
+            className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]"
+            style={{ backgroundColor: '#8B5CF614' }}
+          >
+            <Icon icon="mdi:calendar-clock" width={16} color="#8B5CF6" />
           </div>
           <div>
-            <h3 className={clsx('text-base font-bold', theme === 'dark' ? 'text-slate-100' : 'text-gray-900')}>
-              Scheduled Reports
-            </h3>
-            <p className={clsx('text-xs', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
-              Automated FinOps email reports
-            </p>
+            <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Scheduled Reports</h3>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">Automated FinOps email reports</p>
           </div>
         </div>
         <button
           onClick={onOpenScheduleModal}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors"
+          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors"
         >
-          <i className="fas fa-plus text-xs" />
+          <Icon icon="mdi:plus" width={14} />
           Schedule Report
         </button>
       </div>
 
       {schedules.length === 0 ? (
-        <div className="flex flex-col items-center py-10">
-          <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mb-3">
-            <i className="fas fa-calendar-alt text-purple-500 text-xl" />
+        <div className="flex flex-col items-center py-10 gap-2">
+          <div className="w-12 h-12 bg-purple-50 rounded-full flex items-center justify-center">
+            <Icon icon="mdi:calendar-clock" width={24} color="#8B5CF6" />
           </div>
-          <p className={clsx('text-sm font-medium mb-1', theme === 'dark' ? 'text-slate-300' : 'text-gray-600')}>
-            No scheduled reports
-          </p>
-          <p className={clsx('text-xs', theme === 'dark' ? 'text-slate-500' : 'text-gray-400')}>
+          <p className="text-[14px] font-medium text-[rgba(0,0,0,0.6)]">No scheduled reports</p>
+          <p className="text-[12px] text-[rgba(0,0,0,0.4)]">
             Set up automated email reports for this subscription.
           </p>
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
               <tr>
-                <th className={thCls}>Subscription</th>
-                <th className={thCls}>Email</th>
-                <th className={thCls}>Frequency</th>
-                <th className={thCls}>Actions</th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">
+                  Subscription
+                </th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">
+                  Email
+                </th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">
+                  Frequency
+                </th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {schedules.map(s => (
-                <tr key={s.id} className={trCls}>
-                  <td className={clsx(tdCls, 'font-medium')}>{s.subscriptionName || s.accountName || 'Azure Subscription'}</td>
-                  <td className={tdCls}>{s.email}</td>
-                  <td className={tdCls}>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">
+                <tr key={s.id} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)]">
+                  <td className="px-4 py-3 text-[14px] font-normal text-[rgba(0,0,0,0.88)] font-medium">
+                    {s.subscriptionName || s.accountName || 'Azure Subscription'}
+                  </td>
+                  <td className="px-4 py-3 text-[14px] font-normal text-[rgba(0,0,0,0.88)]">
+                    {s.email}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-600 border border-purple-100">
                       {s.frequency}
                     </span>
                   </td>
-                  <td className={tdCls}>
+                  <td className="px-4 py-3">
                     <button
                       onClick={() => onDeleteSchedule(s.id)}
-                      className="text-red-500 hover:text-red-700 text-xs font-medium transition-colors"
+                      className="inline-flex items-center gap-1 text-red-500 hover:text-red-700 text-[12px] font-medium transition-colors"
                     >
-                      <i className="fas fa-trash-alt mr-1" />
+                      <Icon icon="mdi:delete-outline" width={14} />
                       Delete
                     </button>
                   </td>

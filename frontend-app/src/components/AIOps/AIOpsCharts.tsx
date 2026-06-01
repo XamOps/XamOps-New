@@ -149,18 +149,18 @@ const AIOpsCharts: React.FC<AIOpsChartsProps> = ({ costTrend, providerBreakdown 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Cost Trend */}
-      <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm">
+      <div className="bg-white/95 backdrop-blur border border-[rgba(0,0,0,0.12)] rounded-2xl p-6 shadow-sm">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
             <i className="fas fa-chart-line text-white text-xs" />
           </div>
-          <h3 className="text-sm font-bold text-gray-800">Cost Trend</h3>
+          <h3 className="text-sm font-bold text-[rgba(0,0,0,0.7)]">Cost Trend</h3>
         </div>
         <div className="h-64">
           {costTrend && costTrend.labels.length > 0 ? (
             <canvas ref={costTrendRef} />
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+            <div className="flex items-center justify-center h-full text-[rgba(0,0,0,0.4)] text-sm">
               <div className="text-center">
                 <i className="fas fa-chart-line text-3xl mb-2 opacity-30" />
                 <p>No cost data yet</p>
@@ -171,18 +171,18 @@ const AIOpsCharts: React.FC<AIOpsChartsProps> = ({ costTrend, providerBreakdown 
       </div>
 
       {/* Provider Breakdown */}
-      <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm">
+      <div className="bg-white/95 backdrop-blur border border-[rgba(0,0,0,0.12)] rounded-2xl p-6 shadow-sm">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
             <i className="fas fa-chart-pie text-white text-xs" />
           </div>
-          <h3 className="text-sm font-bold text-gray-800">Provider Breakdown</h3>
+          <h3 className="text-sm font-bold text-[rgba(0,0,0,0.7)]">Provider Breakdown</h3>
         </div>
         <div className="h-64">
           {providerBreakdown.length > 0 ? (
             <canvas ref={providerRef} />
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+            <div className="flex items-center justify-center h-full text-[rgba(0,0,0,0.4)] text-sm">
               <div className="text-center">
                 <i className="fas fa-chart-pie text-3xl mb-2 opacity-30" />
                 <p>No provider data yet</p>

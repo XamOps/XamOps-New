@@ -7,6 +7,7 @@
  */
 
 import React, { useState } from 'react';
+import { Icon } from '@iconify/react';
 import type {
   ReservationInventoryItem,
   SavingsPlan,
@@ -57,36 +58,36 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
 
   return (
     <div className="glass-card rounded-xl overflow-hidden border-t-4 border-t-purple-500">
-      <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-gray-50/50 to-white">
+      <div className="px-6 py-5 border-b border-[rgba(0,0,0,0.06)] flex justify-between items-center bg-gradient-to-r from-[rgba(0,0,0,0.025)] to-white">
         <div>
-          <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
-            <i className="fas fa-database text-purple-600"></i>
+          <h3 className="text-lg font-black text-[rgba(0,0,0,0.88)] flex items-center gap-2">
+            <Icon icon="mdi:database-outline" className="text-purple-600" width={20} />
             Current Inventory
           </h3>
-          <p className="text-xs text-gray-500 mt-1 font-medium">Active reservations and plans</p>
+          <p className="text-xs text-[rgba(0,0,0,0.5)] mt-1 font-medium">Active reservations and plans</p>
         </div>
 
-        <div className="flex bg-gray-100 p-1 rounded-xl shadow-inner">
+        <div className="flex bg-[rgba(0,0,0,0.06)] p-1 rounded-xl shadow-inner">
           <button
             onClick={() => setInventoryTab('ris')}
-            className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`px-5 py-2 text-xs font-bold rounded-md transition-all ${
               inventoryTab === 'ris'
                 ? 'bg-gradient-to-br from-purple-500 to-indigo-500 text-white shadow-md'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-[rgba(0,0,0,0.6)] hover:text-[rgba(0,0,0,0.88)]'
             }`}
           >
-            <i className="fas fa-server mr-1"></i>
+            <Icon icon="mdi:server-outline" width={12} className="inline mr-1" />
             Reserved Instances
           </button>
           <button
             onClick={() => setInventoryTab('sps')}
-            className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`px-5 py-2 text-xs font-bold rounded-md transition-all ${
               inventoryTab === 'sps'
                 ? 'bg-gradient-to-br from-purple-500 to-indigo-500 text-white shadow-md'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-[rgba(0,0,0,0.6)] hover:text-[rgba(0,0,0,0.88)]'
             }`}
           >
-            <i className="fas fa-piggy-bank mr-1"></i>
+            <Icon icon="mdi:piggy-bank-outline" width={12} className="inline mr-1" />
             Savings Plans
           </button>
         </div>
@@ -96,20 +97,20 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
       {inventoryTab === 'ris' && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left text-slate-500 pro-table">
-            <thead>
+            <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
               <tr>
-                <th className="px-6 py-3">Details</th>
-                <th className="px-6 py-3">Scope / AZ</th>
-                <th className="px-6 py-3">Count / Offering</th>
-                <th className="px-6 py-3">State</th>
-                <th className="px-6 py-3">Utilization</th>
-                <th className="px-6 py-3">Expiry</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Details</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Scope / AZ</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Count / Offering</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">State</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Utilization</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Expiry</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-[rgba(0,0,0,0.04)]">
               {inventory && inventory.length > 0 ? (
                 inventory.map((item) => (
-                  <tr key={item.reservationId}>
+                  <tr key={item.reservationId} className="hover:bg-[rgba(0,0,0,0.025)] border-b border-[rgba(0,0,0,0.04)]">
                     <td className="px-6 py-4">
                       <div className="font-semibold text-slate-800">{item.instanceType}</div>
                       <div className="text-xs text-slate-400 font-mono mt-0.5">
@@ -139,7 +140,7 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
-                        <div className="w-20 bg-gray-100 rounded-full h-2 shadow-inner overflow-hidden">
+                        <div className="w-20 bg-[rgba(0,0,0,0.06)] rounded-full h-2 shadow-inner overflow-hidden">
                           <div
                             className={`h-2 rounded-full transition-all duration-500 ${
                               item.utilizationPercentage >= 90
@@ -151,7 +152,7 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                             style={{ width: `${item.utilizationPercentage || 0}%` }}
                           ></div>
                         </div>
-                        <span className="text-xs font-bold text-gray-700">
+                        <span className="text-xs font-bold text-[rgba(0,0,0,0.7)]">
                           {(item.utilizationPercentage || 0).toFixed(0)}%
                         </span>
                       </div>
@@ -166,7 +167,7 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                       </div>
                       {isExpiringSoon(item.end) && (
                         <div className="text-[10px] text-red-600 font-bold flex items-center gap-1 mt-0.5">
-                          <i className="fas fa-exclamation-circle"></i>
+                          <Icon icon="mdi:alert-circle-outline" width={10} />
                           Expiring Soon
                         </div>
                       )}
@@ -177,11 +178,11 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                 <tr>
                   <td colSpan={6} className="text-center py-16">
                     <div className="flex flex-col items-center">
-                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                        <i className="fas fa-inbox text-gray-400 text-2xl"></i>
+                      <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mb-4">
+                        <Icon icon="mdi:inbox-outline" className="text-[rgba(0,0,0,0.4)]" width={24} />
                       </div>
-                      <p className="text-gray-600 font-semibold mb-1">No Reserved Instances Found</p>
-                      <p className="text-gray-400 text-sm">No data available for this account</p>
+                      <p className="text-[rgba(0,0,0,0.6)] font-semibold mb-1">No Reserved Instances Found</p>
+                      <p className="text-[rgba(0,0,0,0.4)] text-sm">No data available for this account</p>
                     </div>
                   </td>
                 </tr>
@@ -195,20 +196,20 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
       {inventoryTab === 'sps' && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left text-slate-500 pro-table">
-            <thead>
+            <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
               <tr>
-                <th className="px-6 py-3">Plan Type</th>
-                <th className="px-6 py-3">Region</th>
-                <th className="px-6 py-3">Commitment</th>
-                <th className="px-6 py-3">State</th>
-                <th className="px-6 py-3">Term</th>
-                <th className="px-6 py-3">Expiry</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Plan Type</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Region</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Commitment</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">State</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Term</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Expiry</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-[rgba(0,0,0,0.04)]">
               {savingsPlans && savingsPlans.length > 0 ? (
                 savingsPlans.map((sp) => (
-                  <tr key={sp.savingsPlanId}>
+                  <tr key={sp.savingsPlanId} className="hover:bg-[rgba(0,0,0,0.025)] border-b border-[rgba(0,0,0,0.04)]">
                     <td className="px-6 py-4">
                       <div className="font-semibold text-slate-800">{sp.type}</div>
                       <div className="text-xs text-slate-400 font-mono mt-0.5">
@@ -232,7 +233,7 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-xs text-gray-600 font-medium">
+                      <div className="text-xs text-[rgba(0,0,0,0.6)] font-medium">
                         <span>{formatDate(sp.start)}</span> → <span>{formatDate(sp.end)}</span>
                       </div>
                     </td>
@@ -246,7 +247,7 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                       </div>
                       {isExpiringSoon(sp.end) && (
                         <div className="text-[10px] text-red-600 font-bold flex items-center gap-1 mt-0.5">
-                          <i className="fas fa-exclamation-circle"></i>
+                          <Icon icon="mdi:alert-circle-outline" width={10} />
                           Expiring Soon
                         </div>
                       )}
@@ -257,11 +258,11 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                 <tr>
                   <td colSpan={6} className="text-center py-16">
                     <div className="flex flex-col items-center">
-                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                        <i className="fas fa-piggy-bank text-gray-400 text-2xl"></i>
+                      <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mb-4">
+                        <Icon icon="mdi:piggy-bank-outline" className="text-[rgba(0,0,0,0.4)]" width={24} />
                       </div>
-                      <p className="text-gray-600 font-semibold mb-1">No Savings Plans Found</p>
-                      <p className="text-gray-400 text-sm">
+                      <p className="text-[rgba(0,0,0,0.6)] font-semibold mb-1">No Savings Plans Found</p>
+                      <p className="text-[rgba(0,0,0,0.4)] text-sm">
                         No active savings plans for this account
                       </p>
                     </div>

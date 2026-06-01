@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { TaggingCompliance, PaginationState } from '../../types/finops';
 import Pagination from './Pagination';
 
@@ -30,115 +31,137 @@ const FinOpsTaggingCompliance: React.FC<FinOpsTaggingComplianceProps> = ({
   const end = start + pagination.itemsPerPage;
   const paginatedResources = untaggedResources.slice(start, end);
 
+  const complianceColor =
+    compliancePercentage >= 80
+      ? { text: '#158045', bar: '#16a34a', bg: '#f0fdf4', icon: '#158045' }
+      : compliancePercentage >= 50
+      ? { text: '#92400e', bar: '#f59e0b', bg: '#fffbeb', icon: '#d97706' }
+      : { text: '#991b1b', bar: '#dc2626', bg: '#fef2f2', icon: '#dc2626' };
+
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md fade-in">
-      <div className="flex items-center space-x-3 mb-6">
-        <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-xl flex items-center justify-center shadow-md">
-          <i className="fas fa-tags text-white"></i>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      {/* Section header */}
+      <div className="flex items-center gap-2 pb-4 border-b border-[rgba(0,0,0,0.06)] mb-5">
+        <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]">
+          <Icon icon="mdi:tag-multiple-outline" width={16} color="#0EA5E9" />
         </div>
         <div>
-          <h3 className="text-xl font-bold text-gray-800">Tagging Compliance</h3>
-          <p className="text-sm text-gray-600">Monitor resource tagging across your infrastructure</p>
+          <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Tagging Compliance</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse inline-block"></span>
+            Monitor resource tagging across your infrastructure
+          </p>
         </div>
       </div>
 
       {/* Compliance KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         {/* Compliance Percentage */}
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-sm font-medium text-gray-600">Compliance Rate</h4>
-            <div
-              className={`p-2 rounded-lg ${
-                compliancePercentage >= 80
-                  ? 'bg-green-100'
-                  : compliancePercentage >= 50
-                  ? 'bg-yellow-100'
-                  : 'bg-red-100'
-              }`}
-            >
-              <i
-                className={`fas fa-percentage ${
-                  compliancePercentage >= 80
-                    ? 'text-green-500'
-                    : compliancePercentage >= 50
-                    ? 'text-yellow-500'
-                    : 'text-red-500'
-                }`}
-              ></i>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] text-[rgba(0,0,0,0.35)] uppercase tracking-wide font-semibold">
+                Compliance Rate
+              </p>
+              <p
+                className="text-[28px] font-extrabold mt-1 leading-tight"
+                style={{
+                  fontFamily: "'Barlow Condensed', 'Inter', sans-serif",
+                  color: complianceColor.text,
+                }}
+              >
+                {compliancePercentage.toFixed(1)}%
+              </p>
+              <div className="mt-2 bg-[rgba(0,0,0,0.06)] rounded-full h-1.5 overflow-hidden w-24">
+                <div
+                  className="h-1.5 rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.min(compliancePercentage, 100)}%`,
+                    backgroundColor: complianceColor.bar,
+                  }}
+                />
+              </div>
             </div>
-          </div>
-          <p
-            className={`text-3xl font-bold mb-2 ${
-              compliancePercentage >= 80
-                ? 'text-green-600'
-                : compliancePercentage >= 50
-                ? 'text-yellow-600'
-                : 'text-red-600'
-            }`}
-          >
-            {compliancePercentage.toFixed(1)}%
-          </p>
-          <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
             <div
-              className={`h-2.5 rounded-full transition-all duration-500 ${
-                compliancePercentage >= 80
-                  ? 'bg-gradient-to-r from-green-400 to-green-600'
-                  : compliancePercentage >= 50
-                  ? 'bg-gradient-to-r from-yellow-400 to-orange-500'
-                  : 'bg-gradient-to-r from-red-500 to-red-600'
-              }`}
-              style={{ width: `${Math.min(compliancePercentage, 100)}%` }}
-            ></div>
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: complianceColor.bg }}
+            >
+              <Icon icon="mdi:percent" width={20} color={complianceColor.icon} />
+            </div>
           </div>
         </div>
 
         {/* Total Resources Scanned */}
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-sm font-medium text-gray-600">Resources Scanned</h4>
-            <div className="p-2 rounded-lg bg-blue-100">
-              <i className="fas fa-server text-blue-500"></i>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] text-[rgba(0,0,0,0.35)] uppercase tracking-wide font-semibold">
+                Resources Scanned
+              </p>
+              <p
+                className="text-[28px] font-extrabold text-[rgba(0,0,0,0.88)] mt-1 leading-tight"
+                style={{ fontFamily: "'Barlow Condensed', 'Inter', sans-serif" }}
+              >
+                {totalResourcesScanned.toLocaleString()}
+              </p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">Total resources analyzed</p>
+            </div>
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: '#4285F414' }}
+            >
+              <Icon icon="mdi:server-outline" width={20} color="#4285F4" />
             </div>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{totalResourcesScanned.toLocaleString()}</p>
-          <p className="text-sm text-gray-500 mt-2">Total resources analyzed</p>
         </div>
 
         {/* Untagged Resources */}
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-sm font-medium text-gray-600">Untagged Resources</h4>
-            <div className={`p-2 rounded-lg ${untaggedResourcesCount === 0 ? 'bg-green-100' : 'bg-red-100'}`}>
-              <i
-                className={`fas fa-exclamation-circle ${
-                  untaggedResourcesCount === 0 ? 'text-green-500' : 'text-red-500'
-                }`}
-              ></i>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] text-[rgba(0,0,0,0.35)] uppercase tracking-wide font-semibold">
+                Untagged Resources
+              </p>
+              <p
+                className={`text-[28px] font-extrabold mt-1 leading-tight`}
+                style={{
+                  fontFamily: "'Barlow Condensed', 'Inter', sans-serif",
+                  color: untaggedResourcesCount === 0 ? '#158045' : '#dc2626',
+                }}
+              >
+                {untaggedResourcesCount.toLocaleString()}
+              </p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">Missing required tags</p>
+            </div>
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: untaggedResourcesCount === 0 ? '#f0fdf4' : '#fef2f2' }}
+            >
+              <Icon
+                icon={untaggedResourcesCount === 0 ? 'mdi:check-circle-outline' : 'mdi:alert-circle-outline'}
+                width={20}
+                color={untaggedResourcesCount === 0 ? '#158045' : '#dc2626'}
+              />
             </div>
           </div>
-          <p
-            className={`text-3xl font-bold ${untaggedResourcesCount === 0 ? 'text-green-600' : 'text-red-600'}`}
-          >
-            {untaggedResourcesCount.toLocaleString()}
-          </p>
-          <p className="text-sm text-gray-500 mt-2">Resources missing required tags</p>
         </div>
       </div>
 
       {/* Untagged Resources Table */}
       {untaggedResources.length > 0 && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-lg font-semibold text-gray-800 flex items-center">
-              <i className="fas fa-list-ul text-teal-500 mr-2"></i>
-              Untagged Resources Details
-              <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-red-100 text-red-600 rounded-full">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+              <h4 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">
+                Untagged Resources Details
+              </h4>
+              <span className="px-2 py-0.5 text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 rounded-full">
                 {untaggedResourcesCount} total
               </span>
-            </h4>
-            <div className="flex items-center space-x-2">
-              <label htmlFor="taggingItemsPerPage" className="text-sm text-gray-600">
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="taggingItemsPerPage" className="text-[12px] text-[rgba(0,0,0,0.45)]">
                 Show:
               </label>
               <select
@@ -147,7 +170,7 @@ const FinOpsTaggingCompliance: React.FC<FinOpsTaggingComplianceProps> = ({
                 onChange={(e) =>
                   onPaginationChange({ itemsPerPage: Number(e.target.value), currentPage: 1 })
                 }
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                className="px-2 py-1 text-[12px] border border-[rgba(0,0,0,0.12)] rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none"
               >
                 <option value="10">10</option>
                 <option value="25">25</option>
@@ -156,29 +179,30 @@ const FinOpsTaggingCompliance: React.FC<FinOpsTaggingComplianceProps> = ({
               </select>
             </div>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="w-full text-sm text-left text-gray-600">
-              <thead className="bg-gray-50 text-xs text-gray-700 uppercase font-semibold">
-                <tr>
-                  <th className="px-6 py-4">Resource ID</th>
-                  <th className="px-6 py-4">Type</th>
-                  <th className="px-6 py-4">Region</th>
-                  <th className="px-6 py-4">Status</th>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[rgba(0,0,0,0.06)]">
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Resource ID</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Type</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Region</th>
+                  <th className="text-left px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody>
                 {paginatedResources.map((resource) => (
-                  <tr key={resource.resourceId} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-mono text-xs text-gray-800">{resource.resourceId}</td>
-                    <td className="px-6 py-4">
-                      <span className="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded-full">
+                  <tr key={resource.resourceId} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)]">
+                    <td className="px-4 py-3 font-mono text-[12px] text-[rgba(0,0,0,0.88)]">{resource.resourceId}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-0.5 text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">
                         {resource.resourceType}
                       </span>
                     </td>
-                    <td className="px-6 py-4">{resource.region}</td>
-                    <td className="px-6 py-4">
-                      <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-600 rounded-full">
-                        <i className="fas fa-times-circle mr-1"></i>Missing
+                    <td className="px-4 py-3 text-[14px] text-[rgba(0,0,0,0.88)]">{resource.region}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-0.5 text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 rounded-full inline-flex items-center gap-1">
+                        <Icon icon="mdi:close-circle-outline" width={12} />
+                        Missing
                       </span>
                     </td>
                   </tr>
@@ -196,25 +220,29 @@ const FinOpsTaggingCompliance: React.FC<FinOpsTaggingComplianceProps> = ({
         </div>
       )}
 
-      {/* Empty State - All Tagged */}
+      {/* Empty State — All Tagged */}
       {untaggedResources.length === 0 && totalResourcesScanned > 0 && (
-        <div className="text-center py-12 rounded-2xl border-2 border-dashed border-green-300 bg-green-50/50">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-check-circle text-green-500 text-2xl"></i>
+        <div className="text-center py-10 rounded-xl border-2 border-dashed border-green-200">
+          <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:check-circle-outline" width={24} color="#158045" />
           </div>
-          <h4 className="text-lg font-bold text-green-800 mb-2">All Resources Tagged</h4>
-          <p className="text-green-600">All scanned resources have the required tags. Great job!</p>
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">All Resources Tagged</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
+            All scanned resources have the required tags. Great job!
+          </p>
         </div>
       )}
 
       {/* No Data State */}
       {totalResourcesScanned === 0 && (
-        <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
-          <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-tags text-gray-400 text-2xl"></i>
+        <div className="text-center py-10 rounded-xl border-2 border-dashed border-[rgba(0,0,0,0.1)]">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:tag-multiple-outline" width={22} color="rgba(0,0,0,0.3)" />
           </div>
-          <h4 className="text-lg font-bold text-gray-800 mb-2">No Tagging Data Available</h4>
-          <p className="text-gray-600">Tagging compliance data will appear here once resources are scanned.</p>
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Tagging Data Available</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
+            Tagging compliance data will appear here once resources are scanned.
+          </p>
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Icon } from '@iconify/react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend,
@@ -16,30 +17,6 @@ import {
 import type { WorkspaceTab, UserStatusFilter } from '../types/workspace';
 import { useTabState } from '../hooks/useTabState';
 
-// ─── Small reusable pieces ────────────────────────────────────────────────────
-
-const Spinner: React.FC<{ size?: string }> = ({ size = 'h-8 w-8' }) => (
-  <div className={`animate-spin rounded-full border-4 border-orange-200 border-t-orange-500 ${size}`} />
-);
-
-const SummaryCard: React.FC<{
-  icon: string; label: string; value: number | string;
-  gradient: string; borderColor: string; textGradient: string; sub?: string;
-}> = ({ icon, label, value, gradient, borderColor, textGradient, sub }) => (
-  <div className={`bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 ${borderColor}`}>
-    <div className="flex items-center justify-between mb-4">
-      <div className={`w-12 h-12 ${gradient} rounded-xl flex items-center justify-center shadow-md`}>
-        <i className={`${icon} text-white text-xl`} />
-      </div>
-      <div className="text-right">
-        <p className="text-sm text-gray-600 font-medium">{label}</p>
-        <p className={`text-2xl font-bold text-transparent bg-clip-text ${textGradient}`}>{value}</p>
-      </div>
-    </div>
-    {sub && <div className="text-sm text-gray-500">{sub}</div>}
-  </div>
-);
-
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const map: Record<string, string> = {
     ACTIVE: 'bg-green-100 text-green-700',
@@ -47,13 +24,11 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     SUSPENDED: 'bg-red-100 text-red-700',
   };
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${map[status] ?? 'bg-gray-100 text-gray-600'}`}>
+    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${map[status] ?? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)]'}`}>
       {status}
     </span>
   );
 };
-
-// ─── Setup Guide ─────────────────────────────────────────────────────────────
 
 const REQUIRED_SCOPE = 'https://www.googleapis.com/auth/admin.directory.user.readonly';
 
@@ -70,10 +45,10 @@ const SetupGuide: React.FC = () => {
 
   const steps: { icon: string; title: string; body: React.ReactNode }[] = [
     {
-      icon: 'fas fa-project-diagram',
+      icon: 'mdi:graph-outline',
       title: 'Create or select a GCP Project & enable the Admin SDK',
       body: (
-        <ol className="list-decimal pl-5 space-y-1 text-sm text-gray-600">
+        <ol className="list-decimal pl-5 space-y-1 text-sm text-[rgba(0,0,0,0.6)]">
           <li>Go to <strong>console.cloud.google.com</strong> and sign in with a Google account that belongs to your Workspace domain.</li>
           <li>Create a new project (or select an existing one).</li>
           <li>Navigate to <strong>APIs &amp; Services → Library</strong>, search for <em>"Admin SDK API"</em> and click <strong>Enable</strong>.</li>
@@ -81,10 +56,10 @@ const SetupGuide: React.FC = () => {
       ),
     },
     {
-      icon: 'fas fa-robot',
+      icon: 'mdi:robot-outline',
       title: 'Create a Service Account',
       body: (
-        <ol className="list-decimal pl-5 space-y-1 text-sm text-gray-600">
+        <ol className="list-decimal pl-5 space-y-1 text-sm text-[rgba(0,0,0,0.6)]">
           <li>In the GCP Console go to <strong>IAM &amp; Admin → Service Accounts</strong>.</li>
           <li>Click <strong>Create Service Account</strong>, give it a name (e.g. <em>xamops-workspace</em>), then click <strong>Done</strong>.</li>
           <li>No project-level IAM role is needed — leave those steps blank.</li>
@@ -92,10 +67,10 @@ const SetupGuide: React.FC = () => {
       ),
     },
     {
-      icon: 'fas fa-key',
+      icon: 'mdi:key-outline',
       title: 'Enable Domain-Wide Delegation on the service account',
       body: (
-        <ol className="list-decimal pl-5 space-y-1 text-sm text-gray-600">
+        <ol className="list-decimal pl-5 space-y-1 text-sm text-[rgba(0,0,0,0.6)]">
           <li>Click on the service account you just created to open its detail page.</li>
           <li>Open the <strong>Advanced settings</strong> section (or scroll to "Domain-wide delegation").</li>
           <li>Check <strong>"Enable Google Workspace Domain-wide Delegation"</strong> and save.</li>
@@ -104,17 +79,17 @@ const SetupGuide: React.FC = () => {
       ),
     },
     {
-      icon: 'fas fa-download',
+      icon: 'mdi:download',
       title: 'Download the JSON key file',
       body: (
         <>
-          <ol className="list-decimal pl-5 space-y-1 text-sm text-gray-600 mb-3">
+          <ol className="list-decimal pl-5 space-y-1 text-sm text-[rgba(0,0,0,0.6)] mb-3">
             <li>On the service account page, go to the <strong>Keys</strong> tab.</li>
             <li>Click <strong>Add Key → Create new key</strong>, choose <strong>JSON</strong>, then click <strong>Create</strong>.</li>
-            <li>A <code className="bg-gray-100 px-1 rounded text-xs">.json</code> file will download automatically — this is what you upload/paste in the form below.</li>
+            <li>A <code className="bg-[rgba(0,0,0,0.04)] px-1 rounded text-xs">.json</code> file will download automatically — this is what you upload/paste in the form below.</li>
           </ol>
           <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            <i className="fas fa-exclamation-triangle mt-0.5 flex-shrink-0" />
+            <Icon icon="mdi:alert-outline" width={16} className="mt-0.5 flex-shrink-0" />
             <p>
               <strong>Keep this file private.</strong> It contains a private key that grants admin-level read access to your Workspace directory.
               Never commit it to source control, share it in chat, or expose it publicly.
@@ -124,24 +99,24 @@ const SetupGuide: React.FC = () => {
       ),
     },
     {
-      icon: 'fas fa-shield-alt',
+      icon: 'mdi:shield-outline',
       title: 'Authorise the scope in Google Workspace Admin Console',
       body: (
         <>
-          <ol className="list-decimal pl-5 space-y-1 text-sm text-gray-600 mb-3">
+          <ol className="list-decimal pl-5 space-y-1 text-sm text-[rgba(0,0,0,0.6)] mb-3">
             <li>Open a new tab and go to <strong>admin.google.com</strong> — sign in as a Super Admin.</li>
             <li>Navigate to <strong>Security → Access and data control → API controls</strong>.</li>
             <li>Click <strong>Manage Domain-Wide Delegation</strong>, then <strong>Add new</strong>.</li>
             <li>Paste the <strong>Client ID</strong> you copied in Step 3.</li>
             <li>In the <em>OAuth scopes</em> field paste the scope below, then click <strong>Authorise</strong>.</li>
           </ol>
-          <div className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 bg-[rgba(0,0,0,0.04)] rounded-lg px-3 py-2">
             <code className="flex-1 text-xs text-blue-700 break-all select-all font-mono">{REQUIRED_SCOPE}</code>
             <button
               onClick={copyScope}
-              className="flex-shrink-0 px-2 py-1 bg-white border border-gray-200 rounded text-xs font-medium text-gray-600 hover:bg-gray-50 transition flex items-center gap-1"
+              className="flex-shrink-0 px-2 py-1 bg-white border border-[rgba(0,0,0,0.12)] rounded text-xs font-medium text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.025)] transition flex items-center gap-1"
             >
-              <i className={copied ? 'fas fa-check text-green-500' : 'fas fa-copy'} />
+              <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} width={12} className={copied ? 'text-green-500' : ''} />
               {copied ? 'Copied!' : 'Copy'}
             </button>
           </div>
@@ -149,10 +124,10 @@ const SetupGuide: React.FC = () => {
       ),
     },
     {
-      icon: 'fas fa-plug',
+      icon: 'mdi:power-plug-outline',
       title: 'Fill in the form below and connect',
       body: (
-        <ul className="list-disc pl-5 space-y-1 text-sm text-gray-600">
+        <ul className="list-disc pl-5 space-y-1 text-sm text-[rgba(0,0,0,0.6)]">
           <li><strong>Workspace Domain</strong> — your primary Google Workspace domain (e.g. <em>company.com</em>).</li>
           <li><strong>Admin Email</strong> — the Super Admin email that the service account will impersonate (e.g. <em>admin@company.com</em>).</li>
           <li><strong>Service Account Key</strong> — upload or paste the JSON file you downloaded in Step 4.</li>
@@ -162,21 +137,21 @@ const SetupGuide: React.FC = () => {
   ];
 
   return (
-    <div className="mb-6 border border-blue-100 rounded-xl overflow-hidden">
+    <div className="mb-6 border border-[rgba(0,0,0,0.12)] rounded-xl overflow-hidden">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-5 py-4 bg-blue-50 hover:bg-blue-100 transition text-left"
+        className="w-full flex items-center justify-between px-5 py-4 bg-[rgba(0,0,0,0.02)] hover:bg-[rgba(0,0,0,0.04)] transition text-left rounded-t-xl"
       >
         <div className="flex items-center gap-3">
-          <i className="fas fa-book-open text-blue-600" />
-          <span className="text-sm font-semibold text-blue-800">How to set up the service account — step-by-step guide</span>
+          <Icon icon="mdi:book-open-outline" width={16} className="text-[rgba(0,0,0,0.5)]" />
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">How to set up the service account — step-by-step guide</span>
         </div>
-        <i className={`fas fa-chevron-${open ? 'up' : 'down'} text-blue-500 text-sm`} />
+        <Icon icon={open ? 'mdi:chevron-up' : 'mdi:chevron-down'} width={16} className="text-[rgba(0,0,0,0.4)]" />
       </button>
 
       {open && (
-        <div className="bg-white border-t border-blue-100 p-6">
-          <p className="text-sm text-gray-500 mb-6">
+        <div className="bg-white border-t border-[rgba(0,0,0,0.06)] p-6">
+          <p className="text-sm text-[rgba(0,0,0,0.5)] mb-6">
             XamOps uses a <strong>service account with Domain-Wide Delegation</strong> to read your Google Workspace
             directory without requiring per-user OAuth. Follow these steps once in your GCP Console and Google Workspace
             Admin Console.
@@ -185,21 +160,19 @@ const SetupGuide: React.FC = () => {
           <div className="space-y-5">
             {steps.map((step, idx) => (
               <div key={idx} className="flex gap-4">
-                {/* Step number + connector */}
                 <div className="flex flex-col items-center flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-sm">
+                  <div className="w-7 h-7 rounded-full bg-[rgba(0,0,0,0.06)] flex items-center justify-center text-[rgba(0,0,0,0.6)] font-bold text-xs">
                     {idx + 1}
                   </div>
                   {idx < steps.length - 1 && (
-                    <div className="w-0.5 flex-1 bg-orange-100 mt-1" />
+                    <div className="w-0.5 flex-1 bg-[rgba(0,0,0,0.06)] mt-1" />
                   )}
                 </div>
 
-                {/* Content */}
                 <div className="flex-1 pb-5">
                   <div className="flex items-center gap-2 mb-2">
-                    <i className={`${step.icon} text-orange-500 text-sm`} />
-                    <h4 className="text-sm font-semibold text-gray-800">{step.title}</h4>
+                    <Icon icon={step.icon} width={14} className="text-[rgba(0,0,0,0.4)]" />
+                    <h4 className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">{step.title}</h4>
                   </div>
                   {step.body}
                 </div>
@@ -211,8 +184,6 @@ const SetupGuide: React.FC = () => {
     </div>
   );
 };
-
-// ─── Connection Setup Panel ───────────────────────────────────────────────────
 
 const ConnectionPanel: React.FC<{ onConnected: () => void }> = ({ onConnected }) => {
   const [domain, setDomain] = useState('');
@@ -248,48 +219,45 @@ const ConnectionPanel: React.FC<{ onConnected: () => void }> = ({ onConnected })
   };
 
   return (
-    <div className="flex-1 flex items-center justify-center p-8">
+    <div className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen flex items-start justify-center">
       <div className="max-w-4xl w-full">
-        {/* Hero */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 shadow-lg mb-6">
-            <i className="fab fa-google text-white text-3xl" />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-indigo-50 border border-indigo-100 mb-6">
+            <Icon icon="mdi:google" width={32} className="text-indigo-600" />
           </div>
-          <h2 className="text-3xl font-bold text-gray-900 mb-3">Connect Google Workspace</h2>
-          <p className="text-gray-500 text-lg max-w-xl mx-auto">
+          <h2 className="text-[22px] font-bold text-[rgba(0,0,0,0.88)] mb-2">Connect Google Workspace</h2>
+          <p className="text-[14px] text-[rgba(0,0,0,0.5)] max-w-xl mx-auto">
             Link your organisation's Google Workspace to track seat usage, identify inactive accounts,
             and optimise licence costs — all from one place.
           </p>
         </div>
 
-        {/* Benefit cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           {[
-            { icon: 'fas fa-users', gradient: 'bg-gradient-to-br from-blue-500 to-blue-600', border: 'border-t-blue-500', title: 'Seat Visibility', desc: 'See every user, their last login, and seat allocation in real time.' },
-            { icon: 'fas fa-lightbulb', gradient: 'bg-gradient-to-br from-orange-500 to-orange-600', border: 'border-t-orange-500', title: 'Smart Optimisation', desc: 'Auto-detect inactive and never-logged-in users to reclaim unused seats.' },
-            { icon: 'fas fa-chart-bar', gradient: 'bg-gradient-to-br from-green-500 to-green-600', border: 'border-t-green-500', title: 'Cost Insights', desc: 'Understand utilisation rates and quantify licence waste instantly.' },
+            { icon: 'mdi:account-group-outline', title: 'Seat Visibility', desc: 'See every user, their last login, and seat allocation in real time.' },
+            { icon: 'mdi:lightbulb-outline', title: 'Smart Optimisation', desc: 'Auto-detect inactive and never-logged-in users to reclaim unused seats.' },
+            { icon: 'mdi:chart-bar', title: 'Cost Insights', desc: 'Understand utilisation rates and quantify licence waste instantly.' },
           ].map((b) => (
-            <div key={b.title} className={`bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 ${b.border} p-6 flex gap-4`}>
-              <div className={`${b.gradient} w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md`}>
-                <i className={`${b.icon} text-white text-lg`} />
+            <div key={b.title} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 flex gap-4 shadow-sm hover:shadow-md">
+              <div className="w-10 h-10 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
+                <Icon icon={b.icon} width={20} className="text-indigo-600" />
               </div>
               <div>
-                <p className="font-semibold text-gray-800">{b.title}</p>
-                <p className="text-sm text-gray-500 mt-1">{b.desc}</p>
+                <p className="font-semibold text-[rgba(0,0,0,0.88)]">{b.title}</p>
+                <p className="text-sm text-[rgba(0,0,0,0.5)] mt-1">{b.desc}</p>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Connection form */}
-        <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-8">
-          <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-            <i className="fas fa-plug text-orange-500" /> Connection Setup
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-8">
+          <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-5 flex items-center gap-2">
+            <Icon icon="mdi:power-plug-outline" width={16} className="text-[rgba(0,0,0,0.4)]" /> Connection Setup
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="text-[12px] font-medium text-[rgba(0,0,0,0.6)] mb-1.5 block">
                 Workspace Domain <span className="text-red-500">*</span>
               </label>
               <input
@@ -297,11 +265,11 @@ const ConnectionPanel: React.FC<{ onConnected: () => void }> = ({ onConnected })
                 placeholder="company.com"
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none"
+                className="w-full border border-[rgba(0,0,0,0.12)] rounded-lg px-4 py-2.5 text-[13px] text-[rgba(0,0,0,0.7)] focus:ring-2 focus:ring-indigo-300 focus:border-transparent outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="text-[12px] font-medium text-[rgba(0,0,0,0.6)] mb-1.5 block">
                 Admin Email (for impersonation) <span className="text-red-500">*</span>
               </label>
               <input
@@ -309,26 +277,26 @@ const ConnectionPanel: React.FC<{ onConnected: () => void }> = ({ onConnected })
                 placeholder="admin@company.com"
                 value={adminEmail}
                 onChange={(e) => setAdminEmail(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none"
+                className="w-full border border-[rgba(0,0,0,0.12)] rounded-lg px-4 py-2.5 text-[13px] text-[rgba(0,0,0,0.7)] focus:ring-2 focus:ring-indigo-300 focus:border-transparent outline-none"
               />
             </div>
           </div>
 
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="text-[12px] font-medium text-[rgba(0,0,0,0.6)] mb-1.5 block">
               Service Account Key (JSON) <span className="text-red-500">*</span>
             </label>
             <div className="flex gap-3 mb-2">
               <button
                 onClick={() => fileRef.current?.click()}
-                className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition flex items-center gap-2"
+                className="px-4 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[12px] font-medium text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.04)] transition flex items-center gap-2"
               >
-                <i className="fas fa-upload text-gray-500" /> Upload JSON file
+                <Icon icon="mdi:upload" width={14} /> Upload JSON file
               </button>
               <input ref={fileRef} type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
               {serviceAccountKey && (
                 <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
-                  <i className="fas fa-check-circle" /> File loaded
+                  <Icon icon="mdi:check-circle-outline" width={14} /> File loaded
                 </span>
               )}
             </div>
@@ -337,36 +305,33 @@ const ConnectionPanel: React.FC<{ onConnected: () => void }> = ({ onConnected })
               value={serviceAccountKey}
               onChange={(e) => setServiceAccountKey(e.target.value)}
               rows={6}
-              className="w-full border border-gray-200 rounded-lg px-4 py-3 text-xs font-mono focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none resize-none"
+              className="w-full border border-[rgba(0,0,0,0.12)] rounded-lg px-4 py-3 text-xs font-mono focus:ring-2 focus:ring-indigo-300 focus:border-transparent outline-none resize-none"
             />
           </div>
 
           {error && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex gap-3">
-              <i className="fas fa-exclamation-circle text-red-500 mt-0.5 flex-shrink-0" />
+            <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-xl flex gap-3">
+              <Icon icon="mdi:alert-circle-outline" width={16} className="text-red-500 mt-0.5 flex-shrink-0" />
               <p className="text-sm text-red-700">{error}</p>
             </div>
           )}
 
-          {/* Setup guide */}
           <SetupGuide />
 
           <button
             onClick={handleConnect}
             disabled={connecting}
-            className="w-full py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-semibold text-sm hover:shadow-lg transition disabled:opacity-60 flex items-center justify-center gap-2"
+            className="w-full py-2.5 bg-[rgba(0,0,0,0.88)] text-white rounded-xl text-[13px] font-semibold hover:bg-[rgba(0,0,0,0.75)] transition disabled:opacity-60 flex items-center justify-center gap-2"
           >
             {connecting
-              ? <><Spinner size="h-4 w-4" /> Connecting…</>
-              : <><i className="fab fa-google" /> Connect Google Workspace</>}
+              ? <><Icon icon="mdi:loading" width={16} className="animate-spin" /> Connecting…</>
+              : <><Icon icon="mdi:google" width={16} /> Connect Google Workspace</>}
           </button>
         </div>
       </div>
     </div>
   );
 };
-
-// ─── Savings Estimator ────────────────────────────────────────────────────────
 
 const SavingsEstimator: React.FC<{ inactiveSeats: number }> = ({ inactiveSeats }) => {
   const [costPerSeat, setCostPerSeat] = useState<string>('12');
@@ -376,35 +341,33 @@ const SavingsEstimator: React.FC<{ inactiveSeats: number }> = ({ inactiveSeats }
   return (
     <div className="flex flex-wrap items-end gap-6">
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Monthly cost per seat ($)</label>
+        <label className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1 block">Monthly cost per seat ($)</label>
         <input
           type="number"
           min="0"
           step="0.01"
           value={costPerSeat}
           onChange={(e) => setCostPerSeat(e.target.value)}
-          className="w-36 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none"
+          className="w-36 border border-[rgba(0,0,0,0.12)] rounded-lg px-3 py-2 text-[13px] text-[rgba(0,0,0,0.7)] focus:ring-2 focus:ring-indigo-300 focus:border-transparent outline-none"
         />
       </div>
       <div className="flex gap-6">
         <div>
-          <p className="text-xs text-gray-500">Reclaimable seats</p>
-          <p className="text-2xl font-bold text-gray-900">{inactiveSeats}</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Reclaimable seats</p>
+          <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{inactiveSeats}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Monthly saving</p>
-          <p className="text-2xl font-bold text-green-600">${monthly.toFixed(2)}</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Monthly saving</p>
+          <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>${monthly.toFixed(2)}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Annual saving</p>
-          <p className="text-2xl font-bold text-green-700">${annual.toFixed(2)}</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Annual saving</p>
+          <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>${annual.toFixed(2)}</p>
         </div>
       </div>
     </div>
   );
 };
-
-// ─── Connected Dashboard ──────────────────────────────────────────────────────
 
 const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () => void }> = ({
   onDisconnected, onRefresh,
@@ -449,7 +412,6 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
     }
   }, [onDisconnected]);
 
-  // Filtered users for the table
   const filteredUsers = users.filter((u) => {
     const matchSearch = !userSearch ||
       u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
@@ -459,17 +421,16 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
   });
 
   const tabs: { id: WorkspaceTab; label: string; icon: string }[] = [
-    { id: 'overview',     label: 'Overview',      icon: 'fas fa-chart-pie' },
-    { id: 'users',        label: 'Users & Seats', icon: 'fas fa-users' },
-    { id: 'optimization', label: 'Optimisation',  icon: 'fas fa-lightbulb' },
-    { id: 'cost',         label: 'Cost & Savings', icon: 'fas fa-dollar-sign' },
+    { id: 'overview',     label: 'Overview',      icon: 'mdi:chart-donut' },
+    { id: 'users',        label: 'Users & Seats', icon: 'mdi:account-group-outline' },
+    { id: 'optimization', label: 'Optimisation',  icon: 'mdi:lightbulb-outline' },
+    { id: 'cost',         label: 'Cost & Savings', icon: 'mdi:currency-usd' },
   ];
 
   const lastSync = status?.lastSyncedAt
     ? new Date(status.lastSyncedAt).toLocaleString()
     : 'Never';
 
-  // Chart data for donut / bar
   const utilisationData = summary
     ? [
         { name: 'Active',    value: summary.activeSeats,    fill: '#22c55e' },
@@ -479,9 +440,9 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
     : [];
 
   const optimSeverity: Record<string, { label: string; color: string; icon: string }> = {
-    INACTIVE_USER:          { label: 'Inactive User',         color: 'bg-amber-100 text-amber-700',  icon: 'fas fa-clock'      },
-    SUSPENDED_WITH_LICENSE: { label: 'Suspended (with seat)', color: 'bg-red-100 text-red-700',      icon: 'fas fa-ban'        },
-    NEVER_LOGGED_IN:        { label: 'Never Logged In',       color: 'bg-purple-100 text-purple-700',icon: 'fas fa-user-slash' },
+    INACTIVE_USER:          { label: 'Inactive User',         color: 'bg-amber-50 text-amber-700 border border-amber-200',   icon: 'mdi:clock-outline'      },
+    SUSPENDED_WITH_LICENSE: { label: 'Suspended (with seat)', color: 'bg-red-50 text-red-700 border border-red-100',         icon: 'mdi:cancel'             },
+    NEVER_LOGGED_IN:        { label: 'Never Logged In',       color: 'bg-purple-50 text-purple-700 border border-purple-100',icon: 'mdi:account-cancel-outline' },
   };
 
   useEffect(() => {
@@ -489,27 +450,27 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
     setActions(
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center flex-shrink-0">
-            <i className="fab fa-google text-white text-xs" />
+          <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
+            <Icon icon="mdi:google" width={14} className="text-white" />
           </div>
-          <span className="font-semibold text-gray-800 text-sm">{status?.domain}</span>
-          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">Connected</span>
-          <span className="text-xs text-gray-400">Last synced: {lastSync}</span>
+          <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)]">{status?.domain}</span>
+          <span className="px-2 py-0.5 bg-[#F0FDF4] border border-[#D1FAE1] text-[#158045] text-[10px] font-semibold rounded-full">Connected</span>
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">Last synced: {lastSync}</span>
         </div>
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 transition disabled:opacity-60"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium bg-[rgba(0,0,0,0.88)] text-white hover:bg-[rgba(0,0,0,0.75)] transition-all disabled:opacity-60"
         >
-          <i className={`fas fa-sync ${syncing ? 'animate-spin' : ''}`} />
+          <Icon icon="mdi:refresh" width={14} className={syncing ? 'animate-spin' : ''} />
           {syncing ? 'Syncing…' : 'Sync Now'}
         </button>
         <button
           onClick={handleDisconnect}
           disabled={disconnecting}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-red-50 hover:text-red-600 transition disabled:opacity-60"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.6)] hover:text-red-600 hover:border-red-200 transition-all disabled:opacity-60"
         >
-          <i className="fas fa-unlink" />
+          <Icon icon="mdi:link-variant-off" width={14} />
           Disconnect
         </button>
       </div>
@@ -521,52 +482,76 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
   }, [setTitle, setActions, clearActions, status?.domain, lastSync, handleSync, handleDisconnect, syncing, disconnecting]);
 
   return (
-    <div className="flex-1 p-8 space-y-8 w-full">
+    <div className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen space-y-5">
 
       {actionError && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex gap-2 text-sm text-red-700">
-          <i className="fas fa-exclamation-circle mt-0.5" />{actionError}
+        <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex gap-2 text-sm text-red-700">
+          <Icon icon="mdi:alert-circle-outline" width={16} className="mt-0.5 flex-shrink-0" />{actionError}
           <button onClick={() => setActionError(null)} className="ml-auto text-red-400 hover:text-red-600">
-            <i className="fas fa-times" />
+            <Icon icon="mdi:close" width={14} />
           </button>
         </div>
       )}
 
-      {/* ── Summary cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <SummaryCard icon="fas fa-users"      label="Total Users"  value={status?.totalUsers    ?? '—'} gradient="bg-gradient-to-br from-blue-500 to-blue-600"   borderColor="border-t-blue-500"   textGradient="bg-gradient-to-r from-blue-600 to-purple-600" />
-        <SummaryCard icon="fas fa-user-check" label="Active"       value={status?.activeUsers   ?? '—'} gradient="bg-gradient-to-br from-green-500 to-green-600"  borderColor="border-t-green-500"  textGradient="bg-gradient-to-r from-green-600 to-teal-600"  />
-        <SummaryCard icon="fas fa-user-clock" label="Inactive"     value={status?.inactiveUsers ?? '—'} gradient="bg-gradient-to-br from-amber-500 to-amber-600"  borderColor="border-t-amber-500"  textGradient="bg-gradient-to-r from-amber-600 to-orange-600" sub={`No login in >${inactiveDays} days`} />
-        <SummaryCard icon="fas fa-user-times" label="Suspended"    value={status?.suspendedUsers ?? '—'} gradient="bg-gradient-to-br from-red-500 to-red-600"     borderColor="border-t-red-500"    textGradient="bg-gradient-to-r from-red-600 to-rose-600"     />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Total Users', value: status?.totalUsers ?? '—', sub: 'Workspace accounts' },
+          { label: 'Active', value: status?.activeUsers ?? '—', sub: 'Logged in recently' },
+          { label: 'Inactive', value: status?.inactiveUsers ?? '—', sub: `No login in >${inactiveDays} days` },
+          { label: 'Suspended', value: status?.suspendedUsers ?? '—', sub: 'Access suspended' },
+        ].map(({ label, value, sub }) => (
+          <div key={label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+              <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+                <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
+              </svg>
+              <svg className="absolute top-16 right-2 w-24 h-24" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+                <path d="M120 60c0-10-8-18-18-18-2 0-4 0-5 1-4-8-13-14-23-14s-19 6-23 14c-1-1-3-1-5-1-10 0-18 8-18 18s8 18 18 18h74c10 0 18-8 18-18z"/>
+              </svg>
+            </div>
+            <div className="relative z-10">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{label}</p>
+              <p className="leading-8 mb-2">
+                <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+                  {value}
+                </span>
+              </p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.35)]">{sub}</p>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 overflow-x-auto">
+      <div className="flex items-center gap-5 border-b border-[rgba(0,0,0,0.06)]">
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-0.5 py-2 text-[12px] font-medium transition-all border-b-2 -mb-px ${
               activeTab === t.id
-                ? 'bg-white text-orange-600 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'text-[rgba(0,0,0,0.88)] border-[rgba(0,0,0,0.88)]'
+                : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] border-transparent'
             }`}
           >
-            <i className={t.icon} /> {t.label}
+            <Icon icon={t.icon} width={13} />{t.label}
           </button>
         ))}
       </div>
 
-      {/* ── OVERVIEW TAB ── */}
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Donut */}
-          <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6">
-            <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <i className="fas fa-chart-pie text-orange-500" /> Seat Utilisation
-            </h3>
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#1BE68B] animate-pulse" />
+              <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Seat Utilisation</p>
+            </div>
             {summaryLoading
-              ? <div className="flex justify-center py-8"><Spinner /></div>
+              ? (
+                <div className="flex items-center justify-center py-12 gap-2 text-[rgba(0,0,0,0.4)]">
+                  <Icon icon="mdi:loading" width={16} className="animate-spin" />
+                  <span className="text-sm">Loading…</span>
+                </div>
+              )
               : summary && (
                 <div className="flex flex-col items-center">
                   <ResponsiveContainer width="100%" height={220}>
@@ -579,21 +564,26 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="mt-4 text-center">
-                    <span className="text-4xl font-bold text-gray-900">{summary.utilizationPercent}%</span>
-                    <p className="text-sm text-gray-500">Utilisation rate</p>
+                    <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '36px', fontWeight: 400, lineHeight: '36px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{summary.utilizationPercent}%</span>
+                    <p className="text-sm text-[rgba(0,0,0,0.4)]">Utilisation rate</p>
                   </div>
                 </div>
               )
             }
           </div>
 
-          {/* Stats list */}
-          <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6 flex flex-col gap-4">
-            <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-              <i className="fas fa-info-circle text-orange-500" /> Seat Breakdown
-            </h3>
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 flex flex-col gap-4">
+            <div className="flex items-center gap-2 mb-0">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#1BE68B] animate-pulse" />
+              <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Seat Breakdown</p>
+            </div>
             {summaryLoading
-              ? <div className="flex justify-center py-8"><Spinner /></div>
+              ? (
+                <div className="flex items-center justify-center py-12 gap-2 text-[rgba(0,0,0,0.4)]">
+                  <Icon icon="mdi:loading" width={16} className="animate-spin" />
+                  <span className="text-sm">Loading…</span>
+                </div>
+              )
               : summary && [
                   { label: 'Active seats',    value: summary.activeSeats,    color: 'bg-green-500'  },
                   { label: 'Inactive seats',  value: summary.inactiveSeats,  color: 'bg-amber-500'  },
@@ -601,40 +591,45 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
                   { label: 'Never logged in', value: summary.neverLoggedIn,  color: 'bg-purple-500' },
                   { label: 'Total seats',     value: summary.totalSeats,     color: 'bg-blue-500'   },
                 ].map(({ label, value, color }) => (
-                  <div key={label} className="flex items-center justify-between">
+                  <div key={label} className="flex items-center justify-between border-b border-[rgba(0,0,0,0.04)] last:border-0 py-2.5">
                     <div className="flex items-center gap-2">
                       <div className={`w-2 h-2 rounded-full ${color}`} />
-                      <span className="text-sm text-gray-600">{label}</span>
+                      <span className="text-[13px] text-[rgba(0,0,0,0.5)]">{label}</span>
                     </div>
-                    <span className="font-bold text-gray-900">{value}</span>
+                    <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{value}</span>
                   </div>
                 ))
             }
           </div>
 
-          {/* Top optimisation preview */}
-          <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6 lg:col-span-2">
-            <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <i className="fas fa-exclamation-triangle text-amber-500" /> Top Optimisation Opportunities
-            </h3>
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 lg:col-span-2">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#1BE68B] animate-pulse" />
+              <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Top Optimisation Opportunities</p>
+            </div>
             {optimLoading
-              ? <div className="flex justify-center py-4"><Spinner /></div>
+              ? (
+                <div className="flex items-center justify-center py-12 gap-2 text-[rgba(0,0,0,0.4)]">
+                  <Icon icon="mdi:loading" width={16} className="animate-spin" />
+                  <span className="text-sm">Loading…</span>
+                </div>
+              )
               : optimItems.length === 0
-                ? <p className="text-sm text-gray-400 text-center py-4">No issues detected — great job!</p>
+                ? <p className="text-sm text-[rgba(0,0,0,0.4)] text-center py-4">No issues detected — great job!</p>
                 : (
                   <div className="space-y-2">
                     {optimItems.slice(0, 5).map((item, i) => {
-                      const sev = optimSeverity[item.type] ?? { label: item.type, color: 'bg-gray-100 text-gray-600', icon: 'fas fa-user' };
+                      const sev = optimSeverity[item.type] ?? { label: item.type, color: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)]', icon: 'mdi:account-outline' };
                       return (
-                        <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${sev.color} flex-shrink-0`}>
-                            <i className={`${sev.icon} mr-1`} />{sev.label}
+                        <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-[rgba(0,0,0,0.02)] hover:bg-[rgba(0,0,0,0.04)]">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${sev.color} flex-shrink-0 flex items-center gap-1`}>
+                            <Icon icon={sev.icon} width={11} />{sev.label}
                           </span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800 truncate">{item.fullName || item.email}</p>
-                            <p className="text-xs text-gray-400 truncate">{item.email}</p>
+                            <p className="text-sm font-medium text-[rgba(0,0,0,0.88)] truncate">{item.fullName || item.email}</p>
+                            <p className="text-xs text-[rgba(0,0,0,0.4)] truncate">{item.email}</p>
                           </div>
-                          <span className="text-sm text-gray-500 flex-shrink-0">
+                          <span className="text-sm text-[rgba(0,0,0,0.5)] flex-shrink-0">
                             {item.daysSinceLogin != null ? `${item.daysSinceLogin}d` : 'Never'}
                           </span>
                         </div>
@@ -643,7 +638,7 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
                     {optimItems.length > 5 && (
                       <button
                         onClick={() => setActiveTab('optimization')}
-                        className="w-full text-center text-sm text-orange-500 hover:text-orange-600 font-medium pt-1"
+                        className="w-full text-center text-sm text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] font-medium pt-1 transition-colors"
                       >
                         View all {optimItems.length} recommendations →
                       </button>
@@ -655,80 +650,84 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
         </div>
       )}
 
-      {/* ── USERS & SEATS TAB ── */}
       {activeTab === 'users' && (
-        <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
           <div className="flex flex-wrap items-center gap-3 mb-5">
             <div className="relative flex-1 min-w-48">
-              <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+              <Icon icon="mdi:magnify" width={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.4)]" />
               <input
                 type="text"
                 placeholder="Search by name or email…"
                 value={userSearch}
                 onChange={(e) => setUserSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none"
+                className="w-full pl-9 pr-4 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] text-[rgba(0,0,0,0.7)] focus:ring-2 focus:ring-indigo-300 focus:border-transparent outline-none"
               />
             </div>
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            <div className="flex gap-1">
               {(['ALL', 'ACTIVE', 'INACTIVE', 'SUSPENDED'] as UserStatusFilter[]).map((s) => (
                 <button
                   key={s}
                   onClick={() => setStatusFilter(s)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
-                    statusFilter === s ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    statusFilter === s ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.07)]'
                   }`}
                 >
                   {s}
                 </button>
               ))}
             </div>
-            <span className="text-sm text-gray-400">{filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''}</span>
+            <span className="text-sm text-[rgba(0,0,0,0.4)]">{filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''}</span>
           </div>
 
           {usersLoading
-            ? <div className="flex justify-center py-12"><Spinner /></div>
+            ? (
+              <div className="flex items-center justify-center py-12 gap-2 text-[rgba(0,0,0,0.4)]">
+                <Icon icon="mdi:loading" width={16} className="animate-spin" />
+                <span className="text-sm">Loading…</span>
+              </div>
+            )
             : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100">
-                      <th className="text-left py-3 px-2 text-gray-500 font-medium">User</th>
-                      <th className="text-left py-3 px-2 text-gray-500 font-medium">Org Unit</th>
-                      <th className="text-left py-3 px-2 text-gray-500 font-medium">Status</th>
-                      <th className="text-left py-3 px-2 text-gray-500 font-medium">Last Login</th>
-                      <th className="text-left py-3 px-2 text-gray-500 font-medium">Days Inactive</th>
+                  <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">User</th>
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Org Unit</th>
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Status</th>
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Last Login</th>
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Days Inactive</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredUsers.length === 0 && (
-                      <tr><td colSpan={5} className="text-center py-10 text-gray-400">No users found</td></tr>
+                      <tr><td colSpan={5} className="text-center py-10 text-[rgba(0,0,0,0.4)]">No users found</td></tr>
                     )}
                     {filteredUsers.map((u) => (
-                      <tr key={u.email} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                        <td className="py-3 px-2">
+                      <tr key={u.email} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                        <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                            <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                               {(u.fullName || u.email).charAt(0).toUpperCase()}
                             </div>
                             <div>
-                              <p className="font-medium text-gray-800 leading-tight">{u.fullName || '—'}</p>
-                              <p className="text-xs text-gray-400">{u.email}</p>
+                              <p className="font-medium text-[rgba(0,0,0,0.88)] leading-tight">{u.fullName || '—'}</p>
+                              <p className="text-xs text-[rgba(0,0,0,0.4)]">{u.email}</p>
                             </div>
                             {u.isAdmin && (
                               <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 text-xs rounded">Admin</span>
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-2 text-gray-500 text-xs">{u.orgUnit || '/'}</td>
-                        <td className="py-3 px-2"><StatusBadge status={u.status} /></td>
-                        <td className="py-3 px-2 text-gray-500">
+                        <td className="py-3 px-4 text-[rgba(0,0,0,0.5)] text-xs">{u.orgUnit || '/'}</td>
+                        <td className="py-3 px-4"><StatusBadge status={u.status} /></td>
+                        <td className="py-3 px-4 text-[rgba(0,0,0,0.5)]">
                           {u.lastLoginTime
                             ? new Date(u.lastLoginTime).toLocaleDateString()
-                            : <span className="text-gray-300">Never</span>}
+                            : <span className="text-[rgba(0,0,0,0.2)]">Never</span>}
                         </td>
-                        <td className="py-3 px-2">
+                        <td className="py-3 px-4">
                           {u.daysSinceLogin != null
-                            ? <span className={u.daysSinceLogin >= 30 ? 'text-amber-600 font-semibold' : 'text-gray-600'}>{u.daysSinceLogin}d</span>
+                            ? <span className={u.daysSinceLogin >= 30 ? 'text-amber-600 font-semibold' : 'text-[rgba(0,0,0,0.6)]'}>{u.daysSinceLogin}d</span>
                             : <span className="text-purple-500 font-semibold">Never</span>}
                         </td>
                       </tr>
@@ -741,18 +740,17 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
         </div>
       )}
 
-      {/* ── OPTIMISATION TAB ── */}
       {activeTab === 'optimization' && (
         <div className="space-y-4">
-          <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-4 flex flex-wrap items-center gap-4">
-            <span className="text-sm font-medium text-gray-700">Inactivity threshold:</span>
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-4 flex flex-wrap items-center gap-4">
+            <span className="text-sm font-medium text-[rgba(0,0,0,0.7)]">Inactivity threshold:</span>
             <div className="flex gap-2">
               {[7, 14, 30, 60, 90].map((d) => (
                 <button
                   key={d}
                   onClick={() => setInactiveDays(d)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                    inactiveDays === d ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    inactiveDays === d ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.07)]'
                   }`}
                 >
                   {d} days
@@ -760,53 +758,58 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
               ))}
             </div>
             {!optimLoading && (
-              <span className="text-sm text-gray-400 ml-auto">
+              <span className="text-sm text-[rgba(0,0,0,0.4)] ml-auto">
                 {optimItems.length} recommendation{optimItems.length !== 1 ? 's' : ''}
               </span>
             )}
           </div>
 
           {optimLoading
-            ? <div className="flex justify-center py-12"><Spinner /></div>
+            ? (
+              <div className="flex items-center justify-center py-12 gap-2 text-[rgba(0,0,0,0.4)]">
+                <Icon icon="mdi:loading" width={16} className="animate-spin" />
+                <span className="text-sm">Loading…</span>
+              </div>
+            )
             : optimItems.length === 0
               ? (
-                <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-12 text-center">
-                  <i className="fas fa-check-circle text-green-400 text-4xl mb-4" />
-                  <p className="text-lg font-semibold text-gray-700">All seats are optimally used!</p>
-                  <p className="text-sm text-gray-400 mt-2">No inactive or problematic accounts detected.</p>
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-12 text-center">
+                  <Icon icon="mdi:check-circle-outline" width={40} className="text-green-400 mx-auto mb-4" />
+                  <p className="text-lg font-semibold text-[rgba(0,0,0,0.7)]">All seats are optimally used!</p>
+                  <p className="text-sm text-[rgba(0,0,0,0.4)] mt-2">No inactive or problematic accounts detected.</p>
                 </div>
               )
               : (
-                <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
                       <tr>
-                        <th className="text-left py-3 px-4 text-gray-500 font-medium">Type</th>
-                        <th className="text-left py-3 px-4 text-gray-500 font-medium">User</th>
-                        <th className="text-left py-3 px-4 text-gray-500 font-medium">Org Unit</th>
-                        <th className="text-left py-3 px-4 text-gray-500 font-medium">Inactive Days</th>
-                        <th className="text-left py-3 px-4 text-gray-500 font-medium">Recommendation</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Type</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">User</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Org Unit</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Inactive Days</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Recommendation</th>
                       </tr>
                     </thead>
                     <tbody>
                       {optimItems.map((item, i) => {
-                        const sev = optimSeverity[item.type] ?? { label: item.type, color: 'bg-gray-100 text-gray-600', icon: 'fas fa-user' };
+                        const sev = optimSeverity[item.type] ?? { label: item.type, color: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)]', icon: 'mdi:account-outline' };
                         return (
-                          <tr key={i} className="border-t border-gray-50 hover:bg-gray-50">
+                          <tr key={i} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                             <td className="py-3 px-4">
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${sev.color}`}>
-                                <i className={`${sev.icon} mr-1`} />{sev.label}
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${sev.color} flex items-center gap-1 w-fit`}>
+                                <Icon icon={sev.icon} width={11} />{sev.label}
                               </span>
                             </td>
                             <td className="py-3 px-4">
-                              <p className="font-medium text-gray-800">{item.fullName || '—'}</p>
-                              <p className="text-xs text-gray-400">{item.email}</p>
+                              <p className="font-medium text-[rgba(0,0,0,0.88)]">{item.fullName || '—'}</p>
+                              <p className="text-xs text-[rgba(0,0,0,0.4)]">{item.email}</p>
                             </td>
-                            <td className="py-3 px-4 text-gray-500 text-xs">{item.orgUnit || '/'}</td>
+                            <td className="py-3 px-4 text-[rgba(0,0,0,0.5)] text-xs">{item.orgUnit || '/'}</td>
                             <td className="py-3 px-4 font-semibold text-amber-600">
                               {item.daysSinceLogin != null ? `${item.daysSinceLogin}d` : 'Never logged in'}
                             </td>
-                            <td className="py-3 px-4 text-gray-600 text-xs max-w-xs">{item.recommendation}</td>
+                            <td className="py-3 px-4 text-[rgba(0,0,0,0.6)] text-xs max-w-xs">{item.recommendation}</td>
                           </tr>
                         );
                       })}
@@ -818,17 +821,22 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
         </div>
       )}
 
-      {/* ── COST & SAVINGS TAB ── */}
       {activeTab === 'cost' && (
-        <div className="space-y-8">
+        <div className="space-y-5">
           {summaryLoading
-            ? <div className="flex justify-center py-12"><Spinner /></div>
+            ? (
+              <div className="flex items-center justify-center py-12 gap-2 text-[rgba(0,0,0,0.4)]">
+                <Icon icon="mdi:loading" width={16} className="animate-spin" />
+                <span className="text-sm">Loading…</span>
+              </div>
+            )
             : summary && (
               <>
-                <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6">
-                  <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <i className="fas fa-chart-bar text-orange-500" /> Seat Utilisation Breakdown
-                  </h3>
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#1BE68B] animate-pulse" />
+                    <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Seat Utilisation Breakdown</p>
+                  </div>
                   <ResponsiveContainer width="100%" height={220}>
                     <BarChart data={utilisationData} margin={{ left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -842,50 +850,36 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
                   </ResponsiveContainer>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 border-t-green-500">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-md">
-                        <i className="fas fa-check-circle text-white text-xl" />
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600 font-medium">Active seats in use</p>
-                        <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-teal-600">{summary.activeSeats}</p>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-500">{summary.utilizationPercent}% utilisation</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm hover:shadow-md">
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Active seats in use</p>
+                    <p className="leading-8 mb-2">
+                      <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{summary.activeSeats}</span>
+                    </p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.35)]">{summary.utilizationPercent}% utilisation</p>
                   </div>
-                  <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 border-t-amber-500">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center shadow-md">
-                        <i className="fas fa-exclamation-circle text-white text-xl" />
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600 font-medium">Inactive seats</p>
-                        <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600">{summary.inactiveSeats}</p>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-500">No login in {inactiveDays}+ days</p>
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm hover:shadow-md">
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Inactive seats</p>
+                    <p className="leading-8 mb-2">
+                      <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{summary.inactiveSeats}</span>
+                    </p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.35)]">No login in {inactiveDays}+ days</p>
                   </div>
-                  <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-t-4 border-t-purple-500">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
-                        <i className="fas fa-user-slash text-white text-xl" />
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600 font-medium">Never logged in</p>
-                        <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">{summary.neverLoggedIn}</p>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-500">Potentially wasted seats</p>
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm hover:shadow-md">
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Never logged in</p>
+                    <p className="leading-8 mb-2">
+                      <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{summary.neverLoggedIn}</span>
+                    </p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.35)]">Potentially wasted seats</p>
                   </div>
                 </div>
 
-                <div className="bg-white/90 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-6">
-                  <h3 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
-                    <i className="fas fa-calculator text-orange-500" /> Savings Estimator
-                  </h3>
-                  <p className="text-sm text-gray-500 mb-5">
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#1BE68B] animate-pulse" />
+                    <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Savings Estimator</p>
+                  </div>
+                  <p className="text-sm text-[rgba(0,0,0,0.4)] mb-5">
                     Enter your per-seat monthly cost to estimate potential savings from reclaiming unused seats.
                   </p>
                   <SavingsEstimator
@@ -900,8 +894,6 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
     </div>
   );
 };
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
 
 const WorkspaceLicensesPage: React.FC = () => {
   const { clearActions } = useTopbar();
@@ -925,10 +917,10 @@ const WorkspaceLicensesPage: React.FC = () => {
 
   if (loading) {
     return (
-      <main className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Spinner size="h-12 w-12" />
-          <p className="text-gray-400 text-sm">Loading Workspace…</p>
+      <main className="flex-1 flex items-center justify-center bg-white min-h-screen">
+        <div className="flex flex-col items-center gap-3">
+          <Icon icon="mdi:loading" width={32} className="animate-spin text-[rgba(0,0,0,0.3)]" />
+          <p className="text-[rgba(0,0,0,0.4)] text-sm">Loading Workspace…</p>
         </div>
       </main>
     );
@@ -936,16 +928,13 @@ const WorkspaceLicensesPage: React.FC = () => {
 
   if (error) {
     return (
-      <main className="flex-1 flex items-center justify-center">
+      <main className="flex-1 flex items-center justify-center bg-white min-h-screen">
         <div className="text-center p-8">
-          <i className="fas fa-exclamation-triangle text-red-400 text-4xl mb-4" />
-          <p className="text-gray-700 font-medium">{error}</p>
-          <button
-            onClick={refetch}
-            className="mt-4 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium"
-          >
-            Retry
-          </button>
+          <div className="w-14 h-14 bg-red-50 border border-red-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:alert-outline" width={28} className="text-red-500" />
+          </div>
+          <p className="text-[rgba(0,0,0,0.7)] font-medium mb-4">{error}</p>
+          <button onClick={refetch} className="px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white rounded-xl text-[12px] font-medium hover:bg-[rgba(0,0,0,0.75)]">Retry</button>
         </div>
       </main>
     );

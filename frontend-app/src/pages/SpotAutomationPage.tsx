@@ -23,6 +23,7 @@
  */
 
 import React, { useState } from 'react';
+import { Icon } from '@iconify/react';
 import { gooeyToast } from 'goey-toast';
 import { useAccounts } from '../contexts/AccountContext';
 import { useSpotAutomationData } from '../hooks/useSpotAutomationData';
@@ -82,18 +83,18 @@ const SpotAutomationPage: React.FC = () => {
   const enabledASGsCount = asgs.filter((a: any) => a.isEnabled).length;
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-gray-50 relative">
+    <div className="flex-1 flex flex-col min-h-screen bg-white relative">
       {/* Header */}
       <SpotAutomationHeader />
 
       {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200 px-8">
+      <div className="bg-white border-b border-[rgba(0,0,0,0.12)] px-8">
         <AriaTabGroup
           tabs={[
-            { id: 'dashboard',     label: 'Dashboard',        icon: 'fas fa-tachometer-alt' },
-            { id: 'analytics',     label: 'Launch Analytics', icon: 'fas fa-chart-line' },
-            { id: 'history',       label: 'Actions History',  icon: 'fas fa-history' },
-            { id: 'risp-coverage', label: 'RI/SP Coverage',   icon: 'fas fa-chart-pie' },
+            { id: 'dashboard',     label: 'Dashboard',        icon: 'mdi:view-dashboard-outline' },
+            { id: 'analytics',     label: 'Launch Analytics', icon: 'mdi:chart-line' },
+            { id: 'history',       label: 'Actions History',  icon: 'mdi:history' },
+            { id: 'risp-coverage', label: 'RI/SP Coverage',   icon: 'mdi:chart-pie-outline' },
           ]}
           selectedKey={activeTab}
           onSelectionChange={(key) => setActiveTab(key as typeof activeTab)}
@@ -101,10 +102,10 @@ const SpotAutomationPage: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 p-8">
+      <div className="flex-1 p-6">
         {/* Beta Warning */}
-        <div className="mb-6 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-800 text-sm">
-          <i className="fas fa-flask mt-0.5 text-amber-500"></i>
+        <div className="mb-4 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-800 text-xs">
+          <Icon icon="mdi:flask-outline" width={16} className="mt-0.5 text-amber-500 flex-shrink-0" />
           <span><strong>Beta Feature:</strong> AWS Spot Automation is currently in beta. Some features may be incomplete or subject to change.</span>
         </div>
 
@@ -113,7 +114,7 @@ const SpotAutomationPage: React.FC = () => {
           isLoading && asgs.length === 0 ? (
             <SpotAutomationSkeleton />
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-5">
               <SpotAutomationKPIs
                 costs={costs}
                 savings={savings}

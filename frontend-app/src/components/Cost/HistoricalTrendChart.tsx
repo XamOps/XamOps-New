@@ -92,15 +92,15 @@ const HistoricalTrendChart: React.FC<HistoricalTrendChartProps> = ({
   if (!dimension) return null;
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center space-x-4">
-          <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center shadow-md">
+          <div className="w-7 h-7 flex items-center justify-center">
             <i className="fas fa-chart-line text-white"></i>
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-800">6-Month Cost Trend</h2>
-            <p className="text-sm text-gray-600">
+            <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">6-Month Cost Trend</h2>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)]">
               Historical data for: <span className="font-bold text-indigo-600">{dimension}</span>
             </p>
           </div>

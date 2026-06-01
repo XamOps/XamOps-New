@@ -23,6 +23,7 @@ import React, { useState } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useFinOpsData } from '../hooks/useFinOpsData';
 import type { DateFilter, NewBudget, NewSchedule, PaginationState } from '../types/finops';
+import { Icon } from '@iconify/react';
 
 // Component imports
 import FinOpsHeader from '../components/FinOps/FinOpsHeader';
@@ -218,54 +219,28 @@ export const FinOpsPage: React.FC = () => {
   if (error) {
     console.error('[FinOpsPage] Rendering error state:', error);
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50 overflow-y-auto p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full">
-          <div className="flex items-center justify-center w-20 h-20 mx-auto mb-6 bg-red-100 rounded-full shadow-inner">
-            <i className="fas fa-exclamation-triangle text-red-600 text-3xl"></i>
+      <div className="flex-1 px-6 pt-4 pb-6 flex items-center justify-center">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-8 max-w-md w-full text-center">
+          <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:alert-circle-outline" width={24} color="#dc2626" />
           </div>
-          <h2 className="text-2xl font-black text-center mb-2 text-gray-900">Failed to Load Report</h2>
-          <p className="text-center text-gray-600 mb-8 font-medium">
+          <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">Failed to Load Report</h2>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-6">
             {error.message || 'An unexpected error occurred while fetching the FinOps data.'}
           </p>
-
-          <div className="space-y-3">
-            <button
-              onClick={() => {
-                console.log('[FinOpsPage] User clicked "Try Again"');
-                window.location.reload();
-              }}
-              className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-3 px-4 rounded-xl font-bold shadow-lg hover:shadow-red-200/50 hover:scale-[1.02] active:scale-[0.98] transition-all"
-            >
-              Try Again
-            </button>
-            <button
-              onClick={() => {
-                const details = document.getElementById('error-details');
-                if (details) details.classList.toggle('hidden');
-              }}
-              className="w-full bg-gray-50 text-gray-500 py-3 px-4 rounded-xl font-semibold hover:bg-gray-100 transition-colors"
-            >
-              Show Technical Details
-            </button>
-          </div>
-
-          <div id="error-details" className="hidden mt-6 p-4 bg-gray-900 rounded-xl overflow-x-auto">
-            <pre className="text-xs text-green-400 font-mono">
-              {JSON.stringify({
-                message: error.message,
-                stack: error.stack,
-                timestamp: new Date().toISOString(),
-                selectedAccountId: selectedAccountId
-              }, null, 2)}
-            </pre>
-          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <main className="flex-1 flex flex-col min-h-screen bg-transparent">
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <FinOpsHeader
         dateFilter={dateFilter}
         isRefreshing={isRefreshing}
@@ -275,87 +250,85 @@ export const FinOpsPage: React.FC = () => {
         onRefresh={() => loadReport(true)}
       />
 
-      <div className="flex-1 p-8 space-y-8">
-        {/* No Account State */}
-        {!selectedAccountId && !isLoading && (
-          <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
-            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-              <i className="fas fa-chart-pie text-gray-400 text-2xl"></i>
-            </div>
-            <h4 className="text-lg font-bold text-gray-800 mb-2">No Account Selected</h4>
-            <p className="text-gray-600">Please select an account from the sidebar to view FinOps report.</p>
+      {/* No Account State */}
+      {!selectedAccountId && !isLoading && (
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-12 text-center">
+          <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:chart-pie-outline" width={24} color="rgba(0,0,0,0.3)" />
           </div>
-        )}
+          <h4 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Account Selected</h4>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Please select an account from the sidebar to view FinOps report.</p>
+        </div>
+      )}
 
-        {selectedAccountId && (
-          <>
-            {/* KPI Grid — shows as soon as billing-summary resolves (~3-5s) */}
-            {sectionLoading.kpis ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="animate-pulse bg-gray-200 h-32 w-full rounded-xl" />
-                ))}
-              </div>
-            ) : reportData && (
-              <FinOpsKPISection kpis={reportData.kpis} />
-            )}
+      {selectedAccountId && (
+        <>
+          {/* KPI Grid — shows as soon as billing-summary resolves (~3-5s) */}
+          {sectionLoading.kpis ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="animate-pulse bg-[rgba(0,0,0,0.04)] h-[110px] w-full rounded-xl" />
+              ))}
+            </div>
+          ) : reportData && (
+            <FinOpsKPISection kpis={reportData.kpis} />
+          )}
 
-            {/* Budgets Section */}
-            {sectionLoading.budgets ? (
-              <div className="animate-pulse bg-gray-200 h-40 w-full rounded-xl" />
-            ) : reportData && (
-              <FinOpsBudgets
-                budgets={reportData.budgets}
-                onCreateBudget={() => setIsBudgetModalOpen(true)}
-                onScheduleReport={() => setIsScheduleModalOpen(true)}
-                onDeleteBudget={handleDeleteBudget}
-              />
-            )}
+          {/* Budgets Section */}
+          {sectionLoading.budgets ? (
+            <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-40 w-full rounded-xl" />
+          ) : reportData && (
+            <FinOpsBudgets
+              budgets={reportData.budgets}
+              onCreateBudget={() => setIsBudgetModalOpen(true)}
+              onScheduleReport={() => setIsScheduleModalOpen(true)}
+              onDeleteBudget={handleDeleteBudget}
+            />
+          )}
 
-            {/* Scheduled Reports */}
-            {reportSchedules.length > 0 && (
-              <FinOpsScheduledReports schedules={reportSchedules} onDeleteSchedule={handleDeleteSchedule} />
-            )}
+          {/* Scheduled Reports */}
+          {reportSchedules.length > 0 && (
+            <FinOpsScheduledReports schedules={reportSchedules} onDeleteSchedule={handleDeleteSchedule} />
+          )}
 
-            {/* Charts Grid — shows when cost-history + cost-by-region resolve */}
-            {sectionLoading.charts ? (
-              <div className="animate-pulse bg-gray-200 h-64 w-full rounded-xl" />
-            ) : reportData && (
-              <FinOpsCharts costBreakdown={reportData.costBreakdown} />
-            )}
+          {/* Charts Grid — shows when cost-history + cost-by-region resolve */}
+          {sectionLoading.charts ? (
+            <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-64 w-full rounded-xl" />
+          ) : reportData && (
+            <FinOpsCharts costBreakdown={reportData.costBreakdown} />
+          )}
 
-            {/* Tagging Compliance — may be slow (full resource scan); shows its own skeleton */}
-            {sectionLoading.tagging ? (
-              <div className="animate-pulse bg-gray-200 h-48 w-full rounded-xl" />
-            ) : reportData && (
-              <FinOpsTaggingCompliance
-                taggingCompliance={reportData.taggingCompliance}
-                pagination={taggingPagination}
-                onPaginationChange={(updates) => updatePagination('tagging', updates)}
-              />
-            )}
+          {/* Tagging Compliance — may be slow (full resource scan); shows its own skeleton */}
+          {sectionLoading.tagging ? (
+            <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-48 w-full rounded-xl" />
+          ) : reportData && (
+            <FinOpsTaggingCompliance
+              taggingCompliance={reportData.taggingCompliance}
+              pagination={taggingPagination}
+              onPaginationChange={(updates) => updatePagination('tagging', updates)}
+            />
+          )}
 
-            {/* Insights — shows when rightsizing + wasted-resources + anomalies resolve */}
-            {sectionLoading.insights ? (
-              <div className="animate-pulse bg-gray-200 h-64 w-full rounded-xl" />
-            ) : reportData && (
-              reportData.rightsizingRecommendations.length > 0 ||
-              reportData.wastedResources.length > 0 ||
-              reportData.costAnomalies.length > 0
-            ) && reportData && (
-              <FinOpsInsights
-                costAnomalies={reportData.costAnomalies}
-                rightsizingRecommendations={reportData.rightsizingRecommendations}
-                wastedResources={reportData.wastedResources}
-                rightsizingPagination={rightsizingPagination}
-                wastedPagination={wastedPagination}
-                onRightsizingPaginationChange={(updates) => updatePagination('rightsizing', updates)}
-                onWastedPaginationChange={(updates) => updatePagination('wasted', updates)}
-              />
-            )}
-          </>
-        )}
-      </div>
+          {/* Insights — shows when rightsizing + wasted-resources + anomalies resolve */}
+          {sectionLoading.insights ? (
+            <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-64 w-full rounded-xl" />
+          ) : reportData && (
+            reportData.rightsizingRecommendations.length > 0 ||
+            reportData.wastedResources.length > 0 ||
+            reportData.costAnomalies.length > 0
+          ) && reportData && (
+            <FinOpsInsights
+              costAnomalies={reportData.costAnomalies}
+              rightsizingRecommendations={reportData.rightsizingRecommendations}
+              wastedResources={reportData.wastedResources}
+              rightsizingPagination={rightsizingPagination}
+              wastedPagination={wastedPagination}
+              onRightsizingPaginationChange={(updates) => updatePagination('rightsizing', updates)}
+              onWastedPaginationChange={(updates) => updatePagination('wasted', updates)}
+            />
+          )}
+        </>
+      )}
 
       {/* Modals */}
       <BudgetModal

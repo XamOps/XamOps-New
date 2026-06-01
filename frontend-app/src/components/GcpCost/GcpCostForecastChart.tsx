@@ -1,24 +1,7 @@
-/**
- * GcpCostForecastChart Component
- * Displays ML-powered cost forecast predictions for GCP
- */
-
 import React, { useEffect, useRef, useMemo } from 'react';
-import {
-  Chart,
-  ChartConfiguration,
-  LineElement,
-  PointElement,
-  LineController,
-  CategoryScale,
-  LinearScale,
-  Tooltip,
-  Legend,
-  Filler
-} from 'chart.js';
+import { Chart, ChartConfiguration, LineElement, PointElement, LineController, CategoryScale, LinearScale, Tooltip, Legend, Filler } from 'chart.js';
 import type { GcpForecastDataPoint } from '../../types/gcpCost';
 
-// Register Chart.js components
 Chart.register(LineElement, PointElement, LineController, CategoryScale, LinearScale, Tooltip, Legend, Filler);
 
 interface GcpCostForecastChartProps {
@@ -30,6 +13,8 @@ interface GcpCostForecastChartProps {
   onServiceChange: (service: string) => void;
   onPeriodsChange: (periods: number) => void;
 }
+
+const inputCls = 'px-2.5 py-1.5 text-[12px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.25)] transition-colors';
 
 const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
   data,
@@ -43,34 +28,19 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart<'line'> | null>(null);
 
-  // Process forecast data
   const processedData = useMemo(() => {
     if (!data || data.length === 0) return null;
-
-    const labels = data.map(d => new Date(d.ds).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric'
-    }));
-
-    // Identify actuals (where yhat_lower === 0, it means it's actual data)
+    const labels = data.map(d => new Date(d.ds).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
     const actuals = data.map(d => d.yhat_lower === 0 ? d.yhat : null);
     const forecast = data.map(d => d.yhat);
     const lower = data.map(d => d.yhat_lower);
     const upper = data.map(d => d.yhat_upper);
-
     return { labels, actuals, forecast, lower, upper };
   }, [data]);
 
-  // Render chart
   useEffect(() => {
-    if (!chartRef.current || !processedData || isLoading) {
-      return;
-    }
-
-    // Destroy previous chart
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-    }
+    if (!chartRef.current || !processedData || isLoading) return;
+    if (chartInstanceRef.current) chartInstanceRef.current.destroy();
 
     const config: ChartConfiguration<'line'> = {
       type: 'line',
@@ -80,11 +50,11 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
           {
             label: 'Observed',
             data: processedData.actuals,
-            borderColor: '#4285F4',
-            backgroundColor: 'rgba(66, 133, 244, 0.1)',
-            borderWidth: 2,
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99,102,241,0.08)',
+            borderWidth: 2.5,
             pointRadius: 3,
-            pointBackgroundColor: '#4285F4',
+            pointBackgroundColor: '#6366f1',
             fill: false,
             tension: 0.3,
             spanGaps: false,
@@ -92,20 +62,20 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
           {
             label: 'Forecast',
             data: processedData.forecast,
-            borderColor: '#FBBC04',
-            backgroundColor: 'rgba(251, 188, 4, 0.1)',
-            borderWidth: 2,
-            borderDash: [5, 5],
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16,185,129,0.08)',
+            borderWidth: 2.5,
+            borderDash: [6, 4],
             pointRadius: 3,
-            pointBackgroundColor: '#FBBC04',
+            pointBackgroundColor: '#10b981',
             fill: false,
             tension: 0.3,
           },
           {
             label: 'Confidence Interval',
             data: processedData.upper,
-            borderColor: 'rgba(52, 168, 83, 0.3)',
-            backgroundColor: 'rgba(52, 168, 83, 0.1)',
+            borderColor: 'rgba(16,185,129,0.2)',
+            backgroundColor: 'rgba(16,185,129,0.06)',
             borderWidth: 1,
             pointRadius: 0,
             fill: '+1',
@@ -126,41 +96,37 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: {
-          mode: 'index',
-          intersect: false,
-        },
+        interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: {
             display: true,
-            position: 'bottom',
+            position: 'top',
+            align: 'end',
             labels: {
-              filter: (legendItem) => legendItem.text !== 'Lower Bound',
-              boxWidth: 12,
-              font: { size: 11, weight: '500' },
+              filter: (item) => item.text !== 'Lower Bound',
+              boxWidth: 8,
+              font: { size: 11 },
               usePointStyle: true,
-              padding: 16,
-              color: '#374151',
+              padding: 20,
+              color: 'rgba(0,0,0,0.55)',
             },
           },
           tooltip: {
-            backgroundColor: 'rgba(31, 41, 55, 0.95)',
-            titleColor: 'white',
-            bodyColor: 'white',
-            borderColor: 'rgba(251, 188, 4, 0.8)',
+            backgroundColor: 'rgba(255,255,255,0.97)',
+            titleColor: '#1e293b',
+            bodyColor: '#475569',
+            borderColor: 'rgba(16,185,129,0.3)',
             borderWidth: 1,
             cornerRadius: 8,
             padding: 12,
+            boxPadding: 4,
+            usePointStyle: true,
             callbacks: {
-              label: (context) => {
-                const value = context.parsed.y;
-                if (value === null || value === undefined) return '';
-                if (context.dataset.label === 'Lower Bound') return '';
-                return `${context.dataset.label}: ${value.toLocaleString('en-IN', {
-                  style: 'currency',
-                  currency: 'INR',
-                  maximumFractionDigits: 2,
-                })}`;
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                if (v === null || v === undefined) return '';
+                if (ctx.dataset.label === 'Lower Bound') return '';
+                return `${ctx.dataset.label}: $${v.toFixed(2)}`;
               },
             },
           },
@@ -168,95 +134,61 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
         scales: {
           y: {
             beginAtZero: true,
-            grid: {
-              color: 'rgba(0, 0, 0, 0.05)',
-            },
-            ticks: {
-              callback: (value) => '₹' + Number(value).toLocaleString('en-IN'),
-              color: '#6B7280',
-              font: { size: 11 },
-            },
+            grid: { color: 'rgba(226,232,240,0.5)' },
+            ticks: { font: { size: 11 }, callback: (v) => '$' + Number(v).toLocaleString() },
           },
           x: {
-            grid: {
-              display: false,
-            },
-            ticks: {
-              maxRotation: 45,
-              minRotation: 0,
-              color: '#6B7280',
-              font: { size: 11 },
-            },
+            grid: { display: false },
+            ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
           },
         },
       },
     };
 
     chartInstanceRef.current = new Chart(chartRef.current, config);
-
-    return () => {
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.destroy();
-      }
-    };
+    return () => { chartInstanceRef.current?.destroy(); };
   }, [processedData, isLoading]);
 
   return (
-    <div className="gcp-cost-forecast-section">
-      <div className="gcp-cost-forecast-header">
-        <div className="gcp-cost-forecast-title">
-          <div className="gcp-cost-forecast-icon">
-            <i className="fas fa-chart-line"></i>
-          </div>
-          <div>
-            <h2>Cost Forecast</h2>
-            <p>ML-powered cost predictions</p>
-          </div>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div>
+          <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">
+            <i className="fas fa-chart-line mr-2 text-emerald-500"></i>
+            Cost Forecast
+          </h2>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)]">ML-powered cost predictions — next {periods} days</p>
         </div>
-
-        <div className="gcp-cost-forecast-controls">
-          <select
-            value={service}
-            onChange={(e) => onServiceChange(e.target.value)}
-            className="gcp-cost-forecast-select"
-          >
-            {availableServices.map((svc) => (
-              <option key={svc} value={svc}>
-                {svc}
-              </option>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select value={service} onChange={e => onServiceChange(e.target.value)} className={inputCls}>
+            {availableServices.map(svc => (
+              <option key={svc} value={svc}>{svc}</option>
             ))}
           </select>
-
-          <select
-            value={periods}
-            onChange={(e) => onPeriodsChange(Number(e.target.value))}
-            className="gcp-cost-forecast-select"
-          >
-            <option value="30">Next 30 Days</option>
-            <option value="60">Next 60 Days</option>
-            <option value="90">Next 90 Days</option>
+          <select value={periods} onChange={e => onPeriodsChange(Number(e.target.value))} className={inputCls}>
+            <option value={30}>Next 30 Days</option>
+            <option value={60}>Next 60 Days</option>
+            <option value={90}>Next 90 Days</option>
           </select>
         </div>
       </div>
 
-      <div className="gcp-cost-forecast-chart-container">
-        {isLoading && (
-          <div className="gcp-cost-forecast-loading">
-            <div className="gcp-cost-spinner"></div>
-          </div>
-        )}
+      {isLoading && (
+        <div className="animate-pulse bg-gray-100 h-[360px] rounded-xl"></div>
+      )}
 
-        {!isLoading && data && data.length > 0 && (
+      {!isLoading && data && data.length > 0 && (
+        <div className="h-[360px] w-full">
           <canvas ref={chartRef}></canvas>
-        )}
+        </div>
+      )}
 
-        {!isLoading && (!data || data.length === 0) && (
-          <div className="gcp-cost-forecast-empty">
-            <i className="fas fa-chart-line"></i>
-            <p>No forecast data available</p>
-          </div>
-        )}
-      </div>
+      {!isLoading && (!data || data.length === 0) && (
+        <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+          <i className="fas fa-chart-line text-4xl mb-4 text-gray-300"></i>
+          <p className="font-medium text-gray-400">No forecast data available for this selection</p>
+        </div>
+      )}
     </div>
   );
 };

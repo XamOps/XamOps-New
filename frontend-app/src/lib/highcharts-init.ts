@@ -1,19 +1,21 @@
-// Highcharts global initialization
-// This file sets up Highcharts on the window object for components that expect it globally
-
 import Highcharts from 'highcharts';
-import mapInit from 'highcharts/modules/map';
-import exportingInit from 'highcharts/modules/exporting';
+import * as mapInitModule from 'highcharts/modules/map';
+import * as exportingInitModule from 'highcharts/modules/exporting';
+import * as highcharts3DModule from 'highcharts/highcharts-3d';
+import * as variablePieModule from 'highcharts/modules/variable-pie';
 
-// Initialize map module
-(mapInit as any)(Highcharts);
+const applyModule = (mod: any) => {
+  const fn = mod?.default ?? mod;
+  if (typeof fn === 'function') fn(Highcharts);
+};
 
-// Initialize exporting module
-(exportingInit as any)(Highcharts);
+applyModule(mapInitModule);
+applyModule(exportingInitModule);
+applyModule(highcharts3DModule);
+applyModule(variablePieModule);
 
-// Make Highcharts available globally for legacy components
 if (typeof globalThis !== 'undefined') {
-    (globalThis as any).Highcharts = Highcharts;
+  (globalThis as any).Highcharts = Highcharts;
 }
 
 export default Highcharts;

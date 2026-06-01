@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { AzureAlertsStatus } from '../../types/azureAlerts';
 
 interface AzureAlertsStatusBannerProps {
@@ -11,7 +12,7 @@ const AzureAlertsStatusBanner: React.FC<AzureAlertsStatusBannerProps> = ({ statu
   if (status === 'PERMISSION_ERROR') {
     return (
       <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-5 py-4 text-sm shadow-sm">
-        <i className="fas fa-lock text-amber-500 mt-0.5 flex-shrink-0"></i>
+        <Icon icon="mdi:lock-outline" width={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
         <div>
           <p className="font-semibold">Monitoring Reader role required</p>
           <p className="text-amber-700 text-xs mt-0.5">
@@ -26,7 +27,7 @@ const AzureAlertsStatusBanner: React.FC<AzureAlertsStatusBannerProps> = ({ statu
   if (status === 'NO_DATA') {
     return (
       <div className="flex items-start gap-3 bg-green-50 border border-green-200 text-green-800 rounded-xl px-5 py-4 text-sm shadow-sm">
-        <i className="fas fa-check-circle text-green-500 mt-0.5 flex-shrink-0"></i>
+        <Icon icon="mdi:check-circle-outline" width={16} className="text-green-500 mt-0.5 flex-shrink-0" />
         <div>
           <p className="font-semibold">No active alerts</p>
           <p className="text-green-700 text-xs mt-0.5">
@@ -40,7 +41,7 @@ const AzureAlertsStatusBanner: React.FC<AzureAlertsStatusBannerProps> = ({ statu
   if (status === 'API_ERROR') {
     return (
       <div className="flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 rounded-xl px-5 py-4 text-sm shadow-sm">
-        <i className="fas fa-exclamation-circle text-red-500 mt-0.5 flex-shrink-0"></i>
+        <Icon icon="mdi:alert-circle-outline" width={16} className="text-red-500 mt-0.5 flex-shrink-0" />
         <div>
           <p className="font-semibold">Failed to load alerts</p>
           <p className="text-red-700 text-xs mt-0.5">

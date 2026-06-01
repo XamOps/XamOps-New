@@ -11,78 +11,73 @@ interface GcpFinOpsHeaderProps {
   onRefresh: () => void;
 }
 
-const GcpFinOpsHeader: React.FC<GcpFinOpsHeaderProps> = ({
-  dateFilter,
-  isRefreshing,
-  onDateFilterChange,
-  onApplyDateFilter,
-  onClearDateFilter,
-  onRefresh,
-}) => {
+const GcpFinOpsHeader: React.FC<GcpFinOpsHeaderProps> = ({ dateFilter, isRefreshing, onDateFilterChange, onApplyDateFilter, onClearDateFilter, onRefresh }) => {
   const { setActions, clearActions } = useTopbar();
   const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-4">
-        {/* Date Range Filter */}
-        <div className="flex items-center gap-2 bg-slate-100/50 p-1 rounded-xl border border-slate-200/50">
-          <div className="flex items-center px-2 py-1 gap-2">
-            <i className="fas fa-calendar text-slate-400 text-xs"></i>
-            <input
-              type="date"
-              value={dateFilter.startDate}
-              onChange={(e) => onDateFilterChange({ ...dateFilter, startDate: e.target.value })}
-              className="bg-transparent border-0 focus:ring-0 text-xs font-semibold text-slate-700 p-0 w-24"
-              max={dateFilter.endDate || today}
-            />
-            <span className="text-slate-400 text-[10px] font-bold uppercase">to</span>
-            <input
-              type="date"
-              value={dateFilter.endDate}
-              onChange={(e) => onDateFilterChange({ ...dateFilter, endDate: e.target.value })}
-              className="bg-transparent border-0 focus:ring-0 text-xs font-semibold text-slate-700 p-0 w-24"
-              min={dateFilter.startDate}
-              max={today}
-            />
-          </div>
+      <div className="flex items-center gap-2">
 
-          <div className="flex items-center gap-1 pr-1">
-            <button
-              onClick={onApplyDateFilter}
-              disabled={!dateFilter.startDate || !dateFilter.endDate}
-              className="px-3 py-1 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-indigo-700 transition-all disabled:opacity-50"
-            >
-              Apply
-            </button>
-            {(dateFilter.startDate || dateFilter.endDate) && (
+        {/* Date range */}
+        <div className="flex items-center gap-1 border border-[rgba(0,0,0,0.08)] rounded-md px-2 py-0.5">
+          <input
+            type="date"
+            value={dateFilter.startDate}
+            onChange={(e) => onDateFilterChange({ ...dateFilter, startDate: e.target.value })}
+            className="border-0 focus:ring-0 text-[12px] text-[rgba(0,0,0,0.7)] bg-transparent p-0 w-28 outline-none font-medium"
+            max={dateFilter.endDate || today}
+          />
+          <span className="text-[rgba(0,0,0,0.15)] text-[12px] select-none">→</span>
+          <input
+            type="date"
+            value={dateFilter.endDate}
+            onChange={(e) => onDateFilterChange({ ...dateFilter, endDate: e.target.value })}
+            className="border-0 focus:ring-0 text-[12px] text-[rgba(0,0,0,0.7)] bg-transparent p-0 w-28 outline-none font-medium"
+            min={dateFilter.startDate}
+            max={today}
+          />
+          <button
+            onClick={onApplyDateFilter}
+            disabled={!dateFilter.startDate || !dateFilter.endDate}
+            className="ml-1 text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-30"
+          >
+            Apply
+          </button>
+          {(dateFilter.startDate || dateFilter.endDate) && (
+            <>
+              <span className="text-[rgba(0,0,0,0.15)] text-[12px] select-none">|</span>
               <button
                 onClick={onClearDateFilter}
-                className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors"
-                title="Clear filter"
+                className="text-[12px] font-medium text-[rgba(0,0,0,0.35)] hover:text-[rgba(0,0,0,0.7)] transition-colors"
               >
-                <i className="fas fa-times-circle text-xs"></i>
+                ✕
               </button>
-            )}
-          </div>
+            </>
+          )}
         </div>
 
-        {/* Status & Refresh */}
-        <div className="flex items-center gap-3 pl-2 border-l border-slate-200/50">
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]"></div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Live</span>
-          </div>
+        <span className="text-[rgba(0,0,0,0.15)] text-[12px] select-none">|</span>
 
-          <button
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50 shadow-sm"
-          >
-            <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
-            <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
-          </button>
+        {/* Live status */}
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#1BE68B] animate-pulse flex-shrink-0"></span>
+          <span className="text-[11px] font-medium uppercase tracking-wide text-[rgba(0,0,0,0.4)]">Connected</span>
         </div>
+
+        <span className="text-[rgba(0,0,0,0.15)] text-[12px] select-none">|</span>
+
+        {/* Refresh */}
+        <button
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          className="flex items-center gap-1.5 text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-40"
+        >
+          <svg className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {isRefreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
     );
     return () => clearActions();

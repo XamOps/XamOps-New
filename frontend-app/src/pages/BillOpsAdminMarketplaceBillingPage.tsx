@@ -9,6 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { Icon } from '@iconify/react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -248,664 +249,405 @@ const BillOpsAdminMarketplaceBillingPage: React.FC = () => {
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
+    <div className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen">
+      <div className="max-w-5xl space-y-5">
 
-      {/* ── Page Header ── */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: 'var(--text-primary, #111827)' }}>
-          <i className="fas fa-history" style={{ marginRight: '10px', color: '#6366f1' }} />
-          Historical Billing Data
-        </h1>
-        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary, #6b7280)', fontSize: '14px' }}>
-          Manage marketplace account billing snapshots (Dec 2024 – Mar 2026) for all linked accounts.
-        </p>
-      </div>
-
-      {/* ── Error banner ── */}
-      {error && (
-        <div style={styles.alertDanger}>
-          <i className="fas fa-exclamation-circle" style={{ marginRight: '8px' }} />
-          {error}
-        </div>
-      )}
-
-      {/* ── Connection Section ── */}
-      <div style={styles.card}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <h2 style={styles.cardTitle}>
-              <i className="fas fa-plug" style={{ marginRight: '8px', color: '#6366f1' }} />
-              Marketplace Connection
-            </h2>
-            {accounts.length > 0 ? (
-              <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '13px' }}>
-                <span style={styles.badgeGreen}>● Connected</span>
-                &nbsp;&nbsp;{accounts.length} accounts discovered
-                &nbsp;·&nbsp; {xamopsCount} on XamOps
-                &nbsp;·&nbsp; {onlyCount} marketplace-only
-              </p>
-            ) : (
-              <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: '13px' }}>
-                No marketplace account connected yet.
-              </p>
-            )}
+        {/* ── Page Header ── */}
+        <div className="mb-5">
+          <div className="flex items-center gap-2.5 mb-1">
+            <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+              <Icon icon="mdi:history" width={18} className="text-indigo-600" />
+            </div>
+            <h1 className="text-[18px] font-semibold text-[rgba(0,0,0,0.88)]">Historical Billing Data</h1>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            {accounts.length > 0 && (
-              <button style={styles.btnSecondary} onClick={loadAccounts}>
-                <i className="fas fa-sync-alt" style={{ marginRight: '6px' }} />
-                Re-sync
-              </button>
-            )}
-            <button style={styles.btnPrimary} onClick={() => setShowConnectForm(v => !v)}>
-              <i className={`fas ${showConnectForm ? 'fa-times' : 'fa-link'}`} style={{ marginRight: '6px' }} />
-              {accounts.length > 0 ? 'Re-connect' : 'Connect Marketplace'}
-            </button>
-          </div>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] ml-11.5">
+            Manage marketplace account billing snapshots (Dec 2024 – Mar 2026) for all linked accounts.
+          </p>
         </div>
 
-        {/* Connect form */}
-        {showConnectForm && (
-          <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color, #e5e7eb)' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: 600 }}>
-              Enter your Marketplace Payer Account details
-            </h3>
-            {connectError && (
-              <div style={{ ...styles.alertDanger, marginBottom: '16px' }}>{connectError}</div>
-            )}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              <div>
-                <label style={styles.label}>Account Name</label>
-                <input
-                  style={styles.input}
-                  placeholder="e.g. My AWS Marketplace Account"
-                  value={connectForm.accountName}
-                  onChange={e => setConnectForm(f => ({ ...f, accountName: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label style={styles.label}>External ID</label>
-                <input
-                  style={styles.input}
-                  value={connectForm.externalId}
-                  onChange={e => setConnectForm(f => ({ ...f, externalId: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div style={{ marginTop: '12px' }}>
-              <label style={styles.label}>
-                IAM Role ARN&nbsp;
-                <span style={{ color: '#9ca3af', fontWeight: 400 }}>
-                  (created in your payer account)
-                </span>
-              </label>
-              <input
-                style={styles.input}
-                placeholder="arn:aws:iam::123456789012:role/XamOpsMarketRole"
-                value={connectForm.roleArn}
-                onChange={e => setConnectForm(f => ({ ...f, roleArn: e.target.value }))}
-              />
-            </div>
-            <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
-              <button
-                style={connecting ? styles.btnPrimaryDisabled : styles.btnPrimary}
-                onClick={handleConnect}
-                disabled={connecting}
-              >
-                {connecting ? (
-                  <><i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }} />Connecting...</>
-                ) : (
-                  <><i className="fas fa-plug" style={{ marginRight: '6px' }} />Connect & Discover Accounts</>
-                )}
-              </button>
-              <button style={styles.btnSecondary} onClick={() => setShowConnectForm(false)}>
-                Cancel
-              </button>
-            </div>
+        {/* ── Error banner ── */}
+        {error && (
+          <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-[13px] mb-4">
+            <Icon icon="mdi:alert-circle-outline" width={16} className="flex-shrink-0" />
+            {error}
           </div>
         )}
-      </div>
 
-      {/* ── Stats + Extract Section ── */}
-      {accounts.length > 0 && (
-        <>
-          {/* Summary cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '20px' }}>
-            <div style={styles.statCard}>
-              <div style={styles.statValue}>{accounts.length}</div>
-              <div style={styles.statLabel}>Total Accounts</div>
+        {/* ── Connection Section ── */}
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-5">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h2 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)] mb-1 flex items-center gap-2">
+                <Icon icon="mdi:power-plug-outline" width={16} className="text-indigo-600" />
+                Marketplace Connection
+              </h2>
+              {accounts.length > 0 ? (
+                <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '13px' }}>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Connected
+                  </span>
+                  &nbsp;&nbsp;{accounts.length} accounts discovered
+                  &nbsp;·&nbsp; {xamopsCount} on XamOps
+                  &nbsp;·&nbsp; {onlyCount} marketplace-only
+                </p>
+              ) : (
+                <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: '13px' }}>
+                  No marketplace account connected yet.
+                </p>
+              )}
             </div>
-            <div style={styles.statCard}>
-              <div style={{ ...styles.statValue, color: '#6366f1' }}>{extractedCount}</div>
-              <div style={styles.statLabel}>Data Extracted</div>
-            </div>
-            <div style={styles.statCard}>
-              <div style={{ ...styles.statValue, color: '#f59e0b' }}>{accounts.length - extractedCount}</div>
-              <div style={styles.statLabel}>Pending Extraction</div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              {accounts.length > 0 && (
+                <button className="flex items-center gap-2 px-4 py-2 border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.7)] text-[13px] font-semibold rounded-lg hover:bg-[rgba(0,0,0,0.025)] transition-all" onClick={loadAccounts}>
+                  <Icon icon="mdi:refresh" width={14} />
+                  Re-sync
+                </button>
+              )}
+              <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-all" onClick={() => setShowConnectForm(v => !v)}>
+                <Icon icon={showConnectForm ? 'mdi:close' : 'mdi:link-variant'} width={14} />
+                {accounts.length > 0 ? 'Re-connect' : 'Connect Marketplace'}
+              </button>
             </div>
           </div>
 
-          {/* Extract banner */}
-          <div style={{ ...styles.card, background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)', border: '1px solid #c4b5fd', marginBottom: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+          {/* Connect form */}
+          {showConnectForm && (
+            <div className="mt-5 pt-5 border-t border-[rgba(0,0,0,0.06)]">
+              <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-4">Enter your Marketplace Payer Account details</h3>
+              {connectError && (
+                <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-[13px] mb-4">
+                  <Icon icon="mdi:alert-circle-outline" width={16} className="flex-shrink-0" />
+                  {connectError}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label className="block mb-1.5 text-[13px] font-semibold text-[rgba(0,0,0,0.7)]">Account Name</label>
+                  <input
+                    className="w-full px-3 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="e.g. My AWS Marketplace Account"
+                    value={connectForm.accountName}
+                    onChange={e => setConnectForm(f => ({ ...f, accountName: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1.5 text-[13px] font-semibold text-[rgba(0,0,0,0.7)]">External ID</label>
+                  <input
+                    className="w-full px-3 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={connectForm.externalId}
+                    onChange={e => setConnectForm(f => ({ ...f, externalId: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div style={{ marginTop: '12px' }}>
+                <label className="block mb-1.5 text-[13px] font-semibold text-[rgba(0,0,0,0.7)]">
+                  IAM Role ARN&nbsp;
+                  <span style={{ color: '#9ca3af', fontWeight: 400 }}>
+                    (created in your payer account)
+                  </span>
+                </label>
+                <input
+                  className="w-full px-3 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="arn:aws:iam::123456789012:role/XamOpsMarketRole"
+                  value={connectForm.roleArn}
+                  onChange={e => setConnectForm(f => ({ ...f, roleArn: e.target.value }))}
+                />
+              </div>
+              <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
+                <button
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleConnect}
+                  disabled={connecting}
+                >
+                  {connecting ? (
+                    <><Icon icon="mdi:loading" width={14} className="animate-spin" />Connecting...</>
+                  ) : (
+                    <><Icon icon="mdi:power-plug-outline" width={14} />Connect & Discover Accounts</>
+                  )}
+                </button>
+                <button className="flex items-center gap-2 px-4 py-2 border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.7)] text-[13px] font-semibold rounded-lg hover:bg-[rgba(0,0,0,0.025)] transition-all" onClick={() => setShowConnectForm(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Stats + Extract Section ── */}
+        {accounts.length > 0 && (
+          <>
+            {/* Summary cards */}
+            <div className="grid grid-cols-3 gap-4 mb-5">
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 text-center">
+                <p className="tabular-nums text-[rgba(0,0,0,0.88)]" style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px' }}>{accounts.length}</p>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.5)] mt-2">Total Accounts</p>
+              </div>
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 text-center">
+                <p className="tabular-nums text-indigo-600" style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px' }}>{extractedCount}</p>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.5)] mt-2">Data Extracted</p>
+              </div>
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 text-center">
+                <p className="tabular-nums text-amber-500" style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px' }}>{accounts.length - extractedCount}</p>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.5)] mt-2">Pending Extraction</p>
+              </div>
+            </div>
+
+            {/* Extract banner */}
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5 mb-5 flex items-center justify-between flex-wrap gap-3">
               <div>
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#4c1d95' }}>
-                  <i className="fas fa-database" style={{ marginRight: '8px' }} />
+                <h3 className="text-[15px] font-semibold text-indigo-900 flex items-center gap-2">
+                  <Icon icon="mdi:database-outline" width={16} className="text-indigo-600" />
                   Extract All Billing Data
                 </h3>
-                <p style={{ margin: '4px 0 0', color: '#6d28d9', fontSize: '13px' }}>
+                <p className="text-[13px] text-indigo-700 mt-1">
                   Pulls Dec 2024 – Mar 2026 from Cost Explorer for all {accounts.length} accounts.
                   Run this <strong>once before applying Billing Conductor</strong>.
                 </p>
               </div>
               <button
-                style={extracting ? styles.btnPurpleDisabled : styles.btnPurple}
                 onClick={handleExtractAll}
                 disabled={extracting}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {extracting ? (
-                  <><i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }} />Extracting...</>
-                ) : (
-                  <><i className="fas fa-download" style={{ marginRight: '6px' }} />Extract All Billing Data</>
-                )}
+                <Icon icon={extracting ? 'mdi:loading' : 'mdi:download'} width={14} className={extracting ? 'animate-spin' : ''} />
+                {extracting ? 'Extracting...' : 'Extract All Billing Data'}
               </button>
-            </div>
 
-            {/* Extraction results */}
-            {extractResult && (
-              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #c4b5fd' }}>
-                {Object.entries(extractResult).map(([accountId, result]) => (
-                  <div key={accountId} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px', fontSize: '13px' }}>
-                    <span style={result.startsWith('SUCCESS') ? styles.badgeGreen : styles.badgeRed}>
-                      {result.startsWith('SUCCESS') ? '✓' : '✗'}
-                    </span>
-                    <span style={{ fontFamily: 'monospace', color: '#374151' }}>{accountId}</span>
-                    <span style={{ color: result.startsWith('SUCCESS') ? '#059669' : '#dc2626' }}>
-                      {result.startsWith('SUCCESS') ? 'Saved to S3 + DB' : result.replace('ERROR:', '')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* ── Accounts Table ── */}
-          <div style={styles.card}>
-            <h2 style={{ ...styles.cardTitle, marginBottom: '16px' }}>
-              <i className="fas fa-list" style={{ marginRight: '8px', color: '#6366f1' }} />
-              Marketplace Accounts
-            </h2>
-
-            {loading ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
-                <i className="fas fa-spinner fa-spin" style={{ fontSize: '24px' }} />
-                <p>Loading accounts...</p>
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={styles.table}>
-                  <thead>
-                    <tr style={styles.thead}>
-                      <th style={styles.th}>AWS Account ID</th>
-                      <th style={styles.th}>Account Name</th>
-                      <th style={styles.th}>Category</th>
-                      <th style={styles.th}>Contact Email</th>
-                      <th style={styles.th}>Data Status</th>
-                      <th style={styles.th}>Discovered</th>
-                      <th style={styles.th}>Share Billing</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {accounts.map(account => (
-                      <tr key={account.id} style={styles.tr}>
-                        <td style={styles.td}>
-                          <span style={{ fontFamily: 'monospace', fontSize: '13px', color: '#374151' }}>
-                            {account.awsAccountId}
-                          </span>
-                        </td>
-                        <td style={styles.td}>
-                          <span style={{ fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                            {account.accountName}
-                          </span>
-                        </td>
-                        <td style={styles.td}>
-                          {account.category === 'MARKETPLACE_XAMOPS' ? (
-                            <span style={styles.badgePurple}>MP + XamOps</span>
-                          ) : (
-                            <span style={styles.badgeGray}>MP Only</span>
-                          )}
-                        </td>
-                        <td style={styles.td}>
-                          <span style={{ color: '#6b7280', fontSize: '13px' }}>
-                            {account.contactEmail || '—'}
-                          </span>
-                        </td>
-                        <td style={styles.td}>
-                          {account.billingExtracted ? (
-                            <span style={styles.badgeGreen}>
-                              <i className="fas fa-check-circle" style={{ marginRight: '4px' }} />
-                              Extracted
-                            </span>
-                          ) : (
-                            <span style={styles.badgeOrange}>
-                              <i className="fas fa-clock" style={{ marginRight: '4px' }} />
-                              Pending
-                            </span>
-                          )}
-                        </td>
-                        <td style={styles.td}>
-                          <span style={{ color: '#9ca3af', fontSize: '12px' }}>
-                            {formatDate(account.discoveredAt)}
-                          </span>
-                        </td>
-                        <td style={styles.td}>
-                          <button
-                            style={styles.btnShare}
-                            onClick={() => openShareModal(account)}
-                          >
-                            <i className="fas fa-paper-plane" style={{ marginRight: '5px' }} />
-                            Send Link
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                {accounts.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
-                    <i className="fas fa-inbox" style={{ fontSize: '32px', marginBottom: '12px' }} />
-                    <p>No accounts found. Connect a marketplace account above.</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* ── Share Modal ── */}
-      {shareModal.open && (
-        <div style={styles.modalOverlay} onClick={() => setShareModal(m => ({ ...m, open: false }))}>
-          <div style={styles.modal} onClick={e => e.stopPropagation()}>
-            <div style={styles.modalHeader}>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
-                <i className="fas fa-share-alt" style={{ marginRight: '8px', color: '#6366f1' }} />
-                Share Billing Data
-              </h3>
-              <button
-                style={styles.modalClose}
-                onClick={() => setShareModal(m => ({ ...m, open: false }))}
-              >
-                <i className="fas fa-times" />
-              </button>
-            </div>
-
-            <div style={styles.modalBody}>
-              {/* Account info */}
-              <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '12px 16px', marginBottom: '20px' }}>
-                <div style={{ fontSize: '12px', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Account</div>
-                <div style={{ fontWeight: 700, color: '#111827', marginTop: '4px' }}>{shareModal.accountName}</div>
-                <div style={{ fontFamily: 'monospace', color: '#6b7280', fontSize: '13px' }}>{shareModal.awsAccountId}</div>
-              </div>
-
-              {/* Month picker */}
-              <div style={{ marginBottom: '20px' }}>
-                <label style={styles.label}>
-                  Billing Month
-                  {loadingMonths && (
-                    <i className="fas fa-spinner fa-spin" style={{ marginLeft: '8px', color: '#9ca3af' }} />
-                  )}
-                </label>
-                {availableMonths.length > 0 ? (
-                  <select
-                    style={{ ...styles.input, cursor: 'pointer' }}
-                    value={shareModal.yearMonth}
-                    onChange={e => setShareModal(m => ({ ...m, yearMonth: e.target.value }))}
-                  >
-                    <option value="">— Select a month —</option>
-                    {availableMonths.map(ym => (
-                      <option key={ym} value={ym}>{ym}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    style={styles.input}
-                    placeholder="e.g. 2025-02"
-                    value={shareModal.yearMonth}
-                    onChange={e => setShareModal(m => ({ ...m, yearMonth: e.target.value }))}
-                  />
-                )}
-                <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: '12px' }}>
-                  {availableMonths.length > 0
-                    ? `${availableMonths.length} month(s) available — most recent pre-selected.`
-                    : 'No extracted data yet. Enter a month or run Extract All first.'}
-                </p>
-              </div>
-
-              {sendSuccess ? (
-                <div style={{ ...styles.alertSuccess, textAlign: 'center' }}>
-                  <i className="fas fa-check-circle" style={{ marginRight: '8px' }} />
-                  {sendSuccess}
+              {/* Extraction results */}
+              {extractResult && (
+                <div className="mt-4 pt-4 border-t border-indigo-200 space-y-2">
+                  {Object.entries(extractResult).map(([accountId, result]) => (
+                    <div key={accountId} className="flex items-center gap-2.5 text-[13px]">
+                      <span className={result.startsWith('SUCCESS')
+                        ? 'text-emerald-600 font-bold'
+                        : 'text-red-600 font-bold'}>
+                        {result.startsWith('SUCCESS') ? '✓' : '✗'}
+                      </span>
+                      <span className="font-mono text-[rgba(0,0,0,0.7)]">{accountId}</span>
+                      <span className={result.startsWith('SUCCESS') ? 'text-emerald-700' : 'text-red-600'}>
+                        {result.startsWith('SUCCESS') ? 'Saved to S3 + DB' : result.replace('ERROR:', '')}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                <>
-                  <label style={styles.label}>Recipient Email Address</label>
-                  <input
-                    style={styles.input}
-                    type="email"
-                    placeholder="customer@example.com"
-                    value={shareModal.email}
-                    onChange={e => setShareModal(m => ({ ...m, email: e.target.value }))}
-                    onKeyDown={e => e.key === 'Enter' && handleSendBilling()}
-                  />
-                  <p style={{ margin: '6px 0 0', color: '#9ca3af', fontSize: '12px' }}>
-                    A CSV download link (valid 48 hours) will be emailed to this address.
-                  </p>
-
-                  {sendError && (
-                    <div style={{ ...styles.alertDanger, marginTop: '12px' }}>{sendError}</div>
-                  )}
-                </>
               )}
             </div>
 
-            {!sendSuccess && (
-              <div style={styles.modalFooter}>
+            {/* ── Accounts Table ── */}
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-5">
+              <h2 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)] mb-1 flex items-center gap-2" style={{ marginBottom: '16px' }}>
+                <Icon icon="mdi:format-list-bulleted" width={16} className="text-indigo-600" />
+                Marketplace Accounts
+              </h2>
+
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 py-16 text-[rgba(0,0,0,0.4)]">
+                  <Icon icon="mdi:loading" width={24} className="animate-spin" />
+                  <span className="text-[13px]">Loading accounts...</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+                        <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)] whitespace-nowrap">AWS Account ID</th>
+                        <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)] whitespace-nowrap">Account Name</th>
+                        <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)] whitespace-nowrap">Category</th>
+                        <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)] whitespace-nowrap">Contact Email</th>
+                        <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)] whitespace-nowrap">Data Status</th>
+                        <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)] whitespace-nowrap">Discovered</th>
+                        <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)] whitespace-nowrap">Share Billing</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accounts.map(account => (
+                        <tr key={account.id} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                          <td className="px-4 py-3 align-middle">
+                            <span style={{ fontFamily: 'monospace', fontSize: '13px', color: '#374151' }}>
+                              {account.awsAccountId}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <span style={{ fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                              {account.accountName}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            {account.category === 'MARKETPLACE_XAMOPS' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-[11px] font-semibold">MP + XamOps</span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] border border-[rgba(0,0,0,0.1)] rounded-full text-[11px] font-semibold">MP Only</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <span style={{ color: '#6b7280', fontSize: '13px' }}>
+                              {account.contactEmail || '—'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            {account.billingExtracted ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-semibold">
+                                <Icon icon="mdi:check-circle-outline" width={11} />
+                                Extracted
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[11px] font-semibold">
+                                <Icon icon="mdi:clock-outline" width={11} />
+                                Pending
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <span style={{ color: '#9ca3af', fontSize: '12px' }}>
+                              {formatDate(account.discoveredAt)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <button
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-indigo-300 text-indigo-600 text-[12px] font-semibold rounded-lg hover:bg-indigo-50 transition-all"
+                              onClick={() => openShareModal(account)}
+                            >
+                              <Icon icon="mdi:send-outline" width={12} />
+                              Send Link
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {accounts.length === 0 && (
+                    <div className="py-16 text-center">
+                      <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] rounded-xl flex items-center justify-center mx-auto mb-3">
+                        <Icon icon="mdi:inbox-outline" width={28} className="text-[rgba(0,0,0,0.25)]" />
+                      </div>
+                      <p className="text-[13px] text-[rgba(0,0,0,0.45)]">No accounts found. Connect a marketplace account above.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ── Share Modal ── */}
+        {shareModal.open && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-5" onClick={() => setShareModal(m => ({ ...m, open: false }))}>
+            <div className="bg-white rounded-xl w-full max-w-md shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(0,0,0,0.06)]">
+                <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] flex items-center gap-2">
+                  <Icon icon="mdi:share-variant-outline" width={16} className="text-indigo-600" />
+                  Share Billing Data
+                </h3>
                 <button
-                  style={styles.btnSecondary}
+                  className="p-1 rounded-lg text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.04)] transition-colors"
                   onClick={() => setShareModal(m => ({ ...m, open: false }))}
                 >
-                  Cancel
-                </button>
-                <button
-                  style={sending ? styles.btnPrimaryDisabled : styles.btnPrimary}
-                  onClick={handleSendBilling}
-                  disabled={sending}
-                >
-                  {sending ? (
-                    <><i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }} />Sending...</>
-                  ) : (
-                    <><i className="fas fa-paper-plane" style={{ marginRight: '6px' }} />Send Download Link</>
-                  )}
+                  <Icon icon="mdi:close" width={16} />
                 </button>
               </div>
-            )}
+
+              <div className="p-5">
+                {/* Account info */}
+                <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-lg px-4 py-3 mb-5">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.4)] mb-1">Account</div>
+                  <div className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">{shareModal.accountName}</div>
+                  <div className="font-mono text-[13px] text-[rgba(0,0,0,0.5)]">{shareModal.awsAccountId}</div>
+                </div>
+
+                {/* Month picker */}
+                <div style={{ marginBottom: '20px' }}>
+                  <label className="block mb-1.5 text-[13px] font-semibold text-[rgba(0,0,0,0.7)]">
+                    Billing Month
+                    {loadingMonths && (
+                      <Icon icon="mdi:loading" width={14} className="animate-spin ml-2 text-[rgba(0,0,0,0.4)] inline" />
+                    )}
+                  </label>
+                  {availableMonths.length > 0 ? (
+                    <select
+                      className="w-full px-3 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                      value={shareModal.yearMonth}
+                      onChange={e => setShareModal(m => ({ ...m, yearMonth: e.target.value }))}
+                    >
+                      <option value="">— Select a month —</option>
+                      {availableMonths.map(ym => (
+                        <option key={ym} value={ym}>{ym}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className="w-full px-3 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      placeholder="e.g. 2025-02"
+                      value={shareModal.yearMonth}
+                      onChange={e => setShareModal(m => ({ ...m, yearMonth: e.target.value }))}
+                    />
+                  )}
+                  <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: '12px' }}>
+                    {availableMonths.length > 0
+                      ? `${availableMonths.length} month(s) available — most recent pre-selected.`
+                      : 'No extracted data yet. Enter a month or run Extract All first.'}
+                  </p>
+                </div>
+
+                {sendSuccess ? (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-[13px] text-center">
+                    <Icon icon="mdi:check-circle-outline" width={14} />
+                    {sendSuccess}
+                  </div>
+                ) : (
+                  <>
+                    <label className="block mb-1.5 text-[13px] font-semibold text-[rgba(0,0,0,0.7)]">Recipient Email Address</label>
+                    <input
+                      className="w-full px-3 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      type="email"
+                      placeholder="customer@example.com"
+                      value={shareModal.email}
+                      onChange={e => setShareModal(m => ({ ...m, email: e.target.value }))}
+                      onKeyDown={e => e.key === 'Enter' && handleSendBilling()}
+                    />
+                    <p style={{ margin: '6px 0 0', color: '#9ca3af', fontSize: '12px' }}>
+                      A CSV download link (valid 48 hours) will be emailed to this address.
+                    </p>
+
+                    {sendError && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-[13px]" style={{ marginTop: '12px' }}>
+                        <Icon icon="mdi:alert-circle-outline" width={14} className="flex-shrink-0" />
+                        {sendError}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {!sendSuccess && (
+                <div className="flex justify-end gap-3 px-5 py-4 border-t border-[rgba(0,0,0,0.06)]">
+                  <button
+                    className="flex items-center gap-2 px-4 py-2 border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.7)] text-[13px] font-semibold rounded-lg hover:bg-[rgba(0,0,0,0.025)] transition-all"
+                    onClick={() => setShareModal(m => ({ ...m, open: false }))}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleSendBilling}
+                    disabled={sending}
+                  >
+                    {sending ? (
+                      <><Icon icon="mdi:loading" width={14} className="animate-spin" />Sending...</>
+                    ) : (
+                      <><Icon icon="mdi:send-outline" width={14} />Send Download Link</>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+      </div>
     </div>
   );
-};
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const styles: Record<string, React.CSSProperties> = {
-  card: {
-    background: 'var(--card-bg, #ffffff)',
-    border: '1px solid var(--border-color, #e5e7eb)',
-    borderRadius: '10px',
-    padding: '20px 24px',
-    marginBottom: '20px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-  },
-  cardTitle: {
-    margin: '0 0 4px',
-    fontSize: '16px',
-    fontWeight: 700,
-    color: 'var(--text-primary, #111827)',
-  },
-  statCard: {
-    background: 'var(--card-bg, #ffffff)',
-    border: '1px solid var(--border-color, #e5e7eb)',
-    borderRadius: '10px',
-    padding: '20px 24px',
-    textAlign: 'center',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-  },
-  statValue: {
-    fontSize: '28px',
-    fontWeight: 800,
-    color: '#111827',
-    lineHeight: 1,
-  },
-  statLabel: {
-    marginTop: '6px',
-    fontSize: '13px',
-    color: '#6b7280',
-    fontWeight: 500,
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse' as const,
-    fontSize: '14px',
-  },
-  thead: {
-    background: 'var(--table-header-bg, #f9fafb)',
-  },
-  th: {
-    padding: '10px 14px',
-    textAlign: 'left' as const,
-    fontWeight: 600,
-    fontSize: '12px',
-    color: '#6b7280',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-    borderBottom: '1px solid var(--border-color, #e5e7eb)',
-    whiteSpace: 'nowrap' as const,
-  },
-  tr: {
-    borderBottom: '1px solid var(--border-color, #f3f4f6)',
-  },
-  td: {
-    padding: '12px 14px',
-    verticalAlign: 'middle' as const,
-  },
-  label: {
-    display: 'block',
-    marginBottom: '6px',
-    fontSize: '13px',
-    fontWeight: 600,
-    color: 'var(--text-primary, #374151)',
-  },
-  input: {
-    width: '100%',
-    padding: '9px 12px',
-    border: '1px solid var(--border-color, #d1d5db)',
-    borderRadius: '6px',
-    fontSize: '14px',
-    color: 'var(--text-primary, #111827)',
-    background: 'var(--input-bg, #ffffff)',
-    boxSizing: 'border-box' as const,
-    outline: 'none',
-  },
-  btnPrimary: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '9px 18px',
-    background: '#6366f1',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap' as const,
-  },
-  btnPrimaryDisabled: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '9px 18px',
-    background: '#a5b4fc',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: 600,
-    cursor: 'not-allowed',
-    whiteSpace: 'nowrap' as const,
-  },
-  btnSecondary: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '9px 18px',
-    background: 'transparent',
-    color: 'var(--text-primary, #374151)',
-    border: '1px solid var(--border-color, #d1d5db)',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap' as const,
-  },
-  btnPurple: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '9px 18px',
-    background: '#7c3aed',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap' as const,
-  },
-  btnPurpleDisabled: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '9px 18px',
-    background: '#c4b5fd',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: 600,
-    cursor: 'not-allowed',
-    whiteSpace: 'nowrap' as const,
-  },
-  btnShare: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '6px 14px',
-    background: 'transparent',
-    color: '#6366f1',
-    border: '1px solid #6366f1',
-    borderRadius: '5px',
-    fontSize: '13px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap' as const,
-  },
-  badgeGreen: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '2px 8px',
-    background: '#d1fae5',
-    color: '#065f46',
-    borderRadius: '999px',
-    fontSize: '12px',
-    fontWeight: 600,
-  },
-  badgeRed: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '2px 8px',
-    background: '#fee2e2',
-    color: '#991b1b',
-    borderRadius: '999px',
-    fontSize: '12px',
-    fontWeight: 600,
-  },
-  badgeOrange: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '2px 8px',
-    background: '#fef3c7',
-    color: '#92400e',
-    borderRadius: '999px',
-    fontSize: '12px',
-    fontWeight: 600,
-  },
-  badgePurple: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '2px 8px',
-    background: '#ede9fe',
-    color: '#5b21b6',
-    borderRadius: '999px',
-    fontSize: '12px',
-    fontWeight: 600,
-  },
-  badgeGray: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '2px 8px',
-    background: '#f3f4f6',
-    color: '#374151',
-    borderRadius: '999px',
-    fontSize: '12px',
-    fontWeight: 600,
-  },
-  alertDanger: {
-    padding: '10px 14px',
-    background: '#fee2e2',
-    border: '1px solid #fca5a5',
-    borderRadius: '6px',
-    color: '#991b1b',
-    fontSize: '13px',
-  },
-  alertSuccess: {
-    padding: '10px 14px',
-    background: '#d1fae5',
-    border: '1px solid #6ee7b7',
-    borderRadius: '6px',
-    color: '#065f46',
-    fontSize: '13px',
-  },
-  modalOverlay: {
-    position: 'fixed' as const,
-    inset: 0,
-    background: 'rgba(0,0,0,0.5)',
-    zIndex: 1000,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '20px',
-  },
-  modal: {
-    background: 'var(--card-bg, #ffffff)',
-    borderRadius: '12px',
-    width: '100%',
-    maxWidth: '480px',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-    overflow: 'hidden',
-  },
-  modalHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '16px 20px',
-    borderBottom: '1px solid var(--border-color, #e5e7eb)',
-  },
-  modalBody: {
-    padding: '20px',
-  },
-  modalFooter: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '10px',
-    padding: '16px 20px',
-    borderTop: '1px solid var(--border-color, #e5e7eb)',
-  },
-  modalClose: {
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    color: '#6b7280',
-    fontSize: '16px',
-    padding: '4px',
-  },
 };
 
 export default BillOpsAdminMarketplaceBillingPage;

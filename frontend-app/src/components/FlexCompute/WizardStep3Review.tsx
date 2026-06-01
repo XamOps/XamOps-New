@@ -1,11 +1,5 @@
-/**
- * Wizard Step 3 - Review & Purchase
- *
- * Summary of capacity details, pricing comparison, terms acceptance, and purchase button
- * Includes 15-minute countdown timer for temporary reservation
- */
-
 import React, { useState, useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import type { CapacityPricing, SearchCapacityForm, ConfigureCapacityForm } from '../../types/flexCompute';
 
 interface WizardStep3ReviewProps {
@@ -16,16 +10,11 @@ interface WizardStep3ReviewProps {
   onBack: () => void;
   isPurchasing: boolean;
   purchaseError?: string | null;
-  reservedAt?: number; // epoch ms — used to compute real remaining time
+  reservedAt?: number;
 }
 
-const formatCurrency = (value: number): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-  }).format(value);
-};
+const formatCurrency = (value: number): string =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(value);
 
 const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
   pricing,
@@ -39,8 +28,6 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
 }) => {
   const [termsAccepted, setTermsAccepted] = useState(false);
 
-  // Compute initial seconds based on when the reservation was actually made.
-  // Falls back to full 900s if reservedAt is unknown (e.g. continue-purchase flow).
   const initialSeconds = reservedAt
     ? Math.max(0, 900 - Math.floor((Date.now() - reservedAt) / 1000))
     : 900;
@@ -50,14 +37,10 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
-        if (prev <= 0) {
-          clearInterval(timer);
-          return 0;
-        }
+        if (prev <= 0) { clearInterval(timer); return 0; }
         return prev - 1;
       });
     }, 1000);
-
     return () => clearInterval(timer);
   }, []);
 
@@ -67,63 +50,54 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
     return `${mins}:${String(secs).padStart(2, '0')}`;
   };
 
-  const isTimeWarning = timeRemaining <= 300; // Warning when 5 minutes or less
-  const isTimeCritical = timeRemaining <= 60; // Critical when 1 minute or less
+  const isTimeWarning  = timeRemaining <= 300;
+  const isTimeCritical = timeRemaining <= 60;
+
+  const timerColor = isTimeCritical ? 'border-rose-300 bg-rose-50'
+    : isTimeWarning ? 'border-amber-300 bg-amber-50'
+    : 'border-blue-200 bg-blue-50';
+  const timerIconBg = isTimeCritical ? 'bg-rose-100' : isTimeWarning ? 'bg-amber-100' : 'bg-blue-100';
+  const timerIconColor = isTimeCritical ? '#DC2626' : isTimeWarning ? '#D97706' : '#3B82F6';
+  const timerTextColor = isTimeCritical ? 'text-rose-900' : isTimeWarning ? 'text-amber-900' : 'text-blue-900';
+  const timerSubColor  = isTimeCritical ? 'text-rose-600'  : isTimeWarning ? 'text-amber-600'  : 'text-blue-600';
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-2xl shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-4 text-white">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.01)]">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center text-sm font-bold">3</div>
+          <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-[12px] font-bold text-white">3</div>
           <div>
-            <h3 className="font-semibold">Review & Purchase</h3>
-            <p className="text-xs text-green-100">Review your capacity details and confirm purchase</p>
+            <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Review & Purchase</h3>
+            <p className="text-[12px] text-[rgba(0,0,0,0.45)]">Review your capacity details and confirm purchase</p>
           </div>
         </div>
       </div>
 
       <div className="p-6 space-y-6">
-        {/* 15-Minute Countdown Timer */}
-        <div className={`rounded-xl p-4 border-2 transition-all ${isTimeCritical
-          ? 'bg-red-50 border-red-400'
-          : isTimeWarning
-            ? 'bg-yellow-50 border-yellow-400'
-            : 'bg-blue-50 border-blue-300'
-          }`}>
+        {/* Countdown Timer */}
+        <div className={`rounded-xl p-4 border-2 transition-all ${timerColor}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isTimeCritical
-                ? 'bg-red-100 text-red-600'
-                : isTimeWarning
-                  ? 'bg-yellow-100 text-yellow-600'
-                  : 'bg-blue-100 text-blue-600'
-                }`}>
-                <i className={`fas fa-clock text-xl ${isTimeCritical ? 'animate-pulse' : ''}`}></i>
+              <div className={`w-11 h-11 rounded-full flex items-center justify-center ${timerIconBg} ${isTimeCritical ? 'animate-pulse' : ''}`}>
+                <Icon icon="mdi:clock-outline" width={22} color={timerIconColor} />
               </div>
               <div>
-                <p className={`text-sm font-semibold ${isTimeCritical ? 'text-red-900' : isTimeWarning ? 'text-yellow-900' : 'text-blue-900'
-                  }`}>
+                <p className={`text-[13px] font-semibold ${timerTextColor}`}>
                   {timeRemaining === 0 ? 'Reservation Expired' : 'Reservation Time Remaining'}
                 </p>
-                <p className={`text-xs ${isTimeCritical ? 'text-red-700' : isTimeWarning ? 'text-yellow-700' : 'text-blue-700'
-                  }`}>
+                <p className={`text-[12px] ${timerSubColor}`}>
                   {timeRemaining === 0
                     ? 'Please search and reserve again'
                     : isTimeCritical
-                      ? 'Complete purchase immediately!'
-                      : isTimeWarning
-                        ? 'Complete your purchase soon'
-                        : 'Complete your purchase within 15 minutes'}
+                    ? 'Complete purchase immediately!'
+                    : isTimeWarning
+                    ? 'Complete your purchase soon'
+                    : 'Complete your purchase within 15 minutes'}
                 </p>
               </div>
             </div>
-            <div className={`text-3xl font-mono font-bold ${isTimeCritical
-              ? 'text-red-600'
-              : isTimeWarning
-                ? 'text-yellow-600'
-                : 'text-blue-600'
-              } ${isTimeCritical ? 'animate-pulse' : ''}`}>
+            <div className={`text-[28px] font-mono font-bold tabular-nums ${timerSubColor} ${isTimeCritical ? 'animate-pulse' : ''}`}>
               {formatTime(timeRemaining)}
             </div>
           </div>
@@ -131,167 +105,127 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
 
         {/* Capacity Details */}
         <div>
-          <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">
-            <i className="fas fa-server mr-2 text-gray-400"></i>Capacity Details
-          </h4>
-          <div className="bg-gray-50 rounded-xl p-5 grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div>
-              <p className="text-xs text-gray-500">Name</p>
-              <p className="text-sm font-medium text-gray-900">{pricing.capacityName}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Instance Type</p>
-              <p className="text-sm font-mono font-medium text-gray-900">{pricing.instanceType}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Region</p>
-              <p className="text-sm font-medium text-gray-900">{pricing.region}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Platform</p>
-              <p className="text-sm font-medium text-gray-900">{pricing.platform}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Tenancy</p>
-              <p className="text-sm font-medium text-gray-900">{pricing.tenancy}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Quantity</p>
-              <p className="text-sm font-medium text-gray-900">{pricing.quantity}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Start Date</p>
-              <p className="text-sm font-medium text-gray-900">{pricing.startDate}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">End Date</p>
-              <p className="text-sm font-medium text-gray-900">{pricing.endDate}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Auto-Renewal</p>
-              <p className="text-sm font-medium text-gray-900">{searchForm.autoRenewal ? 'Yes' : 'No'}</p>
-            </div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.45)] mb-3 flex items-center gap-1.5">
+            <Icon icon="mdi:server-outline" width={13} />
+            Capacity Details
+          </p>
+          <div className="bg-[rgba(0,0,0,0.02)] rounded-xl p-5 grid grid-cols-2 md:grid-cols-3 gap-4 border border-[rgba(0,0,0,0.05)]">
+            {[
+              { label: 'Name',          value: pricing.capacityName },
+              { label: 'Instance Type', value: pricing.instanceType, mono: true },
+              { label: 'Region',        value: pricing.region },
+              { label: 'Platform',      value: pricing.platform },
+              { label: 'Tenancy',       value: pricing.tenancy },
+              { label: 'Quantity',      value: String(pricing.quantity) },
+              { label: 'Start Date',    value: pricing.startDate },
+              { label: 'End Date',      value: pricing.endDate },
+              { label: 'Auto-Renewal',  value: searchForm.autoRenewal ? 'Yes' : 'No' },
+            ].map(({ label, value, mono }) => (
+              <div key={label}>
+                <p className="text-[11px] text-[rgba(0,0,0,0.4)]">{label}</p>
+                <p className={`text-[13px] font-medium text-[rgba(0,0,0,0.88)] ${mono ? 'font-mono' : ''}`}>{value}</p>
+              </div>
+            ))}
           </div>
         </div>
 
         {/* Configuration Details */}
         <div>
-          <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">
-            <i className="fas fa-cog mr-2 text-gray-400"></i>Configuration
-          </h4>
-          <div className="bg-gray-50 rounded-xl p-5 grid grid-cols-2 md:grid-cols-3 gap-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.45)] mb-3 flex items-center gap-1.5">
+            <Icon icon="mdi:cog-outline" width={13} />
+            Configuration
+          </p>
+          <div className="bg-[rgba(0,0,0,0.02)] rounded-xl p-5 grid grid-cols-2 md:grid-cols-3 gap-4 border border-[rgba(0,0,0,0.05)]">
             <div>
-              <p className="text-xs text-gray-500">VPC</p>
-              <p className="text-sm font-mono font-medium text-gray-900">
-                {configureForm.vpcId === 'default' ? (
-                  <span className="text-blue-600">Default VPC</span>
-                ) : (
-                  configureForm.vpcId
-                )}
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)]">VPC</p>
+              <p className="text-[13px] font-mono font-medium text-[rgba(0,0,0,0.88)]">
+                {configureForm.vpcId === 'default' ? <span className="text-indigo-600">Default VPC</span> : configureForm.vpcId}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Security Group</p>
-              <p className="text-sm font-mono font-medium text-gray-900">
-                {configureForm.securityGroupId === 'none' ? (
-                  <span className="text-blue-600">Default SG</span>
-                ) : (
-                  configureForm.securityGroupId
-                )}
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)]">Security Group</p>
+              <p className="text-[13px] font-mono font-medium text-[rgba(0,0,0,0.88)]">
+                {configureForm.securityGroupId === 'none' ? <span className="text-indigo-600">Default SG</span> : configureForm.securityGroupId}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">AMI Image</p>
-              <p className="text-sm font-mono font-medium text-gray-900">
-                {configureForm.amiImageId === 'default' ? (
-                  <span className="text-blue-600">Default AMI</span>
-                ) : (
-                  configureForm.amiImageId
-                )}
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)]">AMI Image</p>
+              <p className="text-[13px] font-mono font-medium text-[rgba(0,0,0,0.88)]">
+                {configureForm.amiImageId === 'default' ? <span className="text-indigo-600">Default AMI</span> : configureForm.amiImageId}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">SSH Key</p>
-              <p className="text-sm font-mono font-medium text-gray-900">
-                {configureForm.sshKeyName === 'none' ? (
-                  <span className="text-gray-400">None</span>
-                ) : (
-                  configureForm.sshKeyName
-                )}
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)]">SSH Key</p>
+              <p className="text-[13px] font-mono font-medium text-[rgba(0,0,0,0.88)]">
+                {configureForm.sshKeyName === 'none' ? <span className="text-[rgba(0,0,0,0.3)]">None</span> : configureForm.sshKeyName}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">EBS Volume</p>
-              <p className="text-sm font-medium text-gray-900">{configureForm.ebsVolumeSize} GiB</p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)]">EBS Volume</p>
+              <p className="text-[13px] font-medium text-[rgba(0,0,0,0.88)]">{configureForm.ebsVolumeSize} GiB</p>
             </div>
           </div>
         </div>
 
-        {/* Pricing Comparison */}
+        {/* Pricing */}
         <div>
-          <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">
-            <i className="fas fa-tag mr-2 text-gray-400"></i>Pricing
-          </h4>
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-5 border border-green-200">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Our Price (per hour)</span>
-                <span className="text-sm font-bold text-green-700">{formatCurrency(pricing.ourPrice)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">AWS On-Demand Price (per hour)</span>
-                <span className="text-sm text-gray-500 line-through">{formatCurrency(pricing.awsPrice)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Savings</span>
-                <span className="text-sm font-bold text-green-600">
-                  <i className="fas fa-arrow-down mr-1"></i>
-                  {(pricing.savingsPercent ?? 0).toFixed(1)}%
-                </span>
-              </div>
-              <hr className="border-green-200" />
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Fees</span>
-                <span className="text-sm text-gray-700">{formatCurrency(pricing.fees)}</span>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t border-green-300">
-                <span className="text-base font-bold text-gray-900">Total</span>
-                <span className="text-lg font-bold text-green-700">{formatCurrency(pricing.total)}</span>
-              </div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.45)] mb-3 flex items-center gap-1.5">
+            <Icon icon="mdi:tag-outline" width={13} />
+            Pricing
+          </p>
+          <div className="bg-emerald-50 rounded-xl p-5 border border-emerald-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-[rgba(0,0,0,0.55)]">Our Price (per hour)</span>
+              <span className="text-[13px] font-bold text-emerald-700">{formatCurrency(pricing.ourPrice)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-[rgba(0,0,0,0.55)]">AWS On-Demand Price (per hour)</span>
+              <span className="text-[13px] text-[rgba(0,0,0,0.35)] line-through">{formatCurrency(pricing.awsPrice)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-[rgba(0,0,0,0.55)]">Savings</span>
+              <span className="text-[13px] font-bold text-emerald-600 flex items-center gap-1">
+                <Icon icon="mdi:trending-down" width={14} />
+                {(pricing.savingsPercent ?? 0).toFixed(1)}%
+              </span>
+            </div>
+            <hr className="border-emerald-200" />
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-[rgba(0,0,0,0.55)]">Fees</span>
+              <span className="text-[13px] text-[rgba(0,0,0,0.65)]">{formatCurrency(pricing.fees)}</span>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-emerald-300">
+              <span className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Total</span>
+              <span className="text-[18px] font-bold text-emerald-700">{formatCurrency(pricing.total)}</span>
             </div>
           </div>
         </div>
 
         {/* Terms */}
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
-          <ul className="space-y-1.5 text-xs text-gray-600">
-            <li className="flex items-start gap-2">
-              <i className="fas fa-circle text-yellow-500 mt-1 flex-shrink-0" style={{ fontSize: '5px' }}></i>
-              <span>The instances will be deployed inside your AWS account.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <i className="fas fa-circle text-yellow-500 mt-1 flex-shrink-0" style={{ fontSize: '5px' }}></i>
-              <span>This capacity will not appear in AWS Console billing or Cost Explorer.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <i className="fas fa-circle text-yellow-500 mt-1 flex-shrink-0" style={{ fontSize: '5px' }}></i>
-              <span>All billing will be invoiced separately by Xammer.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <i className="fas fa-circle text-yellow-500 mt-1 flex-shrink-0" style={{ fontSize: '5px' }}></i>
-              <span>In the rare event of a disaster recovery scenario necessitating capacity withdrawal, we may reclaim your Purchased Capacity to support recovery efforts for other customers. Our liability is limited to the refund specified. These terms are governed by the laws of our jurisdiction.</span>
-            </li>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+          <ul className="space-y-2 text-[12px] text-[rgba(0,0,0,0.55)]">
+            {[
+              'The instances will be deployed inside your AWS account.',
+              'This capacity will not appear in AWS Console billing or Cost Explorer.',
+              'All billing will be invoiced separately by Xammer.',
+              'In the rare event of a disaster recovery scenario necessitating capacity withdrawal, we may reclaim your Purchased Capacity to support recovery efforts for other customers. Our liability is limited to the refund specified. These terms are governed by the laws of our jurisdiction.',
+            ].map((text) => (
+              <li key={text} className="flex items-start gap-2">
+                <span className="w-1 h-1 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
+                <span>{text}</span>
+              </li>
+            ))}
           </ul>
           <label className="flex items-start gap-3 cursor-pointer pt-1">
             <input
               type="checkbox"
               checked={termsAccepted}
               onChange={(e) => setTermsAccepted(e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mt-0.5 flex-shrink-0"
+              className="w-4 h-4 text-indigo-600 border-[rgba(0,0,0,0.2)] rounded focus:ring-indigo-500 mt-0.5 flex-shrink-0"
             />
-            <span className="text-sm text-gray-700">
+            <span className="text-[13px] text-[rgba(0,0,0,0.65)]">
               I agree to the{' '}
-              <a href="#" className="text-blue-600 underline hover:text-blue-800">Terms & Conditions</a>{' '}
+              <a href="#" className="text-indigo-600 underline hover:text-indigo-800">Terms & Conditions</a>{' '}
               and authorize XamOps to manage EC2 capacity in my AWS account as described above.
             </span>
           </label>
@@ -299,8 +233,8 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
 
         {/* Purchase Error */}
         {purchaseError && (
-          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl text-sm text-red-700">
-            <i className="fas fa-exclamation-circle mt-0.5 flex-shrink-0"></i>
+          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-[13px] text-red-700">
+            <Icon icon="mdi:alert-circle-outline" width={16} className="mt-0.5 flex-shrink-0" />
             <span>{purchaseError}</span>
           </div>
         )}
@@ -309,22 +243,22 @@ const WizardStep3Review: React.FC<WizardStep3ReviewProps> = ({
         <div className="flex items-center justify-between pt-2">
           <button
             onClick={onBack}
-            className="px-6 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold text-[rgba(0,0,0,0.65)] bg-white border border-[rgba(0,0,0,0.12)] rounded-xl hover:bg-[rgba(0,0,0,0.02)] transition-colors"
           >
-            <i className="fas fa-arrow-left mr-2"></i>
+            <Icon icon="mdi:arrow-left" width={14} />
             Back
           </button>
           <button
             onClick={onPurchase}
             disabled={!termsAccepted || isPurchasing || timeRemaining === 0}
-            className="px-10 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-sm font-bold rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-green-500/25"
+            className="flex items-center gap-2 px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {timeRemaining === 0 ? (
-              <><i className="fas fa-times-circle mr-2"></i>Reservation Expired</>
+              <><Icon icon="mdi:clock-alert-outline" width={16} />Reservation Expired</>
             ) : isPurchasing ? (
-              <><i className="fas fa-spinner fa-spin mr-2"></i>Processing...</>
+              <><Icon icon="mdi:loading" width={16} className="animate-spin" />Processing...</>
             ) : (
-              <><i className="fas fa-shopping-cart mr-2"></i>Purchase Capacity</>
+              <><Icon icon="mdi:cart-outline" width={16} />Purchase Capacity</>
             )}
           </button>
         </div>

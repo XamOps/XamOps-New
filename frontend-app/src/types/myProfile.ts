@@ -6,6 +6,7 @@ export interface CloudAccount {
   id: number;
   accountName: string;
   provider: 'AWS' | 'GCP' | 'Azure';
+  accountId?: string;   // AWS 12-digit account ID, GCP project ID, Azure subscription ID
 }
 
 export interface UserProfile {

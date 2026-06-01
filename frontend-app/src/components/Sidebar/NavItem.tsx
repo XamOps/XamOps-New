@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
-
 import { useTheme } from '../../contexts/ThemeContext';
 
 interface NavItemProps {
@@ -21,30 +20,28 @@ const NavItem: React.FC<NavItemProps> = ({
   onClick,
 }) => {
   const { theme } = useTheme();
-  // Determine if this is a React route (no .html extension) or an HTML page
   const isReactRoute = !href.includes('.html');
 
   const className = clsx(
-    'nav-item flex items-center rounded-md transition-colors duration-150 ease-in-out px-3 py-2',
-    isActive
-      ? theme === 'dark'
-        ? 'bg-indigo-600/20 text-indigo-400 font-semibold'
-        : 'bg-indigo-50 text-indigo-700 font-semibold'
-      : theme === 'dark'
-        ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+    'nav-item flex items-center gap-2 rounded-md transition-colors duration-150 ease-in-out px-2 h-[33px]',
+    theme === 'dark'
+      ? isActive
+        ? 'bg-[rgba(255,255,255,0.12)] text-white font-semibold'
+        : 'text-[rgba(255,255,255,0.5)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white font-normal'
+      : isActive
+        ? 'bg-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] font-semibold'
+        : 'text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] font-normal'
   );
 
   const content = (
     <>
-      <i className={clsx(icon, 'w-5 text-center mr-3')} />
-      <span className="text-[13px] font-medium truncate whitespace-nowrap overflow-hidden transition-all duration-300">
+      <i className={clsx(icon, 'w-4 text-center text-[13px] flex-shrink-0')} />
+      <span className="text-[13px] truncate whitespace-nowrap overflow-hidden">
         {label}
       </span>
     </>
   );
 
-  // Use React Router Link for React routes, regular anchor for HTML pages
   if (isReactRoute) {
     return (
       <Link to={href} className={className}>

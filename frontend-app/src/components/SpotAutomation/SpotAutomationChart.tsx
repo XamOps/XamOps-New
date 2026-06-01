@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { Icon } from '@iconify/react';
 import { Chart, registerables } from 'chart.js';
 import type { HistoryDataPoint, HistorySummary } from '../../hooks/useSpotAutomationData';
 
@@ -23,62 +24,28 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
   onRefresh,
   currency = 'USD',
 }) => {
-  const chartRef = useRef<HTMLCanvasElement>(null);
+  const chartRef         = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart | null>(null);
 
-  const currencySymbol = currency === 'INR' ? '₹' : '$';
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
-
-  const formatHourlyCost = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 
   useEffect(() => {
-    if (!chartRef.current || !historyData || historyData.length === 0) {
-      return;
-    }
+    if (!chartRef.current || !historyData || historyData.length === 0) return;
 
-    // Destroy existing chart
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-    }
+    if (chartInstanceRef.current) chartInstanceRef.current.destroy();
 
-    // Sort data by timestamp
     const sortedData = [...historyData].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
-    // Format labels
     const labels = sortedData.map((d) => {
       const date = new Date(d.timestamp);
-      if (timeRange === 'last24h') {
-        return date.toLocaleTimeString([], { hour: 'numeric', hour12: true });
-      } else if (timeRange === 'last7d') {
-        const day = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-        const time = date.toLocaleTimeString([], { hour: 'numeric', hour12: true });
-        return `${day}, ${time}`;
-      } else {
-        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-      }
+      if (timeRange === 'last24h') return date.toLocaleTimeString([], { hour: 'numeric', hour12: true });
+      if (timeRange === 'last7d') return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${date.toLocaleTimeString([], { hour: 'numeric', hour12: true })}`;
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
     });
 
-    const actualSavings = sortedData.map((d) => d.total_actual_savings || 0);
-    const potentialSavings = sortedData.map((d) => d.total_potential_savings || 0);
-
-    // Create new chart
     chartInstanceRef.current = new Chart(chartRef.current, {
       type: 'line',
       data: {
@@ -86,27 +53,27 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
         datasets: [
           {
             label: 'Actual Savings',
-            data: actualSavings,
+            data: sortedData.map((d) => d.total_actual_savings || 0),
             borderColor: '#10b981',
-            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-            borderWidth: 3,
+            backgroundColor: 'rgba(16, 185, 129, 0.08)',
+            borderWidth: 2.5,
             tension: 0.4,
             fill: true,
             pointBackgroundColor: '#10b981',
             pointRadius: 3,
-            pointHoverRadius: 6,
+            pointHoverRadius: 5,
           },
           {
             label: 'Potential Savings',
-            data: potentialSavings,
+            data: sortedData.map((d) => d.total_potential_savings || 0),
             borderColor: '#f59e0b',
             backgroundColor: 'transparent',
-            borderWidth: 3,
+            borderWidth: 2.5,
             borderDash: [8, 4],
             tension: 0.4,
             pointBackgroundColor: '#f59e0b',
             pointRadius: 3,
-            pointHoverRadius: 6,
+            pointHoverRadius: 5,
           },
         ],
       },
@@ -117,151 +84,99 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
           legend: {
             position: 'top',
             align: 'center',
-            labels: {
-              usePointStyle: true,
-              boxWidth: 10,
-              font: {
-                family: "'Inter', sans-serif",
-                size: 12,
-                weight: '600',
-              },
-              padding: 15,
-            },
+            labels: { usePointStyle: true, boxWidth: 8, font: { size: 12 }, padding: 15 },
           },
           tooltip: {
             mode: 'index',
             intersect: false,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            titleFont: {
-              size: 13,
-              weight: 'bold',
-            },
-            bodyFont: {
-              size: 12,
-            },
+            backgroundColor: 'rgba(0,0,0,0.82)',
             padding: 12,
             cornerRadius: 8,
             callbacks: {
-              label: function (context) {
-                let label = context.dataset.label || '';
-                if (label) {
-                  label += ': ';
-                }
-                if (context.parsed.y !== null) {
-                  label += new Intl.NumberFormat('en-US', {
-                    style: 'currency',
-                    currency,
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }).format(context.parsed.y);
-                }
-                return label;
-              },
+              label: (ctx) => `${ctx.dataset.label}: ${formatCurrency(ctx.parsed.y)}`,
             },
           },
         },
         scales: {
           y: {
             beginAtZero: true,
-            grid: {
-              color: '#f3f4f6',
-              drawBorder: false,
-            },
-            ticks: {
-              callback: function (value) {
-                return currencySymbol + Number(value).toFixed(2);
-              },
-              font: {
-                size: 11,
-              },
-              color: '#6b7280',
-            },
+            grid: { color: '#f3f4f6' },
+            ticks: { callback: (v) => `$${v}`, font: { size: 11 }, color: '#6b7280' },
           },
           x: {
-            grid: {
-              display: false,
-            },
-            ticks: {
-              font: {
-                size: 11,
-              },
-              color: '#6b7280',
-              maxTicksLimit: 8,
-            },
+            grid: { display: false },
+            ticks: { font: { size: 11 }, color: '#6b7280', maxTicksLimit: 8 },
           },
         },
       },
     });
 
-    return () => {
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.destroy();
-      }
-    };
+    return () => { if (chartInstanceRef.current) chartInstanceRef.current.destroy(); };
   }, [historyData, timeRange, currency]);
 
+  const TIME_RANGES: { key: 'last24h' | 'last7d' | 'last30d'; label: string }[] = [
+    { key: 'last24h', label: 'Last 24h' },
+    { key: 'last7d',  label: 'Last 7d'  },
+    { key: 'last30d', label: 'Last 30d' },
+  ];
+
   return (
-    <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100 mb-6">
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-xl font-bold text-gray-800">Savings Over Time</h3>
-        <div className="flex items-center space-x-3">
-          <select
-            value={timeRange}
-            onChange={(e) => onTimeRangeChange(e.target.value as any)}
-            className="bg-white border-2 border-gray-300 rounded-lg text-sm px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-          >
-            <option value="last24h">Last 24 Hours</option>
-            <option value="last7d">Last 7 Days</option>
-            <option value="last30d">Last 30 Days</option>
-          </select>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Savings Over Time</h3>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.07)] rounded-lg p-0.5">
+            {TIME_RANGES.map((r) => (
+              <button
+                key={r.key}
+                onClick={() => onTimeRangeChange(r.key)}
+                className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all ${
+                  timeRange === r.key
+                    ? 'bg-white shadow-sm border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)]'
+                    : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={onRefresh}
             disabled={isLoading}
-            className="p-2 text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-[rgba(0,0,0,0.03)] hover:bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-40"
           >
-            <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`}></i>
+            <Icon icon="mdi:refresh" width={15} className={isLoading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-6 mb-6">
-        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 p-4 rounded-lg">
-          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">
-            Period Savings
-          </p>
-          <h4 className="text-2xl font-bold text-emerald-700">
-            {formatCurrency(historySummary.total_savings || 0)}
-          </h4>
-        </div>
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
-          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">
-            Avg Hourly
-          </p>
-          <h4 className="text-2xl font-bold text-blue-700">
-            {formatHourlyCost(historySummary.average_hourly_savings || 0)}/hr
-          </h4>
-        </div>
-        <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
-          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">
-            Peak Savings
-          </p>
-          <h4 className="text-2xl font-bold text-purple-700">
-            {formatHourlyCost(historySummary.peak_savings || 0)}/hr
-          </h4>
-        </div>
+      {/* Summary pills */}
+      <div className="grid grid-cols-3 gap-4 mb-5">
+        {[
+          { label: 'Period Savings', value: formatCurrency(historySummary.total_savings || 0), color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-100' },
+          { label: 'Avg Hourly',     value: `${formatCurrency(historySummary.average_hourly_savings || 0)}/hr`, color: 'text-blue-700', bg: 'bg-blue-50 border-blue-100' },
+          { label: 'Peak Savings',   value: `${formatCurrency(historySummary.peak_savings || 0)}/hr`, color: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-100' },
+        ].map((item) => (
+          <div key={item.label} className={`${item.bg} border rounded-xl p-4`}>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.45)] mb-1">{item.label}</p>
+            <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{item.value}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="relative h-80 w-full">
-        <canvas ref={chartRef}></canvas>
+      {/* Chart */}
+      <div className="relative h-72">
+        <canvas ref={chartRef} />
         {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90 z-10 rounded-lg">
-            <i className="fas fa-spinner fa-spin text-4xl text-blue-500"></i>
+          <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded-lg z-10">
+            <Icon icon="mdi:loading" width={32} className="animate-spin text-indigo-500" />
           </div>
         )}
         {!isLoading && (!historyData || historyData.length === 0) && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white z-0 rounded-lg">
-            <i className="fas fa-chart-line text-5xl text-gray-300 mb-4"></i>
-            <p className="text-gray-500 font-medium text-lg">No history data available for this period</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <Icon icon="mdi:chart-line" width={48} color="rgba(0,0,0,0.15)" />
+            <p className="text-[13px] text-[rgba(0,0,0,0.4)] mt-3">No history data available for this period</p>
           </div>
         )}
       </div>

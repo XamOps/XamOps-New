@@ -49,25 +49,21 @@ const AzureCostPage: React.FC = () => {
   }, [refresh]);
 
   return (
-    <main className="p-6 min-h-screen">
+    <main className="flex-1 flex flex-col min-h-screen bg-transparent">
       <AzureCostHeader
         isLoading={isRefreshing}
         onRefresh={handleRefresh}
       />
 
-      <div className="max-w-screen-2xl mx-auto">
+      <div className="flex-1 p-8 space-y-8">
         {/* No Account Selected State */}
         {!selectedAccountId && !isLoading && (
-          <div className="flex flex-col items-center justify-center min-h-[60vh]">
-            <div className="glass-card p-12 text-center max-w-md">
-              <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
-                <i className="fas fa-dollar-sign text-white text-3xl"></i>
-              </div>
-              <h4 className="text-xl font-extrabold text-slate-900 tracking-tight mb-3">No Account Selected</h4>
-              <p className="text-slate-500 text-sm font-semibold leading-relaxed">
-                Please select an Azure account from the sidebar to view cost management data.
-              </p>
+          <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
+            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+              <i className="fas fa-dollar-sign text-gray-400 text-2xl"></i>
             </div>
+            <h4 className="text-lg font-bold text-gray-800 mb-2">No Account Selected</h4>
+            <p className="text-gray-600">Please select an Azure account from the sidebar to view cost management data.</p>
           </div>
         )}
 
@@ -105,12 +101,10 @@ const AzureCostPage: React.FC = () => {
             />
 
             {/* ML Cost Forecast */}
-            <div className="mt-6">
-              <AzureCostForecastChart
-                forecast={forecast}
-                isLoading={isForecastLoading}
-              />
-            </div>
+            <AzureCostForecastChart
+              forecast={forecast}
+              isLoading={isForecastLoading}
+            />
           </>
         )}
       </div>

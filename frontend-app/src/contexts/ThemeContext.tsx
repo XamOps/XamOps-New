@@ -11,17 +11,21 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    // Dark mode disabled — always force light theme
-    const [theme] = useState<Theme>('light');
+    const [theme, setThemeState] = useState<Theme>(() => {
+        return (localStorage.getItem('xamops_theme') as Theme) || 'dark';
+    });
 
-    // Clear any previously saved dark preference
     useEffect(() => {
-        localStorage.removeItem('xamops_theme');
-        document.documentElement.classList.remove('dark');
+        localStorage.setItem('xamops_theme', theme);
+    }, [theme]);
+
+    const toggleTheme = useCallback(() => {
+        setThemeState(prev => prev === 'dark' ? 'light' : 'dark');
     }, []);
 
-    const toggleTheme = useCallback(() => { /* dark mode disabled */ }, []);
-    const setTheme = useCallback((_newTheme: Theme) => { /* dark mode disabled */ }, []);
+    const setTheme = useCallback((newTheme: Theme) => {
+        setThemeState(newTheme);
+    }, []);
 
     const value = useMemo(() => ({
         theme,

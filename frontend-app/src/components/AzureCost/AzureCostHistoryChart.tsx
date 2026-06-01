@@ -2,9 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import type { AzureCostHistory } from '../../types/azureDashboard';
 
 declare global {
-  interface Window {
-    Chart: any;
-  }
+  interface Window { Chart: any; }
 }
 
 interface AzureCostHistoryChartProps {
@@ -12,12 +10,8 @@ interface AzureCostHistoryChartProps {
   isLoading: boolean;
 }
 
-const formatCurrency = (value: number): string => {
-  return '₹' + (value || 0).toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-};
+const formatCurrency = (value: number): string =>
+  '$' + (value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHistory, isLoading }) => {
   const chartRef = useRef<any>(null);
@@ -25,16 +19,13 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
 
   useEffect(() => {
     if (!canvasRef.current || !costHistory?.labels?.length || !window.Chart) return;
-
-    if (chartRef.current) {
-      chartRef.current.destroy();
-    }
+    if (chartRef.current) chartRef.current.destroy();
 
     const backgroundColors = costHistory.anomalies.map(isAnomaly =>
-      isAnomaly ? 'rgba(244, 63, 94, 0.8)' : 'rgba(0, 120, 212, 0.8)'
+      isAnomaly ? 'rgba(239,68,68,0.8)' : 'rgba(139,92,246,0.8)'
     );
     const borderColors = costHistory.anomalies.map(isAnomaly =>
-      isAnomaly ? 'rgba(225, 29, 72, 1)' : 'rgba(0, 90, 158, 1)'
+      isAnomaly ? 'rgba(220,38,38,1)' : 'rgba(109,40,217,1)'
     );
 
     chartRef.current = new window.Chart(canvasRef.current, {
@@ -47,7 +38,7 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
           backgroundColor: backgroundColors,
           borderColor: borderColors,
           borderWidth: 2,
-          borderRadius: 8,
+          borderRadius: 6,
           borderSkipped: false,
         }],
       },
@@ -57,98 +48,71 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            titleColor: 'white',
-            bodyColor: 'white',
-            borderColor: 'rgba(0, 120, 212, 0.8)',
+            backgroundColor: 'rgba(255,255,255,0.97)',
+            titleColor: '#1e293b',
+            bodyColor: '#475569',
+            borderColor: 'rgba(139,92,246,0.3)',
             borderWidth: 1,
             cornerRadius: 8,
+            padding: 10,
             callbacks: {
               label: (c: any) => `Cost: ${formatCurrency(c.parsed.y)}`,
-              afterLabel: (c: any) =>
-                costHistory.anomalies[c.dataIndex] ? '⚠ Forecast / Anomaly' : '',
+              afterLabel: (c: any) => costHistory.anomalies[c.dataIndex] ? '⚠ Anomaly detected' : '',
             },
           },
         },
         scales: {
           y: {
             beginAtZero: true,
-            ticks: {
-              callback: (v: any) => formatCurrency(v),
-              color: '#6b7280',
-              font: { size: 10 },
-            },
-            grid: { color: 'rgba(0,0,0,0.04)' },
+            grid: { color: 'rgba(226,232,240,0.5)' },
+            ticks: { callback: (v: any) => '$' + Number(v).toLocaleString(), color: '#6b7280', font: { size: 10 } },
           },
           x: {
-            ticks: { color: '#6b7280', font: { size: 11 } },
             grid: { display: false },
+            ticks: { color: '#6b7280', font: { size: 11 } },
           },
         },
       },
     });
 
-    return () => {
-      chartRef.current?.destroy();
-    };
+    return () => { chartRef.current?.destroy(); };
   }, [costHistory]);
 
   return (
-    <div className="glass-card p-6 hover-glow">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-white/80 rounded-2xl flex items-center justify-center border border-white shadow-sm">
-            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="text-xl font-extrabold text-slate-900 tracking-tight uppercase px-1">Cost History</h3>
-            <div className="flex items-center gap-2 mt-0.5 px-1">
-              <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>
-              <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-widest italic">6-Month Trend</span>
-            </div>
-          </div>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div>
+          <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">
+            <i className="fas fa-chart-bar mr-2 text-violet-500"></i>
+            Cost History
+          </h2>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)]">6-month trend with anomaly detection</p>
         </div>
-
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="inline-block w-3 h-3 rounded-sm bg-blue-500 opacity-80"></span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Actual</span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'rgba(139,92,246,0.8)' }}></span>
+            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.45)]">Actual</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-block w-3 h-3 rounded-sm bg-rose-500 opacity-80"></span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Forecast</span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'rgba(239,68,68,0.8)' }}></span>
+            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.45)]">Anomaly</span>
           </div>
-          {!isLoading && (
-            <div className="flex items-center gap-2 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white shadow-sm">
-              <i className="fas fa-microchip text-blue-500 text-xs animate-pulse"></i>
-              <span className="text-[10px] uppercase font-extrabold tracking-widest text-slate-500">ML Anomaly Detection</span>
-            </div>
-          )}
         </div>
       </div>
 
       {isLoading && (
-        <div className="flex items-center justify-center h-72 bg-white/40 rounded-2xl border border-white">
-          <div className="loading-spinner w-12 h-12"></div>
-        </div>
+        <div className="animate-pulse bg-gray-100 h-72 rounded-xl"></div>
       )}
 
-      {!isLoading && (!costHistory?.labels?.length) && (
-        <div className="flex flex-col items-center justify-center h-72 bg-white/40 rounded-2xl border border-white text-center">
-          <div className="w-14 h-14 bg-slate-50 rounded-full flex items-center justify-center mb-4 border border-slate-100">
-            <svg className="w-7 h-7 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </div>
-          <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">No History Available</p>
-          <p className="text-slate-400 text-xs mt-1">Data will appear after the next billing ingestion</p>
+      {!isLoading && !costHistory?.labels?.length && (
+        <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+          <i className="fas fa-chart-bar text-4xl mb-4 text-gray-300"></i>
+          <p className="font-medium text-gray-400">No history available</p>
         </div>
       )}
 
       {!isLoading && costHistory?.labels?.length > 0 && (
-        <div className="h-72 p-4 bg-white/40 backdrop-blur-sm rounded-2xl border border-white shadow-inner">
+        <div className="h-72 w-full">
           <canvas ref={canvasRef}></canvas>
         </div>
       )}

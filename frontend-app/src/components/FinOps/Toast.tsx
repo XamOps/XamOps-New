@@ -1,10 +1,5 @@
-/**
- * Toast Notification Component
- *
- * Success toast for schedule creation
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 
 interface ToastProps {
   show: boolean;
@@ -15,21 +10,16 @@ interface ToastProps {
 
 const Toast: React.FC<ToastProps> = ({ show, title, message, onClose }) => {
   if (!show) return null;
-
   return (
-    <div
-      className={`fixed top-20 right-20 bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-4 rounded-lg shadow-xl z-50 flex items-center transition-all duration-300 ${
-        show ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
-      }`}
-    >
-      <i className="fas fa-check-circle mr-3 text-2xl"></i>
-      <div>
-        <span className="font-bold">{title}</span>
-        <span className="block text-sm">{message}</span>
+    <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-lg">
+      <div className="w-8 h-8 rounded-lg bg-[#1BE68B]/20 flex items-center justify-center flex-shrink-0">
+        <Icon icon="mdi:check-circle" width={18} color="#158045" />
       </div>
-      <button onClick={onClose} className="ml-4 text-lg hover:text-gray-200">
-        &times;
-      </button>
+      <div>
+        <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{title}</p>
+        <p className="text-[11px] text-[rgba(0,0,0,0.45)]">{message}</p>
+      </div>
+      <button onClick={onClose} className="ml-2 text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.6)] text-lg leading-none">&times;</button>
     </div>
   );
 };

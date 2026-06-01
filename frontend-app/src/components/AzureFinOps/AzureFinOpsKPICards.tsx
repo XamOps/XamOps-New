@@ -1,7 +1,6 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { AzureFinOpsReportData } from '../../types/azureFinops';
-import { useTheme } from '../../contexts/ThemeContext';
-import clsx from 'clsx';
 
 interface AzureFinOpsKPICardsProps {
   reportData: AzureFinOpsReportData | null;
@@ -9,98 +8,146 @@ interface AzureFinOpsKPICardsProps {
 }
 
 const formatCurrency = (value: number): string =>
-  '₹' + value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  '$' + (value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const splitValue = (str: string) => {
+  const dot = str.lastIndexOf('.');
+  return dot === -1 ? { main: str, cents: '' } : { main: str.slice(0, dot), cents: str.slice(dot) };
+};
+
+const NUM_STYLE: React.CSSProperties = {
+  fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
+  fontSize: '32px',
+  fontWeight: 400,
+  lineHeight: '32px',
+  color: 'rgb(10,10,10)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const CENTS_STYLE: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif",
+  fontSize: '14px',
+  fontWeight: 400,
+  lineHeight: '20px',
+  color: 'rgb(10,10,10)',
+};
+
+const CLOUD_SVG = (
+  <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+    <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+      <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
+    </svg>
+    <svg className="absolute top-16 right-2 w-24 h-24" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+      <path d="M120 60c0-10-8-18-18-18-2 0-4 0-5 1-4-8-13-14-23-14s-19 6-23 14c-1-1-3-1-5-1-10 0-18 8-18 18s8 18 18 18h74c10 0 18-8 18-18z"/>
+    </svg>
+  </div>
+);
+
+interface KPICardProps {
+  label: string;
+  value: string;
+  icon: string;
+  iconColor: string;
+  iconBg: string;
+  changePercent?: number | null;
+  changeLabel?: string;
+  isSavings?: boolean;
+}
+
+const KPICard: React.FC<KPICardProps> = ({ label, value, icon, iconColor, iconBg, changePercent, changeLabel, isSavings }) => {
+  const split = splitValue(value);
+  const hasChange = changePercent != null && !isNaN(changePercent) && changePercent !== 0;
+  const isGood = isSavings ? true : (changePercent ?? 0) < 0;
+  const badgeText = hasChange ? `${(changePercent ?? 0) >= 0 ? '+' : ''}${Math.abs(changePercent ?? 0).toFixed(1)}%` : '';
+
+  return (
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+      {CLOUD_SVG}
+      <div className="relative z-10">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">
+          {label}
+        </p>
+        <div className="flex items-end justify-between mb-3">
+          <p className="leading-8 flex items-baseline gap-0.5">
+            <span style={NUM_STYLE}>{split.main}</span>
+            {split.cents && <span style={CENTS_STYLE}>{split.cents}</span>}
+          </p>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: iconBg }}>
+            <Icon icon={icon} width={18} color={iconColor} />
+          </div>
+        </div>
+        {hasChange && (
+          <div className="flex items-center gap-2">
+            <span className={`inline-flex items-center gap-0.5 text-[11px] font-bold ${isGood ? 'text-[#158045]' : 'text-[#DC2626]'}`}>
+              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3}
+                  d={isGood ? "M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" : "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"} />
+              </svg>
+              {badgeText}
+            </span>
+            <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{changeLabel}</span>
+          </div>
+        )}
+        {!hasChange && changeLabel && (
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{changeLabel}</span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+interface KPICardRawProps {
+  label: string;
+  displayValue: string;
+  valueColor?: string;
+  icon: string;
+  iconColor: string;
+  iconBg: string;
+  changeLabel?: string;
+}
+
+const KPICardRaw: React.FC<KPICardRawProps> = ({ label, displayValue, valueColor, icon, iconColor, iconBg, changeLabel }) => (
+  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+    {CLOUD_SVG}
+    <div className="relative z-10">
+      <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{label}</p>
+      <div className="flex items-end justify-between mb-3">
+        <p className="leading-8" style={{ ...NUM_STYLE, color: valueColor || 'rgb(10,10,10)' }}>{displayValue}</p>
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: iconBg }}>
+          <Icon icon={icon} width={18} color={iconColor} />
+        </div>
+      </div>
+      {changeLabel && <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{changeLabel}</span>}
+    </div>
+  </div>
+);
 
 const AzureFinOpsKPICards: React.FC<AzureFinOpsKPICardsProps> = ({ reportData, isLoading }) => {
-  const { theme } = useTheme();
-
-  const momChange = reportData?.kpis?.momChange ?? 0;
-  const momPositive = momChange > 0;
-  const momZero = momChange === 0;
-
-  const cards = [
-    {
-      label: 'Month-to-Date Spend',
-      value: isLoading ? '—' : formatCurrency(reportData?.kpis?.totalSpend ?? 0),
-      icon: 'fa-dollar-sign',
-      gradient: 'from-blue-500 to-indigo-600',
-      sub: 'Current month actual spend',
-    },
-    {
-      label: 'Forecasted Spend',
-      value: isLoading ? '—' : formatCurrency(reportData?.kpis?.forecastedSpend ?? 0),
-      icon: 'fa-chart-line',
-      gradient: 'from-amber-500 to-orange-500',
-      sub: 'ML-powered month-end estimate',
-    },
-    {
-      label: 'MoM Change',
-      value: isLoading
-        ? '—'
-        : momZero
-        ? '0.0%'
-        : `${momPositive ? '+' : ''}${momChange.toFixed(1)}%`,
-      icon: momPositive ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down',
-      gradient: momPositive ? 'from-red-500 to-rose-600' : 'from-emerald-500 to-green-600',
-      sub: 'Compared to last month',
-      valueColor: momPositive
-        ? 'text-red-600'
-        : momZero
-        ? undefined
-        : 'text-emerald-600',
-    },
-    {
-      label: 'Potential Savings',
-      value: isLoading ? '—' : formatCurrency(reportData?.totalPotentialSavings ?? 0),
-      icon: 'fa-piggy-bank',
-      gradient: 'from-emerald-500 to-teal-600',
-      sub: 'Rightsizing + waste opportunities',
-    },
-  ];
-
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="glass-card rounded-xl p-5 animate-pulse">
-            <div className="h-4 bg-gray-200 rounded w-1/2 mb-3" />
-            <div className="h-8 bg-gray-200 rounded w-3/4 mb-2" />
-            <div className="h-3 bg-gray-200 rounded w-2/3" />
+          <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-[110px] animate-pulse">
+            <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+            <div className="h-7 w-28 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+            <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] rounded" />
           </div>
         ))}
       </div>
     );
   }
 
+  const totalSpend = reportData?.kpis?.totalSpend ?? 0;
+  const forecastedSpend = reportData?.kpis?.forecastedSpend ?? 0;
+  const momChange = reportData?.kpis?.momChange ?? 0;
+  const totalPotentialSavings = reportData?.totalPotentialSavings ?? 0;
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {cards.map((card, idx) => (
-        <div
-          key={idx}
-          className={clsx(
-            'glass-card rounded-xl p-5 hover-glow transition-all',
-            theme === 'dark' ? 'bg-slate-800/50' : ''
-          )}
-        >
-          <div className="flex items-start justify-between mb-3">
-            <p className={clsx('text-xs font-medium uppercase tracking-wide', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
-              {card.label}
-            </p>
-            <div className={clsx('w-9 h-9 bg-gradient-to-br rounded-lg flex items-center justify-center shadow', card.gradient)}>
-              <i className={clsx('fas text-white text-sm', card.icon)} />
-            </div>
-          </div>
-          <p className={clsx(
-            'text-2xl font-extrabold mb-1',
-            card.valueColor ?? (theme === 'dark' ? 'text-slate-100' : 'text-gray-900')
-          )}>
-            {card.value}
-          </p>
-          <p className={clsx('text-xs', theme === 'dark' ? 'text-slate-500' : 'text-gray-400')}>
-            {card.sub}
-          </p>
-        </div>
-      ))}
+      <KPICard label="Month-to-Date Spend" value={formatCurrency(totalSpend)} icon="mdi:currency-usd" iconColor="#0078D4" iconBg="#0078D414" changeLabel="current month actual" />
+      <KPICard label="Forecasted Spend" value={formatCurrency(forecastedSpend)} icon="mdi:chart-line" iconColor="#D97706" iconBg="#FFB90014" changeLabel="ML-powered estimate" />
+      <KPICardRaw label="MoM Change" displayValue={`${momChange >= 0 ? '+' : ''}${momChange.toFixed(1)}%`} icon={momChange >= 0 ? 'mdi:trending-up' : 'mdi:trending-down'} iconColor={momChange === 0 ? '#6B7280' : momChange > 0 ? '#DC2626' : '#16A34A'} iconBg={momChange === 0 ? 'rgba(0,0,0,0.04)' : momChange > 0 ? '#FEE2E214' : '#DCFCE714'} valueColor={momChange === 0 ? 'rgb(10,10,10)' : momChange > 0 ? '#DC2626' : '#16A34A'} changeLabel="vs last month" />
+      <KPICard label="Potential Savings" value={formatCurrency(totalPotentialSavings)} icon="mdi:piggy-bank" iconColor="#16A34A" iconBg="#16A34A14" changeLabel="available to reclaim" isSavings />
     </div>
   );
 };

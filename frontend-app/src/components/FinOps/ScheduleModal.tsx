@@ -1,12 +1,7 @@
-/**
- * Schedule Modal Component
- *
- * Modal for scheduling FinOps reports
- */
-
 import React, { useState } from 'react';
 import type { NewSchedule } from '../../types/finops';
 import { DialogRoot, DialogPanel } from '../ui';
+import { Icon } from '@iconify/react';
 
 interface ScheduleModalProps {
   isOpen: boolean;
@@ -16,69 +11,59 @@ interface ScheduleModalProps {
   onSubmit: (schedule: NewSchedule) => void;
 }
 
-const ScheduleModal: React.FC<ScheduleModalProps> = ({
-  isOpen,
-  isCreating,
-  cloudAccountId,
-  onClose,
-  onSubmit,
-}) => {
-  const [schedule, setSchedule] = useState<NewSchedule>({
-    email: '',
-    frequency: '',
-    cloudAccountId: cloudAccountId,
-  });
+const ScheduleModal: React.FC<ScheduleModalProps> = ({ isOpen, isCreating, cloudAccountId, onClose, onSubmit }) => {
+  const [schedule, setSchedule] = useState<NewSchedule>({ email: '', frequency: '', cloudAccountId });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ ...schedule, cloudAccountId: cloudAccountId });
-    // Reset form
-    setSchedule({ email: '', frequency: '', cloudAccountId: cloudAccountId });
+    onSubmit({ ...schedule, cloudAccountId });
+    setSchedule({ email: '', frequency: '', cloudAccountId });
   };
 
   const handleClose = () => {
-    setSchedule({ email: '', frequency: '', cloudAccountId: cloudAccountId });
+    setSchedule({ email: '', frequency: '', cloudAccountId });
     onClose();
   };
+
+  const inputCls = 'w-full px-3 py-2.5 rounded-lg text-[13px] border border-[rgba(0,0,0,0.12)] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors';
+  const labelCls = 'block text-[12px] font-semibold text-[rgba(0,0,0,0.6)] uppercase tracking-wide mb-1.5';
 
   return (
     <DialogRoot isOpen={isOpen} onClose={handleClose}>
       <DialogPanel
         title={
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-md">
-              <i className="fas fa-envelope text-white"></i>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-white border border-[rgba(0,0,0,0.12)] flex items-center justify-center flex-shrink-0">
+              <Icon icon="mdi:email-outline" width={18} color="#2563EB" />
             </div>
-            <span>Schedule FinOps Report</span>
+            <span className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Schedule FinOps Report</span>
           </div>
         }
         onClose={handleClose}
         footer={
           <>
-            <button type="button" onClick={handleClose} className="px-6 py-3 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-all">
+            <button type="button" onClick={handleClose} className="px-4 py-2 text-[13px] font-medium text-[rgba(0,0,0,0.6)] border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.04)] transition-colors">
               Cancel
             </button>
-            <button type="submit" form="schedule-form" disabled={isCreating} className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-all flex items-center disabled:opacity-50">
-              {isCreating ? <><div className="border-2 border-white border-t-transparent rounded-full w-4 h-4 animate-spin mr-2"></div>Saving...</> : 'Create Schedule'}
+            <button type="submit" form="schedule-form" disabled={isCreating} className="px-4 py-2 text-[13px] font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2">
+              {isCreating ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving...</> : 'Create Schedule'}
             </button>
           </>
         }
       >
-        <form id="schedule-form" onSubmit={handleSubmit}>
-          <div className="space-y-6">
-            <div>
-              <label htmlFor="scheduleEmail" className="block text-sm font-semibold text-gray-700 mb-2">Email Address</label>
-              <input type="email" id="scheduleEmail" value={schedule.email} onChange={(e) => setSchedule({ ...schedule, email: e.target.value })} className="w-full px-4 py-3 rounded-lg border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all" placeholder="recipient@example.com" required />
-            </div>
-            <div>
-              <label htmlFor="scheduleFrequency" className="block text-sm font-semibold text-gray-700 mb-2">Frequency</label>
-              <select id="scheduleFrequency" value={schedule.frequency} onChange={(e) => setSchedule({ ...schedule, frequency: e.target.value })} className="w-full px-4 py-3 rounded-lg border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all" required>
-                <option value="" disabled>Select a timeline</option>
-                <option value="DAILY">Daily (at 6 PM)</option>
-                <option value="WEEKLY">Weekly (Friday at 6 PM)</option>
-                <option value="MONTHLY">Monthly (30th at 6 PM)</option>
-              </select>
-            </div>
+        <form id="schedule-form" onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="scheduleEmail" className={labelCls}>Email Address</label>
+            <input type="email" id="scheduleEmail" value={schedule.email} onChange={(e) => setSchedule({ ...schedule, email: e.target.value })} className={inputCls} placeholder="recipient@example.com" required />
+          </div>
+          <div>
+            <label htmlFor="scheduleFrequency" className={labelCls}>Frequency</label>
+            <select id="scheduleFrequency" value={schedule.frequency} onChange={(e) => setSchedule({ ...schedule, frequency: e.target.value })} className={inputCls} required>
+              <option value="" disabled>Select a frequency</option>
+              <option value="DAILY">Daily (at 6 PM)</option>
+              <option value="WEEKLY">Weekly (Friday at 6 PM)</option>
+              <option value="MONTHLY">Monthly (30th at 6 PM)</option>
+            </select>
           </div>
         </form>
       </DialogPanel>

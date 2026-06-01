@@ -1,366 +1,224 @@
-/**
- * CICD Pipelines Page
- *
- * Display and manage CICD pipelines from GitHub Actions and Jenkins
- *
- * Converted from: cicd_pipelines.html
- *
- * Features:
- * - View GitHub Actions workflow runs
- * - View Jenkins job builds
- * - Modal with workflow/job history
- * - Visual pipeline stage representation
- * - Real-time backend integration
- */
-
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import { useCICDPipelines } from '../hooks/useCICDPipelines';
 import { RunHistory } from '../types/cicdPipelines';
-import clsx from 'clsx';
 import { useTopbar } from '../contexts/TopbarContext';
-import Skeleton from '../components/Shared/Skeleton';
 import { DialogRoot, DialogPanel } from '../components/ui';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function statusStyle(status: string): { dot: string; text: string; bg: string; border: string } {
+  const s = (status || '').toLowerCase();
+  if (s === 'success' || s === 'completed')
+    return { dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' };
+  if (s === 'failure' || s === 'failed')
+    return { dot: 'bg-red-500', text: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' };
+  if (s === 'in_progress' || s === 'running' || s === 'building')
+    return { dot: 'bg-blue-500', text: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' };
+  if (s === 'unstable')
+    return { dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' };
+  return { dot: 'bg-[rgba(0,0,0,0.2)]', text: 'text-[rgba(0,0,0,0.45)]', bg: 'bg-[rgba(0,0,0,0.03)]', border: 'border-[rgba(0,0,0,0.08)]' };
+}
+
+function stageStyle(status: string): { icon: string; iconColor: string; ring: string; bg: string } {
+  switch (status) {
+    case 'success':  return { icon: 'mdi:check',        iconColor: '#059669', ring: 'border-emerald-400', bg: 'bg-emerald-50' };
+    case 'failure':  return { icon: 'mdi:close',        iconColor: '#DC2626', ring: 'border-red-400',     bg: 'bg-red-50' };
+    case 'running':  return { icon: 'mdi:loading',      iconColor: '#2563EB', ring: 'border-blue-400',    bg: 'bg-blue-50' };
+    case 'skipped':  return { icon: 'mdi:slash-forward',iconColor: 'rgba(0,0,0,0.3)', ring: 'border-[rgba(0,0,0,0.12)]', bg: 'bg-[rgba(0,0,0,0.03)]' };
+    default:         return { icon: 'mdi:clock-outline', iconColor: 'rgba(0,0,0,0.3)', ring: 'border-[rgba(0,0,0,0.12)]', bg: 'bg-[rgba(0,0,0,0.03)]' };
+  }
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 const CICDPipelinesPage: React.FC = () => {
   const {
-    // GitHub
-    githubRuns,
-    isLoadingGithub,
-
-    // Jenkins
-    jenkinsJobs,
-    isLoadingJenkins,
-
-    // Tab
-    activeTab,
-    setActiveTab,
-
-    // Workflow
-    selectedWorkflow,
-    workflowHistory,
-    isLoadingHistory,
-    viewWorkflowHistory,
-    closeWorkflow,
-
-    // Run details
-    selectedRun,
-    selectedRunNumber,
-    selectedRunUrl,
-    pipelineStages,
-    isStagesLoading,
-    selectRunFromHistory,
-
-    // Utilities
+    githubRuns, isLoadingGithub,
+    jenkinsJobs, isLoadingJenkins,
+    activeTab, setActiveTab,
+    selectedWorkflow, workflowHistory, isLoadingHistory, viewWorkflowHistory, closeWorkflow,
+    selectedRun, selectedRunNumber, selectedRunUrl, pipelineStages, isStagesLoading, selectRunFromHistory,
     refreshData,
   } = useCICDPipelines();
 
-  /**
-   * Format timestamp to readable format
-   */
-  const formatTime = useCallback((timeValue: string | number | undefined): string => {
-    if (!timeValue) return 'N/A';
+  const formatTime = useCallback((v: string | number | undefined): string => {
+    if (!v) return '—';
     try {
-      const date = typeof timeValue === 'number' ? new Date(timeValue) : new Date(timeValue);
-      return date.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch (e) {
-      return String(timeValue);
-    }
+      return new Date(v).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return String(v); }
   }, []);
 
-  /**
-   * Get status color class
-   */
-  const getRunStatusColor = useCallback((status: string): string => {
-    const s = (status || '').toLowerCase();
-    if (s === 'success' || s === 'completed') return 'text-green-600';
-    if (s === 'failure' || s === 'failed') return 'text-red-600';
-    if (s === 'in_progress' || s === 'running' || s === 'building') return 'text-blue-600';
-    if (s === 'cancelled' || s === 'aborted') return 'text-gray-500';
-    if (s === 'unstable') return 'text-yellow-600';
-    return 'text-gray-400';
-  }, []);
+  const getRunId = useCallback((run: RunHistory): string | number =>
+    'id' in run ? run.id : (run as any).number, []);
 
-  /**
-   * Get border color class for cards
-   */
-  const getRunBorderColor = useCallback((status: string): string => {
-    const s = (status || '').toLowerCase();
-    if (s === 'success' || s === 'completed') return 'border-green-500';
-    if (s === 'failure' || s === 'failed') return 'border-red-600';
-    if (s === 'in_progress' || s === 'running' || s === 'building') return 'border-blue-500';
-    if (s === 'cancelled' || s === 'aborted') return 'border-gray-500';
-    if (s === 'unstable') return 'border-yellow-500';
-    return 'border-gray-400';
-  }, []);
+  const getRunNumber = useCallback((run: RunHistory): string | number =>
+    run.run_number ?? (run as any).number, []);
 
-  /**
-   * Get status icon color
-   */
-  const getRunStatusIconColor = useCallback((status: string): string => {
-    const s = (status || '').toLowerCase();
-    if (s === 'success' || s === 'completed') return 'text-green-600';
-    if (s === 'failure' || s === 'failed') return 'text-red-600';
-    if (s === 'in_progress' || s === 'running' || s === 'building') return 'text-blue-600';
-    if (s === 'cancelled' || s === 'aborted') return 'text-gray-500';
-    if (s === 'unstable') return 'text-yellow-500';
-    return 'text-gray-400';
-  }, []);
-
-  /**
-   * Get run ID for comparison
-   */
-  const getRunId = useCallback((run: RunHistory): string | number => {
-    if ('id' in run) return run.id;
-    return (run as any).number;
-  }, []);
-
-  /**
-   * Get run number for display
-   */
-  const getRunNumber = useCallback((run: RunHistory): string | number => {
-    return run.run_number ?? (run as any).number;
-  }, []);
-
-  /**
-   * Check if run is selected
-   */
   const isRunSelected = useCallback(
-    (run: RunHistory): boolean => {
-      return selectedRun ? getRunId(selectedRun) === getRunId(run) : false;
-    },
+    (run: RunHistory) => selectedRun ? getRunId(selectedRun) === getRunId(run) : false,
     [selectedRun, getRunId]
   );
 
-  /**
-   * Get stage class based on status
-   */
-  const getStageClass = useCallback((status: string): string => {
-    const statusMap: { [key: string]: string } = {
-      success: 'stage-success',
-      failure: 'stage-failure',
-      running: 'stage-running',
-      skipped: 'stage-skipped',
-      pending: 'stage-pending',
-    };
-    return statusMap[status] || '';
-  }, []);
-
-  /**
-   * Close modal on escape key
-   */
-  React.useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && selectedWorkflow) {
-        closeWorkflow();
-      }
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape' && selectedWorkflow) closeWorkflow(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, [selectedWorkflow, closeWorkflow]);
 
-  // Topbar Integration
   const { setActions, clearActions } = useTopbar();
-  React.useEffect(() => {
+  useEffect(() => {
     setActions(
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-amber-400" />
+        <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.65)]">CI/CD Pipelines</span>
+        <span className="text-[rgba(0,0,0,0.2)]">|</span>
         <button
           onClick={refreshData}
           disabled={isLoadingGithub || isLoadingJenkins}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors disabled:opacity-50"
         >
-          <i
-            className={clsx(
-              'fas fa-sync-alt',
-              (isLoadingGithub || isLoadingJenkins) && 'animate-spin'
-            )}
-          ></i>
-          <span>Refresh All</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={(isLoadingGithub || isLoadingJenkins) ? 'animate-spin' : ''}>
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          Refresh
         </button>
       </div>
     );
     return () => clearActions();
   }, [setActions, clearActions, isLoadingGithub, isLoadingJenkins, refreshData]);
 
-  return (
-    <div className="cicd-pipelines-container min-h-screen bg-gray-50">
-      {/* Header */}
-      {/* Main Content */}
+  const TABS = [
+    { id: 'github',  label: 'GitHub Actions', icon: 'mdi:github' },
+    { id: 'jenkins', label: 'Jenkins',         icon: 'simple-icons:jenkins' },
+  ] as const;
 
-      {/* Main Content */}
-      <div className="px-8 pb-8">
-        {/* Tabs */}
-        <div className="mb-6 border-b border-gray-200">
-          <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+  return (
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
+
+      {/* Tab Bar */}
+      <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm overflow-hidden">
+        <div className="flex border-b border-[rgba(0,0,0,0.08)]">
+          {TABS.map(tab => (
             <button
-              onClick={() => setActiveTab('github')}
-              className={clsx('tab-button', activeTab === 'github' && 'active')}
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-5 py-3.5 text-[13px] font-semibold border-b-2 transition-colors ${
+                activeTab === tab.id
+                  ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50'
+                  : 'border-transparent text-[rgba(0,0,0,0.55)] hover:text-[rgba(0,0,0,0.75)] hover:bg-[rgba(0,0,0,0.02)]'
+              }`}
             >
-              <i className="fab fa-github mr-2"></i> GitHub Actions
+              <Icon icon={tab.icon} width={15} />
+              {tab.label}
             </button>
-            <button
-              onClick={() => setActiveTab('jenkins')}
-              className={clsx('tab-button', activeTab === 'jenkins' && 'active')}
-            >
-              <i className="fab fa-jenkins mr-2"></i> Jenkins
-            </button>
-          </nav>
+          ))}
         </div>
 
-        {/* GitHub Tab Content */}
+        {/* GitHub Tab */}
         {activeTab === 'github' && (
-          <div>
-            {/* Loading State */}
+          <div className="p-5">
             {isLoadingGithub && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {[1, 2, 3, 4, 5, 6].map(i => (
-                  <div key={i} className="bg-white p-4 rounded-lg shadow border-l-4 border-gray-100 h-32 flex flex-col justify-between">
-                    <div className="flex justify-between">
-                      <Skeleton variant="rounded" width={100} height={20} />
-                      <Skeleton variant="text" width={60} height={16} />
-                    </div>
-                    <div>
-                      <Skeleton variant="text" width="70%" height={24} className="mb-2" />
-                      <Skeleton variant="text" width="40%" height={16} />
-                    </div>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-xl h-28 animate-pulse" />
                 ))}
               </div>
             )}
-
-            {/* Empty State */}
             {!isLoadingGithub && githubRuns.length === 0 && (
-              <div className="text-center py-10 bg-white rounded-lg shadow">
-                <i className="fas fa-info-circle text-2xl text-gray-400 mb-2"></i>
-                <p className="text-gray-500">No GitHub Actions runs found.</p>
-                <p className="text-sm text-gray-400 mt-2">
-                  Have you connected a repository in the Account Management?
-                </p>
+              <div className="text-center py-14">
+                <div className="w-12 h-12 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)] rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <Icon icon="mdi:github" width={24} color="rgba(0,0,0,0.2)" />
+                </div>
+                <p className="text-[14px] font-bold text-[rgba(0,0,0,0.55)]">No GitHub Actions runs found</p>
+                <p className="text-[12px] text-[rgba(0,0,0,0.35)] mt-1">Connect a repository in Account Management to get started.</p>
               </div>
             )}
-
-            {/* GitHub Runs Grid */}
             {!isLoadingGithub && githubRuns.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {githubRuns.map((run) => (
-                  <div
-                    key={run.id}
-                    onClick={() => viewWorkflowHistory(run)}
-                    className={clsx(
-                      'bg-white p-4 rounded-lg shadow border-l-4 cursor-pointer transition-all hover:shadow-lg hover:scale-105',
-                      getRunBorderColor(run.displayStatus)
-                    )}
-                  >
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
-                        {run.repository ? run.repository.full_name : 'Unknown Repo'}
-                      </span>
-                      <a
-                        href={run.html_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-xs text-indigo-500 hover:text-indigo-700 font-medium"
-                      >
-                        View Run <i className="fas fa-external-link-alt ml-1"></i>
-                      </a>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {githubRuns.map(run => {
+                  const st = statusStyle(run.displayStatus);
+                  return (
+                    <div key={run.id} onClick={() => viewWorkflowHistory(run)}
+                      className={`bg-white border ${st.border} rounded-xl p-4 cursor-pointer hover:shadow-md transition-all`}>
+                      <div className="flex justify-between items-center mb-2.5">
+                        <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.07)] px-2 py-0.5 rounded-full truncate max-w-[130px]">
+                          {run.repository?.full_name || 'Unknown Repo'}
+                        </span>
+                        <a href={run.html_url} target="_blank" rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors">
+                          View <Icon icon="mdi:open-in-new" width={11} />
+                        </a>
+                      </div>
+                      <p className="font-bold text-[rgba(0,0,0,0.88)] text-[13px] mb-2 truncate">{run.name}</p>
+                      <div className="flex items-center justify-between">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 ${st.bg} border ${st.border} rounded-full text-[11px] font-semibold ${st.text}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                          {run.displayStatus}
+                        </span>
+                        <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{formatTime(run.updated_at)}</span>
+                      </div>
                     </div>
-                    <p className="font-semibold text-gray-900">{run.name}</p>
-                    <p className="text-sm mt-2">
-                      Status:{' '}
-                      <span className={clsx('font-bold', getRunStatusColor(run.displayStatus))}>
-                        {run.displayStatus}
-                      </span>
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Last updated: {formatTime(run.updated_at)}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-        {/* Jenkins Tab Content */}
+        {/* Jenkins Tab */}
         {activeTab === 'jenkins' && (
-          <div>
-            {/* Loading State */}
+          <div className="p-5">
             {isLoadingJenkins && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {[1, 2, 3, 4, 5, 6].map(i => (
-                  <div key={i} className="bg-white p-4 rounded-lg shadow border-l-4 border-gray-100 h-32 flex flex-col justify-between">
-                    <div className="flex justify-between">
-                      <Skeleton variant="rounded" width={80} height={20} />
-                      <Skeleton variant="text" width={60} height={16} />
-                    </div>
-                    <div>
-                      <Skeleton variant="text" width="70%" height={24} className="mb-2" />
-                      <Skeleton variant="text" width="40%" height={16} />
-                    </div>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-xl h-28 animate-pulse" />
                 ))}
               </div>
             )}
-
-            {/* Empty State */}
             {!isLoadingJenkins && jenkinsJobs.length === 0 && (
-              <div className="text-center py-10 bg-white rounded-lg shadow">
-                <i className="fab fa-jenkins text-4xl text-gray-400 mb-2"></i>
-                <p className="text-gray-500">No Jenkins jobs found.</p>
-                <p className="text-sm text-gray-400 mt-2">
-                  Configure your Jenkins connection in Account Management.
-                </p>
+              <div className="text-center py-14">
+                <div className="w-12 h-12 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)] rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <Icon icon="simple-icons:jenkins" width={22} color="rgba(0,0,0,0.2)" />
+                </div>
+                <p className="text-[14px] font-bold text-[rgba(0,0,0,0.55)]">No Jenkins jobs found</p>
+                <p className="text-[12px] text-[rgba(0,0,0,0.35)] mt-1">Configure your Jenkins connection in Account Management.</p>
               </div>
             )}
-
-            {/* Jenkins Jobs Grid */}
             {!isLoadingJenkins && jenkinsJobs.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {jenkinsJobs.map((job) => (
-                  <div
-                    key={job.url}
-                    onClick={() => viewWorkflowHistory(job)}
-                    className={clsx(
-                      'bg-white p-4 rounded-lg shadow border-l-4 cursor-pointer transition-all hover:shadow-lg',
-                      getRunBorderColor(job.displayStatus)
-                    )}
-                  >
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
-                        Jenkins
-                      </span>
-                      <a
-                        href={job.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-xs text-indigo-500 hover:text-indigo-700 font-medium"
-                      >
-                        Open in Jenkins <i className="fas fa-external-link-alt ml-1"></i>
-                      </a>
-                    </div>
-                    <p className="font-semibold text-gray-900">{job.name}</p>
-                    <div className="mt-2 text-sm">
-                      <p>
-                        Status:{' '}
-                        <span className={clsx('font-bold', getRunStatusColor(job.displayStatus))}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {jenkinsJobs.map(job => {
+                  const st = statusStyle(job.displayStatus);
+                  return (
+                    <div key={job.url} onClick={() => viewWorkflowHistory(job)}
+                      className={`bg-white border ${st.border} rounded-xl p-4 cursor-pointer hover:shadow-md transition-all`}>
+                      <div className="flex justify-between items-center mb-2.5">
+                        <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.07)] px-2 py-0.5 rounded-full">
+                          Jenkins
+                        </span>
+                        <a href={job.url} target="_blank" rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors">
+                          Open <Icon icon="mdi:open-in-new" width={11} />
+                        </a>
+                      </div>
+                      <p className="font-bold text-[rgba(0,0,0,0.88)] text-[13px] mb-2 truncate">{job.name}</p>
+                      <div className="flex items-center justify-between">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 ${st.bg} border ${st.border} rounded-full text-[11px] font-semibold ${st.text}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
                           {job.displayStatus}
                         </span>
-                      </p>
-                      {job.lastBuild && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Build #{job.lastBuild.number} • {formatTime(job.lastBuild.timestamp)}
-                        </p>
-                      )}
+                        {job.lastBuild && (
+                          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">
+                            #{job.lastBuild.number} · {formatTime(job.lastBuild.timestamp)}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -372,141 +230,110 @@ const CICDPipelinesPage: React.FC = () => {
         {selectedWorkflow && (
           <DialogPanel
             title={
-              <div className="min-w-0">
-                <div className="text-lg font-bold text-gray-900">{selectedWorkflow.name}</div>
-                <p className="text-sm text-gray-500">
-                  {'repository' in selectedWorkflow && selectedWorkflow.repository
-                    ? selectedWorkflow.repository.full_name
-                    : 'Jenkins Job'}
-                </p>
+              <div className="min-w-0 flex items-center gap-3">
+                <div className="w-9 h-9 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Icon icon={'repository' in selectedWorkflow ? 'mdi:github' : 'simple-icons:jenkins'} width={17} color="#4F46E5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[15px] font-bold text-[rgba(0,0,0,0.88)] truncate">{selectedWorkflow.name}</p>
+                  <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">
+                    {'repository' in selectedWorkflow && selectedWorkflow.repository
+                      ? selectedWorkflow.repository.full_name
+                      : 'Jenkins Job'}
+                  </p>
+                </div>
               </div>
             }
             onClose={closeWorkflow}
           >
             <div className="flex flex-col md:flex-row -mx-6 -mb-5 overflow-hidden" style={{ maxHeight: '60vh' }}>
-              {/* History List */}
-              <div className="w-full md:w-1/3 border-r bg-gray-50 overflow-y-auto max-h-[60vh] md:max-h-[calc(90vh-80px)]">
-                <div className="p-4 border-b bg-gray-100">
-                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    Recent Runs
-                  </h3>
+              {/* History list */}
+              <div className="w-full md:w-1/3 border-r border-[rgba(0,0,0,0.08)] overflow-y-auto">
+                <div className="px-4 py-3 border-b border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)]">
+                  <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-[0.07em]">Recent Runs</p>
                 </div>
-
                 {isLoadingHistory && (
-                  <div className="text-center py-8">
-                    <i className="fas fa-spinner fa-spin text-xl text-indigo-600"></i>
+                  <div className="flex items-center justify-center py-10">
+                    <Icon icon="mdi:loading" width={22} color="#6366F1" className="animate-spin" />
                   </div>
                 )}
-
                 {!isLoadingHistory && workflowHistory.length === 0 && (
-                  <p className="text-center text-gray-500 py-6 text-sm">No run history found.</p>
+                  <p className="text-center text-[12px] text-[rgba(0,0,0,0.35)] py-8">No run history found.</p>
                 )}
-
-                {!isLoadingHistory &&
-                  workflowHistory.map((run) => (
-                    <div
-                      key={getRunId(run)}
-                      onClick={() => selectRunFromHistory(run)}
-                      className={clsx('history-item', isRunSelected(run) && 'active-run')}
-                    >
-                      <div className="flex items-center w-full">
-                        <div className="mr-3">
-                          <i
-                            className={clsx(
-                              'fas fa-circle text-xs',
-                              getRunStatusIconColor(run.displayStatus)
-                            )}
-                          ></i>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            Run #{getRunNumber(run)}
-                          </p>
-                          <p className="text-xs text-gray-500 truncate">
-                            {formatTime('updated_at' in run ? run.updated_at : (run as any).timestamp)}
-                          </p>
-                        </div>
-                        <div className="ml-2">
-                          <i className="fas fa-chevron-right text-gray-300 text-xs"></i>
-                        </div>
+                {!isLoadingHistory && workflowHistory.map(run => {
+                  const st = statusStyle(run.displayStatus);
+                  const selected = isRunSelected(run);
+                  return (
+                    <div key={getRunId(run)} onClick={() => selectRunFromHistory(run)}
+                      className={`flex items-center gap-3 px-4 py-3.5 cursor-pointer border-b border-[rgba(0,0,0,0.05)] transition-colors ${
+                        selected ? 'bg-indigo-50 border-l-2 border-l-indigo-500' : 'hover:bg-[rgba(0,0,0,0.02)]'
+                      }`}>
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${st.dot}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] truncate">Run #{getRunNumber(run)}</p>
+                        <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">
+                          {formatTime('updated_at' in run ? run.updated_at : (run as any).timestamp)}
+                        </p>
                       </div>
+                      <Icon icon="mdi:chevron-right" width={14} color="rgba(0,0,0,0.25)" />
                     </div>
-                  ))}
+                  );
+                })}
               </div>
 
-              {/* Pipeline Details */}
-              <div className="w-full md:w-2/3 p-6 overflow-y-auto max-h-[60vh] md:max-h-[calc(90vh-80px)]">
-                <div className="mb-6 flex justify-between items-end">
+              {/* Pipeline stages */}
+              <div className="w-full md:w-2/3 p-5 overflow-y-auto">
+                <div className="flex justify-between items-center mb-5">
                   <div>
-                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1">
-                      Pipeline Stages
-                    </h3>
-                    <p className="text-lg font-semibold text-gray-800">
-                      Run #{selectedRunNumber} Details
-                    </p>
+                    <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-[0.07em] mb-0.5">Pipeline Stages</p>
+                    <p className="text-[15px] font-bold text-[rgba(0,0,0,0.88)]">Run #{selectedRunNumber}</p>
                   </div>
                   {selectedRunUrl && (
-                    <a
-                      href={selectedRunUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-                    >
-                      Open External Logs <i className="fas fa-external-link-alt ml-1"></i>
+                    <a href={selectedRunUrl} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors">
+                      External Logs <Icon icon="mdi:open-in-new" width={12} />
                     </a>
                   )}
                 </div>
 
                 {isStagesLoading && (
-                  <div className="flex justify-center py-12">
-                    <div className="flex flex-col items-center">
-                      <i className="fas fa-spinner fa-spin text-3xl text-indigo-500 mb-3"></i>
-                      <span className="text-sm text-gray-500">Loading pipeline topology...</span>
-                    </div>
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <Icon icon="mdi:loading" width={28} color="#6366F1" className="animate-spin" />
+                    <p className="text-[12px] text-[rgba(0,0,0,0.4)]">Loading pipeline topology…</p>
                   </div>
                 )}
 
                 {!isStagesLoading && pipelineStages.length === 0 && (
-                  <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-                    <i className="fas fa-project-diagram text-gray-300 text-4xl mb-3"></i>
-                    <p className="text-gray-500">No stage information available for this run.</p>
+                  <div className="text-center py-10 bg-[rgba(0,0,0,0.02)] border border-dashed border-[rgba(0,0,0,0.10)] rounded-xl">
+                    <Icon icon="mdi:source-branch" width={32} color="rgba(0,0,0,0.15)" className="mx-auto mb-3" />
+                    <p className="text-[13px] text-[rgba(0,0,0,0.4)]">No stage information available for this run.</p>
                   </div>
                 )}
 
                 {!isStagesLoading && pipelineStages.length > 0 && (
-                  <div className="pipeline-container">
-                    {pipelineStages.map((stage, index) => (
-                      <div
-                        key={index}
-                        className={clsx(
-                          'pipeline-stage',
-                          stage.status === 'success' && 'completed',
-                          getStageClass(stage.status)
-                        )}
-                      >
-                        <div className="stage-node shadow-sm">
-                          {stage.status === 'success' && <i className="fas fa-check"></i>}
-                          {stage.status === 'failure' && <i className="fas fa-times"></i>}
-                          {stage.status === 'running' && <i className="fas fa-sync-alt fa-spin"></i>}
-                          {stage.status === 'skipped' && <i className="fas fa-slash"></i>}
-                          {stage.status === 'pending' && <i className="fas fa-clock"></i>}
-                        </div>
-
-                        <div className="mt-3 text-center px-2 w-full">
-                          <p
-                            className="text-xs font-bold text-gray-800 whitespace-nowrap overflow-hidden text-ellipsis max-w-[120px]"
-                            title={stage.name}
-                          >
-                            {stage.name}
-                          </p>
-                          {stage.duration !== '-' && (
-                            <p className="text-[10px] text-gray-500 font-mono mt-0.5">
-                              {stage.duration}
+                  <div className="flex flex-wrap items-start gap-0">
+                    {pipelineStages.map((stage, i) => {
+                      const ss = stageStyle(stage.status);
+                      return (
+                        <div key={i} className="flex items-center">
+                          <div className="flex flex-col items-center w-24">
+                            <div className={`w-10 h-10 ${ss.bg} border-2 ${ss.ring} rounded-full flex items-center justify-center`}>
+                              <Icon icon={ss.icon} width={16} color={ss.iconColor}
+                                className={stage.status === 'running' ? 'animate-spin' : ''} />
+                            </div>
+                            <p className="text-[11px] font-bold text-[rgba(0,0,0,0.75)] mt-2 text-center leading-tight px-1 truncate w-full" title={stage.name}>
+                              {stage.name}
                             </p>
+                            {stage.duration !== '-' && (
+                              <p className="text-[10px] text-[rgba(0,0,0,0.35)] font-mono mt-0.5">{stage.duration}</p>
+                            )}
+                          </div>
+                          {i < pipelineStages.length - 1 && (
+                            <div className="w-6 h-0.5 bg-[rgba(0,0,0,0.10)] mb-6 flex-shrink-0" />
                           )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -514,7 +341,7 @@ const CICDPipelinesPage: React.FC = () => {
           </DialogPanel>
         )}
       </DialogRoot>
-    </div>
+    </main>
   );
 };
 

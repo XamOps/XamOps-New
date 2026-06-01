@@ -279,7 +279,7 @@ const ClientDetailsPage: React.FC = () => {
 
     if (isLoading) {
         return (
-            <div className="p-5" style={{ background: '#f5f6f8', minHeight: '100%' }}>
+            <div className="p-5" style={{ background: '#ffffff', minHeight: '100%' }}>
                 <ClientDetailsSkeleton />
             </div>
         );
@@ -297,7 +297,7 @@ const ClientDetailsPage: React.FC = () => {
     }
 
     return (
-        <div className="p-5 space-y-3" style={{ background: '#f5f6f8', minHeight: '100%' }}>
+        <div className="p-5 space-y-3" style={{ background: '#ffffff', minHeight: '100%' }}>
             {/* Stats Summary */}
             {!isLoading && clients.length > 0 && (
                 <div className="bg-white rounded-md border border-gray-200 shadow-sm divide-x divide-gray-100 grid grid-cols-2 md:grid-cols-4 animate-premium-fade-in">

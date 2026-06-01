@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { Icon } from '@iconify/react';
 import { DialogRoot, DialogPanel } from '../ui/Dialog';
 import type { LlmProviderConfig, LlmProvider } from '../../types/aiops';
 import { LLM_PROVIDERS } from '../../types/aiops';
@@ -185,42 +186,42 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
       <DialogPanel
         title={
           <div className="flex items-center gap-2">
-            <i className={`fas ${step === 'success' ? 'fa-check-circle text-green-500' : isEditing ? 'fa-edit text-indigo-500' : 'fa-plug text-indigo-500'}`} />
+            <Icon icon={step === 'success' ? 'mdi:check-circle-outline' : isEditing ? 'mdi:pencil-outline' : 'mdi:plug-outline'} width={18} color={step === 'success' ? '#16a34a' : '#4F46E5'} />
             <span>{step === 'success' ? (isEditing ? 'Provider Updated' : 'Setup Complete') : isEditing ? `Edit Provider — ${editProvider?.displayName ?? editProvider?.provider}` : 'Connect LLM Provider'}</span>
           </div>
         }
         onClose={handleClose}
         footer={
           <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-2 text-xs text-gray-400">
-              <i className="fas fa-shield-alt" />
+            <div className="flex items-center gap-2 text-xs text-[rgba(0,0,0,0.4)]">
+              <Icon icon="mdi:shield-outline" width={14} color="rgba(0,0,0,0.4)" />
               <span>API keys are encrypted at rest (AES-256) — never exposed</span>
             </div>
             <div className="flex items-center gap-3">
               {step === 'select' ? (
                 <>
                   <button onClick={handleClose}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                    className="px-4 py-2 text-sm font-medium text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-md hover:bg-[rgba(0,0,0,0.06)] transition-colors">
                     Cancel
                   </button>
                   {selectedProvider && (
                     <>
                       <button onClick={handleTestConnection} disabled={isTesting}
-                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors disabled:opacity-50">
-                        <i className={`fas ${isTesting ? 'fa-circle-notch fa-spin' : 'fa-plug'} text-xs`} />
+                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors disabled:opacity-50">
+                        {isTesting ? <Icon icon="mdi:loading" width={14} className="animate-spin" /> : <Icon icon="mdi:plug-outline" width={14} />}
                         {isTesting ? 'Testing…' : 'Test Connection'}
                       </button>
                       <button onClick={handleSave} disabled={isSaving}
-                        className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50 shadow-sm">
-                        {isSaving ? <><i className="fas fa-spinner fa-spin mr-2" />Saving…</> : isEditing ? <><i className="fas fa-check mr-2" />Update Provider</> : <><i className="fas fa-save mr-2" />Save Provider</>}
+                        className="px-4 py-2 text-sm font-medium text-white bg-[rgba(0,0,0,0.88)] hover:bg-black rounded-md transition-all disabled:opacity-50 shadow-sm">
+                        {isSaving ? <><Icon icon="mdi:loading" width={14} className="animate-spin inline mr-2" />Saving…</> : isEditing ? <><Icon icon="mdi:check" width={14} className="inline mr-2" />Update Provider</> : <><Icon icon="mdi:content-save-outline" width={14} className="inline mr-2" />Save Provider</>}
                       </button>
                     </>
                   )}
                 </>
               ) : (
                 <button onClick={handleClose}
-                  className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all shadow-sm">
-                  <i className="fas fa-check mr-2" />Done
+                  className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-all shadow-sm">
+                  <Icon icon="mdi:check" width={14} className="inline mr-2" />Done
                 </button>
               )}
             </div>
@@ -232,7 +233,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
             <>
               {/* Provider selection */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-3">Select Provider</label>
+                <label className="block text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-3">Select Provider</label>
                 <div className="grid grid-cols-2 gap-3">
                   {LLM_PROVIDERS.map(provider => {
                     const keyCount = configuredCountByProvider[provider.key] || 0;
@@ -240,7 +241,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                     return (
                       <button key={provider.key}
                         onClick={() => handleProviderSelect(provider.key)}
-                        className={`relative p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${isSelected ? 'border-indigo-500 bg-indigo-50 shadow-md' : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'}`}>
+                        className={`relative p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${isSelected ? 'border-indigo-500 bg-indigo-50 shadow-md' : 'border-[rgba(0,0,0,0.12)] hover:border-indigo-300 hover:bg-[rgba(0,0,0,0.02)]'}`}>
                         {keyCount > 0 && (
                           <span className="absolute top-2 right-2 text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full font-medium">
                             {keyCount} key{keyCount > 1 ? 's' : ''}
@@ -249,8 +250,8 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                         <div className={`w-10 h-10 rounded-lg ${provider.bgColor} flex items-center justify-center mb-2`}>
                           <i className={`${provider.icon} ${provider.color} text-lg`} />
                         </div>
-                        <p className="font-semibold text-gray-900 text-sm">{provider.name}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{provider.description}</p>
+                        <p className="font-semibold text-[rgba(0,0,0,0.88)] text-sm">{provider.name}</p>
+                        <p className="text-xs text-[rgba(0,0,0,0.5)] mt-0.5">{provider.description}</p>
                       </button>
                     );
                   })}
@@ -258,45 +259,45 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
               </div>
 
               {selectedProvider && (
-                <div className="space-y-4 pt-2 border-t border-gray-100">
+                <div className="space-y-4 pt-2 border-t border-[rgba(0,0,0,0.06)]">
                   {/* Display Name */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-[rgba(0,0,0,0.7)] mb-1">
                       Display Name{' '}
                       {(configuredCountByProvider[selectedProvider] || 0) > 0
                         ? <span className="text-amber-600 text-xs">(recommended — you already have a key for this provider)</span>
-                        : <span className="text-gray-400">(optional)</span>}
+                        : <span className="text-[rgba(0,0,0,0.4)]">(optional)</span>}
                     </label>
                     <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
                       placeholder={`e.g., Production ${selectedProvider}`}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                      className="w-full px-3 py-2 text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
                   </div>
 
                   {/* Team */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Assign to Team <span className="text-gray-400">(optional)</span>
+                    <label className="block text-sm font-medium text-[rgba(0,0,0,0.7)] mb-1">
+                      Assign to Team <span className="text-[rgba(0,0,0,0.4)]">(optional)</span>
                     </label>
                     <div className="relative">
-                      <i className="fas fa-users absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
+                      <Icon icon="mdi:account-group-outline" width={14} color="rgba(0,0,0,0.4)" className="absolute left-3 top-1/2 -translate-y-1/2" />
                       <input type="text" value={teamName} onChange={e => setTeamName(e.target.value)}
                         placeholder="e.g., backend-team, data-science"
-                        className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        className="w-full pl-8 pr-3 py-2 text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
                     </div>
                   </div>
 
                   {/* API Key */}
                   {selectedProvider !== 'BEDROCK' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-medium text-[rgba(0,0,0,0.7)] mb-1">
                         API Key <span className="text-red-500">*</span>
                       </label>
                       <input type="password" value={apiKey}
                         onChange={e => { setApiKey(e.target.value); setError(''); setTestResult(null); }}
                         placeholder={selectedProvider === 'OPENAI' ? 'sk-...' : selectedProvider === 'ANTHROPIC' ? 'sk-ant-...' : 'AIza...'}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-mono" />
-                      <p className="text-[11px] text-gray-400 mt-1">
-                        <i className="fas fa-lock mr-1 text-indigo-400" />
+                        className="w-full px-3 py-2 text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.2)] font-mono" />
+                      <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">
+                        <Icon icon="mdi:lock-outline" width={12} color="#818cf8" className="inline mr-1" />
                         Stored encrypted (AES-256). Only the last 4 characters are shown after saving.
                       </p>
                     </div>
@@ -306,22 +307,22 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                   {selectedProvider === 'BEDROCK' && (
                     <div className="space-y-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
                       <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 mb-2">
-                        <i className="fab fa-aws" /> AWS Bedrock Credentials
+                        <Icon icon="mdi:cloud-outline" width={14} color="#D97706" className="inline mr-1" /> AWS Bedrock Credentials
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">AWS Region <span className="text-red-500">*</span></label>
+                        <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-1">AWS Region <span className="text-red-500">*</span></label>
                         <input type="text" value={awsRegion} onChange={e => { setAwsRegion(e.target.value); setError(''); }}
-                          placeholder="e.g., us-east-1" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" />
+                          placeholder="e.g., us-east-1" className="w-full px-3 py-2 text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">AWS Access Key ID <span className="text-red-500">*</span></label>
+                        <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-1">AWS Access Key ID <span className="text-red-500">*</span></label>
                         <input type="password" value={awsAccessKey} onChange={e => { setAwsAccessKey(e.target.value); setError(''); }}
-                          placeholder="AKIA..." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none font-mono" />
+                          placeholder="AKIA..." className="w-full px-3 py-2 text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.2)] font-mono" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">AWS Secret Access Key <span className="text-red-500">*</span></label>
+                        <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-1">AWS Secret Access Key <span className="text-red-500">*</span></label>
                         <input type="password" value={awsSecretKey} onChange={e => { setAwsSecretKey(e.target.value); setError(''); }}
-                          placeholder="wJal..." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none font-mono" />
+                          placeholder="wJal..." className="w-full px-3 py-2 text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.2)] font-mono" />
                       </div>
                     </div>
                   )}
@@ -329,8 +330,8 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                   {/* Model selection */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Models <span className="text-gray-400 text-xs">(select which to enable)</span>
+                      <label className="block text-sm font-medium text-[rgba(0,0,0,0.7)]">
+                        Models <span className="text-[rgba(0,0,0,0.4)] text-xs">(select which to enable)</span>
                       </label>
                       <button onClick={() => setSelectedModels(allSelected ? [] : models)}
                         className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">
@@ -343,18 +344,18 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                           className={`flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-all ${
                             selectedModels.includes(model)
                               ? 'border-indigo-300 bg-indigo-50'
-                              : 'border-gray-200 bg-white hover:border-gray-300'
+                              : 'border-[rgba(0,0,0,0.08)] bg-white hover:border-[rgba(0,0,0,0.15)]'
                           }`}>
                           <input type="checkbox" checked={selectedModels.includes(model)}
                             onChange={() => toggleModel(model)}
                             className="accent-indigo-600 w-4 h-4 flex-shrink-0" />
-                          <span className="text-xs font-mono text-gray-700">{model}</span>
+                          <span className="text-xs font-mono text-[rgba(0,0,0,0.7)]">{model}</span>
                         </label>
                       ))}
                     </div>
                     {selectedModels.length === 0 && (
                       <p className="text-xs text-amber-600 mt-1.5">
-                        <i className="fas fa-exclamation-triangle mr-1" />
+                        <Icon icon="mdi:alert-outline" width={12} color="#D97706" className="inline mr-1" />
                         Select at least one model
                       </p>
                     )}
@@ -364,7 +365,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                   {testResult && (
                     <div className={`px-4 py-3 rounded-lg text-sm ${testResult.success ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
                       <div className="flex items-center gap-2 font-semibold">
-                        <i className={`fas ${testResult.success ? 'fa-check-circle' : 'fa-times-circle'} flex-shrink-0`} />
+                        {testResult.success ? <Icon icon="mdi:check-circle-outline" width={16} color="#16a34a" className="flex-shrink-0" /> : <Icon icon="mdi:close-circle-outline" width={16} color="#dc2626" className="flex-shrink-0" />}
                         <span>{testResult.success ? 'Connection successful' : 'Connection failed'}</span>
                       </div>
                       {!testResult.success && (
@@ -376,13 +377,13 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                   {/* Error */}
                   {error && (
                     <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 text-red-700 text-sm">
-                      <i className="fas fa-exclamation-circle" />
+                      <Icon icon="mdi:alert-circle-outline" width={16} color="#dc2626" />
                       <span>{error}</span>
                     </div>
                   )}
 
                   <div className="flex items-start gap-3 p-4 bg-green-50/50 rounded-xl border border-green-100">
-                    <i className="fas fa-lock text-green-500 mt-0.5" />
+                    <Icon icon="mdi:lock-outline" width={16} color="#16a34a" className="mt-0.5" />
                     <div className="text-xs text-green-700 space-y-1">
                       <p className="font-semibold">Credentials stored encrypted</p>
                       <p>Your key is encrypted with AES-256. XamOps uses it automatically — you never need to pass it in your app.</p>
@@ -396,7 +397,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
           {step === 'success' && savedConfig && selectedProvider && (
             <div className="space-y-5">
               <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
-                <i className="fas fa-check-circle text-green-500 text-lg" />
+                <Icon icon="mdi:check-circle-outline" width={20} color="#16a34a" />
                 <div>
                   <p className="text-sm font-bold text-green-800">
                     {savedConfig.displayName ?? selectedProvider} connected successfully!
@@ -407,17 +408,17 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                 </div>
               </div>
 
-              <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3">
-                <i className="fas fa-fingerprint text-indigo-400" />
+              <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-xl px-4 py-3 flex items-center gap-3">
+                <Icon icon="mdi:fingerprint" width={18} color="#818cf8" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-0.5">Tracking Key (X-XamOps-Key)</p>
-                  <code className="text-sm text-gray-800 font-mono font-bold truncate block">{savedConfig.trackingToken}</code>
+                  <p className="text-[10px] text-[rgba(0,0,0,0.5)] font-semibold uppercase tracking-wide mb-0.5">Tracking Key (X-XamOps-Key)</p>
+                  <code className="text-sm text-[rgba(0,0,0,0.88)] font-mono font-bold truncate block">{savedConfig.trackingToken}</code>
                 </div>
                 <CopyButton text={savedConfig.trackingToken ?? ''} />
               </div>
 
               <div className="flex items-start gap-3 p-4 bg-blue-50/50 rounded-xl border border-blue-100">
-                <i className="fas fa-info-circle text-blue-500 mt-0.5" />
+                <Icon icon="mdi:information-outline" width={16} color="#3b82f6" className="mt-0.5" />
                 <div className="text-xs text-blue-700 space-y-1.5">
                   <p className="font-semibold">Ready to use — no extra steps needed</p>
                   <p>Your API key is encrypted and stored. Use your <strong>Master Key</strong> from the AI Gateway tab to call any connected provider.</p>

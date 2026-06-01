@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { Budget } from '../../types/finops';
 
 interface FinOpsBudgetsProps {
@@ -21,95 +22,107 @@ const FinOpsBudgets: React.FC<FinOpsBudgetsProps> = ({
   onDeleteBudget,
 }) => {
   const formatCurrency = (value: number): string => {
-    return value.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    });
+    return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   };
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md fade-in">
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-wallet text-white"></i>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      {/* Header */}
+      <div className="flex items-center justify-between pb-4 border-b border-[rgba(0,0,0,0.06)] mb-5">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]">
+            <Icon icon="mdi:wallet-outline" width={16} color="#4285F4" />
           </div>
           <div>
-            <h3 className="text-xl font-bold text-gray-800">Budgets & Alerts</h3>
-            <p className="text-sm text-gray-600">Monitor and control your spending</p>
+            <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Budgets & Alerts</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse inline-block"></span>
+              Monitor and control your spending
+            </p>
           </div>
         </div>
-        <div className="flex space-x-3">
+        <div className="flex gap-2">
           <button
             onClick={onScheduleReport}
-            className="px-6 py-3 bg-white border border-gray-200 text-gray-700 text-sm font-semibold rounded-lg shadow-sm hover:bg-gray-50 hover:-translate-y-0.5 transition-all"
+            className="px-4 py-2 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5"
+            style={{ backgroundColor: '#f2fa15', color: 'rgb(0,0,0)' }}
           >
-            <i className="fas fa-envelope mr-2"></i>Schedule Report
+            <Icon icon="mdi:email-outline" width={14} />
+            Schedule Report
           </button>
           <button
             onClick={onCreateBudget}
-            className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all"
+            className="px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5" style={{ backgroundColor: '#1BE68B', color: 'rgb(0,0,0)' }}
           >
-            <i className="fas fa-plus mr-2"></i>Create Budget
+            <Icon icon="mdi:plus" width={14} />
+            Create Budget
           </button>
         </div>
       </div>
 
+      {/* Empty state */}
       {(!budgets || budgets.length === 0) && (
-        <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
-          <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-wallet text-gray-400 text-2xl"></i>
+        <div className="text-center py-10 rounded-xl border-2 border-dashed border-[rgba(0,0,0,0.1)]">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:wallet-outline" width={22} color="rgba(0,0,0,0.3)" />
           </div>
-          <h4 className="text-lg font-bold text-gray-800 mb-2">No Budgets Found</h4>
-          <p className="text-gray-600 mb-4">Set up budgets to track and control your cloud spending</p>
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Budgets Found</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-4">
+            Set up budgets to track and control your cloud spending
+          </p>
           <button
             onClick={onCreateBudget}
-            className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+            className="px-4 py-2 rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5" style={{ backgroundColor: '#1BE68B', color: 'rgb(0,0,0)' }}
           >
-            <i className="fas fa-plus mr-2"></i>Create Your First Budget
+            <Icon icon="mdi:plus" width={14} />
+            Create Your First Budget
           </button>
         </div>
       )}
 
+      {/* Budget cards grid */}
       {budgets && budgets.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {budgets.map((budget) => {
             const percentage = Math.min((budget.actualSpend / budget.budgetLimit) * 100, 100);
             const isOverBudget = percentage > 80;
             const isWarning = percentage > 60 && percentage <= 80;
 
+            const barColor = isOverBudget
+              ? '#f87171'
+              : isWarning
+              ? '#fbbf24'
+              : '#4ade80';
+
             return (
               <div
                 key={budget.budgetName}
-                className="bg-gray-50 border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all"
+                className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-4"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-bold text-gray-800">{budget.budgetName}</h4>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[14px] font-semibold text-black truncate pr-2">
+                    {budget.budgetName}
+                  </p>
                   <button
                     onClick={() => onDeleteBudget(budget.budgetName)}
-                    className="text-red-500 hover:text-red-700"
+                    className="text-red-500 hover:text-red-700 flex-shrink-0"
+                    title="Delete budget"
                   >
-                    <i className="fas fa-trash-alt"></i>
+                    <Icon icon="mdi:trash-can-outline" width={16} />
                   </button>
                 </div>
-                <div className="space-y-3">
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden shadow-inner">
+                <div className="space-y-2">
+                  <div className="bg-[rgba(0,0,0,0.06)] rounded-full h-1.5 overflow-hidden">
                     <div
-                      className={`h-2.5 rounded-full transition-all duration-500 shadow-sm ${
-                        isOverBudget
-                          ? 'bg-gradient-to-r from-red-500 to-red-600'
-                          : isWarning
-                          ? 'bg-gradient-to-r from-yellow-400 to-orange-500'
-                          : 'bg-gradient-to-r from-green-400 to-green-600'
-                      }`}
-                      style={{ width: `${percentage}%` }}
-                    ></div>
+                      className="h-1.5 rounded-full transition-all duration-500"
+                      style={{ width: `${percentage}%`, backgroundColor: barColor }}
+                    />
                   </div>
-                  <div className="flex justify-between text-sm font-semibold">
-                    <span className="text-gray-700">Spent: {formatCurrency(budget.actualSpend)}</span>
-                    <span className="text-gray-600">{Math.round(percentage)}%</span>
+                  <div className="flex justify-between text-[13px] font-semibold text-[rgba(0,0,0,0.7)]">
+                    <span>Spent: {formatCurrency(budget.actualSpend)}</span>
+                    <span>{Math.round(percentage)}%</span>
                   </div>
-                  <div className="flex justify-between text-xs text-gray-500">
+                  <div className="flex justify-between text-[11px] text-[rgba(0,0,0,0.4)]">
                     <span>Limit: {formatCurrency(budget.budgetLimit)}</span>
                     <span>Forecast: {formatCurrency(budget.forecastedSpend)}</span>
                   </div>

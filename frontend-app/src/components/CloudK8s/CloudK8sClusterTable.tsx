@@ -1,12 +1,6 @@
-/**
- * CloudK8s Cluster Table Component
- *
- * Displays EKS clusters in a table with actions for monitoring and details
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { EKSCluster } from '../../pages/CloudK8sPage';
-import Skeleton from '../Shared/Skeleton';
 
 interface CloudK8sClusterTableProps {
   clusters: EKSCluster[];
@@ -14,101 +8,98 @@ interface CloudK8sClusterTableProps {
   onViewDetails: (cluster: EKSCluster) => void;
 }
 
-const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({
-  clusters,
-  isLoading,
-  onViewDetails
-}) => {
+const HEAD = 'px-5 py-3 font-semibold text-[11px] uppercase tracking-[0.07em] text-[rgba(0,0,0,0.45)]';
+const COL  = 'px-5 py-4 text-[13px]';
+
+const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({ clusters, isLoading, onViewDetails }) => {
   return (
-    <div className="cloudk8s-card glass-card rounded-2xl p-6 md:p-8 fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center">
-          <i className="fab fa-aws text-orange-500 mr-3"></i>
+    <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between bg-[rgba(0,0,0,0.01)]">
+        <h2 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)] flex items-center gap-2">
+          <Icon icon="mdi:aws" width={16} color="#FF9900" />
           EKS Clusters
         </h2>
-        <span className="text-sm text-gray-500 dark:text-gray-400">
+        <span className="text-[12px] text-[rgba(0,0,0,0.4)] font-semibold">
           {clusters.length} cluster{clusters.length !== 1 ? 's' : ''} found
         </span>
       </div>
 
-      {/* Loading State */}
       {isLoading && (
-        <div className="space-y-3">
+        <div className="p-5 space-y-3">
           {[1, 2, 3].map(i => (
-            <Skeleton key={i} variant="rounded" height={60} className="w-full" />
+            <div key={i} className="h-14 rounded-lg bg-[rgba(0,0,0,0.04)] animate-pulse" />
           ))}
         </div>
       )}
 
-      {/* Empty State */}
       {!isLoading && clusters.length === 0 && (
-        <div className="text-center py-16">
-          <div className="w-20 h-20 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-dharmachakra text-gray-400 dark:text-gray-500 text-3xl"></i>
+        <div className="py-16 text-center">
+          <div className="w-14 h-14 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)] rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:kubernetes" width={26} color="rgba(0,0,0,0.2)" />
           </div>
-          <p className="text-gray-600 dark:text-gray-300 font-medium">No EKS clusters found</p>
-          <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Connect an AWS account to view your clusters</p>
+          <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.55)]">No EKS clusters found</p>
+          <p className="text-[12px] text-[rgba(0,0,0,0.35)] mt-1">Connect an AWS account to view your clusters</p>
         </div>
       )}
 
-      {/* Clusters Table */}
       {!isLoading && clusters.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm table-enhanced rounded-lg overflow-hidden">
-            <thead className="text-xs !text-gray-700 dark:!text-gray-300 uppercase !bg-gradient-to-r !from-gray-50 !to-gray-100 dark:!from-gray-800 dark:!to-gray-900">
-              <tr>
-                <th className="px-6 py-4 text-left font-bold">Cluster Name</th>
-                <th className="px-6 py-4 text-left font-bold hidden md:table-cell">Region</th>
-                <th className="px-6 py-4 text-left font-bold hidden md:table-cell">Version</th>
-                <th className="px-6 py-4 text-left font-bold">Connection</th>
-                <th className="px-6 py-4 text-center font-bold">Action</th>
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+                <th className={HEAD}>Cluster Name</th>
+                <th className={`${HEAD} hidden md:table-cell`}>Region</th>
+                <th className={`${HEAD} hidden md:table-cell`}>Version</th>
+                <th className={HEAD}>Connection</th>
+                <th className={`${HEAD} text-center`}>Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
               {clusters.map(cluster => (
-                <tr
-                  key={`${cluster.name}-${cluster.region}`}
-                  className="hover:bg-blue-50/50 dark:hover:bg-gray-800/30 transition-colors"
-                >
-                  <td className="px-6 py-4">
-                    <div className="flex items-center">
-                      <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center mr-3">
-                        <i className="fas fa-dharmachakra text-white text-xs"></i>
+                <tr key={`${cluster.name}-${cluster.region}`}
+                  className="hover:bg-[rgba(0,0,0,0.01)] transition-colors group">
+                  <td className={COL}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-center">
+                        <Icon icon="mdi:kubernetes" width={15} color="#326CE5" />
                       </div>
-                      <span className="font-semibold text-gray-800 dark:text-gray-200">{cluster.name}</span>
+                      <span className="font-semibold text-[rgba(0,0,0,0.88)] group-hover:text-indigo-600 transition-colors">
+                        {cluster.name}
+                      </span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 hidden md:table-cell">
-                    <span className="text-gray-600 dark:text-gray-300">{cluster.region}</span>
+                  <td className={`${COL} hidden md:table-cell`}>
+                    <span className="flex items-center gap-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.65)] bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full w-fit">
+                      <Icon icon="mdi:map-marker-outline" width={11} color="#3B82F6" />
+                      {cluster.region}
+                    </span>
                   </td>
-                  <td className="px-6 py-4 hidden md:table-cell">
-                    <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs font-mono">
+                  <td className={`${COL} hidden md:table-cell`}>
+                    <span className="px-2 py-1 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.65)] rounded text-[11px] font-mono">
                       v{cluster.version}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className={COL}>
                     {cluster.connected ? (
-                      <span className="status-badge bg-green-100 text-green-800 border border-green-200">
-                        <i className="fas fa-check-circle mr-1.5"></i>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-[11px] font-semibold">
+                        <Icon icon="mdi:check-circle-outline" width={12} />
                         Connected
                       </span>
                     ) : (
-                      <span className="status-badge bg-gray-100 text-gray-600 border border-gray-200">
-                        <i className="fas fa-times-circle mr-1.5"></i>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border border-[rgba(0,0,0,0.08)] rounded-full text-[11px] font-semibold">
+                        <Icon icon="mdi:close-circle-outline" width={12} />
                         Not Connected
                       </span>
                     )}
                   </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="flex flex-col gap-2 items-center">
-                      <button
-                        onClick={() => onViewDetails(cluster)}
-                        className="inline-flex items-center px-4 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700 transition-all shadow-sm hover:shadow"
-                      >
-                        <i className="fas fa-external-link-alt mr-1.5"></i>
-                        Details
-                      </button>
-                    </div>
+                  <td className={`${COL} text-center`}>
+                    <button
+                      onClick={() => onViewDetails(cluster)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+                    >
+                      <Icon icon="mdi:open-in-new" width={12} />
+                      Details
+                    </button>
                   </td>
                 </tr>
               ))}

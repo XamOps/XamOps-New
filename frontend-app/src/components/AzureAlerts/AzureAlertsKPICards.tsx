@@ -7,14 +7,7 @@ interface AzureAlertsKPICardsProps {
 }
 
 const SkeletonCard: React.FC = () => (
-  <div className="glass-card rounded-xl p-5 shadow-sm animate-pulse">
-    <div className="flex items-center justify-between mb-3">
-      <div className="h-3 bg-gray-200 rounded w-24"></div>
-      <div className="w-9 h-9 rounded-lg bg-gray-200"></div>
-    </div>
-    <div className="h-8 bg-gray-200 rounded w-16 mb-1"></div>
-    <div className="h-3 bg-gray-100 rounded w-28"></div>
-  </div>
+  <div className="bg-[rgba(0,0,0,0.04)] rounded-xl h-24 animate-pulse" />
 );
 
 const AzureAlertsKPICards: React.FC<AzureAlertsKPICardsProps> = ({ alertsData, isLoading }) => {
@@ -38,67 +31,59 @@ const AzureAlertsKPICards: React.FC<AzureAlertsKPICardsProps> = ({ alertsData, i
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
       {/* Total Alerts */}
-      <div className="glass-card rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-purple-700">
-            Total Alerts
-          </span>
-          <div className="w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center">
-            <i className="fas fa-list text-purple-600 text-sm"></i>
-          </div>
-        </div>
-        <div className="text-3xl font-black bg-gradient-to-r from-purple-600 to-purple-800 bg-clip-text text-transparent">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">
+          Total Alerts
+        </p>
+        <p
+          className="tabular-nums text-[rgba(0,0,0,0.88)]"
+          style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px' }}
+        >
           {totalCount}
-        </div>
-        <p className="text-xs text-gray-500 mt-1">All monitor alerts</p>
+        </p>
+        <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">All monitor alerts</p>
       </div>
 
       {/* Active */}
-      <div className="glass-card rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-red-700">
-            Active
-          </span>
-          <div className="w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center">
-            <i className="fas fa-exclamation-triangle text-red-600 text-sm"></i>
-          </div>
-        </div>
-        <div className="text-3xl font-black bg-gradient-to-r from-red-600 to-red-800 bg-clip-text text-transparent">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">
+          Active
+        </p>
+        <p
+          className="tabular-nums text-red-600"
+          style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px' }}
+        >
           {activeCount}
-        </div>
-        <p className="text-xs text-gray-500 mt-1">New + Acknowledged alerts</p>
+        </p>
+        <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">New + Acknowledged alerts</p>
       </div>
 
       {/* Critical / Error */}
-      <div className="glass-card rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-orange-700">
-            Critical / Error
-          </span>
-          <div className="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center">
-            <i className="fas fa-fire text-orange-600 text-sm"></i>
-          </div>
-        </div>
-        <div className="text-3xl font-black bg-gradient-to-r from-orange-600 to-orange-800 bg-clip-text text-transparent">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">
+          Critical / Error
+        </p>
+        <p
+          className="tabular-nums text-orange-600"
+          style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px' }}
+        >
           {criticalCount}
-        </div>
-        <p className="text-xs text-gray-500 mt-1">Sev0 + Sev1 severity alerts</p>
+        </p>
+        <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">Sev0 + Sev1 severity alerts</p>
       </div>
 
       {/* Warnings */}
-      <div className="glass-card rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-amber-700">
-            Warnings
-          </span>
-          <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
-            <i className="fas fa-exclamation-circle text-amber-600 text-sm"></i>
-          </div>
-        </div>
-        <div className="text-3xl font-black bg-gradient-to-r from-amber-600 to-amber-800 bg-clip-text text-transparent">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">
+          Warnings
+        </p>
+        <p
+          className="tabular-nums text-amber-500"
+          style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px' }}
+        >
           {warningCount}
-        </div>
-        <p className="text-xs text-gray-500 mt-1">Sev2 warning alerts</p>
+        </p>
+        <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">Sev2 warning alerts</p>
       </div>
     </div>
   );

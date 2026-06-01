@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
+import { Icon } from '@iconify/react';
 import { AzureFinOpsReportData } from '../../types/azureFinops';
-import { useTheme } from '../../contexts/ThemeContext';
 import { Chart, registerables } from 'chart.js';
-import clsx from 'clsx';
+import Highcharts from '../../lib/highcharts-init';
 
 Chart.register(...registerables);
 
@@ -11,10 +11,11 @@ interface AzureFinOpsCostChartsProps {
   isLoading: boolean;
 }
 
-const AZURE_COLORS = [
-  '#0078D4', '#005A9E', '#50E6FF', '#00BCF2', '#8661C5',
-  '#5C2D91', '#E81123', '#FFB900', '#00A4EF', '#7FBA00',
-  '#00B294', '#F25022',
+const VAR_PIE_PALETTE = [
+  '#4caefe', '#3dc3e8', '#2dd9db', '#1feeaf', '#0ff3a0',
+  '#00e887', '#23e274', '#35d96f', '#4cd4a0', '#1addc8',
+  '#2bcfee', '#0de0b0', '#38e8c8', '#50f0d0', '#18d4e8',
+  '#3aefb8', '#29c9e0', '#10f8c0', '#40dce0', '#5af0a8',
 ];
 
 const REGION_COLORS = [
@@ -22,67 +23,93 @@ const REGION_COLORS = [
   '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B88B', '#ABEBC6',
 ];
 
+const tickColor = 'rgba(0,0,0,0.45)';
+const gridColor = 'rgba(0,0,0,0.05)';
+
 const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportData, isLoading }) => {
-  const { theme } = useTheme();
-  const serviceChartRef = useRef<HTMLCanvasElement>(null);
+  const serviceContainerRef = useRef<HTMLDivElement>(null);
   const regionChartRef = useRef<HTMLCanvasElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const serviceChartInstance = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const serviceChartInstance = useRef<Highcharts.Chart | null>(null);
   const regionChartInstance = useRef<any>(null);
 
-  const tickColor = theme === 'dark' ? '#94a3b8' : '#6b7280';
-  const gridColor = theme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
-
-  // Service doughnut chart
+  // Variable Radius Pie – Cost by Service
   useEffect(() => {
-    if (isLoading || !reportData || !serviceChartRef.current) return;
+    if (isLoading || !reportData || !serviceContainerRef.current) return;
+
+    if (serviceChartInstance.current) {
+      serviceChartInstance.current.destroy();
+      serviceChartInstance.current = null;
+    }
+
     const data = reportData.costBreakdown ?? [];
     if (data.length === 0) return;
 
-    serviceChartInstance.current?.destroy();
-    const ctx = serviceChartRef.current.getContext('2d');
-    if (!ctx) return;
-
-    serviceChartInstance.current = new Chart(ctx, {
-      type: 'doughnut',
-      data: {
-        labels: data.map(d => d.service),
-        datasets: [{
-          data: data.map(d => d.cost),
-          backgroundColor: AZURE_COLORS,
-          borderWidth: 0,
-        }],
+    serviceChartInstance.current = Highcharts.chart(serviceContainerRef.current, {
+      chart: {
+        type: 'variablepie',
+        backgroundColor: 'transparent',
+        style: { fontFamily: "'Inter', sans-serif" },
+        animation: { duration: 600 },
+        height: 320,
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'right',
-            labels: {
-              usePointStyle: true,
-              color: tickColor,
-              font: { family: "'Inter', sans-serif", size: 11 },
-              boxWidth: 10,
+      title: { text: undefined },
+      credits: { enabled: false },
+      exporting: { enabled: false },
+      colors: VAR_PIE_PALETTE,
+      tooltip: {
+        headerFormat: '',
+        pointFormat: '<b>{point.name}</b><br/>Cost: <b>${point.y:,.2f}</b><br/>Share: <b>{point.percentage:.1f}%</b>',
+      },
+      plotOptions: {
+        variablepie: {
+          innerSize: '35%',
+          dataLabels: {
+            enabled: true,
+            format: '{point.name}',
+            style: {
+              fontSize: '10px',
+              fontWeight: '500',
+              color: 'rgba(0,0,0,0.65)',
+              textOutline: 'none',
             },
+            distance: 16,
+            connectorColor: 'rgba(0,0,0,0.2)',
           },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => {
-                const val = ctx.raw as number;
-                return ` ₹${val.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
-              },
-            },
-          },
+          showInLegend: true,
+          borderWidth: 2,
+          borderColor: '#ffffff',
         },
       },
-    });
+      legend: {
+        layout: 'vertical',
+        align: 'right',
+        verticalAlign: 'middle',
+        width: 190,
+        itemStyle: {
+          fontSize: '11px',
+          fontWeight: '500',
+          color: 'rgba(0,0,0,0.6)',
+        },
+        symbolRadius: 3,
+        maxHeight: 280,
+      },
+      series: [{
+        type: 'variablepie',
+        name: 'Cost',
+        zMin: 0,
+        data: data.map((d) => ({ name: d.service, y: d.cost, z: d.cost })),
+      }],
+    } as Highcharts.Options);
 
-    return () => { serviceChartInstance.current?.destroy(); };
-  }, [reportData, isLoading, theme]);
+    return () => {
+      if (serviceChartInstance.current) {
+        serviceChartInstance.current.destroy();
+        serviceChartInstance.current = null;
+      }
+    };
+  }, [reportData, isLoading]);
 
-  // Region bar chart
+  // Bar – Cost by Region
   useEffect(() => {
     if (isLoading || !reportData || !regionChartRef.current) return;
     const data = reportData.costByRegion ?? [];
@@ -97,7 +124,7 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
       data: {
         labels: data.map(d => d.region),
         datasets: [{
-          label: 'Cost (₹)',
+          label: 'Cost (USD)',
           data: data.map(d => d.cost),
           backgroundColor: REGION_COLORS,
           borderRadius: 6,
@@ -112,7 +139,8 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
           legend: { display: false },
           tooltip: {
             callbacks: {
-              label: (ctx) => ` ₹${(ctx.raw as number).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+              label: (ctx) =>
+                ` ${(ctx.raw as number).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`,
             },
           },
         },
@@ -121,31 +149,24 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
             grid: { color: gridColor },
             ticks: {
               color: tickColor,
-              callback: (v) => `₹${(v as number).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+              callback: (v) => `$${(v as number).toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
             },
           },
-          y: {
-            grid: { display: false },
-            ticks: { color: tickColor },
-          },
+          y: { grid: { display: false }, ticks: { color: tickColor } },
         },
       },
     });
 
     return () => { regionChartInstance.current?.destroy(); };
-  }, [reportData, isLoading, theme]);
-
-  const cardCls = clsx('glass-card rounded-xl p-6', theme === 'dark' ? 'bg-slate-800/50' : '');
-  const titleCls = clsx('text-base font-bold mb-1', theme === 'dark' ? 'text-slate-100' : 'text-gray-900');
-  const subCls = clsx('text-xs', theme === 'dark' ? 'text-slate-400' : 'text-gray-500');
+  }, [reportData, isLoading]);
 
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {[0, 1].map(i => (
-          <div key={i} className={clsx(cardCls, 'animate-pulse')}>
-            <div className="h-5 bg-gray-200 rounded w-1/3 mb-4" />
-            <div className="h-64 bg-gray-200 rounded" />
+          <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 animate-pulse">
+            <div className="h-5 bg-[rgba(0,0,0,0.04)] rounded-lg w-1/3 mb-4" />
+            <div className="h-64 bg-[rgba(0,0,0,0.04)] rounded-lg" />
           </div>
         ))}
       </div>
@@ -157,52 +178,46 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Cost by Service */}
-      <div className={cardCls}>
+      {/* Cost by Service – Variable Radius Pie */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-lg flex items-center justify-center shadow">
-            <i className="fas fa-chart-pie text-white text-sm" />
+          <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]" style={{ backgroundColor: '#0078D408' }}>
+            <Icon icon="mdi:chart-pie" width={16} color="#0078D4" />
           </div>
           <div>
-            <h3 className={titleCls}>Cost by Service</h3>
-            <p className={subCls}>Top Azure services this month</p>
+            <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost by Service</h3>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">Top Azure services this month</p>
           </div>
         </div>
         {hasServiceData ? (
-          <div className="h-72 relative">
-            <canvas ref={serviceChartRef} />
-          </div>
+          <div ref={serviceContainerRef} className="w-full" style={{ height: 320 }} />
         ) : (
-          <div className="h-72 flex flex-col items-center justify-center">
-            <i className="fas fa-chart-pie text-gray-300 text-4xl mb-3" />
-            <p className={clsx('text-sm', theme === 'dark' ? 'text-slate-500' : 'text-gray-400')}>
-              No service cost data available
-            </p>
+          <div className="flex flex-col items-center justify-center gap-2" style={{ height: 320 }}>
+            <Icon icon="mdi:chart-pie" width={40} color="rgba(0,0,0,0.1)" />
+            <p className="text-[13px] text-[rgba(0,0,0,0.4)]">No service cost data available</p>
           </div>
         )}
       </div>
 
       {/* Cost by Region */}
-      <div className={cardCls}>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center shadow">
-            <i className="fas fa-globe text-white text-sm" />
+          <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]" style={{ backgroundColor: '#F9731614' }}>
+            <Icon icon="mdi:earth" width={16} color="#F97316" />
           </div>
           <div>
-            <h3 className={titleCls}>Cost by Region</h3>
-            <p className={subCls}>Geographic cost distribution</p>
+            <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost by Region</h3>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">Geographic cost distribution</p>
           </div>
         </div>
         {hasRegionData ? (
-          <div className="h-72 relative">
+          <div className="relative" style={{ height: 320 }}>
             <canvas ref={regionChartRef} />
           </div>
         ) : (
-          <div className="h-72 flex flex-col items-center justify-center">
-            <i className="fas fa-globe text-gray-300 text-4xl mb-3" />
-            <p className={clsx('text-sm', theme === 'dark' ? 'text-slate-500' : 'text-gray-400')}>
-              No region cost data available
-            </p>
+          <div className="flex flex-col items-center justify-center gap-2" style={{ height: 320 }}>
+            <Icon icon="mdi:earth" width={40} color="rgba(0,0,0,0.1)" />
+            <p className="text-[13px] text-[rgba(0,0,0,0.4)]">No region cost data available</p>
           </div>
         )}
       </div>

@@ -1,10 +1,5 @@
-/**
- * FlexCompute Header Component
- *
- * Page header with title, description, and action buttons
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 
 interface FlexComputeHeaderProps {
   onRefresh: () => void;
@@ -22,42 +17,42 @@ const FlexComputeHeader: React.FC<FlexComputeHeaderProps> = ({
   isLoading,
 }) => {
   return (
-    <div className="bg-white border-b border-gray-200 px-8 py-6">
+    <div className="bg-white border-b border-[rgba(0,0,0,0.08)] px-8 py-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Flex Compute</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-[20px] font-bold text-[rgba(0,0,0,0.88)]">Flex Compute</h1>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mt-0.5">
             Manage scheduled EC2 capacity reservations via CloudiDR
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {email && (
-            <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full">
-              <i className="fas fa-link mr-1.5 text-green-500"></i>
+            <span className="flex items-center gap-1.5 text-[12px] text-[rgba(0,0,0,0.55)] bg-[rgba(0,0,0,0.04)] px-3 py-1.5 rounded-full">
+              <Icon icon="mdi:link-variant" width={12} color="#16A34A" />
               {email}
             </span>
           )}
           <button
             onClick={onDeployStack}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold text-[rgba(0,0,0,0.65)] bg-white border border-[rgba(0,0,0,0.12)] rounded-xl hover:bg-[rgba(0,0,0,0.02)] transition-colors"
           >
-            <i className="fab fa-aws mr-2"></i>
+            <Icon icon="mdi:aws" width={14} color="#FF9900" />
             Deploy Stack
           </button>
           <button
             onClick={onRefresh}
             disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors disabled:opacity-50"
           >
-            <i className={`fas fa-sync-alt mr-2 ${isLoading ? 'animate-spin' : ''}`}></i>
+            <Icon icon="mdi:refresh" width={14} className={isLoading ? 'animate-spin' : ''} />
             Refresh
           </button>
           <button
             onClick={onDisconnect}
-            className="px-3 py-2 text-sm font-medium text-gray-500 hover:text-red-600 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-xl text-[rgba(0,0,0,0.4)] hover:text-red-600 hover:bg-red-50 transition-colors"
             title="Disconnect CloudiDR"
           >
-            <i className="fas fa-sign-out-alt"></i>
+            <Icon icon="mdi:logout-variant" width={16} />
           </button>
         </div>
       </div>

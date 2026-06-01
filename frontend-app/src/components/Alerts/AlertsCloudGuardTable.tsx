@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { Alert, AlertSeverityClass } from '../../types/alerts';
 
 interface AlertsCloudGuardTableProps {
@@ -24,31 +25,31 @@ const AlertsCloudGuardTable: React.FC<AlertsCloudGuardTableProps> = ({
   getUsagePercentage,
   getUsageColor,
   getUsageBadgeClass,
-  getAlertClass,
+  getAlertClass: _getAlertClass,
   getServiceIconClass,
   getAwsConsoleLink,
 }) => {
   if (isLoading) {
     return (
-      <div className="alerts-table-container">
-        <table className="alerts-table">
+      <div className="overflow-x-auto">
+        <table className="w-full">
           <thead>
-            <tr>
-              <th><div className="alerts-skeleton-inline"></div></th>
-              <th><div className="alerts-skeleton-inline"></div></th>
-              <th><div className="alerts-skeleton-inline"></div></th>
-              <th><div className="alerts-skeleton-inline"></div></th>
-              <th><div className="alerts-skeleton-inline"></div></th>
+            <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+              {['Service', 'Alert Type', 'Alert', 'Usage Progress', 'Action'].map((col) => (
+                <th key={col} className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">
+                  <div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded h-3 w-20" />
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {Array.from({ length: 8 }).map((_, i) => (
-              <tr key={i} className="alerts-table-row">
-                <td><div className="alerts-skeleton-inline"></div></td>
-                <td><div className="alerts-skeleton-inline"></div></td>
-                <td><div className="alerts-skeleton-inline"></div></td>
-                <td><div className="alerts-skeleton-inline alerts-skeleton-progress"></div></td>
-                <td><div className="alerts-skeleton-inline"></div></td>
+              <tr key={i} className="border-b border-[rgba(0,0,0,0.04)]">
+                <td className="px-4 py-3"><div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded h-4 w-28" /></td>
+                <td className="px-4 py-3"><div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded h-4 w-16" /></td>
+                <td className="px-4 py-3"><div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded h-4 w-48" /></td>
+                <td className="px-4 py-3"><div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded h-4 w-full" /></td>
+                <td className="px-4 py-3"><div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded h-7 w-28" /></td>
               </tr>
             ))}
           </tbody>
@@ -58,85 +59,93 @@ const AlertsCloudGuardTable: React.FC<AlertsCloudGuardTableProps> = ({
   }
 
   return (
-    <div className="alerts-table-container">
-      <table className="alerts-table">
+    <div className="overflow-x-auto">
+      <table className="w-full">
         <thead>
-          <tr>
-            <th className="alerts-table-th-service">Service</th>
-            <th className="alerts-table-th-type">Alert Type</th>
-            <th className="alerts-table-th-alert">Alert</th>
-            <th className="alerts-table-th-progress">Usage Progress</th>
-            <th className="alerts-table-th-action">Action</th>
+          <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+            <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Service</th>
+            <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Alert Type</th>
+            <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Alert</th>
+            <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Usage Progress</th>
+            <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Action</th>
           </tr>
         </thead>
         <tbody>
           {alerts.map((alert) => (
             <tr
               key={alert.id}
-              className={`alerts-table-row alerts-row-${getAlertClass(alert)}`}
+              className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors"
             >
-              <td className="alerts-cell-indicator">
-                <div className="alerts-service-cell">
-                  <div className={`alerts-service-icon ${getServiceIconClass(alert.service)}`}>
-                    <i className="fas fa-cog"></i>
+              {/* Service */}
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${getServiceIconClass(alert.service)}`}>
+                    <Icon icon="mdi:cog-outline" width={15} />
                   </div>
-                  <span className="alerts-service-name">{alert.service}</span>
+                  <span className="text-[13px] font-medium text-[rgba(0,0,0,0.88)]">{alert.service}</span>
                 </div>
               </td>
-              <td>
-                <span className={`alerts-type-badge alerts-type-${alert.type.toLowerCase()}`}>
+
+              {/* Alert Type Badge */}
+              <td className="px-4 py-3">
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                    alert.type === 'QUOTA'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}
+                >
                   {alert.type}
                 </span>
               </td>
-              <td>
-                <div className="alerts-alert-info">
-                  <p className="alerts-alert-name">{alert.name}</p>
-                  <p className="alerts-alert-description">
-                    {alert.type === 'QUOTA'
-                      ? `${alert.region} - Limit: ${alert.limit.toLocaleString()}`
-                      : alert.description}
-                  </p>
-                </div>
+
+              {/* Alert Info */}
+              <td className="px-4 py-3">
+                <p className="text-[13px] font-medium text-[rgba(0,0,0,0.88)]">{alert.name}</p>
+                <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">
+                  {alert.type === 'QUOTA'
+                    ? `${alert.region} - Limit: ${alert.limit.toLocaleString()}`
+                    : alert.description}
+                </p>
               </td>
-              <td>
+
+              {/* Usage Progress */}
+              <td className="px-4 py-3 min-w-[160px]">
                 {alert.type === 'QUOTA' ? (
-                  <div className="alerts-usage-container">
-                    <div className="alerts-usage-header">
-                      <span className={`alerts-usage-badge ${getUsageBadgeClass(alert)}`}>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-md ${getUsageBadgeClass(alert)}`}>
                         {getUsagePercentage(alert).toFixed(1)}%
                       </span>
-                      <span className="alerts-usage-text">
+                      <span className="text-[11px] text-[rgba(0,0,0,0.4)]">
                         {alert.usage.toLocaleString()} / {alert.limit.toLocaleString()}
                       </span>
                     </div>
-                    <div className="alerts-progress-bar">
+                    <div className="w-full h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
                       <div
-                        className={`alerts-progress-fill ${getUsageColor(alert)}`}
+                        className={`h-full rounded-full ${getUsageColor(alert)}`}
                         style={{ width: `${Math.min(getUsagePercentage(alert), 100)}%` }}
-                      ></div>
+                      />
                     </div>
                   </div>
                 ) : (
-                  <p className="alerts-anomaly-value">
+                  <p className="text-[13px] font-semibold text-amber-600">
                     ${alert.usage.toFixed(2)}
                   </p>
                 )}
               </td>
-              <td className="alerts-action-cell">
-                <div className="flex flex-col gap-1.5 items-start">
-                  <a
-                    href={getAwsConsoleLink(alert)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="alerts-btn alerts-btn-action"
-                  >
-                    <i className="fas fa-external-link-alt"></i>
-                    <span>
-                      {alert.type === 'QUOTA' ? 'Request Increase' : 'Investigate'}
-                    </span>
-                  </a>
 
-                </div>
+              {/* Action */}
+              <td className="px-4 py-3">
+                <a
+                  href={getAwsConsoleLink(alert)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-xs font-medium rounded-md transition-colors"
+                >
+                  <Icon icon="mdi:open-in-new" width={12} />
+                  <span>{alert.type === 'QUOTA' ? 'Request Increase' : 'Investigate'}</span>
+                </a>
               </td>
             </tr>
           ))}

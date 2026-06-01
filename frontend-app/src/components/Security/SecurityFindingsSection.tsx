@@ -1,10 +1,5 @@
-/**
- * Security Findings Section Component
- *
- * Collapsible sections for security findings grouped by severity
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { SecurityFinding, SeverityLevel } from '../../types/security';
 
 interface SecurityFindingsSectionProps {
@@ -14,140 +9,76 @@ interface SecurityFindingsSectionProps {
   onToggle: () => void;
 }
 
-/**
- * Get header color classes based on severity
- */
-const getSeverityHeaderColor = (severity: SeverityLevel): string => {
-  const colors: Record<SeverityLevel, string> = {
-    Critical: 'security-severity-header-critical',
-    High: 'security-severity-header-high',
-    Medium: 'security-severity-header-medium',
-    Low: 'security-severity-header-low',
-  };
-  return colors[severity] || 'security-severity-header-default';
+const SEVERITY_CONFIG: Record<SeverityLevel, { header: string; badge: string; icon: string; dot: string }> = {
+  Critical: { header: 'bg-red-50 text-red-800',    badge: 'bg-red-100 text-red-700 border-red-200',    icon: 'mdi:skull-crossbones-outline', dot: 'bg-red-500' },
+  High:     { header: 'bg-orange-50 text-orange-800', badge: 'bg-orange-100 text-orange-700 border-orange-200', icon: 'mdi:alert-triangle', dot: 'bg-orange-500' },
+  Medium:   { header: 'bg-yellow-50 text-yellow-800', badge: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: 'mdi:alert-circle-outline', dot: 'bg-yellow-500' },
+  Low:      { header: 'bg-blue-50 text-blue-800',   badge: 'bg-blue-100 text-blue-700 border-blue-200',   icon: 'mdi:information-outline', dot: 'bg-blue-400' },
 };
 
-/**
- * Get badge color classes based on severity
- */
-const getSeverityBadgeColor = (severity: SeverityLevel): string => {
-  const colors: Record<SeverityLevel, string> = {
-    Critical: 'security-badge-critical',
-    High: 'security-badge-high',
-    Medium: 'security-badge-medium',
-    Low: 'security-badge-low',
-  };
-  return colors[severity] || 'security-badge-default';
-};
+const SecurityFindingsSection: React.FC<SecurityFindingsSectionProps> = ({ severity, findings, isOpen, onToggle }) => {
+  if (findings.length === 0) return null;
 
-/**
- * Get icon for severity level
- */
-const getSeverityIcon = (severity: SeverityLevel): string => {
-  const icons: Record<SeverityLevel, string> = {
-    Critical: 'fa-skull-crossbones',
-    High: 'fa-exclamation-triangle',
-    Medium: 'fa-exclamation-circle',
-    Low: 'fa-info-circle',
-  };
-  return icons[severity] || 'fa-question-circle';
-};
-
-/**
- * Get icon background color based on severity
- */
-const getSeverityIconBg = (severity: SeverityLevel): string => {
-  const colors: Record<SeverityLevel, string> = {
-    Critical: 'security-icon-bg-critical',
-    High: 'security-icon-bg-high',
-    Medium: 'security-icon-bg-medium',
-    Low: 'security-icon-bg-low',
-  };
-  return colors[severity] || 'security-icon-bg-default';
-};
-
-const SecurityFindingsSection: React.FC<SecurityFindingsSectionProps> = ({
-  severity,
-  findings,
-  isOpen,
-  onToggle,
-}) => {
-  if (findings.length === 0) {
-    return null;
-  }
+  const cfg = SEVERITY_CONFIG[severity];
 
   return (
-    <div className="security-findings-section security-card-fade">
-      <div className="security-section-wrapper">
-        <button
-          onClick={onToggle}
-          className={`security-section-header ${getSeverityHeaderColor(severity)}`}
-        >
-          <div className="security-section-header-left">
-            <div className={`security-section-icon ${getSeverityIconBg(severity)}`}>
-              <i className={`fas ${getSeverityIcon(severity)}`}></i>
-            </div>
-            <h3 className="security-section-title">{severity} Severity Findings</h3>
-          </div>
-          <div className="security-section-header-right">
-            <span className={`security-severity-badge ${getSeverityBadgeColor(severity)}`}>
-              {findings.length}
-            </span>
-            <i
-              className={`fas fa-chevron-down security-chevron ${isOpen ? 'security-chevron-open' : ''}`}
-            ></i>
-          </div>
-        </button>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <button
+        onClick={onToggle}
+        className={`w-full flex items-center justify-between px-5 py-3.5 ${cfg.header} transition-colors`}
+      >
+        <div className="flex items-center gap-3">
+          <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+          <Icon icon={cfg.icon} width={15} />
+          <span className="text-sm font-bold">{severity} Severity Findings</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${cfg.badge}`}>{findings.length}</span>
+          <Icon icon="mdi:chevron-down" width={16} className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
 
-        {isOpen && (
-          <div className="security-section-content">
-            <div className="security-table-container">
-              <table className="security-table">
-                <thead>
-                  <tr>
-                    <th className="security-table-th-category">Category</th>
-                    <th className="security-table-th-description">Description</th>
-                    <th className="security-table-th-resource">Resource</th>
-                    <th className="security-table-th-source">Source & Control</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {findings.map((finding, index) => (
-                    <tr key={`${finding.resourceId}-${index}`} className="security-table-row">
-                      <td>
-                        <div className="security-category-display">{finding.category}</div>
-                      </td>
-                      <td>
-                        <div className="security-description-text">{finding.description}</div>
-                      </td>
-                      <td>
-                        <div className="security-resource-info">
-                          <div className="security-resource-id">{finding.resourceId}</div>
-                          <div className="security-resource-region">{finding.region}</div>
-                        </div>
-                      </td>
-                      <td>
-                        <span
-                          className={`security-compliance-badge ${
-                            finding.complianceFramework?.includes('SOC2')
-                              ? 'security-soc2-badge'
-                              : finding.complianceFramework?.includes('Prowler')
-                              ? 'security-prowler-badge'
-                              : ''
-                          }`}
-                        >
-                          {(finding.complianceFramework || 'Unknown') +
-                            (finding.controlId ? ` (${finding.controlId})` : '')}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
+      {isOpen && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Category</th>
+                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Description</th>
+                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Resource</th>
+                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Source & Control</th>
+              </tr>
+            </thead>
+            <tbody>
+              {findings.map((finding, index) => (
+                <tr key={`${finding.resourceId}-${index}`} className="border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                  <td className="px-4 py-3">
+                    <span className="text-xs font-medium text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] px-2 py-0.5 rounded">{finding.category}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs text-[rgba(0,0,0,0.7)] line-clamp-2">{finding.description}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-xs font-medium text-[rgba(0,0,0,0.88)] truncate max-w-[160px]">{finding.resourceId}</div>
+                    <div className="text-[11px] text-[rgba(0,0,0,0.4)]">{finding.region}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${
+                      finding.complianceFramework?.includes('SOC2')
+                        ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                        : finding.complianceFramework?.includes('Prowler')
+                        ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                        : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)]'
+                    }`}>
+                      {(finding.complianceFramework || 'Unknown') + (finding.controlId ? ` (${finding.controlId})` : '')}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };

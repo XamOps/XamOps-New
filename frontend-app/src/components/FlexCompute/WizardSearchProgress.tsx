@@ -1,15 +1,10 @@
-/**
- * Wizard Search Progress Component
- *
- * Shows a loading spinner with progress steps while searching for capacity
- */
-
 import React, { useState, useEffect } from 'react';
+import { Icon } from '@iconify/react';
 
 const steps = [
-  { label: 'Establishing backend connection', icon: 'fas fa-plug' },
-  { label: 'Verifying resource availability', icon: 'fas fa-server' },
-  { label: 'Calculating pricing & savings', icon: 'fas fa-calculator' },
+  { label: 'Establishing backend connection',  icon: 'mdi:connection' },
+  { label: 'Verifying resource availability',  icon: 'mdi:server-outline' },
+  { label: 'Calculating pricing & savings',    icon: 'mdi:calculator-variant-outline' },
 ];
 
 interface WizardSearchProgressProps {
@@ -21,86 +16,66 @@ interface WizardSearchProgressProps {
 
 const WizardSearchProgress: React.FC<WizardSearchProgressProps> = ({ status, isSearching, onNext, onBack }) => {
   const [currentStep, setCurrentStep] = useState(0);
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress]       = useState(0);
 
   useEffect(() => {
-    // Complete animations when search finishes
     if (!isSearching && status) {
       setProgress(100);
       setCurrentStep(steps.length - 1);
       return;
     }
-
     const stepInterval = setInterval(() => {
-      setCurrentStep((prev) => {
-        if (prev < steps.length - 1) return prev + 1;
-        return prev;
-      });
+      setCurrentStep((prev) => (prev < steps.length - 1 ? prev + 1 : prev));
     }, 2000);
-
     const progressInterval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev < 90) return prev + Math.random() * 8;
-        return prev;
-      });
+      setProgress((prev) => (prev < 90 ? prev + Math.random() * 8 : prev));
     }, 500);
-
-    return () => {
-      clearInterval(stepInterval);
-      clearInterval(progressInterval);
-    };
+    return () => { clearInterval(stepInterval); clearInterval(progressInterval); };
   }, [isSearching, status]);
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-2xl shadow-sm p-12">
       <div className="max-w-md mx-auto text-center">
-        {/* Spinning Icon */}
-        <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-lg animate-pulse">
-          <i className="fas fa-search text-white text-2xl"></i>
+        {/* Icon */}
+        <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-lg animate-pulse">
+          <Icon icon="mdi:magnify" color="#fff" width={32} />
         </div>
 
-        <h3 className="text-xl font-bold text-gray-900 mb-2">Searching Capacity</h3>
-        <p className="text-sm text-gray-500 mb-8">
-          Finding the best available capacity for your requirements...
+        <h3 className="text-[20px] font-bold text-[rgba(0,0,0,0.88)] mb-2">Searching Capacity</h3>
+        <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-8">
+          Finding the best available capacity for your requirements…
         </p>
 
         {/* Progress Bar */}
-        <div className="w-full bg-gray-200 rounded-full h-2.5 mb-8">
+        <div className="w-full bg-[rgba(0,0,0,0.06)] rounded-full h-2 mb-8">
           <div
-            className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2.5 rounded-full transition-all duration-500 ease-out"
+            className="bg-indigo-600 h-2 rounded-full transition-all duration-500 ease-out"
             style={{ width: `${Math.min(progress, 95)}%` }}
-          ></div>
+          />
         </div>
 
         {/* Steps */}
-        <div className="space-y-4 text-left">
+        <div className="space-y-3 text-left">
           {steps.map((step, index) => {
             const isCompleted = index < currentStep;
-            const isCurrent = index === currentStep;
-
+            const isCurrent   = index === currentStep;
             return (
               <div
                 key={index}
                 className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
-                  isCurrent ? 'bg-blue-50 border border-blue-200' : isCompleted ? 'opacity-60' : 'opacity-30'
+                  isCurrent ? 'bg-indigo-50 border border-indigo-200' : isCompleted ? 'opacity-60' : 'opacity-30'
                 }`}
               >
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  isCompleted
-                    ? 'bg-green-100 text-green-600'
-                    : isCurrent
-                    ? 'bg-blue-100 text-blue-600'
-                    : 'bg-gray-100 text-gray-400'
+                  isCompleted ? 'bg-emerald-100' : isCurrent ? 'bg-indigo-100' : 'bg-[rgba(0,0,0,0.04)]'
                 }`}>
-                  {isCompleted ? (
-                    <i className="fas fa-check text-xs"></i>
-                  ) : isCurrent ? (
-                    <i className="fas fa-spinner fa-spin text-xs"></i>
-                  ) : (
-                    <i className={`${step.icon} text-xs`}></i>
-                  )}
+                  {isCompleted
+                    ? <Icon icon="mdi:check" width={14} color="#16A34A" />
+                    : isCurrent
+                      ? <Icon icon="mdi:loading" width={14} color="#6366F1" className="animate-spin" />
+                      : <Icon icon={step.icon} width={14} color="rgba(0,0,0,0.3)" />}
                 </div>
-                <span className={`text-sm ${isCurrent ? 'font-medium text-gray-900' : 'text-gray-600'}`}>
+                <span className={`text-[13px] ${isCurrent ? 'font-medium text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.55)]'}`}>
                   {step.label}
                 </span>
               </div>
@@ -108,23 +83,33 @@ const WizardSearchProgress: React.FC<WizardSearchProgressProps> = ({ status, isS
           })}
         </div>
 
-        {/* Availability Status */}
+        {/* Status result */}
         {status && (
-          <div className="mt-6 p-4 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50">
+          <div className={`mt-6 p-4 rounded-xl border-2 border-dashed ${
+            status === 'AVAILABLE_ALL'       ? 'border-emerald-300 bg-emerald-50' :
+            status === 'PARTIAL_AVAILABLE'   ? 'border-amber-300 bg-amber-50' :
+                                              'border-rose-300 bg-rose-50'
+          }`}>
             <div className="flex items-center gap-3">
-              <i className={`fas ${
-                status === 'AVAILABLE_ALL' ? 'fa-check-circle text-green-600' :
-                status === 'PARTIAL_AVAILABLE' ? 'fa-exclamation-circle text-yellow-600' :
-                'fa-times-circle text-red-600'
-              } text-xl`}></i>
-              <div>
-                <p className="text-sm font-semibold text-gray-900">
-                  {status === 'AVAILABLE_ALL' ? 'Capacity Available' :
-                   status === 'PARTIAL_AVAILABLE' ? 'Partially Available' :
-                   'Not Available'}
+              <Icon
+                icon={
+                  status === 'AVAILABLE_ALL'     ? 'mdi:check-circle' :
+                  status === 'PARTIAL_AVAILABLE' ? 'mdi:alert-circle' :
+                                                   'mdi:close-circle'
+                }
+                width={22}
+                color={
+                  status === 'AVAILABLE_ALL'     ? '#16A34A' :
+                  status === 'PARTIAL_AVAILABLE' ? '#D97706' : '#DC2626'
+                }
+              />
+              <div className="text-left">
+                <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">
+                  {status === 'AVAILABLE_ALL'     ? 'Capacity Available' :
+                   status === 'PARTIAL_AVAILABLE' ? 'Partially Available' : 'Not Available'}
                 </p>
-                <p className="text-xs text-gray-600">
-                  {status === 'AVAILABLE_ALL' ? 'Full capacity is available for your requirements' :
+                <p className="text-[12px] text-[rgba(0,0,0,0.55)]">
+                  {status === 'AVAILABLE_ALL'     ? 'Full capacity is available for your requirements' :
                    status === 'PARTIAL_AVAILABLE' ? 'Some capacity is available, but not all requested' :
                    'No capacity available for the specified criteria'}
                 </p>
@@ -133,33 +118,25 @@ const WizardSearchProgress: React.FC<WizardSearchProgressProps> = ({ status, isS
           </div>
         )}
 
-        {/* Action Buttons - Only show when search is complete */}
+        {/* Actions */}
         {!isSearching && status && (
-          <div className="mt-8 flex gap-4">
+          <div className="mt-8 flex gap-3">
             <button
               onClick={onBack}
-              disabled={isSearching}
-              className="flex-1 py-3 px-6 bg-white border-2 border-gray-300 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-5 bg-white border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.65)] text-[13px] font-semibold rounded-xl hover:bg-[rgba(0,0,0,0.02)] transition-colors"
             >
-              <i className="fas fa-arrow-left mr-2"></i>
+              <Icon icon="mdi:arrow-left" width={14} />
               Back to Search
             </button>
             <button
               onClick={onNext}
               disabled={isSearching || (status !== 'AVAILABLE_ALL' && status !== 'PARTIAL_AVAILABLE')}
-              className="flex-1 py-3 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSearching ? (
-                <>
-                  <i className="fas fa-spinner fa-spin mr-2"></i>
-                  Processing...
-                </>
-              ) : (
-                <>
-                  Continue to Configure
-                  <i className="fas fa-arrow-right ml-2"></i>
-                </>
-              )}
+              {isSearching
+                ? <><Icon icon="mdi:loading" width={14} className="animate-spin" /> Processing…</>
+                : <>Continue to Configure <Icon icon="mdi:arrow-right" width={14} /></>
+              }
             </button>
           </div>
         )}

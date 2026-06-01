@@ -1,107 +1,69 @@
-/**
- * GCP CloudK8s Integrations Component
- *
- * Displays available integrations for GKE clusters
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
+
+const INTEGRATIONS = [
+  {
+    icon: 'mdi:git',
+    iconColor: '#3B82F6',
+    iconBg: 'bg-blue-50 border-blue-100',
+    title: 'Config Sync',
+    description: 'GitOps for GKE. Automatically sync your cluster configurations from Git repositories.',
+    hoverBorder: 'hover:border-blue-200',
+  },
+  {
+    icon: 'mdi:chart-areaspline',
+    iconColor: '#16A34A',
+    iconBg: 'bg-emerald-50 border-emerald-100',
+    title: 'Cloud Operations',
+    description: 'Integrated monitoring, logging, and tracing powered by Google Cloud Operations Suite.',
+    hoverBorder: 'hover:border-emerald-200',
+  },
+  {
+    icon: 'mdi:robot-outline',
+    iconColor: '#7C3AED',
+    iconBg: 'bg-purple-50 border-purple-100',
+    title: 'GKE Autopilot',
+    description: 'Hands-off cluster management with optimized configuration and automatic scaling.',
+    hoverBorder: 'hover:border-purple-200',
+  },
+] as const;
 
 const GcpCloudK8sIntegrations: React.FC = () => {
   return (
-    <div className="fade-in">
-      <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-        <i className="fas fa-plug text-indigo-500 mr-2"></i> Available Integrations
+    <div>
+      <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)] mb-4 flex items-center gap-2">
+        <Icon icon="mdi:puzzle-outline" width={15} color="#6366F1" />
+        Available Integrations
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Config Sync (GitOps) */}
-        <div className="glass-card p-6 rounded-xl relative group border border-dashed border-gray-300 hover:border-indigo-300 transition-colors">
-          <div className="absolute top-0 right-0 bg-gradient-to-r from-gray-700 to-gray-900 text-white text-[10px] font-bold px-3 py-1 rounded-bl-lg shadow-sm z-10">
-            COMING SOON
-          </div>
 
-          <div className="flex items-center justify-between mb-4 opacity-75 group-hover:opacity-100 transition-opacity">
-            <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center border border-blue-100">
-              <i className="fab fa-git-alt text-blue-500 text-xl"></i>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {INTEGRATIONS.map(item => (
+          <div key={item.title}
+            className={`bg-white border border-dashed border-[rgba(0,0,0,0.12)] ${item.hoverBorder} rounded-xl p-5 relative transition-all hover:shadow-sm`}>
+            <div className="absolute top-0 right-0 bg-[rgba(0,0,0,0.75)] text-white text-[9px] font-bold px-2.5 py-1 rounded-bl-lg rounded-tr-xl">
+              COMING SOON
             </div>
-          </div>
-
-          <h4 className="font-bold text-gray-800 text-lg mb-2">Config Sync</h4>
-          <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-            GitOps for GKE. Automatically sync your cluster configurations from Git repositories.
-          </p>
-
-          <button
-            disabled
-            className="w-full py-2.5 rounded-lg bg-gray-100 text-gray-400 text-sm font-semibold cursor-not-allowed border border-gray-200 flex items-center justify-center"
-          >
-            <i className="fas fa-clock mr-2"></i> Integration Pending
-          </button>
-        </div>
-
-        {/* Cloud Operations (Monitoring & Logging) */}
-        <div className="glass-card p-6 rounded-xl relative group border border-dashed border-gray-300 hover:border-indigo-300 transition-colors">
-          <div className="absolute top-0 right-0 bg-gradient-to-r from-gray-700 to-gray-900 text-white text-[10px] font-bold px-3 py-1 rounded-bl-lg shadow-sm z-10">
-            COMING SOON
-          </div>
-
-          <div className="flex items-center justify-between mb-4 opacity-75 group-hover:opacity-100 transition-opacity">
-            <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center border border-green-100">
-              <i className="fas fa-chart-line text-green-500 text-xl"></i>
+            <div className={`w-10 h-10 ${item.iconBg} border rounded-lg flex items-center justify-center mb-4`}>
+              <Icon icon={item.icon} width={18} color={item.iconColor} />
             </div>
+            <h4 className="font-bold text-[rgba(0,0,0,0.88)] text-[14px] mb-1.5">{item.title}</h4>
+            <p className="text-[12px] text-[rgba(0,0,0,0.45)] mb-5 leading-relaxed">{item.description}</p>
+            <button disabled
+              className="w-full py-2 rounded-lg bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.35)] text-[12px] font-semibold cursor-not-allowed border border-[rgba(0,0,0,0.07)] flex items-center justify-center gap-2">
+              <Icon icon="mdi:clock-outline" width={13} />
+              Integration Pending
+            </button>
           </div>
-
-          <h4 className="font-bold text-gray-800 text-lg mb-2">Cloud Operations</h4>
-          <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-            Integrated monitoring, logging, and tracing powered by Google Cloud Operations Suite.
-          </p>
-
-          <button
-            disabled
-            className="w-full py-2.5 rounded-lg bg-gray-100 text-gray-400 text-sm font-semibold cursor-not-allowed border border-gray-200 flex items-center justify-center"
-          >
-            <i className="fas fa-clock mr-2"></i> Integration Pending
-          </button>
-        </div>
-
-        {/* GKE Autopilot */}
-        <div className="glass-card p-6 rounded-xl relative group border border-dashed border-gray-300 hover:border-indigo-300 transition-colors">
-          <div className="absolute top-0 right-0 bg-gradient-to-r from-gray-700 to-gray-900 text-white text-[10px] font-bold px-3 py-1 rounded-bl-lg shadow-sm z-10">
-            COMING SOON
-          </div>
-
-          <div className="flex items-center justify-between mb-4 opacity-75 group-hover:opacity-100 transition-opacity">
-            <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center border border-purple-100">
-              <i className="fas fa-robot text-purple-500 text-xl"></i>
-            </div>
-          </div>
-
-          <h4 className="font-bold text-gray-800 text-lg mb-2">GKE Autopilot</h4>
-          <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-            Hands-off cluster management with optimized configuration and automatic scaling.
-          </p>
-
-          <button
-            disabled
-            className="w-full py-2.5 rounded-lg bg-gray-100 text-gray-400 text-sm font-semibold cursor-not-allowed border border-gray-200 flex items-center justify-center"
-          >
-            <i className="fas fa-clock mr-2"></i> Integration Pending
-          </button>
-        </div>
+        ))}
       </div>
 
-      {/* Info Banner */}
-      <div className="mt-6 glass-card p-4 rounded-xl border-l-4 border-blue-500">
-        <div className="flex items-start space-x-3">
-          <div className="flex-shrink-0 mt-0.5">
-            <i className="fas fa-info-circle text-blue-500 text-lg"></i>
-          </div>
-          <div className="flex-1">
-            <h5 className="font-bold text-gray-800 text-sm mb-1">More Integrations Coming Soon</h5>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              We're working on integrating more GCP services including Cloud Build, Artifact Registry,
-              Binary Authorization, and Policy Controller. Stay tuned for updates!
-            </p>
-          </div>
+      <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-3">
+        <Icon icon="mdi:information-outline" width={15} color="#3B82F6" className="mt-0.5 flex-shrink-0" />
+        <div>
+          <h5 className="font-bold text-[rgba(0,0,0,0.75)] text-[13px] mb-1">More Integrations Coming Soon</h5>
+          <p className="text-[12px] text-[rgba(0,0,0,0.55)] leading-relaxed">
+            We're working on Cloud Build, Artifact Registry, Binary Authorization, and Policy Controller. Stay tuned!
+          </p>
         </div>
       </div>
     </div>

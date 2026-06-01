@@ -1,42 +1,31 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureWasteData } from '../hooks/useAzureWasteData';
-import {
-  AzureWasteHeader,
-  AzureWasteKPICards,
-  AzureWasteResourceGroup,
-} from '../components/AzureWaste';
+import { AzureWasteHeader, AzureWasteKPICards, AzureWasteResourceGroup } from '../components/AzureWaste';
 
 const AzureWastePage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  const { wasteGroups, allItems, isLoading, isRefreshing, loadWasteData } =
-    useAzureWasteData({ selectedAccountId });
-
-  const handleRefresh = () => {
-    loadWasteData(true);
-  };
+  const { wasteGroups, allItems, isLoading, isRefreshing, loadWasteData } = useAzureWasteData({ selectedAccountId });
 
   return (
-    <main className="p-6 space-y-6">
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <AzureWasteHeader
         selectedAccountId={selectedAccountId}
         isRefreshing={isRefreshing}
-        onRefresh={handleRefresh}
+        onRefresh={() => loadWasteData(true)}
       />
 
+      {/* No account */}
       {!selectedAccountId && !isLoading && (
-        <div className="glass-card rounded-xl p-16 text-center">
-          <div className="flex flex-col items-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-              <i className="fas fa-recycle text-blue-500 text-2xl"></i>
-            </div>
-            <h3 className="text-lg font-bold text-gray-700 mb-1">No Account Selected</h3>
-            <p className="text-sm text-gray-500 max-w-md">
-              Please select an Azure account from the sidebar to scan for waste and idle resources.
-            </p>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:recycle" width={22} color="rgba(0,0,0,0.3)" />
           </div>
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Account Selected</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Select an Azure account from the sidebar to scan for waste.</p>
         </div>
       )}
 
@@ -44,41 +33,37 @@ const AzureWastePage: React.FC = () => {
         <>
           <AzureWasteKPICards allItems={allItems} isLoading={isLoading} />
 
+          {/* Loading skeletons */}
           {isLoading && (
-            <div className="space-y-4">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="glass-card rounded-xl p-6 animate-pulse">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-8 h-8 rounded-lg bg-gray-200"></div>
-                    <div className="h-4 bg-gray-200 rounded w-32"></div>
-                    <div className="h-5 bg-gray-200 rounded-full w-16"></div>
-                  </div>
-                  <div className="space-y-3">
-                    {[1, 2].map(j => (
-                      <div key={j} className="h-4 bg-gray-100 rounded w-full"></div>
-                    ))}
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)]" />
+                    <div className="flex-1">
+                      <div className="h-3 w-32 bg-[rgba(0,0,0,0.06)] rounded mb-2" />
+                      <div className="h-2 w-20 bg-[rgba(0,0,0,0.04)] rounded" />
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
 
+          {/* No waste */}
           {!isLoading && allItems.length === 0 && (
-            <div className="glass-card rounded-xl p-16 text-center">
-              <div className="flex flex-col items-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                  <i className="fas fa-check-circle text-green-500 text-2xl"></i>
-                </div>
-                <h3 className="text-lg font-bold text-gray-700 mb-1">No Waste Detected</h3>
-                <p className="text-sm text-gray-500 max-w-md">
-                  Your Azure resources appear clean — no idle disks, stopped VMs, orphaned IPs, or unattached NICs found.
-                </p>
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
+                <Icon icon="mdi:check-circle-outline" width={24} color="#16A34A" />
               </div>
+              <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Waste Detected</p>
+              <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Your Azure resources appear clean — no idle disks, stopped VMs, or orphaned IPs found.</p>
             </div>
           )}
 
+          {/* Resource groups */}
           {!isLoading && wasteGroups.length > 0 && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {wasteGroups.map(group => (
                 <AzureWasteResourceGroup key={group.type} group={group} />
               ))}

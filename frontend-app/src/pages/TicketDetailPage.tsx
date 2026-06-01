@@ -16,6 +16,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Icon } from '@iconify/react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
@@ -344,98 +345,87 @@ const TicketDetailPage: React.FC = () => {
     if (!ticket) return;
 
     setActions(
-      <div className="flex items-center gap-6">
-        {/* Title */}
-        <div className="flex items-center gap-4 pr-6 border-r border-slate-200/50">
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 pr-4 border-r border-[rgba(0,0,0,0.08)]">
           <button
             onClick={goBackToTickets}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 transition-all font-bold"
-            title="Back to List"
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.07)] transition-all"
+            title="Back to Tickets"
           >
-            <i className="fas fa-arrow-left"></i>
+            <Icon icon="mdi:arrow-left" width={14} />
           </button>
           <div>
-            <h1 className="text-sm font-bold text-slate-900 leading-none truncate max-w-[200px] lg:max-w-[400px]">
-              {ticket.subject}
-            </h1>
-            <p className="text-[10px] text-slate-500 font-medium mt-1">
-              Ticket #{ticket.id} • {ticket.category}
-            </p>
+            <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] truncate max-w-[300px] lg:max-w-[500px]">{ticket.subject}</p>
+            <p className="text-[10px] text-[rgba(0,0,0,0.4)]">Ticket #{ticket.id} · {ticket.category}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Status badge */}
-          <span className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm transition-all ${
+        <div className="flex items-center gap-2">
+          {/* Status badge — keep existing colors for open/in_progress/closed */}
+          <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
             ticket.status === 'OPEN'
-              ? 'bg-emerald-500 text-white shadow-emerald-200 ring-4 ring-emerald-500/10'
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
               : ticket.status === 'IN_PROGRESS'
-                ? 'bg-amber-500 text-white shadow-amber-200 ring-4 ring-amber-500/10'
-                : 'bg-slate-400 text-white shadow-slate-200 ring-4 ring-slate-400/10'
+                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] border border-[rgba(0,0,0,0.1)]'
           }`}>
-            <span className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white] ${ticket.status === 'OPEN' ? 'animate-pulse' : ''}`}></span>
-            {ticket.status}
+            <span className={`w-1.5 h-1.5 rounded-full ${ticket.status === 'OPEN' ? 'bg-emerald-500 animate-pulse' : ticket.status === 'IN_PROGRESS' ? 'bg-amber-500' : 'bg-[rgba(0,0,0,0.3)]'}`}></span>
+            {ticket.status.replace('_', ' ')}
           </span>
 
-          {/* Assign dropdown (admin only) */}
+          {/* Assign dropdown (admin only) - keep all logic, update classes */}
           {isAdmin && (
             <div className="relative" data-assign-dropdown>
               <button
                 onClick={() => setShowAssignDropdown(v => !v)}
                 disabled={isAssigning || ticket.status === 'CLOSED'}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                   ticket.assignedToUsername
                     ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    : 'border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.6)] hover:border-indigo-200 hover:text-indigo-600'
+                }`}
               >
                 {ticket.assignedToUsername ? (
                   <>
-                    <div className="w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[7px] font-black">
+                    <div className="w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[7px] font-bold">
                       {ticket.assignedToUsername.charAt(0).toUpperCase()}
                     </div>
                     {ticket.assignedToUsername}
                   </>
                 ) : (
                   <>
-                    <i className="fas fa-user-plus text-[10px]"></i>
+                    <Icon icon="mdi:account-plus-outline" width={12} />
                     Assign
                   </>
                 )}
-                {!isAssigning && ticket.status !== 'CLOSED' && (
-                  <i className="fas fa-chevron-down text-[8px] opacity-50"></i>
-                )}
-                {isAssigning && <i className="fas fa-circle-notch fa-spin text-[8px]"></i>}
+                {!isAssigning && ticket.status !== 'CLOSED' && <Icon icon="mdi:chevron-down" width={10} className="opacity-50" />}
+                {isAssigning && <Icon icon="mdi:loading" width={10} className="animate-spin" />}
               </button>
 
               {showAssignDropdown && adminUsers.length > 0 && (
-                <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-100 py-1 z-50 overflow-hidden">
-                  <div className="px-3 py-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50">
-                    Assign to
-                  </div>
+                <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-[rgba(0,0,0,0.12)] py-1 z-50 overflow-hidden">
+                  <div className="px-3 py-1.5 text-[9px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-widest border-b border-[rgba(0,0,0,0.04)]">Assign to</div>
                   {adminUsers.map(admin => (
                     <button
                       key={admin.id}
                       onClick={() => handleAssign(admin.id, admin.username)}
-                      className={`w-full text-left flex items-center gap-2 px-3 py-2 text-[11px] font-bold hover:bg-indigo-50 hover:text-indigo-700 transition-colors ${
-                        ticket.assignedToId === admin.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700'
+                      className={`w-full text-left flex items-center gap-2 px-3 py-2 text-[11px] font-medium hover:bg-[rgba(0,0,0,0.04)] transition-colors ${
+                        ticket.assignedToId === admin.id ? 'bg-indigo-50 text-indigo-700' : 'text-[rgba(0,0,0,0.7)]'
                       }`}
                     >
-                      <div className="w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[8px] font-black flex-shrink-0">
+                      <div className="w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[8px] font-bold flex-shrink-0">
                         {admin.username.charAt(0).toUpperCase()}
                       </div>
                       {admin.username}
-                      {ticket.assignedToId === admin.id && (
-                        <i className="fas fa-check text-indigo-500 ml-auto text-[9px]"></i>
-                      )}
+                      {ticket.assignedToId === admin.id && <Icon icon="mdi:check" width={12} className="text-indigo-500 ml-auto" />}
                     </button>
                   ))}
                   {ticket.assignedToUsername && (
                     <button
                       onClick={() => handleAssign(0, '')}
-                      className="w-full text-left flex items-center gap-2 px-3 py-2 text-[11px] font-bold text-rose-500 hover:bg-rose-50 transition-colors border-t border-slate-50"
+                      className="w-full text-left flex items-center gap-2 px-3 py-2 text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors border-t border-[rgba(0,0,0,0.04)]"
                     >
-                      <i className="fas fa-user-times text-[10px]"></i>
+                      <Icon icon="mdi:account-remove-outline" width={12} />
                       Unassign
                     </button>
                   )}
@@ -444,14 +434,14 @@ const TicketDetailPage: React.FC = () => {
             </div>
           )}
 
-          {/* Email Thread (admin only, ticket has replies) */}
+          {/* Email Thread (admin only) */}
           {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
             <button
               onClick={() => setShowEmailModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-sky-50 text-sky-600 rounded-xl text-xs font-bold border border-sky-100 hover:bg-sky-100 transition-all active:scale-95"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-sky-50 text-sky-600 border border-sky-100 hover:bg-sky-100 transition-all"
             >
-              <i className="fas fa-envelope text-xs"></i>
-              <span>Email Thread</span>
+              <Icon icon="mdi:email-outline" width={12} />
+              Email Thread
             </button>
           )}
 
@@ -459,10 +449,10 @@ const TicketDetailPage: React.FC = () => {
           {ticket.status !== 'CLOSED' && (
             <button
               onClick={closeTicket}
-              className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold border border-rose-100 hover:bg-rose-100 transition-all active:scale-95"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-red-100 text-red-600 hover:bg-red-50 transition-all"
             >
-              <i className="far fa-times-circle"></i>
-              <span>Close Ticket</span>
+              <Icon icon="mdi:close-circle-outline" width={12} />
+              Close Ticket
             </button>
           )}
         </div>
@@ -491,8 +481,8 @@ const TicketDetailPage: React.FC = () => {
   };
 
   if (loading) return (
-    <div className="flex-1 flex items-center justify-center">
-      <i className="fas fa-spinner fa-spin text-5xl text-indigo-600"></i>
+    <div className="flex-1 flex items-center justify-center bg-white">
+      <Icon icon="mdi:loading" width={32} className="animate-spin text-[rgba(0,0,0,0.3)]" />
     </div>
   );
   if (!ticket) return null;
@@ -504,48 +494,48 @@ const TicketDetailPage: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
-      <div ref={chatContainerRef} className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50">
+      <div ref={chatContainerRef} className="flex-1 overflow-y-auto custom-scrollbar bg-[rgba(0,0,0,0.02)]">
         <div className="max-w-4xl mx-auto p-6 lg:p-10 space-y-8">
 
           {/* Header Card */}
-          <div className="relative group bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2.5rem] shadow-[0_8px_40px_rgba(0,0,0,0.03)] hover:shadow-[0_24px_48px_rgba(0,0,0,0.06)] transition-all">
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
             <div className="relative flex gap-6">
               <div className="flex-shrink-0">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-                  <i className="fas fa-user text-lg"></i>
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white">
+                  <Icon icon="mdi:account" width={20} />
                 </div>
               </div>
               <div className="flex-1 space-y-4">
                 <div className="flex justify-between items-start gap-4">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Original Request</span>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter whitespace-nowrap">
+                  <span className="text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest leading-none">Original Request</span>
+                  <span className="text-[10px] font-medium text-[rgba(0,0,0,0.35)] whitespace-nowrap">
                     {formatIST(ticket.createdAt)}
                   </span>
                 </div>
-                <div className="text-base text-slate-700 font-medium whitespace-pre-wrap leading-relaxed">{ticket.description}</div>
-                <div className="flex flex-wrap gap-4 pt-4 border-t border-slate-100 text-[10px] font-bold uppercase tracking-widest">
-                  <div>Region: <span className="text-slate-600 font-black">{ticket.region || 'Global'}</span></div>
-                  <div>Severity: <span className={`font-black ${getSeverityClass(ticket.severity)}`}>{ticket.severity}</span></div>
+                <div className="text-[13px] text-[rgba(0,0,0,0.7)] leading-relaxed whitespace-pre-wrap">{ticket.description}</div>
+                <div className="flex flex-wrap gap-4 pt-4 border-t border-[rgba(0,0,0,0.06)] text-[10px] font-semibold uppercase tracking-widest text-[rgba(0,0,0,0.4)]">
+                  <div>Region: <span className="text-[rgba(0,0,0,0.7)] font-semibold">{ticket.region || 'Global'}</span></div>
+                  <div>Severity: <span className={`font-semibold ${getSeverityClass(ticket.severity)}`}>{ticket.severity}</span></div>
                   {ticket.accountId && (
-                    <div>Account / Project: <span className="text-indigo-600 font-black font-mono">{ticket.accountId}</span></div>
+                    <div>Account / Project: <span className="text-indigo-600 font-semibold font-mono">{ticket.accountId}</span></div>
                   )}
                   {ticket.creatorUsername && (
-                    <div>Raised By: <span className="text-slate-600 font-black">{ticket.creatorUsername}</span></div>
+                    <div>Raised By: <span className="text-[rgba(0,0,0,0.7)] font-semibold">{ticket.creatorUsername}</span></div>
                   )}
                   {isAdmin && ticket.assignedToUsername && (
-                    <div>Assigned: <span className="text-indigo-600 font-black">{ticket.assignedToUsername}</span></div>
+                    <div>Assigned: <span className="text-indigo-600 font-semibold">{ticket.assignedToUsername}</span></div>
                   )}
                   {ticket.chatStartedAt && (
-                    <div>Chat Started: <span className="text-indigo-600 font-black">{formatIST(ticket.chatStartedAt)}</span></div>
+                    <div>Chat Started: <span className="text-indigo-600 font-semibold">{formatIST(ticket.chatStartedAt)}</span></div>
                   )}
                   {ticket.closedAt && (
-                    <div>Closed: <span className="text-slate-600 font-black">{formatIST(ticket.closedAt)}</span></div>
+                    <div>Closed: <span className="text-[rgba(0,0,0,0.7)] font-semibold">{formatIST(ticket.closedAt)}</span></div>
                   )}
                 </div>
 
                 {/* SLA card (admin only) */}
                 {isAdmin && (
-                  <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border ${slaColorMap[slaStatus.status]}`}>
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${slaColorMap[slaStatus.status]}`}>
                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${slaDotMap[slaStatus.status]}`}></span>
                     <div className="flex-1 min-w-0">
                       <div className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">
@@ -563,9 +553,9 @@ const TicketDetailPage: React.FC = () => {
           </div>
 
           {/* Correspondence divider */}
-          <div className="flex items-center gap-4 text-slate-400 pt-4">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap">Correspondence</span>
-            <div className="h-px bg-slate-200 flex-1"></div>
+          <div className="flex items-center gap-4 pt-4">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.2em] whitespace-nowrap text-[rgba(0,0,0,0.35)]">Correspondence</span>
+            <div className="h-px bg-[rgba(0,0,0,0.06)] flex-1"></div>
           </div>
 
           {/* Messages */}
@@ -579,16 +569,16 @@ const TicketDetailPage: React.FC = () => {
                   <div key={reply.id} className="flex w-full justify-end">
                     <div className="flex max-w-[85%] md:max-w-[70%] gap-4 flex-row-reverse">
                       <div className="flex-shrink-0 mt-auto">
-                        <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm bg-amber-500 text-white">
-                          <i className="fas fa-lock text-xs"></i>
+                        <div className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-black shadow-sm bg-amber-500 text-white">
+                          <Icon icon="mdi:lock" width={14} />
                         </div>
                       </div>
                       <div className="space-y-2 text-right">
                         <div className="flex items-center justify-end gap-2 px-1">
-                          <span className="px-2 py-0.5 text-[8px] font-black bg-amber-100 text-amber-600 border border-amber-200 rounded-full uppercase tracking-widest">Internal Note</span>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{formatIST(reply.createdAt)}</span>
+                          <span className="text-[9px] font-semibold bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-2 py-0.5 uppercase tracking-widest">Internal Note</span>
+                          <span className="text-[9px] font-medium text-[rgba(0,0,0,0.35)]">{formatIST(reply.createdAt)}</span>
                         </div>
-                        <div className="p-4 rounded-[1.5rem] rounded-tr-none shadow-sm text-sm font-medium leading-relaxed bg-amber-50 text-amber-900 border border-amber-200">
+                        <div className="p-4 rounded-xl rounded-tr-none shadow-sm text-sm font-medium leading-relaxed bg-amber-50 text-amber-900 border border-amber-200">
                           <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
                         </div>
                       </div>
@@ -601,25 +591,25 @@ const TicketDetailPage: React.FC = () => {
                 <div key={reply.id} className={`flex w-full ${isMe(reply) ? 'justify-end' : 'justify-start'}`}>
                   <div className={`flex max-w-[85%] md:max-w-[70%] gap-4 ${isMe(reply) ? 'flex-row-reverse' : ''}`}>
                     <div className="flex-shrink-0 mt-auto">
-                      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm ${reply.admin ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                        {reply.admin ? <i className="fas fa-shield-alt"></i> : <span>{getInitials(reply.authorUsername)}</span>}
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm font-black shadow-sm ${reply.admin ? 'bg-indigo-600 text-white' : 'bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.5)]'}`}>
+                        {reply.admin ? <Icon icon="mdi:shield-check" width={16} /> : <span>{getInitials(reply.authorUsername)}</span>}
                       </div>
                     </div>
                     <div className={`space-y-2 ${isMe(reply) ? 'text-right' : 'text-left'}`}>
-                      <div className="flex items-center gap-2 px-1 text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                      <div className="flex items-center gap-2 px-1 text-[9px] font-medium text-[rgba(0,0,0,0.35)]">
                         {!isMe(reply) && (
-                          <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
+                          <span className="text-[10px] font-semibold text-[rgba(0,0,0,0.88)]">
                             {reply.admin && !isAdmin ? 'Support Team' : reply.authorUsername}
                           </span>
                         )}
                         <span>{formatIST(reply.createdAt)}</span>
                         {isMe(reply) && (
-                          <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
+                          <span className="text-[10px] font-semibold text-[rgba(0,0,0,0.88)]">
                             {isAdmin ? reply.authorUsername : 'You'}
                           </span>
                         )}
                       </div>
-                      <div className={`group/msg relative p-4 rounded-[1.5rem] shadow-sm text-sm font-medium leading-relaxed overflow-visible ${isMe(reply) ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
+                      <div className={`group/msg relative p-4 rounded-xl shadow-sm text-sm font-medium leading-relaxed overflow-visible ${isMe(reply) ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-[rgba(0,0,0,0.7)] border border-[rgba(0,0,0,0.08)] rounded-tl-none'}`}>
 
                         {/* ── Edit / Delete hover buttons ── */}
                         {isMe(reply) && !reply.deleted && ticket.status !== 'CLOSED' && (
@@ -635,7 +625,7 @@ const TicketDetailPage: React.FC = () => {
                                 className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
                                 title="Edit (within 15 min)"
                               >
-                                <i className="fas fa-pencil-alt text-[10px] text-white/70 hover:text-white"></i>
+                                <Icon icon="mdi:pencil-outline" width={10} className="text-white/70 hover:text-white" />
                               </button>
                             )}
                             <button
@@ -643,14 +633,14 @@ const TicketDetailPage: React.FC = () => {
                               className="p-1.5 rounded-lg bg-white/20 hover:bg-red-500/40 transition-colors"
                               title="Delete message"
                             >
-                              <i className="fas fa-trash text-[10px] text-white/70 hover:text-red-200"></i>
+                              <Icon icon="mdi:trash-can-outline" width={10} className="text-white/70 hover:text-red-200" />
                             </button>
                           </div>
                         )}
 
                         {reply.deleted ? (
-                          <div className={`flex items-center gap-2 italic ${isMe(reply) ? 'text-white/50' : 'text-slate-400'}`}>
-                            <i className="fas fa-ban text-xs"></i>
+                          <div className={`flex items-center gap-2 italic ${isMe(reply) ? 'text-white/50' : 'text-[rgba(0,0,0,0.35)]'}`}>
+                            <Icon icon="mdi:cancel" width={14} />
                             <span className="text-sm">This message was deleted</span>
                           </div>
                         ) : editingReplyId === reply.id ? (
@@ -658,7 +648,7 @@ const TicketDetailPage: React.FC = () => {
                             <textarea
                               value={editContent}
                               onChange={e => setEditContent(e.target.value)}
-                              className="w-full rounded-lg border border-indigo-300 p-2 text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                              className="w-full rounded-lg border border-indigo-300 p-2 text-sm text-[rgba(0,0,0,0.88)] resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
                               rows={3}
                               autoFocus
                             />
@@ -684,7 +674,7 @@ const TicketDetailPage: React.FC = () => {
                           <>
                             <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
                             {reply.edited && (
-                              <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMe(reply) ? 'text-white/40' : 'text-slate-400'}`}>Edited</span>
+                              <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMe(reply) ? 'text-white/40' : 'text-[rgba(0,0,0,0.35)]'}`}>Edited</span>
                             )}
                           </>
                         )}
@@ -695,11 +685,11 @@ const TicketDetailPage: React.FC = () => {
                             {reply.attachments.map((att, i) => (
                               <div
                                 key={i}
-                                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${isMe(reply) ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100'}`}
+                                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${isMe(reply) ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.04)]'}`}
                                 onClick={() => globalThis.open(att.url, '_blank')}
                               >
-                                <div className={`w-8 h-8 flex items-center justify-center rounded-lg ${isMe(reply) ? 'bg-white/20' : 'bg-white shadow-sm text-indigo-500'}`}>
-                                  <i className="fas fa-file-invoice"></i>
+                                <div className={`w-8 h-8 flex items-center justify-center rounded-lg ${isMe(reply) ? 'bg-white/20' : 'bg-white border border-[rgba(0,0,0,0.08)] text-indigo-500'}`}>
+                                  <Icon icon="mdi:file-document-outline" width={16} />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-[10px] font-bold truncate leading-tight">{att.name || 'Attachment'}</p>
@@ -719,10 +709,10 @@ const TicketDetailPage: React.FC = () => {
 
           {/* Closed banner */}
           {isClosed && (
-            <div className="flex items-center gap-3 px-6 py-4 bg-slate-100 rounded-2xl border border-slate-200 text-[11px] font-bold text-slate-500">
-              <i className="fas fa-lock-open text-slate-400"></i>
+            <div className="flex items-center gap-3 px-5 py-3 bg-[rgba(0,0,0,0.03)] rounded-xl border border-[rgba(0,0,0,0.06)] text-[11px] font-medium text-[rgba(0,0,0,0.45)]">
+              <Icon icon="mdi:lock-open-outline" width={14} className="text-[rgba(0,0,0,0.3)]" />
               This ticket was closed
-              {ticket.closedAt && <span className="text-slate-400">· {formatIST(ticket.closedAt)}</span>}
+              {ticket.closedAt && <span className="text-[rgba(0,0,0,0.3)]">· {formatIST(ticket.closedAt)}</span>}
             </div>
           )}
         </div>
@@ -731,49 +721,52 @@ const TicketDetailPage: React.FC = () => {
       {/* Email Thread Modal */}
       {showEmailModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-[2rem] shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="bg-white rounded-xl shadow-2xl border border-[rgba(0,0,0,0.12)] w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-black text-slate-800 leading-none">Send Email Thread</h3>
-                <p className="text-[10px] text-slate-400 font-medium mt-1">Send the full conversation to any email address</p>
+                <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">Send Email Thread</h3>
+                <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">Send the full conversation to any email address</p>
               </div>
               <button
                 onClick={() => { setShowEmailModal(false); setEmailRecipient(''); }}
-                className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
+                className="w-8 h-8 flex items-center justify-center rounded-xl text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)] transition-all"
               >
-                <i className="fas fa-times text-xs"></i>
+                <Icon icon="mdi:close" width={14} />
               </button>
             </div>
             <div className="p-6 space-y-4">
               <div className="flex items-start gap-3 p-3 bg-sky-50 rounded-xl border border-sky-100 text-[11px] text-sky-700 font-medium">
-                <i className="fas fa-info-circle text-sky-500 mt-0.5 flex-shrink-0"></i>
+                <Icon icon="mdi:information-outline" width={14} className="text-sky-500 mt-0.5 flex-shrink-0" />
                 <span>Admin usernames will appear as <strong>Support Team</strong> in the email for confidentiality.</span>
               </div>
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Recipient Email</label>
+                <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-widest mb-1.5">Recipient Email</label>
                 <input
                   type="email"
                   value={emailRecipient}
                   onChange={e => setEmailRecipient(e.target.value)}
                   placeholder="recipient@example.com"
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-4 focus:ring-sky-500/10 focus:border-sky-400 outline-none transition-all"
+                  className="w-full px-4 py-2.5 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none transition-all"
                   autoFocus
                 />
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
+            <div className="px-6 py-4 border-t border-[rgba(0,0,0,0.06)] flex justify-end gap-3">
               <button
                 onClick={() => { setShowEmailModal(false); setEmailRecipient(''); }}
-                className="px-4 py-2 text-slate-500 font-bold text-xs rounded-xl hover:bg-slate-100 transition-all"
+                className="px-4 py-2 text-[rgba(0,0,0,0.5)] font-medium text-xs rounded-xl hover:bg-[rgba(0,0,0,0.04)] transition-all"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSendEmail}
                 disabled={isSendingEmail || !emailRecipient.trim()}
-                className="flex items-center gap-2 px-5 py-2 bg-sky-600 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:bg-sky-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+                className="flex items-center gap-2 px-5 py-2 bg-sky-600 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:bg-sky-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <i className={`fas ${isSendingEmail ? 'fa-circle-notch fa-spin' : 'fa-paper-plane'} text-xs`}></i>
+                {isSendingEmail
+                  ? <Icon icon="mdi:loading" width={12} className="animate-spin" />
+                  : <Icon icon="mdi:send-outline" width={12} />
+                }
                 {isSendingEmail ? 'Sending...' : 'Send Email'}
               </button>
             </div>
@@ -783,28 +776,31 @@ const TicketDetailPage: React.FC = () => {
 
       {/* Reply form */}
       {ticket.status !== 'CLOSED' && (
-        <div className="p-6 bg-white/70 backdrop-blur-xl border-t border-slate-200/50">
+        <div className="p-4 bg-white border-t border-[rgba(0,0,0,0.06)]">
           <div className="max-w-4xl mx-auto">
             <form onSubmit={handleSubmitReply} className="space-y-4">
-              <div className={`relative bg-white rounded-3xl border overflow-hidden transition-all shadow-sm ${
+              <div className={`relative bg-white rounded-xl border overflow-hidden shadow-sm ${
                 isInternalNote
-                  ? 'border-amber-300 focus-within:ring-4 focus-within:ring-amber-500/10'
-                  : 'border-slate-200 focus-within:ring-4 focus-within:ring-indigo-500/10'
+                  ? 'border-amber-300 focus-within:ring-2 focus-within:ring-amber-400/20'
+                  : 'border-[rgba(0,0,0,0.12)] focus-within:ring-2 focus-within:ring-indigo-400/20'
               }`}>
                 {/* Form header */}
-                <div className={`px-5 py-3 border-b flex items-center justify-between text-[10px] font-black uppercase tracking-widest ${
-                  isInternalNote ? 'bg-amber-50/50 border-amber-100' : 'bg-slate-50/30 border-slate-50'
+                <div className={`px-4 py-2.5 border-b flex items-center justify-between text-[10px] font-semibold uppercase tracking-widest ${
+                  isInternalNote ? 'bg-amber-50 border-amber-100' : 'bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.04)]'
                 }`}>
-                  <div className={`flex items-center gap-2 ${isInternalNote ? 'text-amber-600' : 'text-slate-500'}`}>
-                    <i className={isInternalNote ? 'fas fa-lock text-amber-500' : 'fas fa-reply text-indigo-500'}></i>
+                  <div className={`flex items-center gap-2 ${isInternalNote ? 'text-amber-600' : 'text-[rgba(0,0,0,0.5)]'}`}>
+                    {isInternalNote
+                      ? <Icon icon="mdi:lock" width={11} className="text-amber-500" />
+                      : <Icon icon="mdi:reply" width={11} className="text-indigo-500" />
+                    }
                     {isInternalNote ? 'Internal Note (Admin Only)' : 'Official Response'}
                   </div>
                   <div className="flex items-center gap-2">
                     {attachments.map((f, i) => (
-                      <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100">
+                      <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100 text-[10px]">
                         <span className="max-w-[120px] truncate">{f.name}</span>
                         <button type="button" onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} className="hover:text-rose-500">
-                          <i className="fas fa-times"></i>
+                          <Icon icon="mdi:close" width={10} />
                         </button>
                       </div>
                     ))}
@@ -814,13 +810,13 @@ const TicketDetailPage: React.FC = () => {
                         type="button"
                         onClick={() => setIsInternalNote(v => !v)}
                         title={isInternalNote ? 'Switch to public reply' : 'Switch to internal note'}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all ${
                           isInternalNote
                             ? 'bg-amber-500 text-white border-amber-500'
-                            : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300 hover:text-amber-600'
+                            : 'bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)] hover:border-amber-300 hover:text-amber-600'
                         }`}
                       >
-                        <i className="fas fa-lock text-[9px]"></i>
+                        <Icon icon="mdi:lock" width={10} />
                         {isInternalNote ? 'Internal' : 'Note'}
                       </button>
                     )}
@@ -837,9 +833,9 @@ const TicketDetailPage: React.FC = () => {
                 />
 
                 {/* Form footer */}
-                <div className="px-5 py-3 border-t border-slate-50 flex items-center justify-between bg-slate-50/10">
-                  <label className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all">
-                    <i className="fas fa-paperclip text-sm"></i>
+                <div className="px-4 py-3 border-t border-[rgba(0,0,0,0.04)] flex items-center justify-between">
+                  <label className="flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.07)] text-[rgba(0,0,0,0.6)] rounded-lg text-[11px] font-medium cursor-pointer transition-all">
+                    <Icon icon="mdi:paperclip" width={13} />
                     <span>Attach Files</span>
                     <input
                       ref={fileInputRef}
@@ -848,6 +844,12 @@ const TicketDetailPage: React.FC = () => {
                       className="hidden"
                       onChange={(e) => {
                         const selected = Array.from(e.target.files || []);
+                        const oversized = selected.filter(f => f.size > 50 * 1024 * 1024);
+                        if (oversized.length) {
+                          globalThis.alert('File is too large. Max size is 50MB.');
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                          return;
+                        }
                         if (selected.length) setAttachments(prev => [...prev, ...selected]);
                         if (fileInputRef.current) fileInputRef.current.value = '';
                       }}
@@ -856,10 +858,10 @@ const TicketDetailPage: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isSubmitting || (!newReply.replace(/<[^>]*>/g, '').trim() && attachments.length === 0)}
-                    className={`px-6 py-2.5 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all disabled:opacity-50 active:scale-95 ${
+                    className={`px-5 py-2 text-white rounded-lg text-[12px] font-semibold transition-all disabled:opacity-50 ${
                       isInternalNote
-                        ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200'
-                        : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                        ? 'bg-amber-500 hover:bg-amber-600'
+                        : 'bg-indigo-600 hover:bg-indigo-700'
                     }`}
                   >
                     {isSubmitting ? 'Sending...' : isInternalNote ? 'Save Note' : 'Send Response'}

@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { GcpBudget } from '../../types/gcpFinops';
 
 interface GcpFinOpsBudgetsProps {
@@ -15,10 +16,10 @@ interface GcpFinOpsBudgetsProps {
 }
 
 const formatCurrency = (value: number): string => {
-  if (value === null || value === undefined || isNaN(value)) return '₹0.00';
-  return (value || 0).toLocaleString('en-IN', {
+  if (value === null || value === undefined || isNaN(value)) return '$0.00';
+  return (value || 0).toLocaleString('en-US', {
     style: 'currency',
-    currency: 'INR',
+    currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -31,85 +32,113 @@ const GcpFinOpsBudgets: React.FC<GcpFinOpsBudgetsProps> = ({
   onDeleteBudget,
 }) => {
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md fade-in">
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-wallet text-white"></i>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      {/* Header */}
+      <div className="flex justify-between items-start mb-5">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]"
+            style={{ backgroundColor: '#4285F414' }}
+          >
+            <Icon icon="mdi:wallet" width={16} color="#4285F4" />
           </div>
           <div>
-            <h3 className="text-xl font-bold text-gray-800">Budgets & Alerts</h3>
-            <p className="text-sm text-gray-600">Monitor and control your GCP spending</p>
+            <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Budgets & Alerts</h3>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse inline-block"></span>
+              Monitor and control your GCP spending
+            </p>
           </div>
         </div>
-        <div className="flex space-x-3">
+        <div className="flex gap-2">
           <button
             onClick={onScheduleReport}
-            className="px-6 py-3 bg-white border border-gray-200 text-gray-700 text-sm font-semibold rounded-lg shadow-sm hover:bg-gray-50 transition-all"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-colors"
+            style={{ backgroundColor: '#f2fa15', color: 'rgb(0,0,0)' }}
           >
-            <i className="fas fa-envelope mr-2"></i>Schedule Report
+            <Icon icon="mdi:email-outline" width={14} />
+            Schedule Report
           </button>
           <button
             onClick={onCreateBudget}
-            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-green-500 text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-colors"
+            style={{ backgroundColor: '#1BE68B', color: 'rgb(0,0,0)' }}
           >
-            <i className="fas fa-plus mr-2"></i>Create Budget
+            <Icon icon="mdi:plus" width={14} />
+            Create Budget
           </button>
         </div>
       </div>
 
+      {/* Empty state */}
       {(!budgets || budgets.length === 0) && (
-        <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
-          <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-wallet text-gray-400 text-2xl"></i>
+        <div className="text-center py-10 rounded-xl border-2 border-dashed border-[rgba(0,0,0,0.1)]">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-xl flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:wallet" width={24} color="rgba(0,0,0,0.25)" />
           </div>
-          <h4 className="text-lg font-bold text-gray-800 mb-2">No Budgets Found</h4>
-          <p className="text-gray-600 mb-4">Set up budgets to track and control your GCP spending</p>
+          <h4 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Budgets Found</h4>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-4">Set up budgets to track and control your GCP spending</p>
           <button
             onClick={onCreateBudget}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            className="px-4 py-2 rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5"
+            style={{ backgroundColor: '#1BE68B', color: 'rgb(0,0,0)' }}
           >
-            <i className="fas fa-plus mr-2"></i>Create Your First Budget
+            <Icon icon="mdi:plus" width={14} />
+            Create Your First Budget
           </button>
         </div>
       )}
 
+      {/* Budget cards */}
       {budgets && budgets.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {budgets.map((budget) => {
-            const percentage = (budget.actualSpend / budget.budgetLimit) * 100;
+            const percentage = budget.budgetLimit > 0 ? (budget.actualSpend / budget.budgetLimit) * 100 : 0;
             const clampedPercentage = Math.min(percentage, 100);
             const progressColor =
               percentage > 80
-                ? 'bg-gradient-to-r from-red-500 to-red-600'
+                ? 'bg-red-400'
                 : percentage > 60
-                ? 'bg-gradient-to-r from-yellow-400 to-orange-500'
-                : 'bg-gradient-to-r from-green-400 to-green-600';
+                ? 'bg-yellow-300'
+                : 'bg-green-400';
+            const percentageBadgeClass =
+              percentage > 80
+                ? 'text-red-600 bg-red-50'
+                : percentage > 60
+                ? 'text-yellow-700 bg-yellow-50'
+                : 'text-green-700 bg-green-50';
 
             return (
-              <div key={budget.budgetName} className="bg-gray-50 border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-bold text-gray-800">{budget.budgetName}</h4>
+              <div
+                key={budget.budgetName}
+                className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-4"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] truncate pr-2">{budget.budgetName}</h4>
                   <button
                     onClick={() => onDeleteBudget(budget.budgetName)}
-                    className="text-red-500 hover:text-red-700"
+                    className="text-[rgba(0,0,0,0.3)] hover:text-red-500 transition-colors flex-shrink-0"
                     title="Delete budget"
                   >
-                    <i className="fas fa-trash-alt"></i>
+                    <Icon icon="mdi:trash-can-outline" width={15} />
                   </button>
                 </div>
-                <div className="space-y-3">
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden shadow-inner">
+                <div className="space-y-2">
+                  <div className="w-full bg-[rgba(0,0,0,0.06)] rounded-full h-1.5 overflow-hidden">
                     <div
-                      className={`h-2.5 rounded-full transition-all duration-500 shadow-sm ${progressColor}`}
+                      className={`h-1.5 rounded-full transition-all duration-500 ${progressColor}`}
                       style={{ width: `${clampedPercentage}%` }}
                     ></div>
                   </div>
-                  <div className="flex justify-between text-sm font-semibold">
-                    <span className="text-gray-700">Spent: {formatCurrency(budget.actualSpend)}</span>
-                    <span className="text-gray-600">{Math.round(percentage)}%</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[13px] font-normal text-[rgba(0,0,0,0.88)]">
+                      Spent: {formatCurrency(budget.actualSpend)}
+                    </span>
+                    <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${percentageBadgeClass}`}>
+                      {Math.round(percentage)}%
+                    </span>
                   </div>
-                  <div className="flex justify-between text-xs text-gray-500">
+                  <div className="flex justify-between text-[12px] text-[rgba(0,0,0,0.45)]">
                     <span>Limit: {formatCurrency(budget.budgetLimit)}</span>
                     <span>Forecast: {formatCurrency(budget.forecastedSpend)}</span>
                   </div>

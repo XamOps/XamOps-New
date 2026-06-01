@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { RequestLogEntry, PagedResponse } from '../../types/aiops';
 import { PROVIDER_COLORS } from '../../types/aiops';
 import { InfoTooltip } from '../ui/Tooltip';
@@ -48,17 +49,17 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
   const logs = data?.content ?? [];
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg flex items-center justify-center">
-            <i className="fas fa-list-alt text-white text-xs" />
+          <div className="w-8 h-8 bg-violet-50 border border-violet-100 rounded-lg flex items-center justify-center">
+            <Icon icon="mdi:format-list-bulleted" width={16} color="#7C3AED" />
           </div>
-          <h3 className="text-sm font-bold text-gray-800">Request Logs</h3>
+          <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Request Logs</h3>
           <InfoTooltip placement="right">Detailed log of every API request through the proxy with filtering and export.</InfoTooltip>
           {data && (
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+            <span className="text-xs text-[rgba(0,0,0,0.4)] bg-[rgba(0,0,0,0.04)] px-2 py-0.5 rounded-full">
               {data.totalElements.toLocaleString()} total
             </span>
           )}
@@ -67,17 +68,17 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
           {onExport && (
             <button
               onClick={onExport}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-md hover:bg-[rgba(0,0,0,0.06)] transition-colors"
             >
-              <i className="fas fa-download" />
+              <Icon icon="mdi:download-outline" width={14} />
               Export CSV
             </button>
           )}
-          <span className="text-xs text-gray-500">Rows:</span>
+          <span className="text-xs text-[rgba(0,0,0,0.5)]">Rows:</span>
           <select
             value={size}
             onChange={e => { onSizeChange(Number(e.target.value)); onPageChange(0); }}
-            className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="text-xs bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-2 py-1 focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
           >
             {[10, 20, 50, 100].map(s => (
               <option key={s} value={s}>{s}</option>
@@ -90,17 +91,17 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
       <div className="overflow-x-auto">
         {loading ? (
           <div className="px-6 py-12 text-center">
-            <i className="fas fa-circle-notch fa-spin text-indigo-400 text-xl mb-2" />
-            <p className="text-sm text-gray-400">Loading request logs...</p>
+            <Icon icon="mdi:loading" width={20} color="#818CF8" className="animate-spin mx-auto mb-2" />
+            <p className="text-sm text-[rgba(0,0,0,0.4)]">Loading request logs...</p>
           </div>
         ) : logs.length === 0 ? (
-          <div className="px-6 py-12 text-center text-gray-400 text-sm">
+          <div className="px-6 py-12 text-center text-[rgba(0,0,0,0.4)] text-sm">
             No request logs found for the selected filters
           </div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="bg-gray-50/80">
+              <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
                 {[
                   { col: 'Timestamp', tip: 'When the request was made' },
                   { col: 'Provider', tip: 'LLM provider that handled the request' },
@@ -112,16 +113,16 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
                   { col: 'Latency', tip: 'Round-trip response time from the provider' },
                   { col: 'Status', tip: 'HTTP status code — 2xx success, 4xx/5xx error' },
                 ].map(({ col, tip }) => (
-                  <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                  <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider whitespace-nowrap">
                     <span className="inline-flex items-center gap-1">{col} <InfoTooltip placement="bottom">{tip}</InfoTooltip></span>
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
               {logs.map(log => (
-                <tr key={log.id} className="hover:bg-indigo-50/30 transition-colors">
-                  <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">
+                <tr key={log.id} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                  <td className="px-4 py-2.5 text-xs text-[rgba(0,0,0,0.5)] whitespace-nowrap">
                     {formatTimestamp(log.timestamp)}
                   </td>
                   <td className="px-4 py-2.5">
@@ -135,16 +136,16 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
                       {log.provider}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-700 font-medium max-w-[200px] truncate">
+                  <td className="px-4 py-2.5 text-xs text-[rgba(0,0,0,0.7)] font-medium max-w-[200px] truncate">
                     {log.model}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">
-                    {log.agentName || <span className="text-gray-300">-</span>}
+                  <td className="px-4 py-2.5 text-xs text-[rgba(0,0,0,0.5)]">
+                    {log.agentName || <span className="text-[rgba(0,0,0,0.25)]">-</span>}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-700">{formatNumber(log.inputTokens)}</td>
-                  <td className="px-4 py-2.5 text-xs text-gray-700">{formatNumber(log.outputTokens)}</td>
-                  <td className="px-4 py-2.5 text-xs font-semibold text-gray-900">{formatCurrency(log.cost)}</td>
-                  <td className="px-4 py-2.5 text-xs text-gray-700">
+                  <td className="px-4 py-2.5 text-xs text-[rgba(0,0,0,0.7)]">{formatNumber(log.inputTokens)}</td>
+                  <td className="px-4 py-2.5 text-xs text-[rgba(0,0,0,0.7)]">{formatNumber(log.outputTokens)}</td>
+                  <td className="px-4 py-2.5 text-xs font-semibold text-[rgba(0,0,0,0.88)]">{formatCurrency(log.cost)}</td>
+                  <td className="px-4 py-2.5 text-xs text-[rgba(0,0,0,0.7)]">
                     {log.latencyMs >= 1000
                       ? (log.latencyMs / 1000).toFixed(1) + 's'
                       : log.latencyMs + 'ms'}
@@ -152,12 +153,12 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
                   <td className="px-4 py-2.5">
                     {log.error ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-600">
-                        <i className="fas fa-times-circle text-[10px]" />
+                        <Icon icon="mdi:close-circle-outline" width={12} />
                         {log.statusCode}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-600">
-                        <i className="fas fa-check-circle text-[10px]" />
+                        <Icon icon="mdi:check-circle-outline" width={12} />
                         {log.statusCode}
                       </span>
                     )}
@@ -171,41 +172,41 @@ const RequestLogsTable: React.FC<RequestLogsTableProps> = ({
 
       {/* Pagination */}
       {data && data.totalPages > 1 && (
-        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
-          <span className="text-xs text-gray-500">
+        <div className="px-6 py-3 border-t border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+          <span className="text-xs text-[rgba(0,0,0,0.5)]">
             Showing {page * size + 1}-{Math.min((page + 1) * size, data.totalElements)} of {data.totalElements.toLocaleString()}
           </span>
           <div className="flex items-center gap-1">
             <button
               onClick={() => onPageChange(0)}
               disabled={page === 0}
-              className="px-2 py-1 text-xs rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="px-2 py-1 text-xs rounded border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.025)] disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              <i className="fas fa-angle-double-left" />
+              <Icon icon="mdi:chevron-double-left" width={14} />
             </button>
             <button
               onClick={() => onPageChange(page - 1)}
               disabled={page === 0}
-              className="px-2 py-1 text-xs rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="px-2 py-1 text-xs rounded border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.025)] disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              <i className="fas fa-angle-left" />
+              <Icon icon="mdi:chevron-left" width={14} />
             </button>
-            <span className="px-3 py-1 text-xs text-gray-700 font-medium">
+            <span className="px-3 py-1 text-xs text-[rgba(0,0,0,0.7)] font-medium">
               Page {page + 1} of {data.totalPages}
             </span>
             <button
               onClick={() => onPageChange(page + 1)}
               disabled={page >= data.totalPages - 1}
-              className="px-2 py-1 text-xs rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="px-2 py-1 text-xs rounded border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.025)] disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              <i className="fas fa-angle-right" />
+              <Icon icon="mdi:chevron-right" width={14} />
             </button>
             <button
               onClick={() => onPageChange(data.totalPages - 1)}
               disabled={page >= data.totalPages - 1}
-              className="px-2 py-1 text-xs rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="px-2 py-1 text-xs rounded border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.025)] disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              <i className="fas fa-angle-double-right" />
+              <Icon icon="mdi:chevron-double-right" width={14} />
             </button>
           </div>
         </div>

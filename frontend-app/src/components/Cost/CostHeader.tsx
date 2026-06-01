@@ -1,10 +1,6 @@
-/**
- * CostHeader Component
- * Header with title, live data indicator, and refresh button
- */
-
 import React from 'react';
 import { useTopbar } from '../../contexts/TopbarContext';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface CostHeaderProps {
   isLoading: boolean;
@@ -13,26 +9,29 @@ interface CostHeaderProps {
 
 const CostHeader: React.FC<CostHeaderProps> = ({ isLoading, onRefresh }) => {
   const { setActions, clearActions } = useTopbar();
+  const { theme } = useTheme();
+  const dark = theme === 'dark';
 
-  // Register Cost actions in Topbar
   React.useEffect(() => {
     setActions(
-      <div className="flex items-center gap-4">
-        <span className="flex items-center text-xs font-medium text-green-600 bg-green-50 px-3 py-1.5 rounded-lg border border-green-100">
-          <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-          Live data
-        </span>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#1BE68B] animate-pulse flex-shrink-0"></span>
+          <span className={`text-[11px] font-medium uppercase tracking-wide ${dark ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.4)]'}`}>
+            Live data
+          </span>
+        </div>
         <button
           onClick={onRefresh}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all shadow-md hover:shadow-lg"
+          className={`flex items-center gap-1.5 text-[12px] font-medium transition-colors ${dark ? 'text-[rgba(255,255,255,0.5)] hover:text-white' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)]'}`}
         >
-          <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`} />
-          <span>Refresh</span>
+          <i className={`fas fa-sync-alt text-[10px] ${isLoading ? 'animate-spin' : ''}`} />
+          {isLoading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
     );
     return () => clearActions();
-  }, [isLoading, onRefresh, setActions, clearActions]);
+  }, [isLoading, onRefresh, setActions, clearActions, dark]);
 
   return null;
 };

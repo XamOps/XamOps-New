@@ -15,6 +15,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { Icon } from '@iconify/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccounts } from '../contexts/AccountContext';
 import { useDashboardData } from '../hooks/useDashboardData';
@@ -164,11 +165,11 @@ export const Dashboard: React.FC = () => {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
         <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
-          <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
-            <i className="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
+          <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-rose-50 border border-rose-100 rounded-xl">
+            <Icon icon="mdi:alert-triangle-outline" width={28} color="#F43F5E" />
           </div>
-          <h2 className="text-2xl font-bold text-center mb-4 text-gray-800">Connection Error</h2>
-          <p className="text-center text-gray-600 mb-6">{error.message}</p>
+          <h2 className="text-xl font-bold text-center mb-4 text-[rgba(0,0,0,0.88)]">Connection Error</h2>
+          <p className="text-center text-[rgba(0,0,0,0.5)] text-sm mb-6">{error.message}</p>
           <button
             onClick={() => globalThis.location.reload()}
             className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
@@ -181,7 +182,7 @@ export const Dashboard: React.FC = () => {
   }
 
   return (
-    <main className="flex-1 p-6 bg-transparent space-y-6">
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <DashboardHeader
         hasAnyRole={hasAnyRole}
         selectedTenant={selectedTenant}
@@ -217,7 +218,7 @@ export const Dashboard: React.FC = () => {
       {selectedAccountIds.length > 0 && dashboardData && (
         <>
           {console.log('🎯 [Dashboard] Rendering Dashboard Content with data:', dashboardData)}
-          <div id="widgets-container" className="space-y-8">
+          <div id="widgets-container" className="space-y-5">
             {/* KPI Cards Widget */}
             <div id="widget-kpi" className="widget fade-in">
               <KPISection
@@ -228,7 +229,7 @@ export const Dashboard: React.FC = () => {
             </div>
 
             {/* Map + Inventory Widget */}
-            <div id="widget-middle" className="widget grid gap-6 lg:grid-cols-5 fade-in">
+            <div id="widget-middle" className="widget grid gap-6 lg:grid-cols-5 fade-in" style={{ height: '460px' }}>
               <MapSection
                 regionStatus={dashboardData.regionStatus || []}
                 isLoading={loadingState.map}
@@ -251,11 +252,12 @@ export const Dashboard: React.FC = () => {
             </div>
 
             {/* Cost History + Billing Widget */}
-            <div id="widget-costs" className="widget grid gap-6 lg:grid-cols-3 fade-in">
+            <div id="widget-costs" className="widget grid gap-6 lg:grid-cols-5 fade-in">
               <CostSection
                 costHistory={dashboardData.costHistory}
                 billingSummary={dashboardData.billingSummary}
                 isLoading={loadingState.cost}
+                accountId={selectedAccountIds.length === 1 ? selectedAccountIds[0] : null}
               />
             </div>
           </div>

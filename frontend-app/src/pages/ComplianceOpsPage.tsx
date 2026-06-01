@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSecurityData } from '../hooks/useSecurityData';
@@ -51,227 +52,38 @@ type ActiveTab = 'overview' | 'controls' | 'reports';
 // --- Framework Configuration ---
 
 const FRAMEWORK_CONFIG: Record<string, { displayName: string; icon: string; color: string; bgColor: string; borderColor: string; description: string }> = {
-  'CIS': {
-    displayName: 'CIS Benchmark',
-    icon: 'fas fa-shield-alt',
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    description: 'Center for Internet Security benchmarks for cloud infrastructure hardening',
-  },
-  'SOC2': {
-    displayName: 'SOC 2',
-    icon: 'fas fa-lock',
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-50',
-    borderColor: 'border-purple-200',
-    description: 'Service Organization Control 2 — Trust Services Criteria for security, availability, and confidentiality',
-  },
-  'PCI-DSS': {
-    displayName: 'PCI DSS',
-    icon: 'fas fa-credit-card',
-    color: 'text-green-600',
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
-    description: 'Payment Card Industry Data Security Standard for protecting cardholder data',
-  },
-  'HIPAA': {
-    displayName: 'HIPAA',
-    icon: 'fas fa-heartbeat',
-    color: 'text-red-600',
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
-    description: 'Health Insurance Portability and Accountability Act for protecting health information',
-  },
-  'NIST': {
-    displayName: 'NIST CSF',
-    icon: 'fas fa-university',
-    color: 'text-indigo-600',
-    bgColor: 'bg-indigo-50',
-    borderColor: 'border-indigo-200',
-    description: 'National Institute of Standards and Technology Cybersecurity Framework',
-  },
-  'ISO27001': {
-    displayName: 'ISO 27001',
-    icon: 'fas fa-certificate',
-    color: 'text-teal-600',
-    bgColor: 'bg-teal-50',
-    borderColor: 'border-teal-200',
-    description: 'International standard for information security management systems',
-  },
-  'GDPR': {
-    displayName: 'GDPR',
-    icon: 'fas fa-user-shield',
-    color: 'text-amber-600',
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
-    description: 'General Data Protection Regulation for data privacy and protection',
-  },
-  'MITRE': {
-    displayName: 'MITRE ATT&CK',
-    icon: 'fas fa-crosshairs',
-    color: 'text-rose-600',
-    bgColor: 'bg-rose-50',
-    borderColor: 'border-rose-200',
-    description: 'MITRE ATT&CK framework mapping adversary tactics and techniques for cloud',
-  },
-  'CISA': {
-    displayName: 'CISA',
-    icon: 'fas fa-flag-usa',
-    color: 'text-sky-600',
-    bgColor: 'bg-sky-50',
-    borderColor: 'border-sky-200',
-    description: 'Cybersecurity and Infrastructure Security Agency guidelines',
-  },
-  'FEDRAMP': {
-    displayName: 'FedRAMP',
-    icon: 'fas fa-landmark',
-    color: 'text-blue-700',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    description: 'Federal Risk and Authorization Management Program for US government cloud',
-  },
-  'FFIEC': {
-    displayName: 'FFIEC',
-    icon: 'fas fa-balance-scale',
-    color: 'text-cyan-600',
-    bgColor: 'bg-cyan-50',
-    borderColor: 'border-cyan-200',
-    description: 'Federal Financial Institutions Examination Council cybersecurity assessment',
-  },
-  'RBI': {
-    displayName: 'RBI CSF',
-    icon: 'fas fa-rupee-sign',
-    color: 'text-orange-600',
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
-    description: 'Reserve Bank of India Cyber Security Framework for banks and financial institutions',
-  },
-  'ENS': {
-    displayName: 'ENS',
-    icon: 'fas fa-globe-europe',
-    color: 'text-yellow-600',
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
-    description: 'Esquema Nacional de Seguridad — Spanish National Security Framework',
-  },
-  'AWS_WELL_ARCHITECTED': {
-    displayName: 'AWS Well-Architected',
-    icon: 'fab fa-aws',
-    color: 'text-orange-600',
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
-    description: 'AWS Well-Architected Framework Security Pillar best practices',
-  },
-  'FSBP': {
-    displayName: 'AWS FSBP',
-    icon: 'fab fa-aws',
-    color: 'text-amber-700',
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
-    description: 'AWS Foundational Security Best Practices standard',
-  },
-  'GXP': {
-    displayName: 'GxP',
-    icon: 'fas fa-flask',
-    color: 'text-emerald-600',
-    bgColor: 'bg-emerald-50',
-    borderColor: 'border-emerald-200',
-    description: 'Good Practice guidelines for life sciences and pharmaceutical compliance',
-  },
-  'NIS2': {
-    displayName: 'NIS2',
-    icon: 'fas fa-network-wired',
-    color: 'text-violet-600',
-    bgColor: 'bg-violet-50',
-    borderColor: 'border-violet-200',
-    description: 'EU Network and Information Security Directive 2 for critical infrastructure',
-  },
-  'NIST800': {
-    displayName: 'NIST 800-53',
-    icon: 'fas fa-book',
-    color: 'text-indigo-700',
-    bgColor: 'bg-indigo-50',
-    borderColor: 'border-indigo-200',
-    description: 'NIST Special Publication 800-53 — Security and Privacy Controls for Information Systems',
-  },
-  'CSA_CCM': {
-    displayName: 'CSA CCM',
-    icon: 'fas fa-cloud-meatball',
-    color: 'text-blue-500',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    description: 'Cloud Security Alliance Cloud Controls Matrix',
-  },
-  'CMMC': {
-    displayName: 'CMMC',
-    icon: 'fas fa-shield-virus',
-    color: 'text-gray-700',
-    bgColor: 'bg-gray-100',
-    borderColor: 'border-gray-300',
-    description: 'Cybersecurity Maturity Model Certification for US defense contractors',
-  },
-  'KISA': {
-    displayName: 'KISA ISMS-P',
-    icon: 'fas fa-globe-asia',
-    color: 'text-pink-600',
-    bgColor: 'bg-pink-50',
-    borderColor: 'border-pink-200',
-    description: 'Korea Internet & Security Agency Information Security Management System',
-  },
-  'BSI_C5': {
-    displayName: 'BSI C5',
-    icon: 'fas fa-shield-alt',
-    color: 'text-gray-600',
-    bgColor: 'bg-gray-50',
-    borderColor: 'border-gray-200',
-    description: 'German Federal Office for Information Security Cloud Computing Compliance Controls',
-  },
-  'SECNUMCLOUD': {
-    displayName: 'SecNumCloud',
-    icon: 'fas fa-cloud-upload-alt',
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    description: 'French ANSSI SecNumCloud 3.2 security qualification for cloud providers',
-  },
-  'CUSTOM': {
-    displayName: 'Best Practices',
-    icon: 'fas fa-star',
-    color: 'text-yellow-600',
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
-    description: 'Custom best practice checks and organizational security policies',
-  },
-  'AWS_FTR': {
-    displayName: 'AWS FTR',
-    icon: 'fab fa-aws',
-    color: 'text-orange-600',
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
-    description: 'AWS Foundational Technical Review for partner solutions',
-  },
-  'SEBI': {
-    displayName: 'SEBI',
-    icon: 'fas fa-chart-line',
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    description: 'Securities and Exchange Board of India cybersecurity framework',
-  },
-  'IRDAI': {
-    displayName: 'IRDAI',
-    icon: 'fas fa-shield-alt',
-    color: 'text-green-700',
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
-    description: 'Insurance Regulatory and Development Authority of India guidelines',
-  },
+  'CIS':                { displayName: 'CIS Benchmark',       icon: 'mdi:shield-half-full',          color: 'text-blue-600',    bgColor: 'bg-blue-50',    borderColor: 'border-blue-200',    description: 'Center for Internet Security benchmarks for cloud infrastructure hardening' },
+  'SOC2':               { displayName: 'SOC 2',               icon: 'mdi:lock-outline',              color: 'text-purple-600',  bgColor: 'bg-purple-50',  borderColor: 'border-purple-200',  description: 'Service Organization Control 2 — Trust Services Criteria for security, availability, and confidentiality' },
+  'PCI-DSS':            { displayName: 'PCI DSS',             icon: 'mdi:credit-card-outline',       color: 'text-green-600',   bgColor: 'bg-green-50',   borderColor: 'border-green-200',   description: 'Payment Card Industry Data Security Standard for protecting cardholder data' },
+  'HIPAA':              { displayName: 'HIPAA',               icon: 'mdi:heart-pulse',               color: 'text-red-600',     bgColor: 'bg-red-50',     borderColor: 'border-red-200',     description: 'Health Insurance Portability and Accountability Act for protecting health information' },
+  'NIST':               { displayName: 'NIST CSF',            icon: 'mdi:bank-outline',              color: 'text-indigo-600',  bgColor: 'bg-indigo-50',  borderColor: 'border-indigo-200',  description: 'National Institute of Standards and Technology Cybersecurity Framework' },
+  'ISO27001':           { displayName: 'ISO 27001',           icon: 'mdi:certificate-outline',       color: 'text-teal-600',    bgColor: 'bg-teal-50',    borderColor: 'border-teal-200',    description: 'International standard for information security management systems' },
+  'GDPR':               { displayName: 'GDPR',                icon: 'mdi:account-shield-outline',    color: 'text-amber-600',   bgColor: 'bg-amber-50',   borderColor: 'border-amber-200',   description: 'General Data Protection Regulation for data privacy and protection' },
+  'MITRE':              { displayName: 'MITRE ATT&CK',        icon: 'mdi:crosshairs',                color: 'text-rose-600',    bgColor: 'bg-rose-50',    borderColor: 'border-rose-200',    description: 'MITRE ATT&CK framework mapping adversary tactics and techniques for cloud' },
+  'CISA':               { displayName: 'CISA',                icon: 'mdi:flag-variant',              color: 'text-sky-600',     bgColor: 'bg-sky-50',     borderColor: 'border-sky-200',     description: 'Cybersecurity and Infrastructure Security Agency guidelines' },
+  'FEDRAMP':            { displayName: 'FedRAMP',             icon: 'mdi:bank-outline',              color: 'text-blue-700',    bgColor: 'bg-blue-50',    borderColor: 'border-blue-200',    description: 'Federal Risk and Authorization Management Program for US government cloud' },
+  'FFIEC':              { displayName: 'FFIEC',               icon: 'mdi:scale-balance',             color: 'text-cyan-600',    bgColor: 'bg-cyan-50',    borderColor: 'border-cyan-200',    description: 'Federal Financial Institutions Examination Council cybersecurity assessment' },
+  'RBI':                { displayName: 'RBI CSF',             icon: 'mdi:currency-inr',              color: 'text-orange-600',  bgColor: 'bg-orange-50',  borderColor: 'border-orange-200',  description: 'Reserve Bank of India Cyber Security Framework for banks and financial institutions' },
+  'ENS':                { displayName: 'ENS',                 icon: 'mdi:earth',                     color: 'text-yellow-600',  bgColor: 'bg-yellow-50',  borderColor: 'border-yellow-200',  description: 'Esquema Nacional de Seguridad — Spanish National Security Framework' },
+  'AWS_WELL_ARCHITECTED': { displayName: 'AWS Well-Architected', icon: 'mdi:cloud-outline',          color: 'text-orange-600',  bgColor: 'bg-orange-50',  borderColor: 'border-orange-200',  description: 'AWS Well-Architected Framework Security Pillar best practices' },
+  'FSBP':               { displayName: 'AWS FSBP',            icon: 'mdi:cloud-outline',             color: 'text-amber-700',   bgColor: 'bg-amber-50',   borderColor: 'border-amber-200',   description: 'AWS Foundational Security Best Practices standard' },
+  'GXP':                { displayName: 'GxP',                 icon: 'mdi:flask-outline',             color: 'text-emerald-600', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', description: 'Good Practice guidelines for life sciences and pharmaceutical compliance' },
+  'NIS2':               { displayName: 'NIS2',                icon: 'mdi:network-outline',           color: 'text-violet-600',  bgColor: 'bg-violet-50',  borderColor: 'border-violet-200',  description: 'EU Network and Information Security Directive 2 for critical infrastructure' },
+  'NIST800':            { displayName: 'NIST 800-53',         icon: 'mdi:book-outline',              color: 'text-indigo-700',  bgColor: 'bg-indigo-50',  borderColor: 'border-indigo-200',  description: 'NIST Special Publication 800-53 — Security and Privacy Controls for Information Systems' },
+  'CSA_CCM':            { displayName: 'CSA CCM',             icon: 'mdi:cloud-outline',             color: 'text-blue-500',    bgColor: 'bg-blue-50',    borderColor: 'border-blue-200',    description: 'Cloud Security Alliance Cloud Controls Matrix' },
+  'CMMC':               { displayName: 'CMMC',                icon: 'mdi:shield-bug-outline',        color: 'text-gray-700',    bgColor: 'bg-gray-100',   borderColor: 'border-gray-300',    description: 'Cybersecurity Maturity Model Certification for US defense contractors' },
+  'KISA':               { displayName: 'KISA ISMS-P',         icon: 'mdi:earth',                     color: 'text-pink-600',    bgColor: 'bg-pink-50',    borderColor: 'border-pink-200',    description: 'Korea Internet & Security Agency Information Security Management System' },
+  'BSI_C5':             { displayName: 'BSI C5',              icon: 'mdi:shield-half-full',          color: 'text-gray-600',    bgColor: 'bg-gray-50',    borderColor: 'border-gray-200',    description: 'German Federal Office for Information Security Cloud Computing Compliance Controls' },
+  'SECNUMCLOUD':        { displayName: 'SecNumCloud',         icon: 'mdi:cloud-upload-outline',      color: 'text-blue-600',    bgColor: 'bg-blue-50',    borderColor: 'border-blue-200',    description: 'French ANSSI SecNumCloud 3.2 security qualification for cloud providers' },
+  'CUSTOM':             { displayName: 'Best Practices',      icon: 'mdi:star-outline',              color: 'text-yellow-600',  bgColor: 'bg-yellow-50',  borderColor: 'border-yellow-200',  description: 'Custom best practice checks and organizational security policies' },
+  'AWS_FTR':            { displayName: 'AWS FTR',             icon: 'mdi:cloud-outline',             color: 'text-orange-600',  bgColor: 'bg-orange-50',  borderColor: 'border-orange-200',  description: 'AWS Foundational Technical Review for partner solutions' },
+  'SEBI':               { displayName: 'SEBI',                icon: 'mdi:chart-line',                color: 'text-blue-600',    bgColor: 'bg-blue-50',    borderColor: 'border-blue-200',    description: 'Securities and Exchange Board of India cybersecurity framework' },
+  'IRDAI':              { displayName: 'IRDAI',               icon: 'mdi:shield-half-full',          color: 'text-green-700',   bgColor: 'bg-green-50',   borderColor: 'border-green-200',   description: 'Insurance Regulatory and Development Authority of India guidelines' },
 };
 
 const DEFAULT_FRAMEWORK_CONFIG = {
   displayName: 'Other',
-  icon: 'fas fa-file-contract',
+  icon: 'mdi:file-document-outline',
   color: 'text-gray-600',
   bgColor: 'bg-gray-50',
   borderColor: 'border-gray-200',
@@ -806,30 +618,30 @@ const ComplianceOpsPage: React.FC = () => {
         )}
         {provider === 'AWS' && prowlerStatus.status === 'FAILED' && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium" title={prowlerStatus.error || 'Unknown error'}>
-            <i className="fas fa-exclamation-triangle"></i>
+            <Icon icon="mdi:alert-triangle" width={14} />
             <span>Prowler Scan Failed</span>
           </div>
         )}
         {provider === 'AWS' && prowlerStatus.status === 'COMPLETED' && prowlerStatus.findingsCount != null && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium">
-            <i className="fas fa-check-circle"></i>
+            <Icon icon="mdi:check-circle-outline" width={14} />
             <span>{prowlerStatus.findingsCount} Prowler findings</span>
           </div>
         )}
         <button
           onClick={exportComplianceReport}
           disabled={isExportingReport || controlRows.length === 0}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 bg-white border border-[rgba(0,0,0,0.12)] rounded-md text-xs font-medium text-emerald-600 hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
         >
-          <i className="fas fa-file-csv"></i>
+          <Icon icon="mdi:file-delimited-outline" width={14} />
           Export Report
         </button>
         <button
           onClick={triggerScan}
           disabled={isTriggeringScan || isRefreshing || prowlerStatus.status === 'RUNNING'}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white rounded-md text-[12px] font-medium hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          <i className={`fas fa-sync-alt ${(isTriggeringScan || isRefreshing || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''}`}></i>
+          <Icon icon="mdi:refresh" width={14} className={(isTriggeringScan || isRefreshing || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''} />
           {prowlerStatus.status === 'RUNNING' ? 'Scan Running...' : isTriggeringScan ? 'Triggering...' : 'Run Compliance Scan'}
         </button>
       </div>
@@ -846,17 +658,15 @@ const ComplianceOpsPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <main className="flex-1 p-6 bg-gray-50">
-        <div className="max-w-7xl mx-auto">
-          <div className="animate-pulse space-y-6">
-            <div className="h-8 bg-gray-200 rounded w-64"></div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-32 bg-gray-200 rounded-xl"></div>
-              ))}
-            </div>
-            <div className="h-64 bg-gray-200 rounded-xl"></div>
+      <main className="flex-1 px-6 pt-4 pb-6 bg-white">
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 bg-[rgba(0,0,0,0.06)] rounded w-64" />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-28 bg-[rgba(0,0,0,0.06)] rounded-xl" />
+            ))}
           </div>
+          <div className="h-64 bg-[rgba(0,0,0,0.06)] rounded-xl" />
         </div>
       </main>
     );
@@ -866,13 +676,13 @@ const ComplianceOpsPage: React.FC = () => {
 
   if (!selectedAccountId) {
     return (
-      <main className="flex-1 flex items-center justify-center p-8 bg-gray-50">
+      <main className="flex-1 flex items-center justify-center p-8 bg-white">
         <div className="text-center max-w-md">
-          <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <i className="fas fa-cloud text-indigo-500 text-3xl"></i>
+          <div className="w-14 h-14 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:cloud-outline" width={32} color="#4f46e5" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">No Account Selected</h3>
-          <p className="text-gray-600">
+          <h3 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">No Account Selected</h3>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
             Select a cloud account from the sidebar to view compliance status across frameworks.
           </p>
         </div>
@@ -884,21 +694,21 @@ const ComplianceOpsPage: React.FC = () => {
 
   if (findings.length === 0 && !isLoading) {
     return (
-      <main className="flex-1 flex items-center justify-center p-8 bg-gray-50">
+      <main className="flex-1 flex items-center justify-center p-8 bg-white">
         <div className="text-center max-w-lg">
-          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <i className="fas fa-shield-alt text-green-500 text-3xl"></i>
+          <div className="w-14 h-14 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:shield-check-outline" width={32} color="#10b981" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">No Compliance Data Available</h3>
-          <p className="text-gray-600 mb-6">
+          <h3 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">No Compliance Data Available</h3>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-6">
             Run a security scan to generate compliance findings across frameworks like CIS, SOC 2, PCI-DSS, and more.
           </p>
           <button
             onClick={triggerScan}
             disabled={isRefreshing || prowlerStatus.status === 'RUNNING'}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            className="inline-flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white rounded-md text-[12px] font-medium hover:bg-black disabled:opacity-50 transition-colors"
           >
-            <i className={`fas fa-play ${(isRefreshing || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''}`}></i>
+            <Icon icon="mdi:play-outline" width={14} className={(isRefreshing || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''} />
             {prowlerStatus.status === 'RUNNING' ? 'Scan Running...' : isRefreshing ? 'Loading...' : 'Run Compliance Scan'}
           </button>
         </div>
@@ -909,15 +719,13 @@ const ComplianceOpsPage: React.FC = () => {
   // --- Main Render ---
 
   return (
-    <main className="flex-1 p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <main className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen">
+      <div className="space-y-5">
 
         {/* Prowler Running Banner (AWS only) */}
         {provider === 'AWS' && prowlerStatus.status === 'RUNNING' && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-              <i className="fas fa-radar text-blue-600 animate-spin"></i>
-            </div>
+            <Icon icon="mdi:radar" width={20} className="text-blue-600 animate-spin shrink-0" />
             <div>
               <p className="text-sm font-semibold text-blue-900">Compliance scan in progress</p>
               <p className="text-xs text-blue-700">Results will update automatically when the scan completes.</p>
@@ -926,83 +734,52 @@ const ComplianceOpsPage: React.FC = () => {
         )}
 
         {/* Overall Compliance Score + KPIs */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {/* Overall Score */}
-          <div className="md:col-span-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col items-center justify-center">
-            <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-3 ${getScoreColor(overallStats.avgScore).bg} ring-4 ${getScoreColor(overallStats.avgScore).ring}`}>
-              <span className={`text-2xl font-bold ${getScoreColor(overallStats.avgScore).text}`}>
+          <div className="md:col-span-1 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 flex flex-col items-center justify-center">
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-3 ${getScoreColor(overallStats.avgScore).bg}`}>
+              <span className={`${getScoreColor(overallStats.avgScore).text}`} style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '22px', fontWeight: 400, letterSpacing: '0px', lineHeight: 1 }}>
                 {overallStats.avgScore}%
               </span>
             </div>
-            <span className="text-sm font-semibold text-gray-900">Overall Score</span>
-            <span className="text-xs text-gray-500">Avg. across frameworks</span>
+            <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] text-center">Overall Score</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-0.5 text-center">Avg. across frameworks</p>
           </div>
 
           {/* KPI Cards */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Frameworks</span>
-              <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
-                <i className="fas fa-layer-group text-indigo-600 text-sm"></i>
-              </div>
+          {[
+            { label: 'Frameworks',      value: overallStats.totalFrameworks, sub: 'Compliance standards',  valueClass: 'text-[rgba(0,0,0,0.88)]' },
+            { label: 'Failed Controls', value: overallStats.totalFailed,     sub: 'Require attention',      valueClass: 'text-red-600' },
+            { label: 'Critical Issues', value: overallStats.totalCritical,   sub: 'Fix immediately',        valueClass: 'text-red-600' },
+            { label: 'Total Findings',  value: overallStats.totalFindings,   sub: 'Across all frameworks',  valueClass: 'text-[rgba(0,0,0,0.88)]' },
+          ].map((c) => (
+            <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{c.label}</p>
+              <p className={`tabular-nums ${c.valueClass}`} style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px' }}>{c.value}</p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">{c.sub}</p>
             </div>
-            <div className="text-3xl font-bold text-gray-900">{overallStats.totalFrameworks}</div>
-            <div className="text-xs text-gray-500 mt-1">Compliance standards</div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Failed Controls</span>
-              <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
-                <i className="fas fa-times-circle text-red-600 text-sm"></i>
-              </div>
-            </div>
-            <div className="text-3xl font-bold text-gray-900">{overallStats.totalFailed}</div>
-            <div className="text-xs text-red-600 font-medium mt-1">Require attention</div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Critical Issues</span>
-              <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
-                <i className="fas fa-skull-crossbones text-red-600 text-sm"></i>
-              </div>
-            </div>
-            <div className="text-3xl font-bold text-gray-900">{overallStats.totalCritical}</div>
-            <div className="text-xs text-red-600 font-medium mt-1">Fix immediately</div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total Findings</span>
-              <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
-                <i className="fas fa-exclamation-triangle text-amber-600 text-sm"></i>
-              </div>
-            </div>
-            <div className="text-3xl font-bold text-gray-900">{overallStats.totalFindings}</div>
-            <div className="text-xs text-gray-500 mt-1">Across all frameworks</div>
-          </div>
+          ))}
         </div>
 
         {/* Tab Navigation */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="border-b border-gray-200 px-6">
+        <div className="bg-white rounded-xl shadow-sm border border-[rgba(0,0,0,0.12)]">
+          <div className="border-b border-[rgba(0,0,0,0.06)] px-6">
             <nav className="flex gap-6">
               {[
-                { key: 'overview' as ActiveTab, label: 'Framework Overview', icon: 'fas fa-th-large' },
-                { key: 'controls' as ActiveTab, label: 'Controls & Findings', icon: 'fas fa-list-check' },
-                { key: 'reports' as ActiveTab, label: 'Reports', icon: 'fas fa-file-alt' },
+                { key: 'overview' as ActiveTab, label: 'Framework Overview', icon: 'mdi:view-grid-outline' },
+                { key: 'controls' as ActiveTab, label: 'Controls & Findings', icon: 'mdi:format-list-checks' },
+                { key: 'reports' as ActiveTab, label: 'Reports', icon: 'mdi:file-document-outline' },
               ].map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex items-center gap-2 py-4 px-1 text-sm font-medium border-b-2 transition-colors ${
+                  className={`flex items-center gap-2 py-4 px-1 text-[13px] font-medium border-b-2 transition-colors ${
                     activeTab === tab.key
                       ? 'border-indigo-600 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      : 'border-transparent text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)] hover:border-[rgba(0,0,0,0.2)]'
                   }`}
                 >
-                  <i className={tab.icon}></i>
+                  <Icon icon={tab.icon} width={14} />
                   {tab.label}
                 </button>
               ))}
@@ -1013,7 +790,7 @@ const ComplianceOpsPage: React.FC = () => {
           {/* TAB: Framework Overview                      */}
           {/* ============================================ */}
           {activeTab === 'overview' && (
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-5">
               {/* Framework Score Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {frameworkScores.map((fw) => {
@@ -1021,10 +798,10 @@ const ComplianceOpsPage: React.FC = () => {
                   return (
                     <div
                       key={fw.name}
-                      className={`border-2 rounded-xl p-5 cursor-pointer transition-all hover:shadow-md ${
+                      className={`rounded-xl p-5 cursor-pointer transition-all ${
                         selectedFramework === fw.name
-                          ? `${fw.borderColor} shadow-md`
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? `border-2 ${fw.borderColor} shadow-md`
+                          : 'border border-[rgba(0,0,0,0.12)] shadow-sm hover:shadow-md'
                       }`}
                       onClick={() => {
                         setSelectedFramework(selectedFramework === fw.name ? 'all' : fw.name);
@@ -1034,12 +811,12 @@ const ComplianceOpsPage: React.FC = () => {
                       {/* Header */}
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg ${fw.bgColor} flex items-center justify-center`}>
-                            <i className={`${fw.icon} ${fw.color}`}></i>
+                          <div className={`w-9 h-9 rounded-lg ${fw.bgColor} flex items-center justify-center`}>
+                            <Icon icon={fw.icon} width={16} className={fw.color} />
                           </div>
                           <div>
-                            <h4 className="font-bold text-gray-900">{fw.displayName}</h4>
-                            <p className="text-xs text-gray-500">{fw.totalControls} controls</p>
+                            <h4 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">{fw.displayName}</h4>
+                            <p className="text-[11px] text-[rgba(0,0,0,0.4)]">{fw.totalControls} controls</p>
                           </div>
                         </div>
                         <div className={`px-3 py-1.5 rounded-lg font-bold text-lg ${scoreColor.bg} ${scoreColor.text}`}>
@@ -1048,7 +825,7 @@ const ComplianceOpsPage: React.FC = () => {
                       </div>
 
                       {/* Progress Bar */}
-                      <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+                      <div className="w-full bg-[rgba(0,0,0,0.08)] rounded-full h-2 mb-4">
                         <div
                           className={`h-2 rounded-full transition-all duration-700 ${scoreColor.bar}`}
                           style={{ width: `${fw.score}%` }}
@@ -1058,11 +835,11 @@ const ComplianceOpsPage: React.FC = () => {
                       {/* Pass / Fail */}
                       <div className="flex items-center justify-between text-sm mb-3">
                         <span className="flex items-center gap-1 text-green-600">
-                          <i className="fas fa-check-circle text-xs"></i>
+                          <Icon icon="mdi:check-circle-outline" width={13} />
                           <span className="font-semibold">{fw.passedControls} passed</span>
                         </span>
                         <span className="flex items-center gap-1 text-red-600">
-                          <i className="fas fa-times-circle text-xs"></i>
+                          <Icon icon="mdi:close-circle-outline" width={13} />
                           <span className="font-semibold">{fw.failedControls} failed</span>
                         </span>
                       </div>
@@ -1099,12 +876,12 @@ const ComplianceOpsPage: React.FC = () => {
               {frameworkScores.length > 0 && (
                 <div className="bg-indigo-50 rounded-xl p-5 border border-indigo-200">
                   <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <i className="fas fa-info-circle text-white text-sm"></i>
+                    <div className="w-8 h-8 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Icon icon="mdi:information-outline" width={16} className="text-indigo-600" />
                     </div>
                     <div>
-                      <h4 className="font-semibold text-gray-900 text-sm mb-1">How Compliance Scoring Works</h4>
-                      <p className="text-xs text-gray-700 leading-relaxed">
+                      <h4 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">How Compliance Scoring Works</h4>
+                      <p className="text-[12px] text-[rgba(0,0,0,0.6)] leading-relaxed">
                         Scores are calculated based on Prowler security scan results mapped to compliance frameworks.
                         Each failed finding maps to a specific compliance control. Click any framework card to view
                         detailed control-level findings. Run regular scans to keep your compliance posture up to date.
@@ -1125,13 +902,13 @@ const ComplianceOpsPage: React.FC = () => {
               <div className="flex flex-wrap items-center gap-3">
                 {/* Search */}
                 <div className="relative flex-1 min-w-[200px]">
-                  <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                  <Icon icon="mdi:magnify" width={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)]" />
                   <input
                     type="text"
                     placeholder="Search controls, descriptions..."
                     value={controlSearch}
                     onChange={(e) => setControlSearch(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full pl-9 pr-4 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
                 </div>
 
@@ -1139,7 +916,7 @@ const ComplianceOpsPage: React.FC = () => {
                 <select
                   value={selectedFramework}
                   onChange={(e) => setSelectedFramework(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="px-3 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] font-medium text-[rgba(0,0,0,0.7)] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="all">All Frameworks</option>
                   {frameworkScores.map((fw) => (
@@ -1153,7 +930,7 @@ const ComplianceOpsPage: React.FC = () => {
                 <select
                   value={controlSeverityFilter}
                   onChange={(e) => setControlSeverityFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="px-3 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] font-medium text-[rgba(0,0,0,0.7)] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="all">All Severities</option>
                   <option value="CRITICAL">Critical</option>
@@ -1163,32 +940,32 @@ const ComplianceOpsPage: React.FC = () => {
                 </select>
 
                 {/* Results Count */}
-                <span className="text-sm text-gray-500 bg-gray-100 px-3 py-2 rounded-lg">
+                <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.4)] bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded-md">
                   {filteredControls.length} controls
                 </span>
               </div>
 
               {/* Controls Table */}
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
+              <div className="overflow-x-auto rounded-xl border border-[rgba(0,0,0,0.12)] shadow-sm">
                 <table className="w-full">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Framework</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Control ID</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide w-[40%]">Description</th>
-                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Status</th>
-                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Severity</th>
-                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Resources</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Regions</th>
+                    <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+                      <th className="text-left px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Framework</th>
+                      <th className="text-left px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Control ID</th>
+                      <th className="text-left px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)] w-[40%]">Description</th>
+                      <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Status</th>
+                      <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Severity</th>
+                      <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Resources</th>
+                      <th className="text-left px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Regions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedControls.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="px-4 py-12 text-center">
-                          <div className="text-gray-500">
-                            <i className="fas fa-search text-2xl mb-2 block"></i>
-                            <p className="text-sm">No controls match your filters</p>
+                          <div className="text-[rgba(0,0,0,0.4)] flex flex-col items-center gap-2">
+                            <Icon icon="mdi:magnify" width={32} className="text-[rgba(0,0,0,0.15)]" />
+                            <p className="text-[13px]">No controls match your filters</p>
                           </div>
                         </td>
                       </tr>
@@ -1197,18 +974,18 @@ const ComplianceOpsPage: React.FC = () => {
                         const sevBadge = getSeverityBadge(control.severity);
                         const fwConfig = getFrameworkConfig(control.framework);
                         return (
-                          <tr key={idx} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
+                          <tr key={idx} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                             <td className="px-4 py-3">
                               <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold ${fwConfig.bgColor} ${fwConfig.color}`}>
-                                <i className={fwConfig.icon + ' text-[10px]'}></i>
+                                <Icon icon={fwConfig.icon} width={11} />
                                 {fwConfig.displayName}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-sm font-mono text-gray-900 font-medium">{control.controlId}</td>
-                            <td className="px-4 py-3 text-sm text-gray-700 leading-snug">{control.description}</td>
+                            <td className="px-4 py-3 text-[13px] font-mono text-[rgba(0,0,0,0.88)] font-medium">{control.controlId}</td>
+                            <td className="px-4 py-3 text-[13px] text-[rgba(0,0,0,0.7)] leading-snug">{control.description}</td>
                             <td className="px-4 py-3 text-center">
                               <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">
-                                <i className="fas fa-times-circle text-[10px]"></i>
+                                <Icon icon="mdi:close-circle-outline" width={11} />
                                 FAIL
                               </span>
                             </td>
@@ -1218,17 +995,17 @@ const ComplianceOpsPage: React.FC = () => {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <span className="text-sm font-bold text-gray-900">{control.affectedResources}</span>
+                              <span className="text-[13px] font-bold text-[rgba(0,0,0,0.88)]">{control.affectedResources}</span>
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex flex-wrap gap-1">
                                 {control.regions.slice(0, 3).map((r, i) => (
-                                  <span key={i} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                                  <span key={i} className="px-1.5 py-0.5 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] rounded text-[11px]">
                                     {r}
                                   </span>
                                 ))}
                                 {control.regions.length > 3 && (
-                                  <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">
+                                  <span className="px-1.5 py-0.5 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.4)] rounded text-[11px]">
                                     +{control.regions.length - 3}
                                   </span>
                                 )}
@@ -1245,16 +1022,16 @@ const ComplianceOpsPage: React.FC = () => {
               {/* Pagination */}
               {totalControlPages > 1 && (
                 <div className="flex items-center justify-between pt-2">
-                  <div className="text-sm text-gray-600">
+                  <div className="text-[13px] text-[rgba(0,0,0,0.45)]">
                     Showing {((controlPage - 1) * controlsPerPage) + 1}-{Math.min(controlPage * controlsPerPage, filteredControls.length)} of {filteredControls.length}
                   </div>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => setControlPage((p) => Math.max(1, p - 1))}
                       disabled={controlPage === 1}
-                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                      className="px-3 py-1.5 border border-[rgba(0,0,0,0.12)] rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[rgba(0,0,0,0.025)]"
                     >
-                      <i className="fas fa-chevron-left"></i>
+                      <Icon icon="mdi:chevron-left" width={16} />
                     </button>
                     {Array.from({ length: Math.min(5, totalControlPages) }, (_, i) => {
                       let page: number;
@@ -1274,7 +1051,7 @@ const ComplianceOpsPage: React.FC = () => {
                           className={`w-8 h-8 rounded-lg text-sm font-semibold transition-all ${
                             page === controlPage
                               ? 'bg-indigo-600 text-white'
-                              : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                              : 'border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.025)]'
                           }`}
                         >
                           {page}
@@ -1284,9 +1061,9 @@ const ComplianceOpsPage: React.FC = () => {
                     <button
                       onClick={() => setControlPage((p) => Math.min(totalControlPages, p + 1))}
                       disabled={controlPage === totalControlPages}
-                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                      className="px-3 py-1.5 border border-[rgba(0,0,0,0.12)] rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[rgba(0,0,0,0.025)]"
                     >
-                      <i className="fas fa-chevron-right"></i>
+                      <Icon icon="mdi:chevron-right" width={16} />
                     </button>
                   </div>
                 </div>
@@ -1298,59 +1075,59 @@ const ComplianceOpsPage: React.FC = () => {
           {/* TAB: Reports                                 */}
           {/* ============================================ */}
           {activeTab === 'reports' && (
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Compliance Report */}
-                <div className="border-2 border-gray-200 rounded-xl p-6 hover:border-indigo-300 hover:shadow-md transition-all">
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 hover:shadow-md transition-all">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
-                      <i className="fas fa-file-csv text-indigo-600 text-xl"></i>
+                    <div className="w-9 h-9 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Icon icon="mdi:file-delimited-outline" width={18} className="text-indigo-600" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-gray-900">Detailed Controls Report</h4>
-                      <p className="text-sm text-gray-500">All controls with affected resources</p>
+                      <h4 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Detailed Controls Report</h4>
+                      <p className="text-[11px] text-[rgba(0,0,0,0.4)]">All controls with affected resources</p>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600 mb-4">
+                  <p className="text-[13px] text-[rgba(0,0,0,0.55)] mb-4">
                     Export a CSV with every compliance control, its status, severity, affected resource IDs, and regions.
                     Suitable for audit submissions and compliance reviews.
                   </p>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400">{controlRows.length} controls</span>
+                    <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{controlRows.length} controls</span>
                     <button
                       onClick={exportComplianceReport}
                       disabled={controlRows.length === 0}
                       className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      <i className="fas fa-download"></i>
+                      <Icon icon="mdi:download" width={14} />
                       Download CSV
                     </button>
                   </div>
                 </div>
 
                 {/* Framework Summary */}
-                <div className="border-2 border-gray-200 rounded-xl p-6 hover:border-purple-300 hover:shadow-md transition-all">
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 hover:shadow-md transition-all">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-                      <i className="fas fa-chart-pie text-purple-600 text-xl"></i>
+                    <div className="w-9 h-9 bg-purple-50 border border-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Icon icon="mdi:chart-pie" width={18} className="text-purple-600" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-gray-900">Framework Summary Report</h4>
-                      <p className="text-sm text-gray-500">High-level compliance scores</p>
+                      <h4 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Framework Summary Report</h4>
+                      <p className="text-[11px] text-[rgba(0,0,0,0.4)]">High-level compliance scores</p>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600 mb-4">
+                  <p className="text-[13px] text-[rgba(0,0,0,0.55)] mb-4">
                     Export a summary with each framework's compliance score, pass/fail control counts, and severity
                     breakdown. Ideal for executive dashboards and compliance deck preparation.
                   </p>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400">{frameworkScores.length} frameworks</span>
+                    <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{frameworkScores.length} frameworks</span>
                     <button
                       onClick={exportFrameworkSummary}
                       disabled={frameworkScores.length === 0}
                       className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      <i className="fas fa-download"></i>
+                      <Icon icon="mdi:download" width={14} />
                       Download CSV
                     </button>
                   </div>
@@ -1359,38 +1136,38 @@ const ComplianceOpsPage: React.FC = () => {
 
               {/* Report Preview Table */}
               {frameworkScores.length > 0 && (
-                <div className="border border-gray-200 rounded-xl overflow-hidden">
-                  <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                    <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                      <i className="fas fa-table text-gray-600"></i>
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+                  <div className="bg-[rgba(0,0,0,0.02)] px-6 py-4 border-b border-[rgba(0,0,0,0.06)]">
+                    <h4 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] flex items-center gap-2">
+                      <Icon icon="mdi:table" width={16} className="text-[rgba(0,0,0,0.5)]" />
                       Framework Summary Preview
                     </h4>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b border-gray-200 bg-gray-50">
-                          <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase">Framework</th>
-                          <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Score</th>
-                          <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Passed</th>
-                          <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Failed</th>
-                          <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Critical</th>
-                          <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase">High</th>
-                          <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Medium</th>
-                          <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Low</th>
+                        <tr className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
+                          <th className="text-left px-6 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Framework</th>
+                          <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Score</th>
+                          <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Passed</th>
+                          <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Failed</th>
+                          <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Critical</th>
+                          <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">High</th>
+                          <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Medium</th>
+                          <th className="text-center px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Low</th>
                         </tr>
                       </thead>
                       <tbody>
                         {frameworkScores.map((fw) => {
                           const scoreColor = getScoreColor(fw.score);
                           return (
-                            <tr key={fw.name} className="border-t border-gray-100 hover:bg-gray-50">
+                            <tr key={fw.name} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                               <td className="px-6 py-3">
                                 <div className="flex items-center gap-2">
                                   <div className={`w-8 h-8 rounded-lg ${fw.bgColor} flex items-center justify-center`}>
-                                    <i className={`${fw.icon} ${fw.color} text-sm`}></i>
+                                    <Icon icon={fw.icon} width={16} className={fw.color} />
                                   </div>
-                                  <span className="font-semibold text-gray-900 text-sm">{fw.displayName}</span>
+                                  <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{fw.displayName}</span>
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-center">
@@ -1398,27 +1175,27 @@ const ComplianceOpsPage: React.FC = () => {
                                   {fw.score}%
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-center text-sm font-semibold text-green-600">{fw.passedControls}</td>
-                              <td className="px-4 py-3 text-center text-sm font-semibold text-red-600">{fw.failedControls}</td>
+                              <td className="px-4 py-3 text-center text-[13px] font-semibold text-green-600">{fw.passedControls}</td>
+                              <td className="px-4 py-3 text-center text-[13px] font-semibold text-red-600">{fw.failedControls}</td>
                               <td className="px-4 py-3 text-center">
                                 {fw.criticalFindings > 0 ? (
                                   <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-bold">{fw.criticalFindings}</span>
-                                ) : <span className="text-gray-300">-</span>}
+                                ) : <span className="text-[rgba(0,0,0,0.15)]">-</span>}
                               </td>
                               <td className="px-4 py-3 text-center">
                                 {fw.highFindings > 0 ? (
                                   <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-bold">{fw.highFindings}</span>
-                                ) : <span className="text-gray-300">-</span>}
+                                ) : <span className="text-[rgba(0,0,0,0.15)]">-</span>}
                               </td>
                               <td className="px-4 py-3 text-center">
                                 {fw.mediumFindings > 0 ? (
                                   <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-bold">{fw.mediumFindings}</span>
-                                ) : <span className="text-gray-300">-</span>}
+                                ) : <span className="text-[rgba(0,0,0,0.15)]">-</span>}
                               </td>
                               <td className="px-4 py-3 text-center">
                                 {fw.lowFindings > 0 ? (
                                   <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-bold">{fw.lowFindings}</span>
-                                ) : <span className="text-gray-300">-</span>}
+                                ) : <span className="text-[rgba(0,0,0,0.15)]">-</span>}
                               </td>
                             </tr>
                           );

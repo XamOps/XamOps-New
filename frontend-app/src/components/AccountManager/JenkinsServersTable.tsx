@@ -1,9 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Server, Trash2, ExternalLink, Plus } from 'lucide-react';
-import { Card } from '../ui/card';
-import { Button } from '../ui/button';
+import { Icon } from '@iconify/react';
+import { ExternalLink } from 'lucide-react';
 import type { JenkinsConfig } from '../../types/accountManager';
 
 interface JenkinsServersTableProps {
@@ -12,83 +10,76 @@ interface JenkinsServersTableProps {
   onRemove: (config: JenkinsConfig) => void;
 }
 
-const rowVariants = {
-  hidden: { opacity: 0, x: -10 },
-  visible: (i: number) => ({ opacity: 1, x: 0, transition: { delay: i * 0.05, duration: 0.25 } }),
-};
-
 const JenkinsServersTable: React.FC<JenkinsServersTableProps> = ({ jenkinsConfigs, isLoading, onRemove }) => {
   return (
-    <Card className="overflow-hidden shadow-sm">
-      <div className="h-1 bg-gradient-to-r from-indigo-400 to-indigo-600" />
-
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/40">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(0,0,0,0.06)]">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-md shadow-indigo-200">
-            <i className="fab fa-jenkins text-white text-sm" />
+          <div className="w-8 h-8 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center">
+            <Icon icon="mdi:server-outline" width={16} color="#4F46E5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-slate-900 leading-tight">Connected Jenkins Servers</h2>
-            <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Pipeline Automation Center</p>
+            <h2 className="text-sm font-bold text-[rgba(0,0,0,0.88)] leading-tight">Connected Jenkins Servers</h2>
+            <p className="text-[10px] font-medium text-[rgba(0,0,0,0.4)] uppercase tracking-wider">Pipeline Automation Center</p>
           </div>
         </div>
-        <Link to="/add-account">
-          <Button size="sm" className="gap-1.5 text-[10px] font-bold uppercase tracking-wider">
-            <Plus className="w-3 h-3" />
-            Add Server
-          </Button>
+        <Link
+          to="/add-account"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-md transition-colors"
+        >
+          <Icon icon="mdi:plus" width={14} />
+          Add Server
         </Link>
       </div>
 
       {/* Loading */}
       {isLoading && (
         <div className="p-6 space-y-2">
-          {[1, 2].map(i => <div key={i} className="h-14 bg-slate-100 rounded-xl animate-pulse" />)}
+          {[1, 2].map(i => <div key={i} className="h-14 bg-[rgba(0,0,0,0.06)] rounded-xl animate-pulse" />)}
         </div>
       )}
 
       {/* Empty */}
       {!isLoading && jenkinsConfigs.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-          <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
-            <Server className="w-7 h-7 text-indigo-200" />
+          <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mb-4">
+            <Icon icon="mdi:server-outline" width={28} color="rgba(0,0,0,0.3)" />
           </div>
-          <h3 className="text-base font-bold text-slate-700 mb-1">No Jenkins Servers Connected</h3>
-          <p className="text-sm text-slate-400 max-w-xs">Connect a server to start monitoring build jobs.</p>
+          <h3 className="text-sm font-bold text-[rgba(0,0,0,0.7)] mb-1">No Jenkins Servers Connected</h3>
+          <p className="text-sm text-[rgba(0,0,0,0.4)] max-w-xs">Connect a server to start monitoring build jobs.</p>
         </div>
       )}
 
       {/* Table */}
       {!isLoading && jenkinsConfigs.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="bg-slate-50/60">
-                {['Server URL', 'Username', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap last:text-right">
+              <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)] text-left">
+                {['Server URL', 'Username', ''].map((h, idx) => (
+                  <th
+                    key={h}
+                    className={`px-4 py-3 text-xs font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider whitespace-nowrap ${idx === 2 ? 'text-right' : ''}`}
+                  >
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {jenkinsConfigs.map((config, i) => (
-                <motion.tr
+            <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
+              {jenkinsConfigs.map((config) => (
+                <tr
                   key={config.id}
-                  custom={i}
-                  variants={rowVariants}
-                  initial="hidden"
-                  animate="visible"
-                  className="group border-b border-slate-50 hover:bg-slate-50/60 transition-colors"
+                  className="hover:bg-[rgba(0,0,0,0.025)] transition-colors"
                 >
                   <td className="px-4 py-3.5 whitespace-nowrap">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm group-hover:scale-110 transition-transform duration-200 flex-shrink-0">
-                        <i className="fab fa-jenkins text-sm" />
+                      <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
+                        <Icon icon="mdi:server-outline" width={16} color="#4F46E5" />
                       </div>
                       <div>
-                        <p className="font-bold text-slate-900 leading-tight">{config.jenkinsUrl}</p>
+                        <p className="font-bold text-[rgba(0,0,0,0.88)] leading-tight">{config.jenkinsUrl}</p>
                         <a
                           href={config.jenkinsUrl}
                           target="_blank"
@@ -102,7 +93,7 @@ const JenkinsServersTable: React.FC<JenkinsServersTableProps> = ({ jenkinsConfig
                     </div>
                   </td>
                   <td className="px-4 py-3.5 whitespace-nowrap">
-                    <code className="text-[11px] font-mono font-semibold px-2 py-1 bg-slate-100 text-slate-600 rounded-lg border border-slate-200">
+                    <code className="text-[11px] font-mono font-semibold px-2 py-1 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] rounded-lg border border-[rgba(0,0,0,0.08)]">
                       {config.username}
                     </code>
                   </td>
@@ -112,16 +103,16 @@ const JenkinsServersTable: React.FC<JenkinsServersTableProps> = ({ jenkinsConfig
                       title="Remove Server"
                       className="h-8 w-8 rounded-lg bg-rose-50 border border-rose-100 text-rose-500 hover:bg-rose-500 hover:text-white hover:border-rose-500 transition-all flex items-center justify-center ml-auto"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Icon icon="mdi:trash-can-outline" width={14} />
                     </button>
                   </td>
-                </motion.tr>
+                </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-    </Card>
+    </div>
   );
 };
 

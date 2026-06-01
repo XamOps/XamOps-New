@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Icon } from '@iconify/react';
 import type { AzurePerformanceInsight } from '../../types/azurePerformance';
 
 interface AzurePerformanceInsightsTableProps {
@@ -31,7 +32,7 @@ const AzurePerformanceInsightsTable: React.FC<AzurePerformanceInsightsTableProps
 
   if (isLoading) {
     return (
-      <div className="glass-card rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100">
           <div className="h-4 bg-gray-200 rounded w-36 animate-pulse"></div>
         </div>
@@ -51,7 +52,7 @@ const AzurePerformanceInsightsTable: React.FC<AzurePerformanceInsightsTableProps
     : insights.filter(i => i.severity === activeFilter);
 
   return (
-    <div className="glass-card rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
       {/* Header + filter tabs */}
       <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
         <span className="text-sm font-bold text-gray-700">Performance Recommendations</span>
@@ -89,8 +90,8 @@ const AzurePerformanceInsightsTable: React.FC<AzurePerformanceInsightsTableProps
 
       {filtered.length === 0 ? (
         <div className="p-12 text-center">
-          <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <i className="fas fa-check-circle text-green-500 text-2xl"></i>
+          <div className="w-14 h-14 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:check-circle-outline" width={28} className="text-emerald-500" />
           </div>
           <h3 className="text-base font-bold text-gray-700 mb-1">
             {activeFilter === 'All' ? 'No Performance Issues' : `No ${activeFilter} Impact Issues`}
@@ -104,7 +105,7 @@ const AzurePerformanceInsightsTable: React.FC<AzurePerformanceInsightsTableProps
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50/60">
+            <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Resource</th>
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Type</th>
@@ -117,7 +118,7 @@ const AzurePerformanceInsightsTable: React.FC<AzurePerformanceInsightsTableProps
               {filtered.map((insight, idx) => {
                 const badgeClass = SEVERITY_BADGE[insight.severity] ?? 'bg-gray-100 text-gray-600 border-gray-200';
                 return (
-                  <tr key={insight.insightId || idx} className="border-t border-gray-100 hover:bg-white/30 transition-colors">
+                  <tr key={insight.insightId || idx} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
                       <span className="text-gray-800 font-medium text-xs truncate max-w-[160px] block" title={insight.resourceName}>
                         {insight.resourceName || '—'}

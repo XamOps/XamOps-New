@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { useTheme } from '../../contexts/ThemeContext';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   useObservabilityData,
   LogEntry,
   LogStream,
 } from '../../hooks/useObservabilityData';
-import clsx from 'clsx';
+import { Icon } from '@iconify/react';
 import SreInvestigateButton from '../SreInvestigateButton';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -23,38 +22,34 @@ const TIME_RANGES = [
 ];
 
 const LEVEL_COLORS: Record<string, string> = {
-  ERROR: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
-  WARN:  'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400',
-  INFO:  'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
-  DEBUG: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
-  TRACE: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400',
+  ERROR: 'bg-red-100 text-red-700',
+  WARN:  'bg-yellow-100 text-yellow-700',
+  INFO:  'bg-blue-100 text-blue-700',
+  DEBUG: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)]',
+  TRACE: 'bg-purple-100 text-purple-700',
 };
 
 const LEVEL_DOT: Record<string, string> = {
   ERROR: 'bg-red-500',
   WARN:  'bg-yellow-500',
   INFO:  'bg-blue-500',
-  DEBUG: 'bg-gray-400',
+  DEBUG: 'bg-[rgba(0,0,0,0.2)]',
   TRACE: 'bg-purple-500',
 };
 
 // ── Log Detail Drawer ─────────────────────────────────────────────────────────
 
 function LogDetailDrawer({ log, onClose }: { log: LogEntry | null; onClose: () => void }) {
-  const { theme } = useTheme();
   if (!log) return null;
 
   return ReactDOM.createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
       <div
-        className={clsx(
-          'w-full max-w-2xl h-full overflow-y-auto shadow-2xl border-l p-6',
-          theme === 'dark' ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'
-        )}
+        className="w-full max-w-2xl h-full overflow-y-auto shadow-2xl border-l border-[rgba(0,0,0,0.12)] bg-white p-6"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-6">
-          <h3 className={clsx('text-lg font-semibold', theme === 'dark' ? 'text-white' : 'text-gray-900')}>
+          <h3 className="text-lg font-semibold text-[rgba(0,0,0,0.88)]">
             Log Details
           </h3>
           <div className="flex items-center gap-3">
@@ -89,40 +84,36 @@ function LogDetailDrawer({ log, onClose }: { log: LogEntry | null; onClose: () =
                 />
               );
             })()}
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+            <button onClick={onClose} className="text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)] text-xl">✕</button>
           </div>
         </div>
 
         <div className="flex items-center gap-3 mb-4">
-          <span className={clsx('text-xs px-2 py-1 rounded font-semibold',
-            LEVEL_COLORS[String(log.level || log['severity_text'] || log['log.level'] || '').toUpperCase()] || LEVEL_COLORS['INFO'])}>
+          <span className={`text-xs px-2 py-1 rounded font-semibold ${
+            LEVEL_COLORS[String(log.level || log['severity_text'] || log['log.level'] || '').toUpperCase()] || LEVEL_COLORS['INFO']
+          }`}>
             {String(log.level || log['severity_text'] || log['log.level'] || 'INFO').toUpperCase()}
           </span>
-          <span className={clsx('text-sm', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
+          <span className="text-sm text-[rgba(0,0,0,0.5)]">
             {log._timestamp ? new Date(log._timestamp / 1000).toLocaleString() : '—'}
           </span>
         </div>
 
         {log.message && (
-          <div className={clsx('rounded-lg p-4 mb-4 font-mono text-sm break-all',
-            theme === 'dark' ? 'bg-slate-800 text-slate-200' : 'bg-gray-50 text-gray-800')}>
+          <div className="rounded-lg p-4 mb-4 font-mono text-sm break-all bg-[rgba(0,0,0,0.02)] text-[rgba(0,0,0,0.88)]">
             {String(log.message)}
           </div>
         )}
 
-        <div className={clsx('rounded-lg border overflow-hidden',
-          theme === 'dark' ? 'border-slate-700' : 'border-gray-200')}>
+        <div className="rounded-lg border border-[rgba(0,0,0,0.12)] overflow-hidden">
           {Object.entries(log)
             .filter(([k]) => k !== 'message')
             .map(([key, val]) => (
-              <div key={key} className={clsx('flex border-b last:border-b-0 text-sm',
-                theme === 'dark' ? 'border-slate-700' : 'border-gray-100')}>
-                <div className={clsx('w-40 flex-shrink-0 px-3 py-2 font-medium',
-                  theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-gray-50 text-gray-500')}>
+              <div key={key} className="flex border-b border-[rgba(0,0,0,0.06)] last:border-b-0 text-sm">
+                <div className="w-40 flex-shrink-0 px-3 py-2 font-medium bg-[rgba(0,0,0,0.02)] text-[rgba(0,0,0,0.5)]">
                   {key}
                 </div>
-                <div className={clsx('flex-1 px-3 py-2 font-mono break-all',
-                  theme === 'dark' ? 'text-slate-300' : 'text-gray-700')}>
+                <div className="flex-1 px-3 py-2 font-mono break-all text-[rgba(0,0,0,0.7)]">
                   {String(val ?? '')}
                 </div>
               </div>
@@ -137,7 +128,6 @@ function LogDetailDrawer({ log, onClose }: { log: LogEntry | null; onClose: () =
 // ── Log Row ───────────────────────────────────────────────────────────────────
 
 function LogRow({ log, onClick }: { log: LogEntry; onClick: () => void }) {
-  const { theme } = useTheme();
   const lvl = String(log.level || log['severity_text'] || log['log.level'] || 'INFO').toUpperCase();
   const ts = log._timestamp ? new Date(log._timestamp / 1000).toLocaleTimeString() : '—';
   const msg = String(log.message || log['log'] || JSON.stringify(log)).slice(0, 200);
@@ -168,36 +158,28 @@ function LogRow({ log, onClick }: { log: LogEntry; onClick: () => void }) {
   return (
     <div
       onClick={onClick}
-      className={clsx(
-        'flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors text-sm',
-        theme === 'dark' ? 'hover:bg-slate-700/50' : 'hover:bg-gray-50'
-      )}
+      className="flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors text-sm hover:bg-[rgba(0,0,0,0.025)]"
     >
       <div className="flex-shrink-0">
-        <span className={clsx('inline-block w-2 h-2 rounded-full', LEVEL_DOT[lvl] || 'bg-gray-400')} />
+        <span className={`inline-block w-2 h-2 rounded-full ${LEVEL_DOT[lvl] || 'bg-[rgba(0,0,0,0.2)]'}`} />
       </div>
-      <span className={clsx('flex-shrink-0 w-20 font-mono text-xs',
-        theme === 'dark' ? 'text-slate-500' : 'text-gray-400')}>
+      <span className="flex-shrink-0 w-20 font-mono text-xs text-[rgba(0,0,0,0.4)]">
         {ts}
       </span>
-      <span className={clsx('flex-shrink-0 text-xs px-1.5 py-0.5 rounded font-semibold',
-        LEVEL_COLORS[lvl] || LEVEL_COLORS['INFO'])}>
+      <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded font-semibold ${LEVEL_COLORS[lvl] || LEVEL_COLORS['INFO']}`}>
         {lvl}
       </span>
       {source && (
-        <span className={clsx('flex-shrink-0 text-xs px-1.5 py-0.5 rounded font-mono max-w-[120px] truncate',
-          theme === 'dark' ? 'bg-violet-900/40 text-violet-300' : 'bg-violet-50 text-violet-700')}>
+        <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded font-mono max-w-[120px] truncate bg-violet-50 text-violet-700">
           {source}
         </span>
       )}
       {log.service && (
-        <span className={clsx('flex-shrink-0 text-xs px-1.5 py-0.5 rounded',
-          theme === 'dark' ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-600')}>
+        <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)]">
           {String(log.service)}
         </span>
       )}
-      <span className={clsx('flex-1 font-mono truncate',
-        theme === 'dark' ? 'text-slate-300' : 'text-gray-700')}>
+      <span className="flex-1 font-mono truncate text-[rgba(0,0,0,0.7)]">
         {msg}
       </span>
       {investigateId && (
@@ -221,7 +203,6 @@ interface LogsExplorerProps {
 }
 
 const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
-  const { theme } = useTheme();
   const { logs, logTotal, histogram, logsLoading, searchLogs, fetchHistogram } = useObservabilityData();
 
   const [mode, setMode] = useState<'filter' | 'query'>('filter');
@@ -295,16 +276,8 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
   const handleFilterSearch = (e: React.FormEvent) => { e.preventDefault(); doSearch(true); };
   const handleQueryRun = (e: React.FormEvent) => { e.preventDefault(); doSearch(true); };
 
-  const cardCls = clsx(
-    'rounded-2xl border shadow-sm',
-    theme === 'dark' ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200'
-  );
-  const inputCls = clsx(
-    'text-sm rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500',
-    theme === 'dark'
-      ? 'bg-slate-700 border-slate-600 text-white placeholder-slate-400'
-      : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
-  );
+  const cardCls = 'bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm';
+  const inputCls = 'text-sm rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.04)] px-3 py-2 focus:outline-none focus:border-[rgba(0,0,0,0.2)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)]';
 
   return (
     <div className="space-y-4">
@@ -313,77 +286,71 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
       <div className="flex gap-2">
         <button
           onClick={() => setMode('filter')}
-          className={clsx(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
             mode === 'filter'
               ? 'bg-violet-600 border-violet-600 text-white'
-              : theme === 'dark'
-                ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
-                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-          )}
+              : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)]'
+          }`}
         >
-          <i className="fas fa-filter text-xs" /> Filter
+          <Icon icon="mdi:magnify" className="text-xs" /> Filter
         </button>
         <button
           onClick={() => setMode('query')}
-          className={clsx(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
             mode === 'query'
               ? 'bg-violet-600 border-violet-600 text-white'
-              : theme === 'dark'
-                ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
-                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-          )}
+              : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)]'
+          }`}
         >
-          <i className="fas fa-code text-xs" /> Query Editor
+          <Icon icon="mdi:file-code-outline" className="text-xs" /> Query Editor
         </button>
       </div>
 
       {/* Filter Bar */}
       {mode === 'filter' && (
-        <div className={clsx(cardCls, 'p-4')}>
+        <div className={`${cardCls} p-4`}>
           <form onSubmit={handleFilterSearch} className="flex flex-wrap gap-3 items-end">
             <div className="flex flex-col gap-1">
-              <label className={clsx('text-xs font-medium', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>Stream</label>
-              <select value={selectedStream} onChange={e => setSelectedStream(e.target.value)} className={clsx(inputCls, 'pr-8')}>
+              <label className="text-xs font-medium text-[rgba(0,0,0,0.5)]">Stream</label>
+              <select value={selectedStream} onChange={e => setSelectedStream(e.target.value)} className={`${inputCls} pr-8`}>
                 {streams.length === 0 && <option value="default">default</option>}
                 {streams.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className={clsx('text-xs font-medium', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>Level</label>
-              <select value={level} onChange={e => setLevel(e.target.value)} className={clsx(inputCls, 'pr-8')}>
+              <label className="text-xs font-medium text-[rgba(0,0,0,0.5)]">Level</label>
+              <select value={level} onChange={e => setLevel(e.target.value)} className={`${inputCls} pr-8`}>
                 {LOG_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className={clsx('text-xs font-medium', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>Time Range</label>
+              <label className="text-xs font-medium text-[rgba(0,0,0,0.5)]">Time Range</label>
               <select
                 value={timeRange.label}
                 onChange={e => setTimeRange(TIME_RANGES.find(t => t.label === e.target.value) || TIME_RANGES[1])}
-                className={clsx(inputCls, 'pr-8')}
+                className={`${inputCls} pr-8`}
               >
                 {TIME_RANGES.map(t => <option key={t.label} value={t.label}>{t.label}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1 min-w-[160px]">
-              <label className={clsx('text-xs font-medium', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>Host / Source</label>
+              <label className="text-xs font-medium text-[rgba(0,0,0,0.5)]">Host / Source</label>
               <input
                 type="text"
                 value={sourceFilter}
                 onChange={e => setSourceFilter(e.target.value)}
                 placeholder="e.g. ip-172-31-0-224"
-                className={clsx(inputCls, 'w-full')}
+                className={`${inputCls} w-full`}
               />
             </div>
             <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
-              <label className={clsx('text-xs font-medium', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>Search</label>
+              <label className="text-xs font-medium text-[rgba(0,0,0,0.5)]">Search</label>
               <input
                 type="text"
                 value={keyword}
                 onChange={e => setKeyword(e.target.value)}
                 placeholder="Search logs..."
-                className={clsx(inputCls, 'w-full')}
+                className={`${inputCls} w-full`}
               />
             </div>
             <button type="submit" disabled={logsLoading}
@@ -396,15 +363,14 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
 
       {/* SQL Query Editor */}
       {mode === 'query' && (
-        <div className={clsx(cardCls, 'p-4 space-y-3')}>
+        <div className={`${cardCls} p-4 space-y-3`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <i className="fas fa-code text-violet-500 text-sm" />
-              <span className={clsx('text-sm font-semibold', theme === 'dark' ? 'text-white' : 'text-gray-800')}>
+              <Icon icon="mdi:file-code-outline" className="text-violet-500 text-sm" />
+              <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">
                 SQL Query Editor
               </span>
-              <span className={clsx('text-xs px-2 py-0.5 rounded-full',
-                theme === 'dark' ? 'bg-slate-700 text-slate-400' : 'bg-gray-100 text-gray-500')}>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)]">
                 OpenObserve SQL
               </span>
             </div>
@@ -412,7 +378,7 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
               <select
                 value={timeRange.label}
                 onChange={e => setTimeRange(TIME_RANGES.find(t => t.label === e.target.value) || TIME_RANGES[1])}
-                className={clsx(inputCls, 'pr-8 text-xs py-1')}
+                className={`${inputCls} pr-8 text-xs py-1`}
               >
                 {TIME_RANGES.map(t => <option key={t.label} value={t.label}>{t.label}</option>)}
               </select>
@@ -425,29 +391,21 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
               rows={5}
               spellCheck={false}
               placeholder={`SELECT * FROM "kubernetes" WHERE level = 'ERROR' ORDER BY _timestamp DESC LIMIT 50`}
-              className={clsx(
-                'w-full font-mono text-sm rounded-xl border p-3 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-y',
-                theme === 'dark'
-                  ? 'bg-slate-900 border-slate-600 text-slate-200 placeholder-slate-600'
-                  : 'bg-gray-50 border-gray-200 text-gray-800 placeholder-gray-400'
-              )}
+              className="w-full font-mono text-sm rounded-xl border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)] p-3 focus:outline-none focus:border-[rgba(0,0,0,0.2)] resize-y text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)]"
             />
             <div className="flex items-center justify-between">
-              <div className={clsx('text-xs', theme === 'dark' ? 'text-slate-500' : 'text-gray-400')}>
-                Tip: Use <code className="px-1 rounded bg-gray-100 dark:bg-slate-700">match_all('keyword')</code> for full-text search
+              <div className="text-xs text-[rgba(0,0,0,0.4)]">
+                Tip: Use <code className="px-1 rounded bg-[rgba(0,0,0,0.04)]">match_all('keyword')</code> for full-text search
               </div>
               <div className="flex gap-2">
                 <button type="button"
                   onClick={() => setSqlQuery(`SELECT * FROM "${selectedStream}" ORDER BY _timestamp DESC LIMIT 100`)}
-                  className={clsx('text-xs px-3 py-1.5 rounded-lg border transition-colors',
-                    theme === 'dark'
-                      ? 'border-slate-600 text-slate-400 hover:bg-slate-700'
-                      : 'border-gray-200 text-gray-500 hover:bg-gray-50')}>
+                  className="text-xs px-3 py-1.5 rounded-lg border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.04)] transition-colors">
                   Reset
                 </button>
                 <button type="submit" disabled={logsLoading || !sqlQuery.trim()}
                   className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-60 transition-colors">
-                  <i className="fas fa-play text-xs" />
+                  <Icon icon="mdi:play" className="text-xs" />
                   {logsLoading ? 'Running...' : 'Run Query'}
                 </button>
               </div>
@@ -464,12 +422,7 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
             ].map(t => (
               <button key={t.label}
                 onClick={() => setSqlQuery(t.sql)}
-                className={clsx(
-                  'text-xs px-2.5 py-1 rounded-full border transition-colors',
-                  theme === 'dark'
-                    ? 'border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
-                    : 'border-gray-200 text-gray-500 hover:bg-violet-50 hover:border-violet-300 hover:text-violet-700'
-                )}>
+                className="text-xs px-2.5 py-1 rounded-full border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] hover:bg-violet-50 hover:border-violet-300 hover:text-violet-700 transition-colors">
                 {t.label}
               </button>
             ))}
@@ -479,9 +432,8 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
 
       {/* Volume Histogram */}
       {histogram.length > 0 && (
-        <div className={clsx(cardCls, 'p-4')}>
-          <p className={clsx('text-xs font-semibold mb-2 uppercase tracking-wide',
-            theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
+        <div className={`${cardCls} p-4`}>
+          <p className="text-xs font-semibold mb-2 uppercase tracking-wide text-[rgba(0,0,0,0.5)]">
             Log Volume
           </p>
           <ResponsiveContainer width="100%" height={60}>
@@ -490,7 +442,7 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
               <YAxis hide />
               <Tooltip
                 contentStyle={{
-                  background: theme === 'dark' ? '#1e293b' : '#fff',
+                  background: '#fff',
                   border: '1px solid #6d28d9',
                   borderRadius: 8,
                   fontSize: 12,
@@ -505,19 +457,17 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
       )}
 
       {/* Log Table */}
-      <div className={clsx(cardCls, 'overflow-hidden')}>
-        <div className={clsx('flex items-center justify-between px-4 py-3 border-b',
-          theme === 'dark' ? 'border-slate-700' : 'border-gray-100')}>
-          <span className={clsx('text-sm font-semibold', theme === 'dark' ? 'text-white' : 'text-gray-800')}>
+      <div className={`${cardCls} overflow-hidden`}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[rgba(0,0,0,0.06)]">
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">
             {logsLoading ? 'Running...' : `${logTotal.toLocaleString()} result${logTotal !== 1 ? 's' : ''}`}
           </span>
           <div className="flex items-center gap-2">
-            <span className={clsx('text-xs', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>Rows:</span>
+            <span className="text-xs text-[rgba(0,0,0,0.5)]">Rows:</span>
             <select
               value={pageSize}
               onChange={e => { setPage(0); setPageSize(Number(e.target.value)); }}
-              className={clsx('text-xs rounded border px-2 py-1',
-                theme === 'dark' ? 'bg-slate-700 border-slate-600 text-slate-200' : 'bg-white border-gray-200 text-gray-700')}>
+              className="text-xs rounded border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.04)] px-2 py-1 text-[rgba(0,0,0,0.7)]">
               {[100, 250, 500, 1000].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
@@ -532,25 +482,20 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
               value={liveInterval}
               onChange={e => setLiveInterval(Number(e.target.value))}
               disabled={!liveRefresh}
-              className={clsx('text-xs rounded border px-2 py-1 disabled:opacity-40',
-                theme === 'dark' ? 'bg-slate-700 border-slate-600 text-slate-200' : 'bg-white border-gray-200 text-gray-700')}>
+              className="text-xs rounded border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.04)] px-2 py-1 text-[rgba(0,0,0,0.7)] disabled:opacity-40">
               {[5, 10, 30, 60].map(s => <option key={s} value={s}>{s}s</option>)}
             </select>
             <button
               onClick={() => setLiveRefresh(v => !v)}
-              className={clsx('text-xs px-3 py-1 rounded-lg border transition-colors font-medium',
+              className={`text-xs px-3 py-1 rounded-lg border transition-colors font-medium ${
                 liveRefresh
                   ? 'bg-emerald-600 border-emerald-600 text-white'
-                  : theme === 'dark'
-                    ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+                  : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)]'
+              }`}>
               {liveRefresh ? '⏸ Pause' : '▶ Live'}
             </button>
             <button onClick={() => doSearch(true)}
-              className={clsx('text-xs px-3 py-1 rounded-lg border transition-colors',
-                theme === 'dark'
-                  ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
-                  : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+              className="text-xs px-3 py-1 rounded-lg border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)] transition-colors">
               ↻
             </button>
           </div>
@@ -561,13 +506,12 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
             <div className="w-8 h-8 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : logs.length === 0 ? (
-          <div className={clsx('flex flex-col items-center justify-center py-16 gap-2',
-            theme === 'dark' ? 'text-slate-500' : 'text-gray-400')}>
+          <div className="flex flex-col items-center justify-center py-16 gap-2 text-[rgba(0,0,0,0.4)]">
             <span className="text-3xl">📭</span>
             <span className="text-sm">No logs found</span>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-slate-700/50">
+          <div className="divide-y divide-[rgba(0,0,0,0.06)]">
             {logs.map((log, idx) => (
               <LogRow key={idx} log={log} onClick={() => setSelectedLog(log)} />
             ))}
@@ -575,20 +519,19 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
         )}
 
         {logTotal > pageSize && (
-          <div className={clsx('flex items-center justify-between px-4 py-3 border-t',
-            theme === 'dark' ? 'border-slate-700' : 'border-gray-100')}>
-            <span className={clsx('text-xs', theme === 'dark' ? 'text-slate-400' : 'text-gray-500')}>
+          <div className="flex items-center justify-between px-4 py-3 border-t border-[rgba(0,0,0,0.06)]">
+            <span className="text-xs text-[rgba(0,0,0,0.5)]">
               Page {page + 1} of {Math.ceil(logTotal / pageSize)} · showing {Math.min(pageSize, logTotal - page * pageSize)} of {logTotal.toLocaleString()}
             </span>
             <div className="flex gap-2">
               <button disabled={page === 0}
                 onClick={() => { const np = page - 1; setPage(np); doSearch(false, np); }}
-                className="text-xs px-3 py-1 rounded border border-gray-200 dark:border-slate-600 disabled:opacity-40">
+                className="text-xs px-3 py-1 rounded border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] disabled:opacity-40">
                 ← Prev
               </button>
               <button disabled={(page + 1) * pageSize >= logTotal}
                 onClick={() => { const np = page + 1; setPage(np); doSearch(false, np); }}
-                className="text-xs px-3 py-1 rounded border border-gray-200 dark:border-slate-600 disabled:opacity-40">
+                className="text-xs px-3 py-1 rounded border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] disabled:opacity-40">
                 Next →
               </button>
             </div>

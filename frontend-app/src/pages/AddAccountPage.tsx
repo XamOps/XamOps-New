@@ -29,7 +29,8 @@
 
 import React, { useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Icon } from '@iconify/react';
 import { useAddAccount } from '../hooks/useAddAccount';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import {
@@ -85,17 +86,17 @@ const AddAccountPage: React.FC = () => {
   const providerInfo = useMemo(() => {
     switch (provider) {
       case 'aws':
-        return { name: 'AWS', icon: 'fab fa-aws', colorClass: 'aws' };
+        return { name: 'AWS', icon: 'mdi:aws', colorClass: 'aws' };
       case 'gcp':
-        return { name: 'GCP', icon: 'fab fa-google', colorClass: 'gcp' };
+        return { name: 'GCP', icon: 'mdi:google', colorClass: 'gcp' };
       case 'azure':
-        return { name: 'Azure', icon: 'fab fa-microsoft', colorClass: 'azure' };
+        return { name: 'Azure', icon: 'mdi:microsoft', colorClass: 'azure' };
       case 'jenkins':
-        return { name: 'Jenkins', icon: 'fab fa-jenkins', colorClass: 'jenkins' };
+        return { name: 'Jenkins', icon: 'mdi:jenkins', colorClass: 'jenkins' };
       case 'github':
-        return { name: 'GitHub', icon: 'fab fa-github', colorClass: 'github' };
+        return { name: 'GitHub', icon: 'mdi:github', colorClass: 'github' };
       default:
-        return { name: 'Cloud', icon: 'fas fa-cloud', colorClass: 'default' };
+        return { name: 'Cloud', icon: 'mdi:cloud-outline', colorClass: 'default' };
     }
   }, [provider]);
 
@@ -157,53 +158,18 @@ const AddAccountPage: React.FC = () => {
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
-        <motion.button
+        <button
           onClick={handleBackToAccounts}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl overflow-hidden relative group"
-          whileHover="hover"
-          whileTap={{ scale: 0.96 }}
-          style={{ border: 'none', outline: 'none' }}
+          className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.07)] rounded-md transition-colors"
         >
-          {/* Sliding background fill on hover */}
-          <motion.span
-            className="absolute inset-0 bg-indigo-50 rounded-xl"
-            initial={{ x: '-100%' }}
-            variants={{ hover: { x: 0 } }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
-          />
-          {/* Arrow icon — rotates and bounces left on hover */}
-          <motion.span
-            className="relative z-10"
-            variants={{
-              hover: { x: -4, rotate: -15, color: '#6366f1' },
-            }}
-            transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-          >
-            <i className="fas fa-arrow-left text-sm"></i>
-          </motion.span>
-          <motion.span
-            className="relative z-10"
-            variants={{ hover: { color: '#6366f1' } }}
-            transition={{ duration: 0.2 }}
-          >
-            Back to Accounts
-          </motion.span>
-        </motion.button>
+          <Icon icon="mdi:arrow-left" width={14} />
+          Back to Accounts
+        </button>
         {provider && (
-          <motion.div
-            key={provider}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium aa-provider-badge-topbar ${providerInfo.colorClass}`}
-            initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 350, damping: 18 }}
-          >
-            <motion.i
-              className={providerInfo.icon}
-              animate={{ rotate: [0, -15, 12, -8, 5, 0] }}
-              transition={{ duration: 0.6, ease: 'easeInOut', delay: 0.1 }}
-            />
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium aa-provider-badge-topbar ${providerInfo.colorClass}`}>
+            <Icon icon={providerInfo.icon} width={14} />
             <span>{providerInfo.name}</span>
-          </motion.div>
+          </div>
         )}
       </div>
     );

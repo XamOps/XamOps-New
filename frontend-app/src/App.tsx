@@ -32,6 +32,7 @@ import ErrorBoundary from './components/Shared/ErrorBoundary';
 import UpdateBanner from './components/Shared/UpdateBanner';
 import RouteChangeHandler from './components/Shared/RouteChangeHandler';
 import { CommandPalette } from './components/Shared/CommandPalette';
+import OnboardingModal from './components/OnboardingModal';
 import { GooeyToaster } from 'goey-toast';
 import 'goey-toast/styles.css';
 
@@ -149,6 +150,7 @@ const BillOpsAdminAgreementsPage = lazy(() => import('./pages/BillOpsAdminAgreem
 const BillOpsAdminMarketplaceBillingPage = lazy(() => import('./pages/BillOpsAdminMarketplaceBillingPage'));
 const BillOpsAdminUserManagerPage = lazy(() => import('./pages/BillOpsAdminUserManagerPage'));
 const ClientDetailsPage = lazy(() => import('./pages/ClientDetailsPage'));
+const BillOpsClientIntakePage = lazy(() => import('./pages/BillOpsClientIntakePage'));
 
 // AccessOps — Identity Management (temporarily hidden)
 // const IdentityUsersPage  = lazy(() => import('./pages/identity/IdentityUsersPage'));
@@ -262,6 +264,7 @@ const BILLOPS_ADMIN_TAB_ROUTES: Record<string, string> = {
     'client-details': '/billops-client-details',
     'autospotting-admin': '/autospotting-admin',
     'historical-billing': '/billops-admin-historical-billing',
+    'client-intake': '/billops-client-intake',
 };
 const BILLOPS_ADMIN_TAB_ORDER = Object.keys(BILLOPS_ADMIN_TAB_ROUTES);
 
@@ -322,6 +325,37 @@ const DashboardGuard: React.FC = () => {
     return <Outlet />;
 };
 
+// Onboarding modal controller — shows once per user on first login
+const OnboardingController: React.FC = () => {
+    const { authReady, userProfile, userRoles, hasAnyRole } = useAuth();
+    const [showModal, setShowModal] = React.useState(false);
+
+    React.useEffect(() => {
+        if (!authReady || !userProfile || userRoles.length === 0) return;
+        // Only trigger for XAMOPS / admin users — BillOps-only users have a separate onboarding path
+        const isXamopsUser = hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN');
+        if (!isXamopsUser) return;
+        const key = `xamops_onboarding_v1_${userProfile.id ?? userProfile.email}`;
+        if (!localStorage.getItem(key)) setShowModal(true);
+    }, [authReady, userProfile, userRoles]);
+
+    if (!showModal || !userProfile) return null;
+
+    const handleClose = () => {
+        const key = `xamops_onboarding_v1_${userProfile.id ?? userProfile.email}`;
+        localStorage.setItem(key, 'done');
+        setShowModal(false);
+    };
+
+    return (
+        <OnboardingModal
+            userEmail={userProfile.email}
+            userName={userProfile.username}
+            onClose={handleClose}
+        />
+    );
+};
+
 // Authenticated Layout - Just handles the visual wrapper for protected routes
 const AuthenticatedLayout: React.FC = () => {
     const location = useLocation();
@@ -343,21 +377,21 @@ const AuthenticatedLayout: React.FC = () => {
         <ErrorBoundary>
             <div className={clsx(
                 'flex h-screen overflow-hidden',
-                theme === 'dark' ? 'bg-[#020617] text-slate-100' : 'bg-gray-50 text-gray-900'
+                theme === 'dark' ? 'bg-[#020617] text-slate-100' : 'bg-white text-gray-900'
             )}>
                 <Sidebar />
                 <div
                     id="main-content"
                     ref={mainContentRef}
                     className={clsx(
-                        'flex-1 flex flex-col h-full overflow-y-auto relative scroll-smooth',
-                        'lg:pl-72',
-                        theme === 'dark' ? 'bg-[#020617]' : 'bg-gray-50'
+                        'flex-1 flex flex-col h-full overflow-y-auto relative scroll-smooth main-content-scroll',
+                        'lg:pl-[220px]',
+                        theme === 'dark' ? 'bg-[#020617]' : 'bg-white'
                     )}
                     style={{ WebkitOverflowScrolling: 'touch' }}
                 >
                     <Topbar />
-                    <div className="flex-1 pt-6" key={location.key}>
+                    <div className="flex-1 pt-0" key={location.key}>
                         <Suspense fallback={null}>
                             <Outlet />
                         </Suspense>
@@ -371,6 +405,8 @@ const AuthenticatedLayout: React.FC = () => {
                 <AdminSupportNotificationListener />
                 {/* User Support Notifications - Background listener for ROLE_XAMOPS users */}
                 <UserSupportNotificationListener />
+                {/* First-time user onboarding modal */}
+                <OnboardingController />
             </div>
             <GooeyToaster position="bottom-right" />
             <UpdateBanner />
@@ -488,6 +524,7 @@ const AppContent: React.FC = () => {
                             <Route path="/billops-agreements" element={<AgreementsPage />} />
                             <Route path="/billops-admin-agreements" element={<BillOpsAdminAgreementsPage />} />
                             <Route path="/billops-admin-historical-billing" element={<BillOpsAdminMarketplaceBillingPage />} />
+                            <Route path="/billops-client-intake" element={<BillOpsClientIntakePage />} />
                             <Route path="/marketplace-purchases" element={<MarketplacePurchasesPage />} />
                             <Route path="/workspace-licenses" element={<WorkspaceLicensesPage />} />
                             <Route path="/user-management" element={<UserManagementPage />} />

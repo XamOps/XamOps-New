@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { RiCoverage, SpCoverage } from '../../hooks/useRispCoverage';
 
 interface RispCoverageTableProps {
@@ -13,9 +14,9 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
   const spData = !isRiTable ? (data as SpCoverage[]) : [];
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow">
+    <div className="bg-white rounded-2xl shadow-sm border border-[rgba(0,0,0,0.06)] p-6 hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+        <h3 className="text-lg font-bold text-[rgba(0,0,0,0.88)]">{title}</h3>
         <span className="px-3 py-1 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-xs rounded-lg font-semibold shadow-sm">
           {data.length} {data.length === 1 ? 'item' : 'items'}
         </span>
@@ -23,7 +24,7 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm text-left">
-          <thead className="text-xs text-gray-500 uppercase bg-gray-50 rounded-lg">
+          <thead className="text-xs text-[rgba(0,0,0,0.4)] uppercase bg-[rgba(0,0,0,0.02)] rounded-lg">
             {isRiTable ? (
               <tr>
                 <th className="px-4 py-3 rounded-l-lg font-semibold">Instance Type</th>
@@ -37,20 +38,20 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
               </tr>
             )}
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
             {isRiTable ? (
               riData.length > 0 ? (
                 riData.map((item, index) => (
-                  <tr key={`${item.instanceType}-${item.availabilityZone}-${index}`} className="hover:bg-blue-50/50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900">
+                  <tr key={`${item.instanceType}-${item.availabilityZone}-${index}`} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                    <td className="px-4 py-3 font-medium text-[rgba(0,0,0,0.88)]">
                       <div className="flex items-center">
-                        <i className="fas fa-server text-blue-500 mr-2 text-sm"></i>
+                        <Icon icon="mdi:server-outline" className="text-blue-500 mr-2" width={14} />
                         {item.instanceType}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-500">
+                    <td className="px-4 py-3 text-[rgba(0,0,0,0.5)]">
                       <div className="font-medium">{item.region}</div>
-                      <div className="text-xs text-gray-400 mt-0.5">{item.availabilityZone}</div>
+                      <div className="text-xs text-[rgba(0,0,0,0.4)] mt-0.5">{item.availabilityZone}</div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="font-bold text-emerald-600">
@@ -63,9 +64,9 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
                 <tr>
                   <td colSpan={3} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center">
-                      <i className="fas fa-inbox text-4xl text-gray-300 mb-3"></i>
-                      <p className="text-gray-500 font-medium">No active RI coverage</p>
-                      <p className="text-xs text-gray-400 mt-1">Reserved Instances will appear here once configured</p>
+                      <Icon icon="mdi:inbox-outline" className="text-[rgba(0,0,0,0.3)] mb-3" width={36} />
+                      <p className="text-[rgba(0,0,0,0.5)] font-medium">No active RI coverage</p>
+                      <p className="text-xs text-[rgba(0,0,0,0.4)] mt-1">Reserved Instances will appear here once configured</p>
                     </div>
                   </td>
                 </tr>
@@ -73,10 +74,10 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
             ) : (
               spData.length > 0 ? (
                 spData.map((item, index) => (
-                  <tr key={`${item.planType}-${index}`} className="hover:bg-blue-50/50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900">
+                  <tr key={`${item.planType}-${index}`} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                    <td className="px-4 py-3 font-medium text-[rgba(0,0,0,0.88)]">
                       <div className="flex items-center">
-                        <i className="fas fa-piggy-bank text-indigo-500 mr-2 text-sm"></i>
+                        <Icon icon="mdi:piggy-bank-outline" className="text-indigo-500 mr-2" width={14} />
                         {item.planType}
                       </div>
                     </td>
@@ -91,9 +92,9 @@ const RispCoverageTable: React.FC<RispCoverageTableProps> = ({ title, type, data
                 <tr>
                   <td colSpan={2} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center">
-                      <i className="fas fa-inbox text-4xl text-gray-300 mb-3"></i>
-                      <p className="text-gray-500 font-medium">No active SP coverage</p>
-                      <p className="text-xs text-gray-400 mt-1">Savings Plans will appear here once configured</p>
+                      <Icon icon="mdi:inbox-outline" className="text-[rgba(0,0,0,0.3)] mb-3" width={36} />
+                      <p className="text-[rgba(0,0,0,0.5)] font-medium">No active SP coverage</p>
+                      <p className="text-xs text-[rgba(0,0,0,0.4)] mt-1">Savings Plans will appear here once configured</p>
                     </div>
                   </td>
                 </tr>

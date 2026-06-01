@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpPerformanceData } from '../hooks/useGcpPerformanceData';
 import { PerformanceSeverity } from '../types/gcpPerformance';
@@ -21,9 +22,7 @@ import FilterButtons from '../components/GcpPerformance/FilterButtons';
 import BulkActionBar from '../components/GcpPerformance/BulkActionBar';
 import InsightsTable from '../components/GcpPerformance/InsightsTable';
 import BestPracticesTable from '../components/GcpPerformance/BestPracticesTable';
-import clsx from 'clsx';
 import { AlertDialog } from '../components/ui';
-import '../styles/gcpPerformance.css';
 import { useTabState } from '../hooks/useTabState';
 
 const GcpPerformancePage: React.FC = () => {
@@ -200,7 +199,7 @@ const GcpPerformancePage: React.FC = () => {
           onClick={handleExport}
           className="flex items-center gap-2 px-4 py-2 bg-white text-blue-600 text-xs font-bold rounded-xl border border-blue-100 shadow-sm hover:shadow-md transition-all active:scale-95"
         >
-          <i className="fas fa-download"></i>
+          <Icon icon="mdi:download" width={14} />
           <span>Export CSV</span>
         </button>
 
@@ -209,7 +208,7 @@ const GcpPerformancePage: React.FC = () => {
           disabled={loading}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
         >
-          <i className={clsx('fas fa-sync-alt', loading && 'animate-spin')}></i>
+          <Icon icon="mdi:refresh" width={14} className={loading ? 'animate-spin' : ''} />
           <span>{loading ? 'Scanning...' : 'Refresh Insights'}</span>
         </button>
       </div>
@@ -220,38 +219,42 @@ const GcpPerformancePage: React.FC = () => {
   // Empty state if no account selected
   if (!selectedAccountId) {
     return (
-      <div className="gcp-performance-content">
-        <div className="gcp-empty-state">
-          <div className="gcp-empty-state-icon">
-            <i className="fas fa-tachometer-alt text-6xl text-blue-500"></i>
+      <main className="flex-1 p-6 bg-white min-h-screen">
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="w-14 h-14 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4">
+            <Icon icon="mdi:speedometer" width={28} color="#4f46e5" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-800 mt-4">No GCP Account Selected</h2>
-          <p className="text-gray-600 mt-2">Please select a GCP project from the sidebar to view performance insights.</p>
+          <h3 className="text-base font-bold text-gray-700 mb-1">No GCP Account Selected</h3>
+          <p className="text-sm text-gray-500">Please select a GCP project from the sidebar to view performance insights.</p>
         </div>
-      </div>
+      </main>
     );
   }
 
   // Error state
   if (error && !insights.length) {
     return (
-      <div className="gcp-performance-content">
-        <div className="gcp-error-state">
-          <div className="gcp-error-icon">
-            <i className="fas fa-exclamation-triangle text-6xl text-red-500"></i>
+      <main className="flex-1 p-6 bg-white min-h-screen">
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="w-14 h-14 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center mb-4">
+            <Icon icon="mdi:alert" width={28} color="#ef4444" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-800 mt-4">Failed to Load Performance Insights</h2>
-          <p className="text-gray-600 mt-2">{error.message}</p>
-          <button onClick={refresh} className="gcp-retry-button mt-4">
-            <i className="fas fa-sync-alt mr-2"></i>Retry
+          <h3 className="text-base font-bold text-gray-700 mb-1">Failed to Load Performance Insights</h3>
+          <p className="text-sm text-gray-500 mb-4">{error.message}</p>
+          <button
+            onClick={refresh}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors"
+          >
+            <Icon icon="mdi:refresh" width={14} />
+            Retry
           </button>
         </div>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="gcp-performance-content">
+    <main className="flex-1 p-6 bg-white min-h-screen">
       <AlertDialog
         isOpen={pendingArchive}
         title={`Archive ${selectedInsights.length} insight${selectedInsights.length !== 1 ? 's' : ''}?`}
@@ -261,103 +264,105 @@ const GcpPerformancePage: React.FC = () => {
         onConfirm={confirmBulkArchive}
         onCancel={() => setPendingArchive(false)}
       />
-      {/* Header Removed - Integrated into Topbar */}
-
-      {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gray-50">
-        <div className="max-w-7xl mx-auto space-y-8">
-          {/* Metrics Cards */}
-          <MetricsCards summary={summary} loading={loading} />
-
-          {/* Main Content Card */}
-          <div className="glass-card rounded-2xl p-8">
-            {/* Tabs */}
-            <div className="mb-6 border-b border-gray-200">
-              <nav className="flex -mb-px" aria-label="Tabs">
-                <button
-                  onClick={() => setActiveTab('insights')}
-                  className={`tab-button w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm transition-colors ${activeTab === 'insights'
-                    ? 'active border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                >
-                  Critical Insights
-                </button>
-                <button
-                  onClick={() => setActiveTab('best_practices')}
-                  className={`tab-button w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm transition-colors ${activeTab === 'best_practices'
-                    ? 'active border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                >
-                  Best Practice Audits
-                </button>
-              </nav>
-            </div>
-
-            {/* Critical Insights Tab */}
-            {activeTab === 'insights' && (
-              <div>
-                {/* Filters and Bulk Actions */}
-                <div className="flex flex-wrap justify-between items-center gap-6 mb-8">
-                  <FilterButtons
-                    currentSeverity={currentSeverity}
-                    onFilterChange={setCurrentSeverity}
-                    selectedCount={selectedInsights.length}
-                  />
-                  <BulkActionBar
-                    selectedCount={selectedInsights.length}
-                    onArchive={handleBulkArchive}
-                    onClear={() => setSelectedInsights([])}
-                  />
-                </div>
-
-                {/* Insights Table */}
-                <InsightsTable
-                  insights={filteredInsights}
-                  selectedInsights={selectedInsights}
-                  onToggleInsight={handleToggleInsight}
-                  onToggleAll={handleToggleAll}
-                  isAllSelected={isAllSelected}
-                  loading={loading}
-                />
-
-                {/* Empty State with Refresh */}
-                {!loading && filteredInsights.length === 0 && (
-                  <div className="text-center py-16">
-                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <i className="fas fa-search text-gray-400 text-xl"></i>
-                    </div>
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">No insights found</h3>
-                    <p className="text-gray-600 mb-4">No performance insights available for the selected severity.</p>
-                    <button
-                      onClick={refresh}
-                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all"
-                    >
-                      <i className="fas fa-sync-alt mr-2"></i>Refresh Insights
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Best Practices Tab */}
-            {activeTab === 'best_practices' && (
-              <BestPracticesTable insights={bestPracticeInsights} loading={loading} />
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* Toast Notification */}
       {notification && (
-        <div
-          className={`toast show ${notification.type === 'error' ? 'error' : ''}`}
-        >
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium ${
+          notification.type === 'error' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
+        }`}>
+          <Icon
+            icon={notification.type === 'error' ? 'mdi:alert-circle-outline' : 'mdi:check-circle-outline'}
+            width={16}
+          />
           <span>{notification.message}</span>
         </div>
       )}
-    </div>
+
+      <div className="space-y-6">
+        {/* Metrics Cards */}
+        <MetricsCards summary={summary} loading={loading} />
+
+        {/* Main Content Card */}
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+          {/* Tabs */}
+          <div className="border-b border-gray-100 px-6">
+            <nav className="flex gap-6">
+              {[
+                { key: 'insights', label: 'Critical Insights', icon: 'mdi:alert-circle-outline' },
+                { key: 'best_practices', label: 'Best Practice Audits', icon: 'mdi:check-circle-outline' },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key as any)}
+                  className={`flex items-center gap-2 py-4 px-1 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.key
+                      ? 'border-indigo-600 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <Icon icon={tab.icon} width={14} />
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Critical Insights Tab */}
+          {activeTab === 'insights' && (
+            <div className="p-6 space-y-4">
+              {/* Filters and Bulk Actions */}
+              <div className="flex flex-wrap justify-between items-center gap-6">
+                <FilterButtons
+                  currentSeverity={currentSeverity}
+                  onFilterChange={setCurrentSeverity}
+                  selectedCount={selectedInsights.length}
+                />
+                <BulkActionBar
+                  selectedCount={selectedInsights.length}
+                  onArchive={handleBulkArchive}
+                  onClear={() => setSelectedInsights([])}
+                />
+              </div>
+
+              {/* Insights Table */}
+              <InsightsTable
+                insights={filteredInsights}
+                selectedInsights={selectedInsights}
+                onToggleInsight={handleToggleInsight}
+                onToggleAll={handleToggleAll}
+                isAllSelected={isAllSelected}
+                loading={loading}
+              />
+
+              {/* Empty State with Refresh */}
+              {!loading && filteredInsights.length === 0 && (
+                <div className="flex flex-col items-center py-16">
+                  <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mb-3">
+                    <Icon icon="mdi:magnify" width={24} className="text-gray-400" />
+                  </div>
+                  <h3 className="text-base font-bold text-gray-700 mb-1">No insights found</h3>
+                  <p className="text-sm text-gray-500 mb-4">No performance insights available for the selected severity.</p>
+                  <button
+                    onClick={refresh}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors"
+                  >
+                    <Icon icon="mdi:refresh" width={14} />
+                    Refresh Insights
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Best Practices Tab */}
+          {activeTab === 'best_practices' && (
+            <div className="p-6">
+              <BestPracticesTable insights={bestPracticeInsights} loading={loading} />
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
   );
 };
 

@@ -19,11 +19,12 @@
 
 import React from 'react';
 import { Tabs, TabList, Tab } from 'react-aria-components';
+import { Icon } from '@iconify/react';
 
 export interface TabItem {
   id: string;
   label: React.ReactNode;
-  /** Optional Font Awesome icon class e.g. "fas fa-chart-bar" */
+  /** Icon: either an iconify id (e.g. "mdi:chart-bar") or a legacy FA class (e.g. "fas fa-chart-bar") */
   icon?: string;
   /** Disable this tab */
   disabled?: boolean;
@@ -84,7 +85,11 @@ export function AriaTabGroup({
                   ].join(' ')
             }
           >
-            {tab.icon && <i className={`${tab.icon} text-xs`} />}
+            {tab.icon && (
+              tab.icon.startsWith('mdi:') || tab.icon.includes(':')
+                ? <Icon icon={tab.icon} width={14} />
+                : <i className={`${tab.icon} text-xs`} />
+            )}
             {tab.label}
           </Tab>
         ))}

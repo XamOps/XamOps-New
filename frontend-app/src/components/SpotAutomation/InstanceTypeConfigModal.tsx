@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import { InfoTooltip, AriaSlider, DialogRoot, DialogPanel } from '../ui';
 import { RadioGroup, Radio } from 'react-aria-components';
 
@@ -113,28 +114,37 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
-              <i className="fas fa-server text-white"></i>
+              <Icon icon="mdi:server-outline" width={18} color="white" />
             </div>
             <div>
-              <div className="text-xl font-bold text-gray-800">Configure Instance Types</div>
-              <div className="text-sm text-gray-600">{asgName} ({region})</div>
+              <div className="text-[18px] font-bold text-[rgba(0,0,0,0.88)]">Configure Instance Types</div>
+              <div className="text-[13px] text-[rgba(0,0,0,0.5)]">{asgName} ({region})</div>
             </div>
           </div>
         }
         onClose={handleClose}
         footer={
           <>
-            <div className="text-sm text-gray-600 mr-auto">
-              <span className="font-semibold">{selectedTypes.size}</span> instance type{selectedTypes.size !== 1 ? 's' : ''} selected
+            <div className="text-[13px] text-[rgba(0,0,0,0.5)] mr-auto">
+              <span className="font-semibold text-[rgba(0,0,0,0.88)]">{selectedTypes.size}</span> instance type{selectedTypes.size !== 1 ? 's' : ''} selected
             </div>
-            <button type="button" onClick={handleClose} className="px-6 py-3 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-all">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="px-6 py-3 text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-md hover:bg-[rgba(0,0,0,0.06)] font-semibold transition-all"
+            >
               Cancel
             </button>
-            <button type="button" onClick={handleSave} disabled={isSaving} className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-all flex items-center disabled:opacity-50">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="px-6 py-3 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white font-semibold rounded-md transition-all flex items-center disabled:opacity-50"
+            >
               {isSaving ? (
-                <><div className="loading-spinner mr-2 border-2 border-white border-t-transparent rounded-full w-4 h-4 animate-spin"></div>Saving...</>
+                <><Icon icon="mdi:loading" width={16} className="animate-spin mr-2" />Saving...</>
               ) : (
-                <><i className="fas fa-save mr-2"></i>Save Configuration</>
+                <><Icon icon="mdi:content-save-outline" width={16} className="mr-2" />Save Configuration</>
               )}
             </button>
           </>
@@ -143,8 +153,8 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
         <div className="overflow-y-auto max-h-[60vh] space-y-6">
         <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <div className="flex items-start space-x-2">
-            <i className="fas fa-lightbulb text-blue-600 mt-1"></i>
-            <div className="text-sm text-blue-800">
+            <Icon icon="mdi:lightbulb-outline" width={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="text-[13px] text-blue-800">
               <p className="font-semibold mb-1">Why configure backup instance types?</p>
               <p>
                 Sometimes AWS runs out of your preferred instance type. By selecting backup options below,
@@ -156,9 +166,9 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
         </div>
 
         {/* Spot/On-Demand Configuration */}
-        <div className="mb-6 border border-gray-200 rounded-lg p-6 bg-gradient-to-br from-green-50 to-blue-50">
-          <h4 className="font-bold text-gray-800 mb-4 flex items-center text-lg">
-            <i className="fas fa-sliders-h text-green-600 mr-2"></i>
+        <div className="mb-6 border border-[rgba(0,0,0,0.12)] rounded-lg p-6 bg-gradient-to-br from-green-50 to-blue-50">
+          <h4 className="font-bold text-[rgba(0,0,0,0.88)] mb-4 flex items-center text-[16px]">
+            <Icon icon="mdi:tune" width={18} className="text-emerald-600 mr-2" />
             Spot/On-Demand Configuration
           </h4>
 
@@ -178,12 +188,12 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
             >
               {({ isSelected }) => (
                 <>
-                  <div className={`mt-1 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-gray-300'}`}>
+                  <div className={`mt-1 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-[rgba(0,0,0,0.15)]'}`}>
                     {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 cursor-pointer">
-                      <span className="font-semibold text-gray-700">% Spot instances</span>
+                      <span className="font-semibold text-[rgba(0,0,0,0.7)]">% Spot instances</span>
                       <InfoTooltip placement="top">
                         Set the target percentage of Spot instances. AWS will maintain this ratio automatically.
                       </InfoTooltip>
@@ -216,12 +226,12 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
             >
               {({ isSelected }) => (
                 <>
-                  <div className={`mt-1 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-gray-300'}`}>
+                  <div className={`mt-1 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-[rgba(0,0,0,0.15)]'}`}>
                     {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 cursor-pointer">
-                      <span className="font-semibold text-gray-700">Specific on-demand count</span>
+                      <span className="font-semibold text-[rgba(0,0,0,0.7)]">Specific on-demand count</span>
                       <InfoTooltip placement="top">
                         Set a fixed number of On-Demand instances. All other instances will be Spot.
                       </InfoTooltip>
@@ -234,9 +244,9 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
                           value={onDemandCount}
                           onChange={(e) => setOnDemandCount(Math.max(0, Number(e.target.value)))}
                           placeholder="Enter count..."
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                          className="w-full px-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-[12px] text-[rgba(0,0,0,0.5)] mt-1">
                           Number of On-Demand instances to maintain. Remaining will be Spot.
                         </p>
                       </div>
@@ -250,9 +260,9 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
 
         <div className="space-y-6">
           {Object.entries(INSTANCE_TYPE_FAMILIES).map(([family, types]) => (
-            <div key={family} className="border border-gray-200 rounded-lg p-4">
-              <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-                <i className="fas fa-layer-group text-indigo-500 mr-2"></i>
+            <div key={family} className="border border-[rgba(0,0,0,0.12)] rounded-lg p-4">
+              <h4 className="font-semibold text-[rgba(0,0,0,0.7)] mb-3 flex items-center text-[13px]">
+                <Icon icon="mdi:layers-outline" width={15} className="text-indigo-500 mr-2" />
                 {family}
               </h4>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
@@ -261,10 +271,10 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
                     key={type}
                     type="button"
                     onClick={() => handleToggleType(type)}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
+                    className={`px-3 py-2 rounded-lg text-[13px] font-medium transition-all border ${
                       selectedTypes.has(type)
                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
-                        : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400 hover:bg-indigo-50'
+                        : 'bg-white text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.12)] hover:border-indigo-400 hover:bg-indigo-50'
                     }`}
                   >
                     {type}
@@ -275,9 +285,9 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
           ))}
 
           {/* Custom Instance Type Input */}
-          <div className="border border-gray-200 rounded-lg p-4">
-            <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-              <i className="fas fa-plus-circle text-green-500 mr-2"></i>
+          <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-4">
+            <h4 className="font-semibold text-[rgba(0,0,0,0.7)] mb-3 flex items-center text-[13px]">
+              <Icon icon="mdi:plus-circle-outline" width={15} className="text-emerald-500 mr-2" />
               Custom Instance Type
             </h4>
             <div className="flex items-center space-x-2">
@@ -292,14 +302,14 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
                   }
                 }}
                 placeholder="e.g., m5n.large"
-                className="flex-1 px-4 py-2 rounded-lg border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all text-sm"
+                className="flex-1 px-4 py-2 rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] focus:outline-none focus:border-[rgba(0,0,0,0.2)] transition-all text-[13px]"
               />
               <button
                 type="button"
                 onClick={handleAddCustomType}
-                className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition-all"
+                className="px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white font-semibold rounded-md transition-all flex items-center gap-1.5 text-[13px]"
               >
-                <i className="fas fa-plus mr-2"></i>
+                <Icon icon="mdi:plus" width={15} />
                 Add
               </button>
             </div>
@@ -308,7 +318,7 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
                 {customTypes.map((type) => (
                   <div
                     key={type}
-                    className="inline-flex items-center px-3 py-1 bg-gray-100 border border-gray-300 rounded-lg text-sm"
+                    className="inline-flex items-center px-3 py-1 bg-[rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px]"
                   >
                     <span className="mr-2">{type}</span>
                     <button
@@ -316,7 +326,7 @@ const InstanceTypeConfigModal: React.FC<InstanceTypeConfigModalProps> = ({
                       onClick={() => handleRemoveCustomType(type)}
                       className="text-red-500 hover:text-red-700"
                     >
-                      <i className="fas fa-times"></i>
+                      <Icon icon="mdi:close" width={13} />
                     </button>
                   </div>
                 ))}

@@ -1,183 +1,191 @@
-/**
- * GCP FinOps Charts Component
- *
- * Displays cost breakdown charts for GCP services and regions
- */
-
 import React, { useEffect, useRef } from 'react';
+import { Icon } from '@iconify/react';
 import Chart from 'chart.js/auto';
+import Highcharts from '../../lib/highcharts-init';
 import type { GcpCostBreakdown } from '../../types/gcpFinops';
+
+const VAR_PIE_PALETTE = [
+  '#4caefe', '#3dc3e8', '#2dd9db', '#1feeaf', '#0ff3a0',
+  '#00e887', '#23e274', '#35d96f', '#4cd4a0', '#1addc8',
+  '#2bcfee', '#0de0b0', '#38e8c8', '#50f0d0', '#18d4e8',
+  '#3aefb8', '#29c9e0', '#10f8c0', '#40dce0', '#5af0a8',
+];
+
+const formatCurrency = (value: number): string =>
+  value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface GcpFinOpsChartsProps {
   costBreakdown: GcpCostBreakdown;
 }
 
-const formatCurrency = (value: number): string => {
-  return value.toLocaleString('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-};
-
 const GcpFinOpsCharts: React.FC<GcpFinOpsChartsProps> = ({ costBreakdown }) => {
-  const serviceChartRef = useRef<HTMLCanvasElement>(null);
+  const serviceContainerRef = useRef<HTMLDivElement>(null);
   const regionChartRef = useRef<HTMLCanvasElement>(null);
-  const serviceChartInstance = useRef<Chart<'doughnut'> | null>(null);
+  const serviceChartInstance = useRef<Highcharts.Chart | null>(null);
   const regionChartInstance = useRef<Chart<'bar'> | null>(null);
 
+  // Variable Radius Pie – Cost by Service
   useEffect(() => {
-    // Render Service Chart
-    if (serviceChartRef.current) {
-      // Destroy previous chart if exists
-      if (serviceChartInstance.current) {
-        serviceChartInstance.current.destroy();
-      }
+    if (!serviceContainerRef.current) return;
 
-      const serviceData = costBreakdown?.byService || [];
-      if (serviceData.length > 0) {
-        const ctx = serviceChartRef.current.getContext('2d');
-        if (ctx) {
-          serviceChartInstance.current = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-              labels: serviceData.map((d) => d.name),
-              datasets: [
-                {
-                  data: serviceData.map((d) => d.amount),
-                  backgroundColor: [
-                    '#4285F4',
-                    '#34A853',
-                    '#FBBC05',
-                    '#EA4335',
-                    '#667eea',
-                    '#764ba2',
-                    '#f093fb',
-                    '#4facfe',
-                    '#00f2fe',
-                    '#43e97b',
-                  ],
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: {
-                legend: {
-                  position: 'right',
-                },
-                tooltip: {
-                  callbacks: {
-                    label: (context) => `${context.label}: ${formatCurrency(context.parsed)}`,
-                  },
-                },
-              },
-            },
-          });
-        }
-      }
+    if (serviceChartInstance.current) {
+      serviceChartInstance.current.destroy();
+      serviceChartInstance.current = null;
     }
 
-    // Render Region Chart
-    if (regionChartRef.current) {
-      // Destroy previous chart if exists
-      if (regionChartInstance.current) {
-        regionChartInstance.current.destroy();
-      }
+    const serviceData = costBreakdown?.byService || [];
+    if (serviceData.length === 0) return;
 
-      const regionData = costBreakdown?.byRegion || [];
-      if (regionData.length > 0) {
-        const ctx = regionChartRef.current.getContext('2d');
-        if (ctx) {
-          regionChartInstance.current = new Chart(ctx, {
-            type: 'bar',
-            data: {
-              labels: regionData.map((d) => d.name),
-              datasets: [
-                {
-                  label: 'Cost by Region',
-                  data: regionData.map((d) => d.amount),
-                  backgroundColor: 'rgba(251, 146, 60, 0.8)',
-                  borderColor: 'rgba(251, 146, 60, 1)',
-                  borderWidth: 2,
-                  borderRadius: 8,
-                },
-              ],
+    serviceChartInstance.current = Highcharts.chart(serviceContainerRef.current, {
+      chart: {
+        type: 'variablepie',
+        backgroundColor: 'transparent',
+        style: { fontFamily: "'Inter', sans-serif" },
+        animation: { duration: 600 },
+        height: 320,
+      },
+      title: { text: undefined },
+      credits: { enabled: false },
+      exporting: { enabled: false },
+      colors: VAR_PIE_PALETTE,
+      tooltip: {
+        headerFormat: '',
+        pointFormat: '<b>{point.name}</b><br/>Cost: <b>${point.y:,.2f}</b><br/>Share: <b>{point.percentage:.1f}%</b>',
+      },
+      plotOptions: {
+        variablepie: {
+          innerSize: '35%',
+          dataLabels: {
+            enabled: true,
+            format: '{point.name}',
+            style: {
+              fontSize: '10px',
+              fontWeight: '500',
+              color: 'rgba(0,0,0,0.65)',
+              textOutline: 'none',
             },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              indexAxis: 'y',
-              plugins: {
-                legend: {
-                  display: false,
-                },
-                tooltip: {
-                  callbacks: {
-                    label: (context) => `Cost: ${formatCurrency(context.parsed.x)}`,
-                  },
-                },
-              },
-            },
-          });
-        }
-      }
-    }
+            distance: 16,
+            connectorColor: 'rgba(0,0,0,0.2)',
+          },
+          showInLegend: true,
+          borderWidth: 2,
+          borderColor: '#ffffff',
+        },
+      },
+      legend: {
+        layout: 'vertical',
+        align: 'right',
+        verticalAlign: 'middle',
+        width: 190,
+        itemStyle: {
+          fontSize: '11px',
+          fontWeight: '500',
+          color: 'rgba(0,0,0,0.6)',
+        },
+        symbolRadius: 3,
+        maxHeight: 280,
+      },
+      series: [{
+        type: 'variablepie',
+        name: 'Cost',
+        zMin: 0,
+        data: serviceData.map((d) => ({ name: d.name, y: d.amount, z: d.amount })),
+      }],
+    } as Highcharts.Options);
 
-    // Cleanup function
     return () => {
       if (serviceChartInstance.current) {
         serviceChartInstance.current.destroy();
-      }
-      if (regionChartInstance.current) {
-        regionChartInstance.current.destroy();
+        serviceChartInstance.current = null;
       }
     };
   }, [costBreakdown]);
 
+  // Bar – Cost by Region
+  useEffect(() => {
+    if (!regionChartRef.current) return;
+    regionChartInstance.current?.destroy();
+
+    const regionData = costBreakdown?.byRegion || [];
+    if (regionData.length === 0) return;
+
+    const ctx = regionChartRef.current.getContext('2d');
+    if (!ctx) return;
+
+    regionChartInstance.current = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: regionData.map((d) => d.name),
+        datasets: [{
+          label: 'Cost by Region',
+          data: regionData.map((d) => d.amount),
+          backgroundColor: 'rgba(251, 146, 60, 0.8)',
+          borderColor: 'rgba(251, 146, 60, 1)',
+          borderWidth: 2,
+          borderRadius: 8,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: { label: (ctx) => `Cost: ${formatCurrency(ctx.parsed.x)}` },
+          },
+        },
+      },
+    });
+
+    return () => { regionChartInstance.current?.destroy(); };
+  }, [costBreakdown]);
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      {/* Cost by Service Chart */}
-      <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md fade-in">
-        <div className="flex items-center space-x-3 mb-6">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-chart-pie text-white"></i>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Cost by Service – Variable Radius Pie */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+        <div className="px-0 pt-0 pb-4 flex items-center gap-3">
+          <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]" style={{ backgroundColor: '#4285F414' }}>
+            <Icon icon="mdi:chart-pie" width={16} color="#4285F4" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-gray-800">Cost by Service</h3>
-            <p className="text-sm text-gray-600">Top GCP services by spend</p>
+            <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost by Service</h3>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse inline-block"></span>
+              Top GCP services by spend
+            </p>
           </div>
         </div>
-        <div className="relative h-80">
-          {(costBreakdown?.byService?.length ?? 0) === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <i className="fas fa-chart-pie text-4xl mb-3"></i>
-              <p className="text-sm">No service cost data available</p>
-            </div>
-          ) : (
-            <canvas ref={serviceChartRef}></canvas>
-          )}
-        </div>
+        {(costBreakdown?.byService?.length ?? 0) === 0 ? (
+          <div className="flex flex-col items-center justify-center text-[rgba(0,0,0,0.3)]" style={{ height: 320 }}>
+            <Icon icon="mdi:chart-pie" width={40} />
+            <p className="text-[13px] mt-3">No service cost data available</p>
+          </div>
+        ) : (
+          <div ref={serviceContainerRef} className="w-full" style={{ height: 320 }} />
+        )}
       </div>
 
-      {/* Cost by Region Chart */}
-      <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md fade-in">
-        <div className="flex items-center space-x-3 mb-6">
-          <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-globe text-white"></i>
+      {/* Cost by Region */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+        <div className="px-0 pt-0 pb-4 flex items-center gap-3">
+          <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]" style={{ backgroundColor: '#EA433514' }}>
+            <Icon icon="mdi:earth" width={16} color="#EA4335" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-gray-800">Cost by Region</h3>
-            <p className="text-sm text-gray-600">Geographic distribution</p>
+            <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost by Region</h3>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse inline-block"></span>
+              Geographic distribution
+            </p>
           </div>
         </div>
-        <div className="relative h-80">
+        <div className="relative" style={{ height: 320 }}>
           {(costBreakdown?.byRegion?.length ?? 0) === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <i className="fas fa-globe text-4xl mb-3"></i>
-              <p className="text-sm">No region cost data available</p>
+            <div className="flex flex-col items-center justify-center h-full text-[rgba(0,0,0,0.3)]">
+              <Icon icon="mdi:earth" width={40} />
+              <p className="text-[13px] mt-3">No region cost data available</p>
             </div>
           ) : (
             <canvas ref={regionChartRef}></canvas>

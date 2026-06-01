@@ -16,56 +16,57 @@
  */
 
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { useUserManagement } from '../hooks/useUserManagement';
 import type { IamUser, IamRole } from '../types/userManagement';
 import { useTopbar } from '../contexts/TopbarContext';
-import '../styles/userManagement.css';
 import { useTabState } from '../hooks/useTabState';
 
 const SKELETON_ITEMS = [1, 2, 3, 4, 5];
 
 const KpiSkeleton = () => (
-  <div className="kpi-card">
-    <div className="kpi-content">
-      <div className="flex-1">
-        <div className="skeleton h-4 w-24 mb-2 rounded" />
-        <div className="skeleton h-8 w-16 rounded" />
-      </div>
-      <div className="skeleton h-12 w-12 rounded-xl" />
-    </div>
+  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+    <div className="h-3 w-24 bg-[rgba(0,0,0,0.06)] animate-pulse rounded mb-3" />
+    <div className="h-8 w-16 bg-[rgba(0,0,0,0.06)] animate-pulse rounded" />
   </div>
 );
 
 const TableRowSkeleton = () => (
-  <tr className="table-row">
-    <td>
-      <div className="user-identity">
-        <div className="skeleton h-10 w-10 rounded-xl mr-4" />
+  <tr>
+    <td className="px-4 py-3.5">
+      <div className="flex items-center gap-3">
+        <div className="h-10 w-10 rounded-xl bg-[rgba(0,0,0,0.06)] animate-pulse flex-shrink-0" />
         <div className="flex-1">
-          <div className="skeleton h-4 w-32 mb-2 rounded" />
-          <div className="skeleton h-3 w-48 rounded" />
+          <div className="h-4 w-32 bg-[rgba(0,0,0,0.06)] animate-pulse rounded mb-2" />
+          <div className="h-3 w-48 bg-[rgba(0,0,0,0.06)] animate-pulse rounded" />
         </div>
       </div>
     </td>
-    <td>
+    <td className="px-4 py-3.5">
       <div className="flex gap-2">
-        <div className="skeleton h-6 w-16 rounded-full" />
-        <div className="skeleton h-6 w-20 rounded-full" />
+        <div className="h-6 w-16 bg-[rgba(0,0,0,0.06)] animate-pulse rounded-full" />
+        <div className="h-6 w-20 bg-[rgba(0,0,0,0.06)] animate-pulse rounded-full" />
       </div>
     </td>
-    <td>
+    <td className="px-4 py-3.5">
       <div className="flex flex-col gap-2">
-        <div className="skeleton h-6 w-40 rounded" />
-        <div className="skeleton h-6 w-32 rounded" />
+        <div className="h-6 w-40 bg-[rgba(0,0,0,0.06)] animate-pulse rounded" />
+        <div className="h-6 w-32 bg-[rgba(0,0,0,0.06)] animate-pulse rounded" />
       </div>
     </td>
-    <td>
+    <td className="px-4 py-3.5">
       <div className="flex flex-col gap-2">
-        <div className="skeleton h-3 w-24 rounded" />
-        <div className="skeleton h-3 w-24 rounded" />
+        <div className="h-3 w-24 bg-[rgba(0,0,0,0.06)] animate-pulse rounded" />
+        <div className="h-3 w-24 bg-[rgba(0,0,0,0.06)] animate-pulse rounded" />
       </div>
     </td>
   </tr>
+);
+
+const CloudSVG = () => (
+  <svg className="absolute right-2 bottom-2 opacity-[0.07]" width="80" height="60" viewBox="0 0 80 60">
+    <path d="M65 48H20a18 18 0 010-36c1 0 2 0 3 .1A24 24 0 0168 28h-.5A16 16 0 0165 48z" fill="currentColor" />
+  </svg>
 );
 
 const UserManagementPage: React.FC = () => {
@@ -91,20 +92,19 @@ const UserManagementPage: React.FC = () => {
   const { setActions, clearActions } = useTopbar();
   const [activeTab, setActiveTab] = useTabState<'users' | 'roles'>('users');
 
-  // Register actions in Topbar
   React.useEffect(() => {
     setActions(
       <div className="flex items-center gap-4">
         <div className="flex flex-col items-end mr-2">
-          <p className="text-sm font-bold text-slate-700 leading-none">{accountName || 'Select Account'}</p>
-          <p className="text-[10px] text-slate-400 font-mono mt-1">{accountId || '---'}</p>
+          <p className="text-sm font-bold text-[rgba(0,0,0,0.88)] leading-none">{accountName || 'Select Account'}</p>
+          <p className="text-[10px] text-[rgba(0,0,0,0.4)] font-mono mt-1">{accountId || '---'}</p>
         </div>
         <button
           onClick={() => fetchData(true)}
           disabled={loading || !accountId}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-xs font-semibold rounded-md transition-colors disabled:opacity-50"
         >
-          <i className={`fas fa-sync-alt ${loading ? 'fa-spin' : ''}`} />
+          <Icon icon="mdi:sync" width={14} className={loading ? 'animate-spin' : ''} />
           <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
@@ -119,21 +119,23 @@ const UserManagementPage: React.FC = () => {
 
     if (filteredUsers.length > 0) {
       return filteredUsers.map((user: IamUser) => (
-        <tr key={user.userId} className="table-row">
-          <td>
-            <div className="user-identity">
-              <div className="user-avatar">
-                {user.userName.substring(0, 2).toUpperCase()}
+        <tr key={user.userId} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+          <td className="px-4 py-3.5 whitespace-nowrap">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
+                <span className="text-xs font-bold text-indigo-600">{user.userName.substring(0, 2).toUpperCase()}</span>
               </div>
               <div>
-                <div className="user-name">{user.userName}</div>
-                <div className="flex items-center gap-2">
-                  <div className="user-id" title={user.arn}>
-                    {user.userId}
-                  </div>
+                <p className="text-sm font-bold text-[rgba(0,0,0,0.88)] leading-tight">{user.userName}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <code className="text-[10px] font-mono text-[rgba(0,0,0,0.4)]" title={user.arn}>{user.userId}</code>
                   {isAws && (
-                    <span className={`mfa-badge ${user.mfaEnabled ? 'enabled' : 'disabled'}`}>
-                      <i className={`fas ${user.mfaEnabled ? 'fa-shield-alt' : 'fa-exclamation-triangle'} mr-1`} />
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                      user.mfaEnabled
+                        ? 'bg-emerald-50 border border-emerald-100 text-emerald-600'
+                        : 'bg-rose-50 border border-rose-100 text-rose-500'
+                    }`}>
+                      <Icon icon={user.mfaEnabled ? 'mdi:shield-check' : 'mdi:alert'} width={9} />
                       {user.mfaEnabled ? 'MFA' : 'No MFA'}
                     </span>
                   )}
@@ -141,49 +143,49 @@ const UserManagementPage: React.FC = () => {
               </div>
             </div>
           </td>
-          <td>
-            <div className="groups-container">
+          <td className="px-4 py-3.5">
+            <div className="flex flex-wrap gap-1.5">
               {user.groups && user.groups.length > 0 ? (
                 user.groups.map((group) => (
-                  <span key={`${user.userId}-${group}`} className="group-badge">
-                    <i className="fas fa-users mr-1.5 text-[10px]" />
+                  <span key={`${user.userId}-${group}`} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-100 text-blue-700 text-[10px] font-semibold rounded-full">
+                    <Icon icon="mdi:account-group-outline" width={10} />
                     {group}
                   </span>
                 ))
               ) : (
-                <span className="empty-text">No Groups</span>
+                <span className="text-xs text-[rgba(0,0,0,0.3)] italic">No Groups</span>
               )}
             </div>
           </td>
-          <td>
-            <div className="policies-container">
+          <td className="px-4 py-3.5">
+            <div className="flex flex-col gap-1.5">
               {user.attachedPolicies && user.attachedPolicies.length > 0 ? (
                 user.attachedPolicies.map((policy) => (
-                  <div key={`${user.userId}-${policy.policyName}`} className="policy-item">
-                    <i className="fas fa-file-contract text-gray-400 mr-2" />
-                    <span className="policy-name">{policy.policyName}</span>
+                  <div key={`${user.userId}-${policy.policyName}`} className="flex items-center gap-2">
+                    <Icon icon="mdi:file-document-outline" width={12} color="rgba(0,0,0,0.3)" />
+                    <span className="text-xs text-[rgba(0,0,0,0.7)] font-medium">{policy.policyName}</span>
                     {policy.type === 'Managed' && (
-                      <span className="policy-badge managed">Managed</span>
+                      <span className="px-1.5 py-0.5 bg-indigo-50 border border-indigo-100 text-indigo-600 text-[9px] font-bold rounded uppercase tracking-wider">Managed</span>
                     )}
                     {policy.type === 'Inline' && (
-                      <span className="policy-badge inline">Inline</span>
+                      <span className="px-1.5 py-0.5 bg-amber-50 border border-amber-100 text-amber-600 text-[9px] font-bold rounded uppercase tracking-wider">Inline</span>
                     )}
                   </div>
                 ))
               ) : (
-                <span className="empty-text">No direct policies</span>
+                <span className="text-xs text-[rgba(0,0,0,0.3)] italic">No direct policies</span>
               )}
             </div>
           </td>
-          <td>
-            <div className="activity-info">
-              <div className="activity-row">
-                <span className="activity-label">Created:</span>
-                <span>{formatDate(user.createDate)}</span>
+          <td className="px-4 py-3.5 whitespace-nowrap">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider w-20">Created:</span>
+                <span className="text-xs text-[rgba(0,0,0,0.7)]">{formatDate(user.createDate)}</span>
               </div>
-              <div className="activity-row">
-                <span className="activity-label">Last Pwd Use:</span>
-                <span className={isOldDate(user.passwordLastUsed) ? 'text-red-500 font-semibold' : ''}>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider w-20">Last Pwd:</span>
+                <span className={`text-xs font-medium ${isOldDate(user.passwordLastUsed) ? 'text-red-500 font-semibold' : 'text-[rgba(0,0,0,0.7)]'}`}>
                   {formatDate(user.passwordLastUsed)}
                 </span>
               </div>
@@ -196,8 +198,8 @@ const UserManagementPage: React.FC = () => {
     if (!loading && users.length > 0) {
       return (
         <tr>
-          <td colSpan={4} className="empty-state">
-            <p>No users match your search.</p>
+          <td colSpan={4} className="py-16 text-center">
+            <p className="text-sm text-[rgba(0,0,0,0.4)]">No users match your search.</p>
           </td>
         </tr>
       );
@@ -206,9 +208,13 @@ const UserManagementPage: React.FC = () => {
     if (!loading) {
       return (
         <tr>
-          <td colSpan={4} className="empty-state">
-            <i className="fas fa-ghost text-4xl text-gray-300 mb-2" />
-            <p className="font-semibold text-gray-600">No IAM Users found</p>
+          <td colSpan={4} className="py-16 text-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center">
+                <Icon icon="mdi:account-off-outline" width={28} color="rgba(0,0,0,0.25)" />
+              </div>
+              <p className="text-sm font-bold text-[rgba(0,0,0,0.5)]">No IAM Users found</p>
+            </div>
           </td>
         </tr>
       );
@@ -224,49 +230,47 @@ const UserManagementPage: React.FC = () => {
 
     if (filteredRoles.length > 0) {
       return filteredRoles.map((role: IamRole) => (
-        <tr key={role.roleId} className="table-row">
-          <td>
-            <div className="role-identity">
-              <div className="role-icon">
-                <i className="fas fa-robot" />
+        <tr key={role.roleId} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+          <td className="px-4 py-3.5 whitespace-nowrap">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center flex-shrink-0">
+                <Icon icon="mdi:robot-outline" width={16} color="#7C3AED" />
               </div>
               <div>
-                <div className="role-name">{role.roleName}</div>
+                <p className="text-sm font-bold text-[rgba(0,0,0,0.88)] leading-tight">{role.roleName}</p>
                 <button
-                  className="role-arn-btn"
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 mt-0.5 uppercase tracking-wider"
                   title={`Copy ARN: ${role.arn}`}
                   onClick={() => copyToClipboard(role.arn)}
                 >
-                  <i className="far fa-copy mr-1.5" />
+                  <Icon icon="mdi:content-copy" width={9} />
                   {role.arn.split('/').pop()}
                 </button>
               </div>
             </div>
           </td>
-          <td>
-            <div className="role-description">
-              {role.description || '-'}
-            </div>
+          <td className="px-4 py-3.5">
+            <span className="text-xs text-[rgba(0,0,0,0.6)]">{role.description || <span className="text-[rgba(0,0,0,0.3)] italic">—</span>}</span>
           </td>
-          <td>
-            <div className="policies-container">
+          <td className="px-4 py-3.5">
+            <div className="flex flex-col gap-1.5">
               {role.attachedPolicies && role.attachedPolicies.length > 0 ? (
                 role.attachedPolicies.map((policy) => (
-                  <div key={`${role.roleId}-${policy.policyName}`} className="policy-item">
-                    <i className="fas fa-shield-alt text-gray-400 mr-2.5 text-xs" />
-                    <span className="policy-name">{policy.policyName}</span>
+                  <div key={`${role.roleId}-${policy.policyName}`} className="flex items-center gap-2">
+                    <Icon icon="mdi:shield-outline" width={12} color="rgba(0,0,0,0.3)" />
+                    <span className="text-xs text-[rgba(0,0,0,0.7)] font-medium">{policy.policyName}</span>
                     {policy.type === 'Managed' && (
-                      <span className="policy-badge aws">AWS</span>
+                      <span className="px-1.5 py-0.5 bg-orange-50 border border-orange-100 text-orange-600 text-[9px] font-bold rounded uppercase tracking-wider">AWS</span>
                     )}
                   </div>
                 ))
               ) : (
-                <span className="empty-text">No policies attached</span>
+                <span className="text-xs text-[rgba(0,0,0,0.3)] italic">No policies attached</span>
               )}
             </div>
           </td>
-          <td className="text-sm text-gray-500">
-            {formatDate(role.createDate)}
+          <td className="px-4 py-3.5 whitespace-nowrap">
+            <span className="text-xs text-[rgba(0,0,0,0.6)]">{formatDate(role.createDate)}</span>
           </td>
         </tr>
       ));
@@ -275,8 +279,8 @@ const UserManagementPage: React.FC = () => {
     if (!loading && roles.length > 0) {
       return (
         <tr>
-          <td colSpan={4} className="empty-state">
-            <p>No roles match your search.</p>
+          <td colSpan={4} className="py-16 text-center">
+            <p className="text-sm text-[rgba(0,0,0,0.4)]">No roles match your search.</p>
           </td>
         </tr>
       );
@@ -285,9 +289,13 @@ const UserManagementPage: React.FC = () => {
     if (!loading) {
       return (
         <tr>
-          <td colSpan={4} className="empty-state">
-            <i className="fas fa-ghost text-4xl text-gray-300 mb-2" />
-            <p className="font-semibold text-gray-600">No IAM Roles found</p>
+          <td colSpan={4} className="py-16 text-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center">
+                <Icon icon="mdi:account-off-outline" width={28} color="rgba(0,0,0,0.25)" />
+              </div>
+              <p className="text-sm font-bold text-[rgba(0,0,0,0.5)]">No IAM Roles found</p>
+            </div>
           </td>
         </tr>
       );
@@ -297,153 +305,166 @@ const UserManagementPage: React.FC = () => {
   };
 
   return (
-    <div className="user-management-page">
-      {/* Page Content */}
-      <div className="page-content pt-4">
-        {/* Error Alert */}
-        {error && (
-          <div className="error-alert">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <i className="fas fa-exclamation-circle text-red-500" />
+    <div className="px-6 pb-12 pt-6 space-y-6">
+      {/* Error Alert */}
+      {error && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-rose-50 border border-rose-100 rounded-xl">
+          <Icon icon="mdi:alert-circle-outline" width={16} color="#F43F5E" className="flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-rose-700">Status</p>
+            <p className="text-sm text-rose-600">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* KPI Cards */}
+      {loading && !users.length ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <KpiSkeleton />
+          <KpiSkeleton />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Total Users */}
+          <div className="relative bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 overflow-hidden">
+            <CloudSVG />
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider mb-2">{`Total ${labels.users}`}</p>
+                <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+                  {users.length}
+                </p>
               </div>
-              <div className="ml-3">
-                <p className="text-sm text-red-700 font-semibold">Status</p>
-                <p className="text-sm text-red-600">{error}</p>
+              <div className="w-10 h-10 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Icon icon="mdi:account-outline" width={18} color="#2563EB" />
               </div>
             </div>
           </div>
-        )}
 
-        {/* Loading & Content */}
-        {loading && !users.length ? (
-          <>
-            <div className="kpi-grid">
-              <KpiSkeleton />
-              <KpiSkeleton />
-              <KpiSkeleton />
-            </div>
-            <div className="table-container">
-              <div className="skeleton-table-header h-16 w-full skeleton mb-1" />
-              <div className="table-wrapper">
-                <table className="data-table">
-                  <tbody>
-                    {SKELETON_ITEMS.map((item) => <TableRowSkeleton key={`main-skeleton-${item}`} />)}
-                  </tbody>
-                </table>
+          {/* Total Roles */}
+          <div className="relative bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 overflow-hidden">
+            <CloudSVG />
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider mb-2">Total IAM Roles</p>
+                <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+                  {roles.length}
+                </p>
+              </div>
+              <div className="w-10 h-10 bg-violet-50 border border-violet-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Icon icon="mdi:shield-account-outline" width={18} color="#7C3AED" />
               </div>
             </div>
-          </>
-        ) : (
-          <>
-            {/* KPI Cards */}
-            <div className="kpi-grid">
-              <div className="kpi-card">
-                <div className="kpi-content">
-                  <div>
-                    <p className="kpi-label">{`Total ${labels.users}`}</p>
-                    <h3 className="kpi-value">{users.length}</h3>
-                  </div>
-                  <div className="kpi-icon bg-blue-100 text-blue-600">
-                    <i className="fas fa-user" />
-                  </div>
-                </div>
-              </div>
+          </div>
+        </div>
+      )}
 
-              <div className="kpi-card">
-                <div className="kpi-content">
-                  <div>
-                    <p className="kpi-label">Total IAM Roles</p>
-                    <h3 className="kpi-value">{roles.length}</h3>
-                  </div>
-                  <div className="kpi-icon bg-indigo-100 text-indigo-600">
-                    <i className="fas fa-user-shield" />
-                  </div>
-                </div>
+      {/* Main Table Container */}
+      {!(loading && !users.length) && (
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+          {/* Tabs Header */}
+          <div className="flex items-center justify-between px-6 py-0 border-b border-[rgba(0,0,0,0.06)]">
+            <nav className="flex">
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`flex items-center gap-2 px-4 py-4 text-xs font-semibold border-b-2 transition-colors ${
+                  activeTab === 'users'
+                    ? 'border-[rgba(0,0,0,0.88)] text-[rgba(0,0,0,0.88)]'
+                    : 'border-transparent text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)]'
+                }`}
+              >
+                <Icon icon="mdi:account-outline" width={14} />
+                <span>{labels.users}</span>
+                <span className="text-[10px] px-1.5 py-0.5 bg-[rgba(0,0,0,0.06)] rounded-full font-bold text-[rgba(0,0,0,0.5)]">{users.length}</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('roles')}
+                className={`flex items-center gap-2 px-4 py-4 text-xs font-semibold border-b-2 transition-colors ${
+                  activeTab === 'roles'
+                    ? 'border-[rgba(0,0,0,0.88)] text-[rgba(0,0,0,0.88)]'
+                    : 'border-transparent text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)]'
+                }`}
+              >
+                <Icon icon="mdi:shield-account-outline" width={14} />
+                <span>IAM Roles</span>
+                <span className="text-[10px] px-1.5 py-0.5 bg-[rgba(0,0,0,0.06)] rounded-full font-bold text-[rgba(0,0,0,0.5)]">{roles.length}</span>
+              </button>
+            </nav>
+          </div>
+
+          {/* Search Bar */}
+          <div className="px-4 py-3 border-b border-[rgba(0,0,0,0.06)]">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                <Icon icon="mdi:magnify" width={14} color="rgba(0,0,0,0.35)" />
               </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search name or ID..."
+                className="w-full pl-9 pr-4 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] focus:border-[rgba(0,0,0,0.2)] transition-colors"
+              />
             </div>
+          </div>
 
-            {/* Main Table Container */}
-            <div className="table-container">
-              {/* Tabs */}
-              <div className="tabs-header">
-                <nav className="tabs-nav">
-                  <button
-                    onClick={() => setActiveTab('users')}
-                    className={`tab-button ${activeTab === 'users' ? 'active' : ''}`}
-                  >
-                    <i className="fas fa-user mr-2" />
-                    <span>{labels.users}</span>
-                    <span className="tab-badge">{users.length}</span>
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('roles')}
-                    className={`tab-button ${activeTab === 'roles' ? 'active' : ''}`}
-                  >
-                    <i className="fas fa-user-shield mr-2" />
-                    <span>IAM Roles</span>
-                    <span className="tab-badge">{roles.length}</span>
-                  </button>
-                </nav>
-              </div>
-
-              {/* Search Bar */}
-              <div className="search-bar">
-                <div className="search-input-wrapper">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search name or ID..."
-                    className="search-input"
-                  />
-                  <div className="search-icon">
-                    <i className="fas fa-search text-gray-400" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Users Tab */}
-              {activeTab === 'users' && (
-                <div className="table-wrapper">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>{labels.userIdentity}</th>
-                        <th>Groups</th>
-                        <th>Attached Policies</th>
-                        <th>Activity</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {renderUsersTableBody()}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Roles Tab */}
-              {activeTab === 'roles' && (
-                <div className="table-wrapper">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Role Details</th>
-                        <th>Description</th>
-                        <th>Attached Policies</th>
-                        <th>Created</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {renderRolesTableBody()}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+          {/* Users Tab */}
+          {activeTab === 'users' && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)] text-left">
+                    {[labels.userIdentity, 'Groups', 'Attached Policies', 'Activity'].map((h) => (
+                      <th key={h} className="px-4 py-3 text-xs font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
+                  {renderUsersTableBody()}
+                </tbody>
+              </table>
             </div>
-          </>
-        )}
-      </div>
+          )}
+
+          {/* Roles Tab */}
+          {activeTab === 'roles' && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)] text-left">
+                    {['Role Details', 'Description', 'Attached Policies', 'Created'].map((h) => (
+                      <th key={h} className="px-4 py-3 text-xs font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
+                  {renderRolesTableBody()}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading skeleton for table */}
+      {loading && !users.length && (
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)]">
+            <div className="h-4 w-32 bg-[rgba(0,0,0,0.06)] animate-pulse rounded" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
+                {SKELETON_ITEMS.map((item) => <TableRowSkeleton key={`main-skeleton-${item}`} />)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

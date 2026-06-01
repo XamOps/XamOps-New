@@ -20,6 +20,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useBillOpsAdminTickets } from '../hooks/useBillOpsAdminTickets';
@@ -113,16 +114,18 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
 
   return (
     <tr
-      className={`ticket-row-enter hover:bg-gray-50 transition-colors cursor-pointer group ${rowBorderClass}`}
+      className={`ticket-row-enter hover:bg-[rgba(0,0,0,0.02)] transition-colors cursor-pointer group ${rowBorderClass}`}
       onClick={() => onView(ticket.id)}
     >
       {/* ID */}
       <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex items-center gap-1.5">
           {isStarredClient && (
-            <i className="fas fa-star text-amber-400 text-[9px]" title="Primary client"></i>
+            <span title="Primary client">
+              <Icon icon="mdi:star" width={10} className="text-amber-400" />
+            </span>
           )}
-          <span className="text-[11px] text-gray-400 font-mono">#{ticket.id}</span>
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)] font-mono">#{ticket.id}</span>
         </div>
       </td>
 
@@ -130,15 +133,15 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
       <td className="px-4 py-3 whitespace-nowrap max-w-[130px]">
         {ticket.accountName ? (
           <div title={ticket.accountId}>
-            <span className="text-[12px] font-semibold text-gray-800 truncate block max-w-[120px]">
+            <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)] truncate block max-w-[120px]">
               {ticket.accountName}
             </span>
-            <span className="text-[10px] text-gray-400 font-mono truncate block max-w-[120px]">
+            <span className="text-[10px] text-[rgba(0,0,0,0.35)] font-mono truncate block max-w-[120px]">
               {ticket.accountId}
             </span>
           </div>
         ) : (
-          <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-mono border border-gray-200 truncate max-w-[100px] block">
+          <span className="px-1.5 py-0.5 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] rounded text-[10px] font-mono border border-[rgba(0,0,0,0.08)] truncate max-w-[100px] block">
             {ticket.accountId || 'GLOBAL'}
           </span>
         )}
@@ -146,10 +149,10 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
 
       {/* Subject + Service */}
       <td className="px-4 py-3 max-w-[200px]">
-        <div className="text-[12px] font-semibold text-gray-800 group-hover:text-indigo-600 transition-colors leading-tight mb-0.5 truncate">
+        <div className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)] group-hover:text-indigo-600 transition-colors leading-tight mb-0.5 truncate">
           {ticket.subject}
         </div>
-        <div className="text-[10px] text-gray-400 truncate">
+        <div className="text-[10px] text-[rgba(0,0,0,0.35)] truncate">
           {ticket.service}
         </div>
       </td>
@@ -174,7 +177,7 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
       <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex items-center gap-1.5">
           <span className={`w-2 h-2 rounded-full ${getSeverityDotClasses(ticket.severity)} flex-shrink-0`}></span>
-          <span className="text-[11px] text-gray-600">{ticket.severity}</span>
+          <span className="text-[11px] text-[rgba(0,0,0,0.5)]">{ticket.severity}</span>
         </div>
       </td>
 
@@ -185,11 +188,11 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
 
       {/* Created (IST) + Relative Age */}
       <td className="px-4 py-3 whitespace-nowrap">
-        <div className="text-[11px] text-gray-500 leading-tight">
+        <div className="text-[11px] text-[rgba(0,0,0,0.5)] leading-tight">
           {ticket.createdAt ? formatIST(ticket.createdAt) : '—'}
         </div>
         {ticket.createdAt && !isClosed && (
-          <div className="text-[10px] text-gray-400 mt-0.5">
+          <div className="text-[10px] text-[rgba(0,0,0,0.35)] mt-0.5">
             {formatTicketAge(ticket.createdAt)} old
           </div>
         )}
@@ -198,22 +201,22 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
       {/* Chat Started */}
       <td className="px-4 py-3 whitespace-nowrap hidden xl:table-cell">
         {ticket.chatStartedAt ? (
-          <div className="text-[11px] text-indigo-600 leading-tight">
+          <div className="text-[11px] text-[rgba(0,0,0,0.5)] leading-tight">
             {formatIST(ticket.chatStartedAt)}
           </div>
         ) : (
-          <span className="text-[11px] text-gray-300">—</span>
+          <span className="text-[11px] text-[rgba(0,0,0,0.2)]">—</span>
         )}
       </td>
 
       {/* Closed At */}
       <td className="px-4 py-3 whitespace-nowrap hidden xl:table-cell">
         {ticket.closedAt ? (
-          <div className="text-[11px] text-gray-500 leading-tight">
+          <div className="text-[11px] text-[rgba(0,0,0,0.5)] leading-tight">
             {formatIST(ticket.closedAt)}
           </div>
         ) : (
-          <span className="text-[11px] text-gray-300">—</span>
+          <span className="text-[11px] text-[rgba(0,0,0,0.2)]">—</span>
         )}
       </td>
 
@@ -221,13 +224,13 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
       <td className="px-4 py-3 whitespace-nowrap">
         {ticket.assignedToUsername ? (
           <div className="flex items-center gap-1.5" title={ticket.creatorUsername ? `Creator: ${ticket.creatorUsername}` : undefined}>
-            <div className="w-6 h-6 rounded-md bg-gray-100 flex items-center justify-center text-gray-600 text-[9px] font-semibold flex-shrink-0">
+            <div className="w-6 h-6 rounded-md bg-[rgba(0,0,0,0.06)] flex items-center justify-center text-[rgba(0,0,0,0.5)] text-[9px] font-semibold flex-shrink-0">
               {ticket.assignedToUsername.charAt(0).toUpperCase()}
             </div>
-            <span className="text-[11px] text-gray-700 truncate max-w-[80px]">{ticket.assignedToUsername}</span>
+            <span className="text-[11px] text-[rgba(0,0,0,0.5)] truncate max-w-[80px]">{ticket.assignedToUsername}</span>
           </div>
         ) : (
-          <span className="text-[11px] text-gray-400 italic">Unassigned</span>
+          <span className="text-[11px] text-[rgba(0,0,0,0.25)] italic">Unassigned</span>
         )}
       </td>
 
@@ -235,9 +238,9 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
       <td className="px-4 py-3 whitespace-nowrap">
         <button
           onClick={(e) => { e.stopPropagation(); onView(ticket.id); }}
-          className="text-gray-400 hover:text-indigo-600 bg-gray-100 hover:bg-indigo-50 transition-colors w-7 h-7 flex items-center justify-center rounded-md border border-gray-200 hover:border-indigo-200"
+          className="text-[rgba(0,0,0,0.2)] hover:text-indigo-600 bg-[rgba(0,0,0,0.04)] hover:bg-indigo-50 transition-colors w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.08)] hover:border-indigo-200"
         >
-          <i className="fas fa-chevron-right text-[10px]"></i>
+          <Icon icon="mdi:chevron-right" width={14} />
         </button>
       </td>
     </tr>
@@ -494,8 +497,8 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
   /** Sort icon for a given column */
   const renderSortIcon = (field: Exclude<SortField, ''>) => {
-    if (sortField !== field) return <i className="fas fa-sort ml-1 opacity-20 text-[8px]"></i>;
-    return <i className={`fas fa-chevron-${sortDir === 'asc' ? 'up' : 'down'} ml-1 text-indigo-500 text-[8px]`}></i>;
+    if (sortField !== field) return <Icon icon="mdi:sort" width={10} className="ml-1 opacity-20" />;
+    return <Icon icon={`mdi:chevron-${sortDir === 'asc' ? 'up' : 'down'}`} width={10} className="ml-1 text-indigo-500" />;
   };
 
   // Always use billops-ticket-detail — admins are authenticated through billops;
@@ -574,38 +577,38 @@ const BillOpsAdminTicketsPage: React.FC = () => {
         {/* Search */}
         <div className="relative hidden md:block">
           <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <i className="fas fa-search text-gray-400 text-[11px]"></i>
+            <Icon icon="mdi:magnify" width={14} className="text-[rgba(0,0,0,0.3)]" />
           </span>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search tickets..."
-            className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-md text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 w-64 transition-all outline-none"
+            className="pl-9 pr-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.12)] rounded-md text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 w-64 transition-all outline-none"
           />
         </div>
 
         {lastUpdatedDisplay && (
-          <span className="hidden xl:block text-[11px] text-gray-400">
+          <span className="hidden xl:block text-[11px] text-[rgba(0,0,0,0.35)]">
             Synced {lastUpdatedDisplay}
           </span>
         )}
 
         <button
           onClick={openRaiseModal}
-          className="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[12px] font-medium rounded-md transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-medium rounded-md hover:bg-black transition-colors"
         >
-          <i className="fas fa-plus text-[10px]"></i>
+          <Icon icon="mdi:plus" width={14} />
           Raise Ticket
         </button>
 
         <button
           onClick={() => fetchTickets(true)}
           disabled={loading || isUpdating}
-          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-md transition-colors border border-gray-200 disabled:opacity-50"
+          className="w-8 h-8 flex items-center justify-center rounded-lg border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] transition-colors disabled:opacity-50"
           title="Refresh"
         >
-          <i className={`fas fa-sync-alt text-[11px] ${isUpdating ? 'animate-spin' : ''}`}></i>
+          <Icon icon="mdi:refresh" width={14} className={isUpdating ? 'animate-spin' : ''} />
         </button>
       </div>
     );
@@ -613,13 +616,13 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   }, [setActions, clearActions, search, setSearch, lastUpdatedDisplay, loading, isUpdating, fetchTickets, openRaiseModal]);
 
   const renderLoadingSkeleton = () => (
-    <div className="bg-white border border-gray-200 rounded-md overflow-hidden shadow-sm">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl overflow-hidden shadow-sm">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-100">
-          <thead className="bg-gray-50">
+          <thead className="bg-[rgba(0,0,0,0.02)]">
             <tr>
               {['ID', 'Account', 'Subject / Service', 'Status', 'Severity', 'SLA', 'Created (IST)', 'Chat Started', 'Closed At', 'Assigned To', 'Action'].map((h) => (
-                <th key={h} className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest">{h}</th>
+                <th key={h} className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em]">{h}</th>
               ))}
             </tr>
           </thead>
@@ -628,7 +631,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
               <tr key={i}>
                 {Array.from({ length: 11 }).map((_, j) => (
                   <td key={j} className="px-4 py-3">
-                    <div className="h-4 bg-gray-100 rounded animate-pulse" style={{ width: `${40 + (j * 13) % 60}px` }}></div>
+                    <div className="h-4 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" style={{ width: `${40 + (j * 13) % 60}px` }}></div>
                   </td>
                 ))}
               </tr>
@@ -641,15 +644,17 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
   const renderEmptyState = () => (
     <tr>
-      <td colSpan={11} className="px-6 py-12 text-center text-gray-500 bg-gray-50">
+      <td colSpan={11} className="px-6 py-16 text-center">
         <div className="flex flex-col items-center">
-          <i className="fas fa-inbox text-4xl mb-3 text-gray-300"></i>
-          <p className="text-base font-medium">No tickets found</p>
-          <p className="text-sm mt-1">No tickets match your current filters or search.</p>
+          <div className="w-14 h-14 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:ticket-outline" width={28} className="text-indigo-400" />
+          </div>
+          <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No tickets found</h3>
+          <p className="text-[13px] text-[rgba(0,0,0,0.4)]">No tickets match your current filters or search.</p>
           {(activeFilterCount > 0 || quickFilter !== 'none') && (
             <button
               onClick={() => { clearFilters(); setQuickFilter('none'); }}
-              className="mt-3 text-sm font-bold text-indigo-600 hover:text-indigo-800 underline"
+              className="mt-3 text-[12px] font-semibold text-indigo-600 hover:text-indigo-800 underline"
             >
               Clear Filters
             </button>
@@ -660,478 +665,477 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   );
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ background: '#f5f6f8' }}>
-      <div className="flex-1 overflow-x-hidden overflow-y-auto custom-scrollbar p-5">
-        <div className="max-w-full mx-auto space-y-4">
+    <main className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen">
+      <div className="max-w-full mx-auto space-y-4">
 
-          {/* Stats Summary — unified bar */}
-          {!loading && hasData && (
-            <div className="bg-white border border-gray-200 rounded-md shadow-sm grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100">
-              {/* Total */}
-              <div className="p-4 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
-                  <i className="fas fa-ticket-alt text-gray-500 text-xs"></i>
-                </div>
-                <div>
-                  <p className="text-xl font-bold text-gray-900 leading-none">{stats.total}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">Total</p>
-                </div>
+        {/* Stats Summary — unified bar */}
+        {!loading && hasData && (
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100">
+            {/* Total */}
+            <div className="p-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.04)] flex items-center justify-center flex-shrink-0">
+                <Icon icon="mdi:ticket-outline" width={16} className="text-[rgba(0,0,0,0.5)]" />
               </div>
-
-              {/* Open */}
-              <div className="p-4 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                  <i className="fas fa-circle text-emerald-500 text-xs"></i>
-                </div>
-                <div>
-                  <p className="text-xl font-bold text-emerald-600 leading-none">{stats.open}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">Open</p>
-                </div>
-              </div>
-
-              {/* In Progress */}
-              <div className="p-4 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md bg-blue-50 flex items-center justify-center flex-shrink-0">
-                  <i className="fas fa-spinner text-blue-500 text-xs"></i>
-                </div>
-                <div>
-                  <p className="text-xl font-bold text-blue-600 leading-none">{stats.inProgress}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">In Progress</p>
-                </div>
-              </div>
-
-              {/* SLA Breached — clickable */}
-              <div
-                className={`p-4 flex items-center gap-3 cursor-pointer transition-colors ${
-                  stats.breached > 0
-                    ? quickFilter === 'breached'
-                      ? 'bg-red-50'
-                      : 'hover:bg-red-50/50'
-                    : 'hover:bg-gray-50'
-                }`}
-                onClick={() => setQuickFilter(q => q === 'breached' ? 'none' : 'breached')}
-                title="Click to filter by SLA Breached"
-              >
-                <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${stats.breached > 0 ? 'bg-red-50' : 'bg-gray-100'}`}>
-                  <i className={`fas fa-exclamation-triangle text-xs ${stats.breached > 0 ? 'text-red-500' : 'text-gray-400'}`}></i>
-                </div>
-                <div>
-                  <p className={`text-xl font-bold leading-none ${stats.breached > 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                    {stats.breached}
-                  </p>
-                  <p className={`text-[11px] mt-0.5 ${stats.breached > 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                    {quickFilter === 'breached' ? 'Click to clear' : 'SLA Breached'}
-                  </p>
-                </div>
+              <div>
+                <p className="text-xl font-bold text-[rgba(0,0,0,0.88)] leading-none">{stats.total}</p>
+                <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-0.5">Total</p>
               </div>
             </div>
-          )}
 
-          {/* Tabs + Filter Toggle Row */}
-          <div className="flex items-center justify-between border-b border-gray-200 gap-4 flex-wrap">
-            <nav className="flex items-center gap-0.5 flex-wrap" aria-label="Tabs">
-              {allowedTicketTabs === undefined ? (
-                <div className="flex gap-2 pb-2">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className="h-8 w-32 rounded bg-gray-100 animate-pulse" />
-                  ))}
-                </div>
-              ) : visibleTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-3 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-indigo-600 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <i className={`${tab.icon} text-[11px]`}></i>
-                  {tab.label}
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                    activeTab === tab.id ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-500'
-                  }`}>
-                    {getCategoryCount(tab.id)}
-                  </span>
-                </button>
-              ))}
-            </nav>
+            {/* Open */}
+            <div className="p-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                <Icon icon="mdi:circle" width={16} className="text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-xl font-bold text-emerald-600 leading-none">{stats.open}</p>
+                <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-0.5">Open</p>
+              </div>
+            </div>
 
-            {/* Filter Toggle Button */}
-            <button
-              onClick={() => setShowFilters(v => !v)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors border mb-1 ${
-                showFilters || activeFilterCount > 0
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+            {/* In Progress */}
+            <div className="p-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                <Icon icon="mdi:loading" width={16} className="text-blue-500 animate-spin" />
+              </div>
+              <div>
+                <p className="text-xl font-bold text-blue-600 leading-none">{stats.inProgress}</p>
+                <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-0.5">In Progress</p>
+              </div>
+            </div>
+
+            {/* SLA Breached — clickable */}
+            <div
+              className={`p-4 flex items-center gap-3 cursor-pointer transition-colors ${
+                stats.breached > 0
+                  ? quickFilter === 'breached'
+                    ? 'bg-red-50'
+                    : 'hover:bg-red-50/50'
+                  : 'hover:bg-gray-50'
               }`}
-            >
-              <i className="fas fa-filter text-[11px]"></i>
-              Filters
-              {activeFilterCount > 0 && (
-                <span className={`flex items-center justify-center w-4 h-4 rounded text-[9px] font-semibold ${showFilters || activeFilterCount > 0 ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-600'}`}>
-                  {activeFilterCount}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Quick Filter Chips */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] text-gray-400">Quick:</span>
-            <button
               onClick={() => setQuickFilter(q => q === 'breached' ? 'none' : 'breached')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
-                quickFilter === 'breached'
-                  ? 'bg-red-600 text-white border-red-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-red-300 hover:text-red-600'
-              }`}
+              title="Click to filter by SLA Breached"
             >
-              <i className="fas fa-exclamation-triangle text-[9px]"></i>
-              SLA Breached
-              {stats.breached > 0 && (
-                <span className={`inline-flex items-center justify-center w-4 h-4 rounded text-[9px] font-semibold ${
-                  quickFilter === 'breached' ? 'bg-white/20 text-white' : 'bg-red-50 text-red-600'
-                }`}>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${stats.breached > 0 ? 'bg-red-50' : 'bg-[rgba(0,0,0,0.04)]'}`}>
+                <Icon icon="mdi:alert-triangle-outline" width={16} className={stats.breached > 0 ? 'text-red-500' : 'text-[rgba(0,0,0,0.3)]'} />
+              </div>
+              <div>
+                <p className={`text-xl font-bold leading-none ${stats.breached > 0 ? 'text-red-600' : 'text-[rgba(0,0,0,0.4)]'}`}>
                   {stats.breached}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setQuickFilter(q => q === 'unassigned' ? 'none' : 'unassigned')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
-                quickFilter === 'unassigned'
-                  ? 'bg-amber-500 text-white border-amber-500'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-amber-300 hover:text-amber-600'
-              }`}
-            >
-              <i className="fas fa-user-slash text-[9px]"></i>
-              Unassigned
-            </button>
-            {quickFilter !== 'none' && (
-              <button
-                onClick={() => setQuickFilter('none')}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <i className="fas fa-times text-[9px]"></i>
-                Clear
-              </button>
-            )}
+                </p>
+                <p className={`text-[11px] mt-0.5 ${stats.breached > 0 ? 'text-red-400' : 'text-[rgba(0,0,0,0.35)]'}`}>
+                  {quickFilter === 'breached' ? 'Click to clear' : 'SLA Breached'}
+                </p>
+              </div>
+            </div>
           </div>
+        )}
 
-          {/* Advanced Filter Panel */}
-          {showFilters && (
-            <div className="bg-white border border-gray-200 rounded-md shadow-sm p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-[11px] font-semibold text-gray-700 uppercase tracking-widest">Advanced Filters</h3>
-                {activeFilterCount > 0 && (
-                  <button onClick={clearFilters} className="text-[11px] text-red-500 hover:text-red-700 flex items-center gap-1">
-                    <i className="fas fa-times text-[9px]"></i> Clear All
-                  </button>
-                )}
+        {/* Tabs + Filter Toggle Row */}
+        <div className="flex items-center justify-between border-b border-[rgba(0,0,0,0.08)] gap-4 flex-wrap">
+          <nav className="flex items-center gap-0.5 flex-wrap" aria-label="Tabs">
+            {allowedTicketTabs === undefined ? (
+              <div className="flex gap-2 pb-2">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="h-8 w-32 rounded bg-gray-100 animate-pulse" />
+                ))}
               </div>
+            ) : visibleTabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-3 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-[rgba(0,0,0,0.88)] text-[rgba(0,0,0,0.88)]'
+                    : 'border-transparent text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)]'
+                }`}
+              >
+                {tab.label}
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  activeTab === tab.id
+                    ? 'bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.5)]'
+                    : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.35)]'
+                }`}>
+                  {getCategoryCount(tab.id)}
+                </span>
+              </button>
+            ))}
+          </nav>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-                {/* Status Filter */}
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-2">Status</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {ALL_STATUSES.map(status => (
-                      <button
-                        key={status}
-                        onClick={() => toggleStatusFilter(status)}
-                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
-                          filters.statuses.includes(status)
-                            ? status === 'OPEN'
-                              ? 'bg-emerald-600 text-white border-emerald-600'
-                              : status === 'IN_PROGRESS'
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-gray-500 text-white border-gray-500'
-                            : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400'
-                        }`}
-                      >
-                        {status}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+          {/* Filter Toggle Button */}
+          <button
+            onClick={() => setShowFilters(v => !v)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors border mb-1 ${
+              showFilters || activeFilterCount > 0
+                ? 'bg-[rgba(0,0,0,0.88)] text-white border-[rgba(0,0,0,0.88)]'
+                : 'bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)] hover:border-indigo-300 hover:text-indigo-600'
+            }`}
+          >
+            <Icon icon="mdi:filter-outline" width={13} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className={`flex items-center justify-center w-4 h-4 rounded text-[9px] font-semibold ${showFilters || activeFilterCount > 0 ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-600'}`}>
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
 
-                {/* Severity Filter */}
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-2">Severity</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {ALL_SEVERITIES.map(severity => (
-                      <button
-                        key={severity}
-                        onClick={() => toggleSeverityFilter(severity)}
-                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
-                          filters.severities.includes(severity)
-                            ? ['Critical', 'Urgent', 'High'].includes(severity)
-                              ? 'bg-red-600 text-white border-red-600'
-                              : ['Normal', 'Medium'].includes(severity)
-                                ? 'bg-amber-500 text-white border-amber-500'
-                                : 'bg-blue-500 text-white border-blue-500'
-                            : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400'
-                        }`}
-                      >
-                        {severity}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Date Range */}
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-2">Created Date Range</label>
-                  <div className="space-y-2">
-                    <div>
-                      <span className="text-[10px] text-gray-400">From</span>
-                      <input
-                        type="date"
-                        value={filters.dateFrom}
-                        onChange={e => setFilters({ ...filters, dateFrom: e.target.value })}
-                        className="block w-full mt-1 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-[12px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-gray-400">To</span>
-                      <input
-                        type="date"
-                        value={filters.dateTo}
-                        onChange={e => setFilters({ ...filters, dateTo: e.target.value })}
-                        className="block w-full mt-1 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-[12px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Assignee Filter */}
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-2">Assigned To</label>
-                  <select
-                    value={filters.assignee}
-                    onChange={e => setFilters({ ...filters, assignee: e.target.value })}
-                    className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-[12px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
-                  >
-                    <option value="">All Assignees</option>
-                    {uniqueAssignees.map(a => (
-                      <option key={a} value={a}>{a}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && !hasData && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm">
-              <div className="flex items-center">
-                <i className="fas fa-exclamation-circle text-red-500 mr-3"></i>
-                <div>
-                  <p className="text-sm text-red-700 font-medium">Error loading data</p>
-                  <p className="text-sm text-red-600">{error}</p>
-                  <button onClick={() => fetchTickets(true)} className="mt-2 text-sm font-medium text-red-700 underline hover:text-red-600">
-                    Try Again
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Loading Skeleton */}
-          {loading && renderLoadingSkeleton()}
-
-          {/* Table */}
-          {!loading && (
-            <div className="bg-white border border-gray-200 rounded-md shadow-sm overflow-hidden">
-              <div className="overflow-x-auto custom-scrollbar">
-                <table className="min-w-full divide-y divide-gray-100">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th
-                        onClick={() => handleSort('id')}
-                        className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
-                      >
-                        ID {renderSortIcon('id')}
-                      </th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap">Account</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap">Subject / Service</th>
-                      <th
-                        onClick={() => handleSort('status')}
-                        className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
-                      >
-                        Status {renderSortIcon('status')}
-                      </th>
-                      <th
-                        onClick={() => handleSort('severity')}
-                        className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
-                      >
-                        Severity {renderSortIcon('severity')}
-                      </th>
-                      <th
-                        onClick={() => handleSort('sla')}
-                        className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
-                      >
-                        SLA {renderSortIcon('sla')}
-                      </th>
-                      <th
-                        onClick={() => handleSort('createdAt')}
-                        className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
-                      >
-                        Created (IST) {renderSortIcon('createdAt')}
-                      </th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap hidden xl:table-cell">Chat Started</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap hidden xl:table-cell">Closed At</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap">Assigned To</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {paginatedTickets.length > 0
-                      ? paginatedTickets.map((ticket) => (
-                          <TicketRow
-                            key={ticket.id}
-                            ticket={ticket}
-                            onView={viewTicket}
-                            isStarredClient={ticket.clientId != null && starredClientIds.has(ticket.clientId)}
-                          />
-                        ))
-                      : renderEmptyState()}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Table Footer — Count + Pagination + Export */}
-              <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-3">
-
-                {/* Left: count + rows-per-page */}
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] text-gray-400">
-                    {displayTickets.length === 0
-                      ? 'No tickets'
-                      : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, displayTickets.length)} of ${displayTickets.length}`}
-                    {tickets.length !== displayTickets.length && ` (${tickets.length} total)`}
-                  </span>
-                  <select
-                    value={pageSize}
-                    onChange={e => setPageSize(Number(e.target.value))}
-                    className="px-2 py-1 bg-white border border-gray-200 rounded-md text-[11px] text-gray-600 outline-none"
-                  >
-                    <option value={25}>25 / page</option>
-                    <option value={50}>50 / page</option>
-                    <option value={100}>100 / page</option>
-                  </select>
-                </div>
-
-                {/* Center: page navigation */}
-                {totalPages > 1 && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setPage(1)}
-                      disabled={page === 1}
-                      className="w-7 h-7 flex items-center justify-center rounded-md text-[11px] text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <i className="fas fa-angle-double-left"></i>
-                    </button>
-                    <button
-                      onClick={() => setPage(p => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="w-7 h-7 flex items-center justify-center rounded-md text-[11px] text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <i className="fas fa-angle-left"></i>
-                    </button>
-
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let p: number;
-                      if (totalPages <= 5) {
-                        p = i + 1;
-                      } else if (page <= 3) {
-                        p = i + 1;
-                      } else if (page >= totalPages - 2) {
-                        p = totalPages - 4 + i;
-                      } else {
-                        p = page - 2 + i;
-                      }
-                      return (
-                        <button
-                          key={p}
-                          onClick={() => setPage(p)}
-                          className={`w-7 h-7 flex items-center justify-center rounded-md text-[11px] font-medium transition-colors ${
-                            page === p
-                              ? 'bg-indigo-600 text-white'
-                              : 'text-gray-500 hover:text-indigo-600 hover:bg-indigo-50'
-                          }`}
-                        >
-                          {p}
-                        </button>
-                      );
-                    })}
-
-                    <button
-                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                      disabled={page === totalPages}
-                      className="w-7 h-7 flex items-center justify-center rounded-md text-[11px] text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <i className="fas fa-angle-right"></i>
-                    </button>
-                    <button
-                      onClick={() => setPage(totalPages)}
-                      disabled={page === totalPages}
-                      className="w-7 h-7 flex items-center justify-center rounded-md text-[11px] text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <i className="fas fa-angle-double-right"></i>
-                    </button>
-                  </div>
-                )}
-
-                {/* Right: Clear Filters + Export CSV */}
-                <div className="flex items-center gap-3">
-                  {(activeFilterCount > 0 || quickFilter !== 'none') && (
-                    <button
-                      onClick={() => { clearFilters(); setQuickFilter('none'); }}
-                      className="text-[11px] text-red-500 hover:text-red-700 flex items-center gap-1"
-                    >
-                      <i className="fas fa-times text-[9px]"></i> Clear Filters
-                    </button>
-                  )}
-                  <button
-                    onClick={exportCSV}
-                    disabled={displayTickets.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 rounded-md text-[11px] font-medium border border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <i className="fas fa-download text-[10px]"></i>
-                    Export CSV
-                  </button>
-                </div>
-              </div>
-            </div>
+        {/* Quick Filter Chips */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">Quick:</span>
+          <button
+            onClick={() => setQuickFilter(q => q === 'breached' ? 'none' : 'breached')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+              quickFilter === 'breached'
+                ? 'bg-red-600 text-white border-red-600'
+                : 'bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)]'
+            }`}
+          >
+            <Icon icon="mdi:alert-triangle-outline" width={11} />
+            SLA Breached
+            {stats.breached > 0 && (
+              <span className={`inline-flex items-center justify-center w-4 h-4 rounded text-[9px] font-semibold ${
+                quickFilter === 'breached' ? 'bg-white/20 text-white' : 'bg-red-50 text-red-600'
+              }`}>
+                {stats.breached}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setQuickFilter(q => q === 'unassigned' ? 'none' : 'unassigned')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+              quickFilter === 'unassigned'
+                ? 'bg-amber-500 text-white border-amber-500'
+                : 'bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)]'
+            }`}
+          >
+            <Icon icon="mdi:account-off-outline" width={11} />
+            Unassigned
+          </button>
+          {quickFilter !== 'none' && (
+            <button
+              onClick={() => setQuickFilter('none')}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.35)] hover:text-gray-600 transition-colors"
+            >
+              <Icon icon="mdi:close" width={11} />
+              Clear
+            </button>
           )}
         </div>
+
+        {/* Advanced Filter Panel */}
+        {showFilters && (
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em]">Advanced Filters</h3>
+              {activeFilterCount > 0 && (
+                <button onClick={clearFilters} className="text-[11px] text-red-500 hover:text-red-700 flex items-center gap-1">
+                  <Icon icon="mdi:close" width={11} /> Clear All
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+              {/* Status Filter */}
+              <div>
+                <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] mb-2">Status</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {ALL_STATUSES.map(status => (
+                    <button
+                      key={status}
+                      onClick={() => toggleStatusFilter(status)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+                        filters.statuses.includes(status)
+                          ? status === 'OPEN'
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : status === 'IN_PROGRESS'
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-gray-500 text-white border-gray-500'
+                          : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Severity Filter */}
+              <div>
+                <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] mb-2">Severity</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {ALL_SEVERITIES.map(severity => (
+                    <button
+                      key={severity}
+                      onClick={() => toggleSeverityFilter(severity)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+                        filters.severities.includes(severity)
+                          ? ['Critical', 'Urgent', 'High'].includes(severity)
+                            ? 'bg-red-600 text-white border-red-600'
+                            : ['Normal', 'Medium'].includes(severity)
+                              ? 'bg-amber-500 text-white border-amber-500'
+                              : 'bg-blue-500 text-white border-blue-500'
+                          : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      {severity}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Date Range */}
+              <div>
+                <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] mb-2">Created Date Range</label>
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-[10px] text-[rgba(0,0,0,0.35)]">From</span>
+                    <input
+                      type="date"
+                      value={filters.dateFrom}
+                      onChange={e => setFilters({ ...filters, dateFrom: e.target.value })}
+                      className="block w-full mt-1 px-3 py-1.5 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[12px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-[rgba(0,0,0,0.35)]">To</span>
+                    <input
+                      type="date"
+                      value={filters.dateTo}
+                      onChange={e => setFilters({ ...filters, dateTo: e.target.value })}
+                      className="block w-full mt-1 px-3 py-1.5 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[12px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Assignee Filter */}
+              <div>
+                <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] mb-2">Assigned To</label>
+                <select
+                  value={filters.assignee}
+                  onChange={e => setFilters({ ...filters, assignee: e.target.value })}
+                  className="block w-full px-3 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[12px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                >
+                  <option value="">All Assignees</option>
+                  {uniqueAssignees.map(a => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && !hasData && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="flex items-center">
+              <Icon icon="mdi:alert-circle-outline" width={16} className="text-red-500 mr-3 flex-shrink-0" />
+              <div>
+                <p className="text-sm text-red-700 font-medium">Error loading data</p>
+                <p className="text-sm text-red-600">{error}</p>
+                <button onClick={() => fetchTickets(true)} className="mt-2 text-sm font-medium text-red-700 underline hover:text-red-600">
+                  Try Again
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Loading Skeleton */}
+        {loading && renderLoadingSkeleton()}
+
+        {/* Table */}
+        {!loading && (
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="min-w-full divide-y divide-gray-100">
+                <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+                  <tr>
+                    <th
+                      onClick={() => handleSort('id')}
+                      className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                    >
+                      ID {renderSortIcon('id')}
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap">Account</th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap">Subject / Service</th>
+                    <th
+                      onClick={() => handleSort('status')}
+                      className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                    >
+                      Status {renderSortIcon('status')}
+                    </th>
+                    <th
+                      onClick={() => handleSort('severity')}
+                      className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                    >
+                      Severity {renderSortIcon('severity')}
+                    </th>
+                    <th
+                      onClick={() => handleSort('sla')}
+                      className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                    >
+                      SLA {renderSortIcon('sla')}
+                    </th>
+                    <th
+                      onClick={() => handleSort('createdAt')}
+                      className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap cursor-pointer hover:text-indigo-600 select-none"
+                    >
+                      Created (IST) {renderSortIcon('createdAt')}
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap hidden xl:table-cell">Chat Started</th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap hidden xl:table-cell">Closed At</th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap">Assigned To</th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] whitespace-nowrap">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
+                  {paginatedTickets.length > 0
+                    ? paginatedTickets.map((ticket) => (
+                        <TicketRow
+                          key={ticket.id}
+                          ticket={ticket}
+                          onView={viewTicket}
+                          isStarredClient={ticket.clientId != null && starredClientIds.has(ticket.clientId)}
+                        />
+                      ))
+                    : renderEmptyState()}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table Footer — Count + Pagination + Export */}
+            <div className="px-5 py-3 border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] flex items-center justify-between flex-wrap gap-3">
+
+              {/* Left: count + rows-per-page */}
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] text-[rgba(0,0,0,0.35)]">
+                  {displayTickets.length === 0
+                    ? 'No tickets'
+                    : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, displayTickets.length)} of ${displayTickets.length}`}
+                  {tickets.length !== displayTickets.length && ` (${tickets.length} total)`}
+                </span>
+                <select
+                  value={pageSize}
+                  onChange={e => setPageSize(Number(e.target.value))}
+                  className="px-2 py-1 bg-white border border-[rgba(0,0,0,0.12)] rounded-md text-[11px] text-[rgba(0,0,0,0.5)] outline-none"
+                >
+                  <option value={25}>25 / page</option>
+                  <option value={50}>50 / page</option>
+                  <option value={100}>100 / page</option>
+                </select>
+              </div>
+
+              {/* Center: page navigation */}
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setPage(1)}
+                    disabled={page === 1}
+                    className="w-7 h-7 flex items-center justify-center rounded-md text-[11px] text-[rgba(0,0,0,0.35)] hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Icon icon="mdi:page-first" width={14} />
+                  </button>
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="w-7 h-7 flex items-center justify-center rounded-md text-[11px] text-[rgba(0,0,0,0.35)] hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Icon icon="mdi:chevron-left" width={14} />
+                  </button>
+
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let p: number;
+                    if (totalPages <= 5) {
+                      p = i + 1;
+                    } else if (page <= 3) {
+                      p = i + 1;
+                    } else if (page >= totalPages - 2) {
+                      p = totalPages - 4 + i;
+                    } else {
+                      p = page - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p)}
+                        className={`w-7 h-7 flex items-center justify-center rounded-md text-[11px] font-medium transition-colors ${
+                          page === p
+                            ? 'bg-indigo-600 text-white'
+                            : 'text-[rgba(0,0,0,0.35)] hover:text-indigo-600 hover:bg-indigo-50'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="w-7 h-7 flex items-center justify-center rounded-md text-[11px] text-[rgba(0,0,0,0.35)] hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Icon icon="mdi:chevron-right" width={14} />
+                  </button>
+                  <button
+                    onClick={() => setPage(totalPages)}
+                    disabled={page === totalPages}
+                    className="w-7 h-7 flex items-center justify-center rounded-md text-[11px] text-[rgba(0,0,0,0.35)] hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Icon icon="mdi:page-last" width={14} />
+                  </button>
+                </div>
+              )}
+
+              {/* Right: Clear Filters + Export CSV */}
+              <div className="flex items-center gap-3">
+                {(activeFilterCount > 0 || quickFilter !== 'none') && (
+                  <button
+                    onClick={() => { clearFilters(); setQuickFilter('none'); }}
+                    className="text-[11px] text-red-500 hover:text-red-700 flex items-center gap-1"
+                  >
+                    <Icon icon="mdi:close" width={11} /> Clear Filters
+                  </button>
+                )}
+                <button
+                  onClick={exportCSV}
+                  disabled={displayTickets.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[rgba(0,0,0,0.12)] text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Icon icon="mdi:file-download-outline" width={13} />
+                  Export CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ─── Admin Raise Ticket Modal ─────────────────────────────────────── */}
       {showRaiseModal && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4">
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-gray-900/40" onClick={() => setShowRaiseModal(false)} />
+          <div className="absolute inset-0" onClick={() => setShowRaiseModal(false)} />
 
-          <div className="relative bg-white rounded-md shadow-xl border border-gray-200 w-full max-w-lg overflow-hidden">
+          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
             {/* Modal Header */}
-            <div className="bg-indigo-600 px-5 py-4 flex items-center justify-between">
+            <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md bg-white/10 flex items-center justify-center">
-                  <i className="fas fa-ticket-alt text-white text-sm"></i>
+                <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.04)] flex items-center justify-center">
+                  <Icon icon="mdi:ticket-outline" width={16} className="text-[rgba(0,0,0,0.5)]" />
                 </div>
                 <div>
-                  <h2 className="text-[13px] font-semibold text-white leading-none">Raise Ticket</h2>
-                  <p className="text-[11px] text-white/70 mt-0.5">
+                  <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">Raise Ticket</h2>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">
                     {raiseStep === 1 ? 'Select Client' : raiseStep === 2 ? 'Select Account' : 'Ticket Details'}
                   </p>
                 </div>
               </div>
-              <button onClick={() => setShowRaiseModal(false)} className="w-7 h-7 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors">
-                <i className="fas fa-times text-xs"></i>
+              <button onClick={() => setShowRaiseModal(false)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.08)] transition-colors">
+                <Icon icon="mdi:close" width={14} />
               </button>
             </div>
 
@@ -1147,13 +1151,13 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                       <div className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-semibold border transition-colors ${
                         done ? 'bg-indigo-600 border-indigo-600 text-white' :
                         active ? 'border-indigo-600 text-indigo-600 bg-indigo-50' :
-                        'border-gray-200 text-gray-400 bg-white'
+                        'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.35)] bg-[rgba(0,0,0,0.04)]'
                       }`}>
-                        {done ? <i className="fas fa-check text-[8px]"></i> : step}
+                        {done ? <Icon icon="mdi:check" width={10} /> : step}
                       </div>
-                      <span className={`text-[11px] font-medium ${active ? 'text-indigo-600' : done ? 'text-gray-500' : 'text-gray-300'}`}>{label}</span>
+                      <span className={`text-[11px] font-medium ${active ? 'text-indigo-600' : done ? 'text-[rgba(0,0,0,0.5)]' : 'text-[rgba(0,0,0,0.25)]'}`}>{label}</span>
                     </div>
-                    {idx < 2 && <div className={`flex-1 h-px ${done ? 'bg-indigo-300' : 'bg-gray-100'}`} />}
+                    {idx < 2 && <div className={`flex-1 h-px ${done ? 'bg-indigo-300' : 'bg-[rgba(0,0,0,0.06)]'}`} />}
                   </React.Fragment>
                 );
               })}
@@ -1163,28 +1167,28 @@ const BillOpsAdminTicketsPage: React.FC = () => {
               {/* Step 1: Select Client */}
               {raiseStep === 1 && (
                 <div>
-                  <p className="text-[11px] text-gray-500 mb-3">Choose a client to raise a ticket for</p>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-3">Choose a client to raise a ticket for</p>
                   {clientsLoading ? (
                     <div className="space-y-2">
-                      {[1, 2, 3].map(i => <div key={i} className="h-12 bg-gray-100 rounded-md animate-pulse" />)}
+                      {[1, 2, 3].map(i => <div key={i} className="h-12 bg-[rgba(0,0,0,0.04)] rounded-lg animate-pulse" />)}
                     </div>
                   ) : clients.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-6">No clients found.</p>
+                    <p className="text-sm text-[rgba(0,0,0,0.4)] text-center py-6">No clients found.</p>
                   ) : (
                     <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
                       {clients.map(c => (
                         <button
                           key={c.id}
                           onClick={() => selectClient(c)}
-                          className="w-full flex items-center justify-between px-4 py-3 rounded-md border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50 text-left transition-colors group"
+                          className="w-full flex items-center justify-between px-4 py-3 hover:bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.04)] hover:border-indigo-200 text-left transition-colors group"
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center text-gray-600 text-xs font-semibold">
+                            <div className="w-7 h-7 rounded-md bg-[rgba(0,0,0,0.06)] flex items-center justify-center text-[rgba(0,0,0,0.5)] text-xs font-semibold">
                               {c.name.charAt(0).toUpperCase()}
                             </div>
-                            <span className="text-[13px] font-medium text-gray-700 group-hover:text-indigo-700">{c.name}</span>
+                            <span className="text-[13px] font-medium text-[rgba(0,0,0,0.88)] group-hover:text-indigo-700">{c.name}</span>
                           </div>
-                          <i className="fas fa-chevron-right text-gray-300 group-hover:text-indigo-400 text-xs"></i>
+                          <Icon icon="mdi:chevron-right" width={14} className="text-[rgba(0,0,0,0.2)] group-hover:text-indigo-400" />
                         </button>
                       ))}
                     </div>
@@ -1196,21 +1200,21 @@ const BillOpsAdminTicketsPage: React.FC = () => {
               {raiseStep === 2 && (
                 <div>
                   <div className="flex items-center gap-2 mb-3">
-                    <button onClick={() => setRaiseStep(1)} className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
-                      <i className="fas fa-arrow-left text-xs"></i>
+                    <button onClick={() => setRaiseStep(1)} className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.88)] transition-colors">
+                      <Icon icon="mdi:arrow-left" width={14} />
                     </button>
-                    <p className="text-[11px] text-gray-500">
+                    <p className="text-[11px] text-[rgba(0,0,0,0.4)]">
                       Accounts for <span className="text-indigo-600 font-medium">{selectedClient?.name}</span>
                     </p>
                   </div>
                   {accountsLoading ? (
                     <div className="space-y-2">
-                      {[1, 2].map(i => <div key={i} className="h-14 bg-gray-100 rounded-md animate-pulse" />)}
+                      {[1, 2].map(i => <div key={i} className="h-14 bg-[rgba(0,0,0,0.04)] rounded-lg animate-pulse" />)}
                     </div>
                   ) : accounts.length === 0 ? (
                     <div className="text-center py-8">
-                      <i className="fas fa-server text-gray-200 text-3xl mb-2"></i>
-                      <p className="text-sm text-gray-400">No accounts found for this client.</p>
+                      <Icon icon="mdi:server-outline" width={32} className="text-[rgba(0,0,0,0.12)] mx-auto mb-2" />
+                      <p className="text-sm text-[rgba(0,0,0,0.4)]">No accounts found for this client.</p>
                       <button
                         onClick={() => { setSelectedAccount({ id: 0, accountName: 'No Account', provider: '', accountIdentifier: null }); setRaiseStep(3); }}
                         className="mt-3 text-[11px] font-medium text-indigo-600 hover:text-indigo-700"
@@ -1224,7 +1228,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                         <button
                           key={a.id}
                           onClick={() => selectAccount(a)}
-                          className="w-full flex items-center justify-between px-4 py-3 rounded-md border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50 text-left transition-colors group"
+                          className="w-full flex items-center justify-between px-4 py-3 hover:bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.04)] hover:border-indigo-200 text-left transition-colors group"
                         >
                           <div className="flex items-center gap-3">
                             <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold text-white ${
@@ -1233,11 +1237,11 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                               {(a.provider || '?').charAt(0)}
                             </div>
                             <div>
-                              <p className="text-[13px] font-medium text-gray-700 group-hover:text-indigo-700 leading-none">{a.accountName}</p>
-                              <p className="text-[10px] text-gray-400 font-mono mt-0.5">{a.accountIdentifier || '—'}</p>
+                              <p className="text-[13px] font-medium text-[rgba(0,0,0,0.88)] group-hover:text-indigo-700 leading-none">{a.accountName}</p>
+                              <p className="text-[10px] text-[rgba(0,0,0,0.35)] font-mono mt-0.5">{a.accountIdentifier || '—'}</p>
                             </div>
                           </div>
-                          <i className="fas fa-chevron-right text-gray-300 group-hover:text-indigo-400 text-xs"></i>
+                          <Icon icon="mdi:chevron-right" width={14} className="text-[rgba(0,0,0,0.2)] group-hover:text-indigo-400" />
                         </button>
                       ))}
                     </div>
@@ -1249,10 +1253,10 @@ const BillOpsAdminTicketsPage: React.FC = () => {
               {raiseStep === 3 && (
                 <form onSubmit={handleRaiseSubmit} className="space-y-4">
                   <div className="flex items-center gap-2 mb-1">
-                    <button type="button" onClick={() => setRaiseStep(2)} className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
-                      <i className="fas fa-arrow-left text-xs"></i>
+                    <button type="button" onClick={() => setRaiseStep(2)} className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.88)] transition-colors">
+                      <Icon icon="mdi:arrow-left" width={14} />
                     </button>
-                    <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                    <div className="flex items-center gap-1.5 text-[11px] text-[rgba(0,0,0,0.4)]">
                       <span className="text-indigo-600 font-medium">{selectedClient?.name}</span>
                       <span>/</span>
                       <span>{selectedAccount?.accountName || 'No Account'}</span>
@@ -1261,7 +1265,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
                   {/* Category */}
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1.5">Category</label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)] mb-1.5">Category</label>
                     <div className="grid grid-cols-2 gap-2">
                       {(['Account and Billing', 'Technical'] as TicketCategory[]).map(cat => (
                         <button
@@ -1272,13 +1276,12 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                             category: cat,
                             service: SERVICE_OPTIONS[cat][0]
                           }))}
-                          className={`px-3 py-2.5 rounded-md text-[11px] font-medium border transition-colors flex items-center gap-2 ${
+                          className={`px-3 py-2.5 rounded-lg text-[11px] font-medium border transition-colors flex items-center gap-2 ${
                             raiseForm.category === cat
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-indigo-300'
+                              ? 'bg-[rgba(0,0,0,0.88)] text-white border-[rgba(0,0,0,0.88)]'
+                              : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.08)] hover:border-indigo-300'
                           }`}
                         >
-                          <i className={`${cat === 'Account and Billing' ? 'fas fa-receipt' : 'fas fa-wrench'} text-[10px]`}></i>
                           {cat}
                         </button>
                       ))}
@@ -1287,11 +1290,11 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
                   {/* Service */}
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1.5">Service</label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)] mb-1.5">Service</label>
                     <select
                       value={raiseForm.service}
                       onChange={e => setRaiseForm(f => ({ ...f, service: e.target.value }))}
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                      className="w-full px-3 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                     >
                       {SERVICE_OPTIONS[raiseForm.category].map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
@@ -1299,11 +1302,11 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
                   {/* Severity */}
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1.5">Severity</label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)] mb-1.5">Severity</label>
                     <select
                       value={raiseForm.severity}
                       onChange={e => setRaiseForm(f => ({ ...f, severity: e.target.value }))}
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                      className="w-full px-3 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                     >
                       {['Info', 'Low', 'Normal', 'Medium', 'High', 'Urgent', 'Critical'].map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
@@ -1311,47 +1314,56 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
                   {/* Subject */}
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1.5">Subject <span className="text-red-400">*</span></label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)] mb-1.5">Subject <span className="text-red-400">*</span></label>
                     <input
                       type="text"
                       required
                       value={raiseForm.subject}
                       onChange={e => setRaiseForm(f => ({ ...f, subject: e.target.value }))}
                       placeholder="Brief summary of the issue"
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                      className="w-full px-3 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                     />
                   </div>
 
                   {/* Description */}
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1.5">Description <span className="text-red-400">*</span></label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)] mb-1.5">Description <span className="text-red-400">*</span></label>
                     <textarea
                       required
                       rows={4}
                       value={raiseForm.description}
                       onChange={e => setRaiseForm(f => ({ ...f, description: e.target.value }))}
                       placeholder="Describe the issue in detail..."
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none resize-none"
+                      className="w-full px-3 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 resize-none"
                     />
                   </div>
 
                   {raiseError && (
                     <p className="text-[11px] text-red-600 flex items-center gap-1">
-                      <i className="fas fa-exclamation-circle"></i> {raiseError}
+                      <Icon icon="mdi:alert-circle-outline" width={13} /> {raiseError}
                     </p>
                   )}
 
-                  <button
-                    type="submit"
-                    disabled={raiseSubmitting}
-                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-medium rounded-md transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {raiseSubmitting ? (
-                      <><i className="fas fa-spinner animate-spin text-xs"></i> Creating...</>
-                    ) : (
-                      <><i className="fas fa-paper-plane text-xs"></i> Raise Ticket</>
-                    )}
-                  </button>
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowRaiseModal(false)}
+                      className="px-4 py-2 rounded-lg border border-[rgba(0,0,0,0.12)] text-[13px] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.04)] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={raiseSubmitting}
+                      className="flex-1 py-2 px-4 rounded-lg bg-[rgba(0,0,0,0.88)] text-white text-[13px] font-medium hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+                    >
+                      {raiseSubmitting ? (
+                        <><Icon icon="mdi:loading" width={14} className="animate-spin" /> Creating...</>
+                      ) : (
+                        <>Raise Ticket</>
+                      )}
+                    </button>
+                  </div>
                 </form>
               )}
             </div>
@@ -1360,7 +1372,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
         document.body
       )}
       {/* ──────────────────────────────────────────────────────────────────── */}
-    </div>
+    </main>
   );
 };
 

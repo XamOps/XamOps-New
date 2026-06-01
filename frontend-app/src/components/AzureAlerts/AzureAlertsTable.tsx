@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Icon } from '@iconify/react';
 import type { AzureMonitorAlert } from '../../types/azureAlerts';
 import SreInvestigateButton from '../SreInvestigateButton';
 
@@ -16,7 +17,7 @@ const SEVERITY_BADGE: Record<string, string> = {
   Error:         'bg-orange-100 text-orange-700 border-orange-200',
   Warning:       'bg-amber-100 text-amber-700 border-amber-200',
   Informational: 'bg-blue-100 text-blue-700 border-blue-200',
-  Verbose:       'bg-gray-100 text-gray-600 border-gray-200',
+  Verbose:       'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.08)]',
 };
 
 const STATE_BADGE: Record<string, string> = {
@@ -26,14 +27,14 @@ const STATE_BADGE: Record<string, string> = {
 };
 
 const SkeletonRow = () => (
-  <tr className="border-b border-gray-100 animate-pulse">
-    <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-36"></div></td>
-    <td className="px-4 py-4"><div className="h-5 bg-gray-200 rounded w-20"></div></td>
-    <td className="px-4 py-4"><div className="h-5 bg-gray-200 rounded w-24"></div></td>
-    <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-16"></div></td>
-    <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-28"></div></td>
-    <td className="px-4 py-4"><div className="h-3 bg-gray-200 rounded w-24"></div></td>
-    <td className="px-4 py-4"><div className="h-6 bg-gray-200 rounded w-20"></div></td>
+  <tr className="border-b border-[rgba(0,0,0,0.04)] animate-pulse">
+    <td className="px-4 py-4"><div className="h-3 bg-[rgba(0,0,0,0.06)] rounded w-36"></div></td>
+    <td className="px-4 py-4"><div className="h-5 bg-[rgba(0,0,0,0.06)] rounded w-20"></div></td>
+    <td className="px-4 py-4"><div className="h-5 bg-[rgba(0,0,0,0.06)] rounded w-24"></div></td>
+    <td className="px-4 py-4"><div className="h-3 bg-[rgba(0,0,0,0.06)] rounded w-16"></div></td>
+    <td className="px-4 py-4"><div className="h-3 bg-[rgba(0,0,0,0.06)] rounded w-28"></div></td>
+    <td className="px-4 py-4"><div className="h-3 bg-[rgba(0,0,0,0.06)] rounded w-24"></div></td>
+    <td className="px-4 py-4"><div className="h-6 bg-[rgba(0,0,0,0.06)] rounded w-20"></div></td>
   </tr>
 );
 
@@ -54,9 +55,9 @@ const AzureAlertsTable: React.FC<AzureAlertsTableProps> = ({ alerts, isLoading }
 
   if (isLoading) {
     return (
-      <div className="glass-card rounded-xl shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <div className="h-4 bg-gray-200 rounded w-32 animate-pulse"></div>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-[rgba(0,0,0,0.06)]">
+          <div className="h-4 bg-[rgba(0,0,0,0.06)] rounded w-32 animate-pulse"></div>
         </div>
         <table className="w-full text-sm">
           <tbody>
@@ -74,10 +75,10 @@ const AzureAlertsTable: React.FC<AzureAlertsTableProps> = ({ alerts, isLoading }
     : alerts.filter(a => a.alertState === activeFilter);
 
   return (
-    <div className="glass-card rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
       {/* Header + filter tabs */}
-      <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
-        <span className="text-sm font-bold text-gray-700">Monitor Alerts</span>
+      <div className="px-5 py-3 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between flex-wrap gap-3">
+        <span className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Monitor Alerts</span>
         <div className="flex gap-1">
           {STATE_FILTERS.map(tab => {
             const count = tab === 'All' ? alerts.length : alerts.filter(a => a.alertState === tab).length;
@@ -93,13 +94,13 @@ const AzureAlertsTable: React.FC<AzureAlertsTableProps> = ({ alerts, isLoading }
                 className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
                   isActive
                     ? `${activeColor} text-white shadow-sm`
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.07)]'
                 }`}
               >
                 {tab}
                 {count > 0 && (
                   <span className={`ml-1.5 text-xs px-1 py-0.5 rounded-full ${
-                    isActive ? 'bg-white/30 text-white' : 'bg-gray-200 text-gray-600'
+                    isActive ? 'bg-white/30 text-white' : 'bg-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)]'
                   }`}>
                     {count}
                   </span>
@@ -111,14 +112,14 @@ const AzureAlertsTable: React.FC<AzureAlertsTableProps> = ({ alerts, isLoading }
       </div>
 
       {filtered.length === 0 ? (
-        <div className="p-12 text-center">
-          <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <i className="fas fa-check-circle text-green-500 text-2xl"></i>
+        <div className="py-16 text-center">
+          <div className="w-14 h-14 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:check-circle-outline" width={28} className="text-emerald-500" />
           </div>
-          <h3 className="text-base font-bold text-gray-700 mb-1">
+          <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">
             {activeFilter === 'All' ? 'No Alerts Detected' : `No ${activeFilter} Alerts`}
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
             {activeFilter === 'All'
               ? 'Azure Monitor found no alerts for this subscription.'
               : `No alerts in ${activeFilter.toLowerCase()} state.`}
@@ -127,30 +128,30 @@ const AzureAlertsTable: React.FC<AzureAlertsTableProps> = ({ alerts, isLoading }
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50/60">
-              <tr>
-                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Alert Name</th>
-                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Severity</th>
-                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">State</th>
-                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Signal</th>
-                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Resource</th>
-                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Fired</th>
-                <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">SRE</th>
+            <thead className="bg-[rgba(0,0,0,0.02)]">
+              <tr className="border-b border-[rgba(0,0,0,0.06)]">
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Alert Name</th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Severity</th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">State</th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Signal</th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Resource</th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Fired</th>
+                <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">SRE</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((alert, idx) => {
                 const severityClass = SEVERITY_BADGE[alert.severityLabel] ?? SEVERITY_BADGE.Informational;
-                const stateClass = STATE_BADGE[alert.alertState] ?? 'bg-gray-100 text-gray-600';
+                const stateClass = STATE_BADGE[alert.alertState] ?? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)]';
                 return (
-                  <tr key={alert.alertId || idx} className="border-t border-gray-100 hover:bg-white/30 transition-colors">
+                  <tr key={alert.alertId || idx} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                     <td className="px-4 py-3">
                       <div>
-                        <span className="text-gray-800 font-medium text-xs line-clamp-1 max-w-[200px] block" title={alert.alertName}>
+                        <span className="text-[13px] font-medium text-[rgba(0,0,0,0.88)] line-clamp-1 max-w-[200px] block" title={alert.alertName}>
                           {alert.alertName || '—'}
                         </span>
                         {alert.description && (
-                          <span className="text-gray-400 text-xs line-clamp-1 max-w-[200px] block" title={alert.description}>
+                          <span className="text-[12px] text-[rgba(0,0,0,0.4)] line-clamp-1 max-w-[200px] block" title={alert.description}>
                             {alert.description}
                           </span>
                         )}
@@ -167,17 +168,17 @@ const AzureAlertsTable: React.FC<AzureAlertsTableProps> = ({ alerts, isLoading }
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                      <span className="text-[11px] text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] px-2 py-0.5 rounded">
                         {alert.signalType || '—'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-gray-600 text-xs truncate max-w-[140px] block" title={alert.resourceName}>
+                      <span className="text-[13px] text-[rgba(0,0,0,0.6)] truncate max-w-[140px] block" title={alert.resourceName}>
                         {alert.resourceName || '—'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-gray-500 text-xs">{formatTime(alert.startDateTime)}</span>
+                      <span className="text-[12px] text-[rgba(0,0,0,0.45)]">{formatTime(alert.startDateTime)}</span>
                     </td>
                     <td className="px-4 py-3">
                       <SreInvestigateButton

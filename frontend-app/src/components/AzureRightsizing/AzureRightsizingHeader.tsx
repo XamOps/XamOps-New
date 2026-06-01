@@ -16,19 +16,24 @@ const AzureRightsizingHeader: React.FC<AzureRightsizingHeaderProps> = ({
 
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-full">
-          <i className="fas fa-magic text-xs"></i>
-          <span>Powered by Azure Advisor</span>
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+        <span className="text-[11px] font-medium uppercase tracking-wide text-[rgba(0,0,0,0.4)]">Azure Advisor</span>
+        <span className="text-[rgba(0,0,0,0.15)] text-[12px] select-none">|</span>
         {selectedAccountId && (
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50 active:scale-95"
+            className="flex items-center gap-1.5 text-[11px] font-semibold text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-40"
           >
-            <i className={`fas fa-sync-alt text-xs ${isRefreshing ? 'animate-spin' : ''}`}></i>
-            <span>{isRefreshing ? 'Analyzing...' : 'Refresh'}</span>
+            <svg
+              className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {isRefreshing ? 'Analyzing…' : 'Refresh'}
           </button>
         )}
       </div>

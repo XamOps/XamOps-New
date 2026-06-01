@@ -30,7 +30,7 @@ import LiteLLMTab from '../components/AIOps/LiteLLMTab';
 import { useDashboardEnhancedData } from '../hooks/useDashboardEnhancedData';
 import type { LlmProviderConfig, BudgetConfig } from '../types/aiops';
 import { PROVIDER_COLORS } from '../types/aiops';
-import '../styles/aiops.css';
+import { Icon } from '@iconify/react';
 import { useTabState } from '../hooks/useTabState';
 
 const PERIODS = [
@@ -42,42 +42,42 @@ const PERIODS = [
 ] as const;
 
 const TOP_TABS = [
-  { id: 'dashboard', label: 'LLM Dashboard', icon: 'fas fa-chart-line' },
-  { id: 'usage-analytics', label: 'Usage Analytics', icon: 'fas fa-microscope' },
-  { id: 'budget-controls', label: 'Budget & Controls', icon: 'fas fa-wallet' },
-  { id: 'cost-optimizer', label: 'Cost Optimizer', icon: 'fas fa-route' },
-  { id: 'api-keys', label: 'API Keys', icon: 'fas fa-key' },
-  { id: 'managed-inference', label: 'Inference', icon: 'fas fa-server' },
-  { id: 'insights', label: 'Insights', icon: 'fas fa-lightbulb' },
-  { id: 'litellm', label: 'AI Gateway', icon: 'fas fa-network-wired' },
+  { id: 'dashboard', label: 'LLM Dashboard', icon: 'mdi:chart-line' },
+  { id: 'usage-analytics', label: 'Usage Analytics', icon: 'mdi:microscope' },
+  { id: 'budget-controls', label: 'Budget & Controls', icon: 'mdi:wallet-outline' },
+  { id: 'cost-optimizer', label: 'Cost Optimizer', icon: 'mdi:directions-fork' },
+  { id: 'api-keys', label: 'API Keys', icon: 'mdi:key-outline' },
+  { id: 'managed-inference', label: 'Inference', icon: 'mdi:server-outline' },
+  { id: 'insights', label: 'Insights', icon: 'mdi:lightbulb-outline' },
+  { id: 'litellm', label: 'AI Gateway', icon: 'mdi:access-point-network' },
 ];
 
 const USAGE_SUB_TABS = [
-  { id: 'request-logs', label: 'Request Logs', icon: 'fas fa-list-alt' },
-  { id: 'agents', label: 'Agents', icon: 'fas fa-robot' },
-  { id: 'models', label: 'Models', icon: 'fas fa-balance-scale' },
-  { id: 'heatmap', label: 'Token Heatmap', icon: 'fas fa-th' },
-  { id: 'teams', label: 'Teams', icon: 'fas fa-users' },
-  { id: 'performance', label: 'Performance', icon: 'fas fa-tachometer-alt' },
-  { id: 'compute', label: 'Compute', icon: 'fas fa-microchip' },
+  { id: 'request-logs', label: 'Request Logs', icon: 'mdi:format-list-bulleted' },
+  { id: 'agents', label: 'Agents', icon: 'mdi:robot-outline' },
+  { id: 'models', label: 'Models', icon: 'mdi:scale-balance' },
+  { id: 'heatmap', label: 'Token Heatmap', icon: 'mdi:grid' },
+  { id: 'teams', label: 'Teams', icon: 'mdi:account-group-outline' },
+  { id: 'performance', label: 'Performance', icon: 'mdi:speedometer' },
+  { id: 'compute', label: 'Compute', icon: 'mdi:chip' },
 ];
 
 // ─── Provider Badge ──────────────────────────────────────────
 function ProviderBadge({ config, onCopy }: { config: LlmProviderConfig; onCopy: (text: string) => void }) {
   return (
-    <div className="aiops-provider-badge flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs shadow-sm">
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg text-xs">
       <span
         className="w-2 h-2 rounded-full"
         style={{ backgroundColor: PROVIDER_COLORS[config.provider] || '#94a3b8' }}
       />
-      <span className="font-medium text-gray-700">{config.displayName || config.provider}</span>
+      <span className="font-medium text-[rgba(0,0,0,0.7)]">{config.displayName || config.provider}</span>
       {config.trackingToken && (
         <button
           onClick={() => onCopy(config.trackingToken!)}
-          className="text-gray-400 hover:text-indigo-600 transition-colors"
+          className="text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.88)] transition-colors"
           title="Copy tracking key"
         >
-          <i className="fas fa-key" />
+          <Icon icon="mdi:key-outline" width={12} />
         </button>
       )}
     </div>
@@ -98,13 +98,13 @@ function UsageAnalyticsFilters({
 
   return (
     <div className="flex items-center gap-3 flex-wrap">
-      <span className="text-xs text-gray-500 font-medium">
-        <i className="fas fa-filter mr-1" />Filters:
+      <span className="text-xs text-[rgba(0,0,0,0.5)] font-medium">
+        <Icon icon="mdi:filter-outline" width={12} className="inline mr-1" />Filters:
       </span>
       <select
         value={filters.provider}
         onChange={e => onFiltersChange({ ...filters, provider: e.target.value })}
-        className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+        className="text-xs bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
       >
         <option value="">All Providers</option>
         {filterOptions.providers.map(p => (
@@ -114,7 +114,7 @@ function UsageAnalyticsFilters({
       <select
         value={filters.model}
         onChange={e => onFiltersChange({ ...filters, model: e.target.value })}
-        className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+        className="text-xs bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
       >
         <option value="">All Models</option>
         {filterOptions.models.map(m => (
@@ -124,7 +124,7 @@ function UsageAnalyticsFilters({
       <select
         value={filters.agent}
         onChange={e => onFiltersChange({ ...filters, agent: e.target.value })}
-        className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+        className="text-xs bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
       >
         <option value="">All Agents</option>
         {filterOptions.agents.map(a => (
@@ -272,13 +272,13 @@ const AIOpsPage: React.FC = () => {
     setActions(
       <div className="flex items-center gap-3">
         {hasProviders && (
-          <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+          <div className="flex items-center bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5">
             {PERIODS.map(p => (
               <button
                 key={p.key}
                 onClick={() => setPeriod(p.key)}
-                className={`aiops-period-btn px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
-                  period === p.key ? 'active' : 'text-gray-600 hover:text-gray-900'
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
+                  period === p.key ? 'bg-white shadow-sm text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)]'
                 }`}
               >
                 {p.label}
@@ -291,19 +291,19 @@ const AIOpsPage: React.FC = () => {
         ))}
         <button
           onClick={() => setIsProviderModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all shadow-sm"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[rgba(0,0,0,0.88)] hover:bg-black rounded-md transition-colors"
         >
-          <i className="fas fa-plus" />
+          <Icon icon="mdi:plus" width={14} />
           Add Provider
         </button>
         {hasProviders && (
           <button
             onClick={() => loadDashboard()}
             disabled={isLoading}
-            className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-md hover:bg-[rgba(0,0,0,0.06)] transition-colors"
             title="Refresh"
           >
-            <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`} />
+            <Icon icon={isLoading ? "mdi:loading" : "mdi:refresh"} width={14} className={isLoading ? "animate-spin" : ""} />
           </button>
         )}
       </div>
@@ -352,36 +352,34 @@ const AIOpsPage: React.FC = () => {
   }, [analytics.requestLogs]);
 
   return (
-    <main className="aiops-page flex-1 flex flex-col min-h-screen bg-gray-50">
+    <main className="flex-1 flex flex-col min-h-screen bg-white">
       {/* Top-Level Tabs */}
       {hasProviders && (
-        <div className="px-6 bg-white border-b border-gray-200">
-          <div className="max-w-7xl mx-auto">
-            <AriaTabGroup
-              tabs={TOP_TABS}
-              selectedKey={activeTab}
-              onSelectionChange={setActiveTab as (key: string) => void}
-              variant="underline"
-            />
-          </div>
+        <div className="px-6 bg-white border-b border-[rgba(0,0,0,0.06)]">
+          <AriaTabGroup
+            tabs={TOP_TABS}
+            selectedKey={activeTab}
+            onSelectionChange={setActiveTab as (key: string) => void}
+            variant="underline"
+          />
         </div>
       )}
 
       {/* Copied toast */}
       {copiedUrl && (
         <div className="fixed top-20 right-6 z-50 flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg shadow-xl text-sm font-medium">
-          <i className="fas fa-check-circle" />
+          <Icon icon="mdi:check-circle" width={16} />
           Copied to clipboard!
         </div>
       )}
 
       {/* Main Content */}
       <div className="flex-1 p-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+        <div className="space-y-6">
           {/* Error State */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-              <i className="fas fa-exclamation-circle text-red-500" />
+            <div className="bg-red-50 border border-red-100 rounded-lg p-4 flex items-center gap-3">
+              <Icon icon="mdi:alert-circle-outline" width={18} color="#ef4444" />
               <p className="text-sm text-red-700">{error}</p>
               <button
                 onClick={() => loadDashboard()}
@@ -394,25 +392,17 @@ const AIOpsPage: React.FC = () => {
 
           {/* Empty State */}
           {!hasProviders && !isLoading && !error && (
-            <div className="relative overflow-hidden bg-white rounded-2xl shadow-xl">
-              <div className="absolute inset-0 opacity-5">
-                <div className="absolute inset-0" style={{
-                  backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(99, 102, 241, 0.1) 10px, rgba(99, 102, 241, 0.1) 20px)'
-                }} />
-              </div>
-              <div className="absolute -top-24 -right-24 w-64 h-64 bg-gradient-to-br from-indigo-400/20 to-purple-400/20 rounded-full blur-3xl" />
-              <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-gradient-to-tr from-purple-400/20 to-pink-400/20 rounded-full blur-3xl" />
-
-              <div className="relative z-10 text-center py-20 px-8">
-                <div className="mb-8 flex justify-center">
-                  <div className="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-2xl">
-                    <i className="fas fa-plug text-white text-4xl" />
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm">
+              <div className="text-center py-20 px-8">
+                <div className="mb-6 flex justify-center">
+                  <div className="w-14 h-14 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center">
+                    <Icon icon="mdi:plug-outline" width={28} color="#4F46E5" />
                   </div>
                 </div>
-                <h2 className="text-3xl font-bold text-gray-800 mb-3">
+                <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">
                   Connect Your First LLM Provider
                 </h2>
-                <p className="text-gray-600 mb-8 max-w-2xl mx-auto text-lg leading-relaxed">
+                <p className="text-[rgba(0,0,0,0.5)] mb-6 max-w-2xl mx-auto text-sm leading-relaxed">
                   Connect your OpenAI, Anthropic, Google Gemini, or AWS Bedrock provider to start
                   tracking costs, tokens, and latency across all your AI applications.
                   No API keys stored — just run a curl command.
@@ -420,24 +410,24 @@ const AIOpsPage: React.FC = () => {
 
                 <button
                   onClick={() => setIsProviderModalOpen(true)}
-                  className="inline-flex items-center px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300 text-lg font-semibold"
+                  className="inline-flex items-center px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white rounded-md hover:bg-black transition-colors text-xs font-medium"
                 >
-                  <i className="fas fa-plus-circle mr-3 text-xl" />
+                  <Icon icon="mdi:plus-circle-outline" width={16} className="mr-2" />
                   Add LLM Provider
                 </button>
 
-                <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto">
+                <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto">
                   {[
-                    { icon: 'fas fa-key', title: '1. Get XamOps Key', desc: 'Select provider & get tracking key' },
-                    { icon: 'fas fa-terminal', title: '2. Run Curl Command', desc: 'Use our proxy + your API key' },
-                    { icon: 'fas fa-chart-bar', title: '3. See Insights', desc: 'Dashboard refreshes with usage' },
+                    { icon: 'mdi:key-outline', title: '1. Get XamOps Key', desc: 'Select provider & get tracking key' },
+                    { icon: 'mdi:terminal', title: '2. Run Curl Command', desc: 'Use our proxy + your API key' },
+                    { icon: 'mdi:chart-bar', title: '3. See Insights', desc: 'Dashboard refreshes with usage' },
                   ].map(step => (
                     <div key={step.title} className="flex flex-col items-center p-4">
-                      <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mb-3">
-                        <i className={`${step.icon} text-indigo-600`} />
+                      <div className="w-12 h-12 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center mb-3">
+                        <Icon icon={step.icon} width={20} color="#4F46E5" />
                       </div>
-                      <p className="font-semibold text-gray-900 text-sm">{step.title}</p>
-                      <p className="text-xs text-gray-500 mt-1">{step.desc}</p>
+                      <p className="font-semibold text-[rgba(0,0,0,0.88)] text-sm">{step.title}</p>
+                      <p className="text-xs text-[rgba(0,0,0,0.5)] mt-1">{step.desc}</p>
                     </div>
                   ))}
                 </div>
@@ -472,7 +462,7 @@ const AIOpsPage: React.FC = () => {
           {activeTab === 'usage-analytics' && hasProviders && (
             <div className="space-y-4">
               {/* Filters + Sub-tabs header */}
-              <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-4 space-y-3">
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-4 space-y-3">
                 <UsageAnalyticsFilters
                   filterOptions={analytics.filterOptions}
                   filters={analytics.filters}

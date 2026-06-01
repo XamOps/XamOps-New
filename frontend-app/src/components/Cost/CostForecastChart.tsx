@@ -18,20 +18,12 @@ interface CostForecastChartProps {
   onServiceChange: (service: string) => void;
 }
 
-const KPICard: React.FC<{ title: string; value: string; icon: string; color: string; tooltip: string }> = ({ title, value, icon, color, tooltip }) => (
-  <div className={`group relative bg-white border-l-4 ${color} rounded-xl p-4 shadow-sm flex items-center space-x-4 flex-1 min-w-[200px] cursor-help transition-all duration-200 hover:shadow-md`}>
-    <div className={`w-10 h-10 rounded-full flex items-center justify-center bg-gray-50 text-xl`}>
-      <i className={`${icon} ${color.replace('border-l-', 'text-')}`}></i>
-    </div>
-    <div>
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{title}</p>
-      <p className="text-lg font-bold text-gray-800">{value}</p>
-    </div>
-
-    {/* Tooltip */}
-    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-gray-900 text-white text-[10px] rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 text-center leading-tight">
+const KPICard: React.FC<{ title: string; value: string; icon: string; color: string; tooltip: string }> = ({ title, value, tooltip }) => (
+  <div className="group relative bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-4 shadow-sm flex-1 min-w-[160px] cursor-help">
+    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.45)] mb-1.5">{title}</p>
+    <p className="text-[22px] font-bold text-[rgba(0,0,0,0.88)] tabular-nums">{value}</p>
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-[rgba(0,0,0,0.88)] text-white text-[10px] rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 text-center leading-tight">
       {tooltip}
-      <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-gray-900"></div>
     </div>
   </div>
 );
@@ -196,20 +188,20 @@ const CostForecastChart: React.FC<CostForecastChartProps> = ({
   const kpis = calculateKPIs();
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md mb-8">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-6">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
-          <h2 className="text-xl font-bold text-gray-800">
+          <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">
             <i className="fas fa-crystal-ball mr-2 text-blue-500"></i>
             Cost Forecast
           </h2>
-          <p className="text-sm text-gray-600 font-medium">Predictive analysis for next {data?.dates.length || 30} days</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)]">Predictive analysis for next {data?.dates.length || 30} days</p>
         </div>
         <div className="flex items-center space-x-4 flex-wrap gap-2">
           <select
             value={service}
             onChange={(e) => onServiceChange(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium bg-white"
+            className="px-2.5 py-1.5 text-[12px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.25)] transition-colors"
           >
             <option value="">All Services</option>
             {availableServices.map((svc) => (
@@ -222,7 +214,7 @@ const CostForecastChart: React.FC<CostForecastChartProps> = ({
       </div>
 
       {!isLoading && kpis && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <KPICard
             title="Total Forecasted"
             value={kpis.totalPredicted}

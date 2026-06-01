@@ -1,10 +1,5 @@
-/**
- * Pagination Component
- *
- * Reusable pagination control for tables
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 
 interface PaginationProps {
   currentPage: number;
@@ -14,71 +9,32 @@ interface PaginationProps {
   onPageChange: (page: number) => void;
 }
 
-const Pagination: React.FC<PaginationProps> = ({
-  currentPage,
-  totalPages,
-  totalItems,
-  itemsPerPage,
-  onPageChange,
-}) => {
+const Pagination: React.FC<PaginationProps> = ({ currentPage, totalPages, totalItems, itemsPerPage, onPageChange }) => {
   if (totalPages <= 1) return null;
-
   const start = (currentPage - 1) * itemsPerPage + 1;
   const end = Math.min(currentPage * itemsPerPage, totalItems);
-
+  const btnCls = (disabled: boolean) =>
+    `w-7 h-7 flex items-center justify-center rounded-md border text-[rgba(0,0,0,0.45)] transition-colors ${
+      disabled ? 'border-[rgba(0,0,0,0.06)] opacity-40 cursor-not-allowed' : 'border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.04)] cursor-pointer'
+    }`;
   return (
-    <div className="flex items-center justify-between mt-4 px-2">
-      <p className="text-sm text-gray-600">
-        Showing <span className="font-semibold">{start}</span> to <span className="font-semibold">{end}</span> of{' '}
-        <span className="font-semibold">{totalItems}</span> items
+    <div className="flex items-center justify-between mt-3 px-1">
+      <p className="text-[11px] text-[rgba(0,0,0,0.4)]">
+        Showing <span className="font-semibold text-[rgba(0,0,0,0.7)]">{start}</span>–<span className="font-semibold text-[rgba(0,0,0,0.7)]">{end}</span> of <span className="font-semibold text-[rgba(0,0,0,0.7)]">{totalItems}</span>
       </p>
-      <div className="flex items-center space-x-2">
-        <button
-          onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-          className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${
-            currentPage === 1
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <i className="fas fa-angle-double-left"></i>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onPageChange(1)} disabled={currentPage === 1} className={btnCls(currentPage === 1)}>
+          <Icon icon="mdi:chevron-double-left" width={14} />
         </button>
-        <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${
-            currentPage === 1
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <i className="fas fa-angle-left"></i>
+        <button onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} className={btnCls(currentPage === 1)}>
+          <Icon icon="mdi:chevron-left" width={14} />
         </button>
-        <span className="px-4 py-1.5 text-sm font-medium text-gray-700">
-          Page {currentPage} of {totalPages}
-        </span>
-        <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage >= totalPages}
-          className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${
-            currentPage >= totalPages
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <i className="fas fa-angle-right"></i>
+        <span className="px-3 text-[11px] font-medium text-[rgba(0,0,0,0.6)]">Page {currentPage} of {totalPages}</span>
+        <button onClick={() => onPageChange(currentPage + 1)} disabled={currentPage >= totalPages} className={btnCls(currentPage >= totalPages)}>
+          <Icon icon="mdi:chevron-right" width={14} />
         </button>
-        <button
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage >= totalPages}
-          className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${
-            currentPage >= totalPages
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <i className="fas fa-angle-double-right"></i>
+        <button onClick={() => onPageChange(totalPages)} disabled={currentPage >= totalPages} className={btnCls(currentPage >= totalPages)}>
+          <Icon icon="mdi:chevron-double-right" width={14} />
         </button>
       </div>
     </div>

@@ -1,736 +1,598 @@
-/**
- * BillOps Admin User Manager Page
- *
- * Admin interface for managing BillOps users
- * Converted from: user-manager.html
- * 
- * Features:
- * - View all BillOps users
- * - Create new users with clientName, username, email, password, role
- * - Edit existing users
- * - Delete users
- * - Modern glassmorphism UI design
- * - React sidebar integration
- *
- * Role: ROLE_BILLOPS_ADMIN only
- *
- * What stayed the same:
- * - Same API endpoints
- * - Same business logic
- * - Same data structure
- *
- * What changed:
- * - Migrated from Alpine.js to React with TypeScript
- * - Enhanced modern UI with smooth animations
- * - Uses React sidebar component
- */
-
 import React, { useEffect, useState, useMemo } from 'react';
 import ReactDOM from 'react-dom';
+import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
 import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
 import NotificationModal from '../components/Shared/NotificationModal';
 import { AlertDialog } from '../components/ui';
-import '../styles/billopsAdminUserManager.css';
 
 const PAGE_SIZE = 10;
 
+const ROLE_META: Record<string, { label: string; icon: string; badge: string }> = {
+  ROLE_BILLOPS_ADMIN:     { label: 'BILLOPS ADMIN',     icon: 'mdi:shield-crown-outline',  badge: 'bg-amber-50 border-amber-200 text-amber-700' },
+  ROLE_BILLOPS_ADMIN_SUB: { label: 'ADMIN SUB',         icon: 'mdi:shield-account-outline', badge: 'bg-orange-50 border-orange-200 text-orange-700' },
+  ROLE_BILLOPS:           { label: 'BILLOPS',            icon: 'mdi:account-outline',        badge: 'bg-[rgba(0,0,0,0.04)] border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.6)]' },
+  ROLE_XAMOPS:            { label: 'XAMOPS',             icon: 'mdi:cloud-outline',          badge: 'bg-sky-50 border-sky-200 text-sky-700' },
+};
+
+const getRoleMeta = (role: string) =>
+  ROLE_META[role] ?? { label: role.replace('ROLE_', ''), icon: 'mdi:account-outline', badge: 'bg-[rgba(0,0,0,0.04)] border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.6)]' };
+
+const formatRole = (role: string) => role.replace('ROLE_', '').replace(/_/g, ' ');
+
+const getInitials = (name: string) => (name || '?').substring(0, 2).toUpperCase();
+
+/* ── Inline label ── */
+const FormLabel: React.FC<{ icon: string; text: string }> = ({ icon, text }) => (
+  <label className="flex items-center gap-1.5 text-[10px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1.5">
+    <Icon icon={icon} width={11} />
+    {text}
+  </label>
+);
+
+/* ── Field input ── */
+const FieldInput: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => (
+  <input
+    {...props}
+    className="w-full px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] focus:border-[rgba(0,0,0,0.2)] disabled:opacity-60 transition-colors"
+  />
+);
+
+/* ── Field select ── */
+const FieldSelect: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ children, ...props }) => (
+  <select
+    {...props}
+    className="w-full px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] focus:border-[rgba(0,0,0,0.2)] transition-colors"
+  >
+    {children}
+  </select>
+);
+
 const BillOpsAdminUserManagerPage: React.FC = () => {
-    const {
-        users,
-        loading,
-        error,
-        isEditing,
-        selectedUser,
-        roles,
-        newUser,
-        editUser,
-        cancelEdit,
-        saveUser,
-        deleteUser,
-        updateSelectedUser,
-        notification,
-        clearNotification,
-        pendingDeleteId,
-        confirmDelete,
-        cancelDelete,
-    } = useBillOpsUserManager();
+  const {
+    users, loading, error, isEditing, selectedUser, roles,
+    newUser, editUser, cancelEdit, saveUser, deleteUser, updateSelectedUser,
+    notification, clearNotification, pendingDeleteId, confirmDelete, cancelDelete,
+  } = useBillOpsUserManager();
 
-    const [searchQuery, setSearchQuery] = useState('');
-    const [filterRole, setFilterRole] = useState<BillOpsRole | ''>('');
-    const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'count-desc'>('name-asc');
-    const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
-    const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery]     = useState('');
+  const [filterRole, setFilterRole]       = useState<BillOpsRole | ''>('');
+  const [sortBy, setSortBy]               = useState<'name-asc' | 'name-desc' | 'count-desc'>('name-asc');
+  const [expandedClients, setExpandedClients]           = useState<Set<string>>(new Set());
+  const [expandedPrimaryUsers, setExpandedPrimaryUsers] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage]    = useState(1);
 
-    /**
-     * Get initials for avatar
-     */
-    const getInitials = (name: string): string => {
-        return name.substring(0, 2).toUpperCase();
-    };
+  const toggleClient      = (k: string) => setExpandedClients(prev      => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const togglePrimaryUser = (k: string) => setExpandedPrimaryUsers(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
-    /**
-     * Format role for display
-     */
-    const formatRole = (role: string): string => {
-        return role.replace('ROLE_', '').replace(/_/g, ' ');
-    };
+  const handleNewUserForClient = (clientName: string) => { newUser(); updateSelectedUser('clientName', clientName); };
+  const handleNewSubUser = (p: BillOpsUser) => { newUser(); updateSelectedUser('clientName', p.clientName); updateSelectedUser('parentId', p.id); };
 
-    /**
-     * Get role badge class
-     */
-    const getRoleBadgeClass = (role: BillOpsRole): string => {
-        if (role === 'ROLE_BILLOPS_ADMIN') return 'admin';
-        if (role === 'ROLE_BILLOPS_ADMIN_SUB') return 'admin';
-        if (role === 'ROLE_XAMOPS') return 'xamops';
-        return 'user';
-    };
+  /* ── Build 3-level tree ── */
+  const clientGroups = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const match = (u: BillOpsUser) => !q || [u.clientName, u.username, u.email, u.designation].some(v => v?.toLowerCase().includes(q));
 
-    /** Toggle a client group open/closed */
-    const toggleClient = (clientName: string) => {
-        setExpandedClients(prev => {
-            const next = new Set(prev);
-            if (next.has(clientName)) next.delete(clientName);
-            else next.add(clientName);
-            return next;
-        });
-    };
+    const subMap = new Map<string, BillOpsUser[]>();
+    for (const u of users.filter(u => !!u.parentId)) {
+      const k = String(u.parentId!);
+      if (!subMap.has(k)) subMap.set(k, []);
+      subMap.get(k)!.push(u);
+    }
 
-    /** Toggle a primary user's sub-user list open/closed */
-    const [expandedPrimaryUsers, setExpandedPrimaryUsers] = useState<Set<string>>(new Set());
-    const togglePrimaryUser = (userId: string) => {
-        setExpandedPrimaryUsers(prev => {
-            const next = new Set(prev);
-            if (next.has(userId)) next.delete(userId);
-            else next.add(userId);
-            return next;
-        });
-    };
+    const clientMap = new Map<string, BillOpsUser[]>();
+    for (const u of users.filter(u => !u.parentId)) {
+      const k = u.clientName || 'Unknown';
+      if (!clientMap.has(k)) clientMap.set(k, []);
+      clientMap.get(k)!.push(u);
+    }
 
-    /** Open create form pre-filled with clientName */
-    const handleNewUserForClient = (clientName: string) => {
-        newUser();
-        updateSelectedUser('clientName', clientName);
-    };
+    let entries = Array.from(clientMap.entries()).map(([clientName, primaries]) => {
+      const filtered = primaries.filter(p => {
+        if (filterRole !== '' && p.role !== filterRole) return false;
+        return match(p) || (subMap.get(String(p.id)) || []).some(s => match(s));
+      });
+      return { clientName, primaries: filtered, subMap } as const;
+    }).filter(g => g.primaries.length > 0);
 
-    /** Open create form pre-filled as sub-user under a primary user */
-    const handleNewSubUser = (primaryUser: BillOpsUser) => {
-        newUser();
-        updateSelectedUser('clientName', primaryUser.clientName);
-        updateSelectedUser('parentId', primaryUser.id);
-    };
+    if (sortBy === 'name-asc')    entries.sort((a, b) => a.clientName.localeCompare(b.clientName));
+    else if (sortBy === 'name-desc') entries.sort((a, b) => b.clientName.localeCompare(a.clientName));
+    else if (sortBy === 'count-desc') entries.sort((a, b) => b.primaries.length - a.primaries.length);
 
-    /**
-     * Build 3-level tree: client → primary users → sub-users
-     * Primary = no parentId; sub-user = has parentId pointing to a primary user's id
-     */
-    const clientGroups = useMemo(() => {
-        const q = searchQuery.toLowerCase().trim();
+    return entries;
+  }, [users, searchQuery, filterRole, sortBy]);
 
-        const matchesSearch = (user: BillOpsUser) => {
-            if (!q) return true;
-            return (
-                user.clientName?.toLowerCase().includes(q) ||
-                user.username?.toLowerCase().includes(q) ||
-                user.email?.toLowerCase().includes(q) ||
-                user.designation?.toLowerCase().includes(q)
-            );
-        };
+  useEffect(() => { setCurrentPage(1); }, [searchQuery, filterRole, sortBy]);
 
-        // Build sub-user lookup map: parentId → sub-users[]
-        // String() normalises: backend returns Long (number), frontend id is string
-        const subUserMap = new Map<string, BillOpsUser[]>();
-        for (const user of users.filter(u => !!u.parentId)) {
-            const key = String(user.parentId!);
-            if (!subUserMap.has(key)) subUserMap.set(key, []);
-            subUserMap.get(key)!.push(user);
-        }
+  const totalPages     = Math.ceil(clientGroups.length / PAGE_SIZE);
+  const paginatedGroups = useMemo(() => clientGroups.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE), [clientGroups, currentPage]);
 
-        // Group primary users (no parentId) by clientName
-        const clientMap = new Map<string, BillOpsUser[]>();
-        for (const user of users.filter(u => !u.parentId)) {
-            const key = user.clientName || 'Unknown';
-            if (!clientMap.has(key)) clientMap.set(key, []);
-            clientMap.get(key)!.push(user);
-        }
+  const totalFilteredCount = useMemo(() =>
+    clientGroups.reduce((s, g) => s + g.primaries.length + g.primaries.reduce((ss, p) => ss + (g.subMap.get(String(p.id))?.length ?? 0), 0), 0),
+    [clientGroups]);
 
-        // Apply search + role filter, keeping primaries that match or have matching sub-users
-        let entries = Array.from(clientMap.entries()).map(([clientName, primaries]) => {
-            const filtered = primaries.filter(p => {
-                if (filterRole !== '' && p.role !== filterRole) return false;
-                const subs = subUserMap.get(String(p.id)) || [];
-                return matchesSearch(p) || subs.some(s => matchesSearch(s));
-            });
-            return { clientName, primaries: filtered, subUserMap } as const;
-        }).filter(g => g.primaries.length > 0);
+  const isClientExpanded  = (k: string) => expandedClients.has(k) || !!searchQuery || !!filterRole;
+  const isPrimaryExpanded = (k: string, subs: BillOpsUser[])  => subs.length > 0 && (expandedPrimaryUsers.has(k) || !!searchQuery || !!filterRole);
 
-        if (sortBy === 'name-asc') entries.sort((a, b) => a.clientName.localeCompare(b.clientName));
-        else if (sortBy === 'name-desc') entries.sort((a, b) => b.clientName.localeCompare(a.clientName));
-        else if (sortBy === 'count-desc') entries.sort((a, b) => b.primaries.length - a.primaries.length);
+  const stats = useMemo(() => ({
+    total:   users.length,
+    admin:   users.filter(u => u.role === 'ROLE_BILLOPS_ADMIN' || u.role === 'ROLE_BILLOPS_ADMIN_SUB').length,
+    billops: users.filter(u => u.role === 'ROLE_BILLOPS').length,
+    xamops:  users.filter(u => u.role === 'ROLE_XAMOPS').length,
+  }), [users]);
 
-        return entries;
-    }, [users, searchQuery, filterRole, sortBy]);
-
-    // Reset to page 1 whenever filters/sort change
-    useEffect(() => { setCurrentPage(1); }, [searchQuery, filterRole, sortBy]);
-
-    const totalPages = Math.ceil(clientGroups.length / PAGE_SIZE);
-    const paginatedGroups = useMemo(() => {
-        const start = (currentPage - 1) * PAGE_SIZE;
-        return clientGroups.slice(start, start + PAGE_SIZE);
-    }, [clientGroups, currentPage]);
-
-    const totalFilteredCount = useMemo(() =>
-        clientGroups.reduce((sum, g) =>
-            sum + g.primaries.length + g.primaries.reduce((s, p) => s + (g.subUserMap.get(String(p.id))?.length ?? 0), 0), 0),
-        [clientGroups]);
-
-    const isClientExpanded = (clientName: string) =>
-        expandedClients.has(clientName) || !!searchQuery || !!filterRole;
-
-    const isPrimaryExpanded = (userId: string, subs: BillOpsUser[]) =>
-        subs.length > 0 && (expandedPrimaryUsers.has(userId) || !!searchQuery || !!filterRole);
-
-    /**
-     * Stats counts
-     */
-    const stats = useMemo(() => ({
-        total: users.length,
-        admin: users.filter(u => u.role === 'ROLE_BILLOPS_ADMIN' || u.role === 'ROLE_BILLOPS_ADMIN_SUB').length,
-        billops: users.filter(u => u.role === 'ROLE_BILLOPS').length,
-        xamops: users.filter(u => u.role === 'ROLE_XAMOPS').length,
-    }), [users]);
-
-    const { setActions, clearActions } = useTopbar();
-
-    // Set TopBar actions
-    useEffect(() => {
-        setActions(
-            <div className="flex items-center gap-3">
-                <button
-                    onClick={newUser}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-indigo-500/20 active:scale-95 transition-all"
-                >
-                    <i className="fas fa-user-plus"></i>
-                    <span>Create New User</span>
-                </button>
-            </div>
-        );
-
-        return () => clearActions();
-    }, [setActions, clearActions, newUser]);
-
-    return (
-        <div className="user-manager-page">
-            <AlertDialog
-                isOpen={!!pendingDeleteId}
-                title="Delete user?"
-                description="This action cannot be undone."
-                confirmLabel="Delete"
-                variant="danger"
-                onConfirm={confirmDelete}
-                onCancel={cancelDelete}
-            />
-            {/* Error State */}
-            {error && (
-                <div className="user-manager-error">
-                    <i className="fas fa-exclamation-circle"></i>
-                    <p>{error}</p>
-                </div>
-            )}
-
-            {/* Edit/Create Form — portal so it's always centered in viewport regardless of scroll */}
-            {isEditing && ReactDOM.createPortal(
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={cancelEdit}></div>
-                    <div className="relative user-manager-form-card z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                        <div className="user-manager-form-header">
-                            <i className="fas fa-user-edit"></i>
-                            <h2>{selectedUser.id ? 'Edit User' : 'Create User'}</h2>
-                        </div>
-
-                        <form onSubmit={(e) => { e.preventDefault(); saveUser(); }}>
-                            <div className="user-manager-form-grid">
-                                <div className="user-manager-form-group">
-                                    <label className="user-manager-form-label">Client Name</label>
-                                    <input
-                                        type="text"
-                                        value={selectedUser.clientName}
-                                        required
-                                        className="user-manager-form-input"
-                                        placeholder="Enter client name"
-                                        onChange={(e) => updateSelectedUser('clientName', e.target.value)}
-                                    />
-                                </div>
-
-                                <div className="user-manager-form-group">
-                                    <label className="user-manager-form-label">Username</label>
-                                    <input
-                                        type="text"
-                                        value={selectedUser.username}
-                                        required
-                                        className="user-manager-form-input"
-                                        placeholder="Enter username"
-                                        onChange={(e) => updateSelectedUser('username', e.target.value)}
-                                    />
-                                </div>
-
-                                <div className="user-manager-form-group">
-                                    <label className="user-manager-form-label">Email</label>
-                                    <input
-                                        type="email"
-                                        value={selectedUser.email}
-                                        required
-                                        className="user-manager-form-input"
-                                        placeholder="Enter email address"
-                                        onChange={(e) => updateSelectedUser('email', e.target.value)}
-                                    />
-                                </div>
-
-                                <div className="user-manager-form-group">
-                                    <label className="user-manager-form-label">Role</label>
-                                    <select
-                                        value={selectedUser.role}
-                                        required
-                                        className="user-manager-form-select"
-                                        onChange={(e) => updateSelectedUser('role', e.target.value)}
-                                    >
-                                        <option value="" disabled>Select Role</option>
-                                        {roles.map((role) => (
-                                            <option key={role} value={role}>
-                                                {formatRole(role)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="user-manager-form-group">
-                                    <label className="user-manager-form-label">Contact Number</label>
-                                    <input
-                                        type="tel"
-                                        value={selectedUser.contact}
-                                        className="user-manager-form-input"
-                                        placeholder="Enter contact number"
-                                        onChange={(e) => updateSelectedUser('contact', e.target.value)}
-                                    />
-                                </div>
-
-                                <div className="user-manager-form-group">
-                                    <label className="user-manager-form-label">Designation</label>
-                                    <input
-                                        type="text"
-                                        value={selectedUser.designation}
-                                        className="user-manager-form-input"
-                                        placeholder="e.g. Cloud Engineer"
-                                        onChange={(e) => updateSelectedUser('designation', e.target.value)}
-                                    />
-                                </div>
-
-                                <div className="user-manager-form-group full-width">
-                                    <label className="user-manager-form-label">Password</label>
-                                    <input
-                                        type="password"
-                                        value={selectedUser.password}
-                                        required={!selectedUser.id}
-                                        className="user-manager-form-input"
-                                        placeholder={selectedUser.id ? 'Leave blank to keep current password' : 'Enter password'}
-                                        onChange={(e) => updateSelectedUser('password', e.target.value)}
-                                    />
-                                </div>
-
-                                {/* Sub-user indicator — shown read-only when parentId is pre-filled */}
-                                {selectedUser.parentId && (
-                                    <div className="user-manager-form-group full-width">
-                                        <label className="user-manager-form-label">Sub-user of</label>
-                                        <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700 font-semibold">
-                                            <i className="fas fa-sitemap text-emerald-500"></i>
-                                            This user will be created as a sub-user (Parent ID: {selectedUser.parentId})
-                                            <button type="button" onClick={() => updateSelectedUser('parentId', '')} className="ml-auto text-emerald-400 hover:text-rose-500">
-                                                <i className="fas fa-times"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="user-manager-form-actions">
-                                <button
-                                    type="button"
-                                    onClick={cancelEdit}
-                                    className="user-manager-btn-cancel"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="user-manager-btn-save"
-                                >
-                                    Save User
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>,
-                document.body
-            )}
-
-            {/* Stats Summary */}
-            {!loading && users.length > 0 && (
-                <div className="user-manager-stats">
-                    <div className="user-manager-stat-card total">
-                        <i className="fas fa-users"></i>
-                        <div>
-                            <span className="user-manager-stat-value">{stats.total}</span>
-                            <span className="user-manager-stat-label">Total Users</span>
-                        </div>
-                    </div>
-                    <div className="user-manager-stat-card admin">
-                        <i className="fas fa-crown"></i>
-                        <div>
-                            <span className="user-manager-stat-value">{stats.admin}</span>
-                            <span className="user-manager-stat-label">Admins</span>
-                        </div>
-                    </div>
-                    <div className="user-manager-stat-card billops">
-                        <i className="fas fa-user"></i>
-                        <div>
-                            <span className="user-manager-stat-value">{stats.billops}</span>
-                            <span className="user-manager-stat-label">BillOps</span>
-                        </div>
-                    </div>
-                    <div className="user-manager-stat-card xamops">
-                        <i className="fas fa-cloud"></i>
-                        <div>
-                            <span className="user-manager-stat-value">{stats.xamops}</span>
-                            <span className="user-manager-stat-label">XamOps</span>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Users Table */}
-            <div className="user-manager-table-card">
-                {loading ? (
-                    <div className="user-manager-loading">
-                        <div className="user-manager-spinner"></div>
-                        <p>Loading users...</p>
-                    </div>
-                ) : users.length === 0 ? (
-                    <div className="user-manager-empty">
-                        <div className="user-manager-empty-icon">
-                            <i className="fas fa-users"></i>
-                        </div>
-                        <h3>No Users Found</h3>
-                        <p>Create your first user to get started.</p>
-                    </div>
-                ) : (
-                    <>
-                        {/* Search & Filter Toolbar */}
-                        <div className="user-manager-toolbar">
-                            <div className="user-manager-search-wrapper">
-                                <i className="fas fa-search user-manager-search-icon"></i>
-                                <input
-                                    type="text"
-                                    className="user-manager-search-input"
-                                    placeholder="Search by name, username, email or designation..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                                {searchQuery && (
-                                    <button
-                                        className="user-manager-search-clear"
-                                        onClick={() => setSearchQuery('')}
-                                        title="Clear search"
-                                    >
-                                        <i className="fas fa-times"></i>
-                                    </button>
-                                )}
-                            </div>
-
-                            {/* Role filter */}
-                            <select
-                                className="user-manager-filter-select"
-                                value={filterRole}
-                                onChange={(e) => setFilterRole(e.target.value as BillOpsRole | '')}
-                            >
-                                <option value="">All Roles</option>
-                                {roles.map((role) => (
-                                    <option key={role} value={role}>{formatRole(role)}</option>
-                                ))}
-                            </select>
-
-                            {/* Sort dropdown */}
-                            <select
-                                className="user-manager-filter-select"
-                                value={sortBy}
-                                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                            >
-                                <option value="name-asc">Name A → Z</option>
-                                <option value="name-desc">Name Z → A</option>
-                                <option value="count-desc">Most Users First</option>
-                            </select>
-
-                            {/* Expand / Collapse All */}
-                            <div className="flex items-center gap-1.5">
-                                <button
-                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all active:scale-95"
-                                    onClick={() => setExpandedClients(new Set(clientGroups.map(g => g.clientName)))}
-                                    title="Expand all clients"
-                                >
-                                    <i className="fas fa-expand-alt text-[9px]"></i>
-                                    All
-                                </button>
-                                <button
-                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all active:scale-95"
-                                    onClick={() => setExpandedClients(new Set())}
-                                    title="Collapse all clients"
-                                >
-                                    <i className="fas fa-compress-alt text-[9px]"></i>
-                                    None
-                                </button>
-                            </div>
-
-                            {(searchQuery || filterRole) && (
-                                <button
-                                    className="user-manager-clear-filters"
-                                    onClick={() => { setSearchQuery(''); setFilterRole(''); }}
-                                >
-                                    <i className="fas fa-filter-circle-xmark"></i>
-                                    Clear Filters
-                                </button>
-                            )}
-                            <span className="user-manager-results-count">
-                                {totalFilteredCount === users.length
-                                    ? `${clientGroups.length} client${clientGroups.length !== 1 ? 's' : ''} · ${users.length} users`
-                                    : `${totalFilteredCount} of ${users.length} users`}
-                                {totalPages > 1 && ` (page ${currentPage}/${totalPages})`}
-                            </span>
-                        </div>
-
-                        {clientGroups.length === 0 ? (
-                            <div className="user-manager-empty">
-                                <div className="user-manager-empty-icon">
-                                    <i className="fas fa-search"></i>
-                                </div>
-                                <h3>No Results Found</h3>
-                                <p>Try adjusting your search or filter criteria.</p>
-                            </div>
-                        ) : (
-                            <div className="user-manager-table-container">
-                                <table className="user-manager-table">
-                                    <thead>
-                                        <tr>
-                                            <th>User</th>
-                                            <th>Email</th>
-                                            <th>Contact</th>
-                                            <th>Designation</th>
-                                            <th>Role</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {paginatedGroups.map(({ clientName, primaries, subUserMap }) => {
-                                            const clientExpanded = isClientExpanded(clientName);
-                                            const totalInClient = primaries.reduce((s, p) => s + 1 + (subUserMap.get(String(p.id))?.length ?? 0), 0);
-                                            return (
-                                                <React.Fragment key={clientName}>
-                                                    {/* ── Level 1: Client header ── */}
-                                                    <tr
-                                                        className="cursor-pointer select-none bg-slate-100/70 hover:bg-indigo-50/50 transition-colors border-t-2 border-slate-200"
-                                                        onClick={() => toggleClient(clientName)}
-                                                    >
-                                                        <td colSpan={6} className="px-4 py-3">
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="flex items-center gap-3">
-                                                                    <i className={`fas fa-chevron-${clientExpanded ? 'down' : 'right'} text-[10px] text-slate-400 w-3`}></i>
-                                                                    <div className="user-manager-avatar">
-                                                                        {getInitials(clientName)}
-                                                                    </div>
-                                                                    <span className="font-bold text-slate-800 text-sm">{clientName}</span>
-                                                                    <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black border border-indigo-100 leading-none">
-                                                                        {primaries.length} primary · {totalInClient} total
-                                                                    </span>
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => { e.stopPropagation(); handleNewUserForClient(clientName); }}
-                                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-bold hover:bg-indigo-700 transition-all active:scale-95 shadow-sm shadow-indigo-200"
-                                                                >
-                                                                    <i className="fas fa-user-plus text-[9px]"></i>
-                                                                    Add User
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-
-                                                    {/* ── Level 2: Primary users ── */}
-                                                    {clientExpanded && primaries.map((primary: BillOpsUser) => {
-                                                        const subs = subUserMap.get(String(primary.id)) || [];
-                                                        const primaryExpanded = isPrimaryExpanded(primary.id, subs);
-                                                        return (
-                                                            <React.Fragment key={primary.id}>
-                                                                <tr className="bg-white border-l-4 border-l-indigo-300/60 hover:bg-indigo-50/20 transition-colors">
-                                                                    <td className="pl-10 pr-4 py-2.5">
-                                                                        <div className="flex items-center gap-2.5">
-                                                                            {/* expand/collapse sub-users if any */}
-                                                                            {subs.length > 0 ? (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => togglePrimaryUser(primary.id)}
-                                                                                    className="w-4 h-4 flex items-center justify-center text-indigo-400 hover:text-indigo-600 flex-shrink-0"
-                                                                                >
-                                                                                    <i className={`fas fa-chevron-${primaryExpanded ? 'down' : 'right'} text-[9px]`}></i>
-                                                                                </button>
-                                                                            ) : (
-                                                                                <span className="w-4 flex-shrink-0"></span>
-                                                                            )}
-                                                                            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-700 flex items-center justify-center text-[10px] font-black flex-shrink-0">
-                                                                                {getInitials(primary.username)}
-                                                                            </div>
-                                                                            <div className="flex flex-col leading-tight">
-                                                                                <span className="text-xs font-bold text-slate-700">@{primary.username}</span>
-                                                                                {subs.length > 0 && (
-                                                                                    <span className="text-[9px] text-indigo-400 font-semibold">{subs.length} sub-user{subs.length !== 1 ? 's' : ''}</span>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-4 py-2.5 text-sm text-slate-600">{primary.email}</td>
-                                                                    <td className="px-4 py-2.5 text-sm text-slate-600">{primary.contact || <span className="text-gray-400">—</span>}</td>
-                                                                    <td className="px-4 py-2.5 text-sm text-slate-600">{primary.designation || <span className="text-gray-400">—</span>}</td>
-                                                                    <td className="px-4 py-2.5">
-                                                                        <span className={`user-manager-role-badge ${getRoleBadgeClass(primary.role)}`}>
-                                                                            <i className={`fas ${primary.role === 'ROLE_BILLOPS_ADMIN' ? 'fa-crown' : primary.role === 'ROLE_BILLOPS_ADMIN_SUB' ? 'fa-user-shield' : primary.role === 'ROLE_XAMOPS' ? 'fa-cloud' : 'fa-user'}`}></i>
-                                                                            {formatRole(primary.role)}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="px-4 py-2.5">
-                                                                        <div className="user-manager-actions">
-                                                                            <button
-                                                                                onClick={() => handleNewSubUser(primary)}
-                                                                                className="user-manager-action-btn edit"
-                                                                                title="Add sub-user"
-                                                                                style={{ background: '#f0fdf4', color: '#16a34a', borderColor: '#bbf7d0' }}
-                                                                            >
-                                                                                <i className="fas fa-user-plus"></i>
-                                                                            </button>
-                                                                            <button onClick={() => editUser(primary)} className="user-manager-action-btn edit" title="Edit User">
-                                                                                <i className="fas fa-edit"></i>
-                                                                            </button>
-                                                                            <button onClick={() => deleteUser(primary.id)} className="user-manager-action-btn delete" title="Delete User">
-                                                                                <i className="fas fa-trash"></i>
-                                                                            </button>
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-
-                                                                {/* ── Level 3: Sub-users ── */}
-                                                                {primaryExpanded && subs.map((sub: BillOpsUser) => (
-                                                                    <tr key={sub.id} className="bg-slate-50/50 border-l-4 border-l-emerald-200/60 hover:bg-emerald-50/20 transition-colors">
-                                                                        <td className="pl-20 pr-4 py-2">
-                                                                            <div className="flex items-center gap-2.5">
-                                                                                <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-700 flex items-center justify-center text-[9px] font-black flex-shrink-0">
-                                                                                    {getInitials(sub.username)}
-                                                                                </div>
-                                                                                <span className="text-xs text-slate-500 font-semibold">@{sub.username}</span>
-                                                                            </div>
-                                                                        </td>
-                                                                        <td className="px-4 py-2 text-sm text-slate-500">{sub.email}</td>
-                                                                        <td className="px-4 py-2 text-sm text-slate-500">{sub.contact || <span className="text-gray-400">—</span>}</td>
-                                                                        <td className="px-4 py-2 text-sm text-slate-500">{sub.designation || <span className="text-gray-400">—</span>}</td>
-                                                                        <td className="px-4 py-2">
-                                                                            <span className={`user-manager-role-badge ${getRoleBadgeClass(sub.role)}`}>
-                                                                                <i className={`fas ${sub.role === 'ROLE_BILLOPS_ADMIN' ? 'fa-crown' : sub.role === 'ROLE_BILLOPS_ADMIN_SUB' ? 'fa-user-shield' : sub.role === 'ROLE_XAMOPS' ? 'fa-cloud' : 'fa-user'}`}></i>
-                                                                                {formatRole(sub.role)}
-                                                                            </span>
-                                                                        </td>
-                                                                        <td className="px-4 py-2">
-                                                                            <div className="user-manager-actions">
-                                                                                <button onClick={() => editUser(sub)} className="user-manager-action-btn edit" title="Edit User">
-                                                                                    <i className="fas fa-edit"></i>
-                                                                                </button>
-                                                                                <button onClick={() => deleteUser(sub.id)} className="user-manager-action-btn delete" title="Delete User">
-                                                                                    <i className="fas fa-trash"></i>
-                                                                                </button>
-                                                                            </div>
-                                                                        </td>
-                                                                    </tr>
-                                                                ))}
-                                                            </React.Fragment>
-                                                        );
-                                                    })}
-                                                </React.Fragment>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </>
-                )}
-            </div>
-
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-2 py-2">
-                    <button
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                    >
-                        <i className="fas fa-chevron-left text-xs"></i>
-                        Prev
-                    </button>
-
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
-                        const isActive = page === currentPage;
-                        const isEdge = page === 1 || page === totalPages;
-                        const isNearCurrent = Math.abs(page - currentPage) <= 1;
-                        if (!isEdge && !isNearCurrent) {
-                            if (page === 2 || page === totalPages - 1) {
-                                return <span key={page} className="px-1 text-slate-400 text-sm select-none">…</span>;
-                            }
-                            return null;
-                        }
-                        return (
-                            <button
-                                key={page}
-                                onClick={() => setCurrentPage(page)}
-                                className={`w-9 h-9 rounded-lg text-sm font-bold transition-all ${
-                                    isActive
-                                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
-                                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm'
-                                }`}
-                            >
-                                {page}
-                            </button>
-                        );
-                    })}
-
-                    <button
-                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                    >
-                        Next
-                        <i className="fas fa-chevron-right text-xs"></i>
-                    </button>
-                </div>
-            )}
-
-            {/* Notification Modal */}
-            {notification && (
-                <NotificationModal
-                    isOpen={!!notification}
-                    onClose={clearNotification}
-                    type={notification.type}
-                    title={notification.title}
-                    message={notification.message}
-                />
-            )}
-        </div>
+  const { setActions, clearActions } = useTopbar();
+  useEffect(() => {
+    setActions(
+      <button
+        onClick={newUser}
+        className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-xs font-semibold rounded-md transition-colors"
+      >
+        <Icon icon="mdi:account-plus-outline" width={14} />
+        Create New User
+      </button>
     );
+    return () => clearActions();
+  }, [setActions, clearActions, newUser]);
+
+  return (
+    <div className="px-6 pb-12 pt-6 space-y-5">
+      <AlertDialog
+        isOpen={!!pendingDeleteId}
+        title="Delete user?"
+        description="This action cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+      />
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-center gap-3 p-4 bg-rose-50 border border-rose-100 rounded-xl text-sm text-rose-600">
+          <Icon icon="mdi:alert-circle-outline" width={16} className="flex-shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {/* ── Edit / Create Modal ── */}
+      {isEditing && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={cancelEdit} />
+          <div
+            className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-[rgba(0,0,0,0.12)] rounded-2xl shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-[rgba(0,0,0,0.06)]">
+              <div className="w-10 h-10 rounded-xl bg-[rgba(0,0,0,0.88)] flex items-center justify-center flex-shrink-0">
+                <Icon icon={selectedUser.id ? 'mdi:account-edit-outline' : 'mdi:account-plus-outline'} width={20} color="white" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{selectedUser.id ? 'Edit User' : 'Create User'}</h2>
+                <p className="text-xs text-[rgba(0,0,0,0.4)]">{selectedUser.id ? 'Update user details below' : 'Fill in details to create a new user'}</p>
+              </div>
+              <button onClick={cancelEdit} className="ml-auto p-2 rounded-lg hover:bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.4)] transition-colors">
+                <Icon icon="mdi:close" width={16} />
+              </button>
+            </div>
+
+            <form onSubmit={e => { e.preventDefault(); saveUser(); }} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <FormLabel icon="mdi:domain" text="Client Name" />
+                  <FieldInput type="text" value={selectedUser.clientName} required placeholder="Enter client name" onChange={e => updateSelectedUser('clientName', e.target.value)} />
+                </div>
+                <div>
+                  <FormLabel icon="mdi:account-outline" text="Username" />
+                  <FieldInput type="text" value={selectedUser.username} required placeholder="Enter username" onChange={e => updateSelectedUser('username', e.target.value)} />
+                </div>
+                <div>
+                  <FormLabel icon="mdi:email-outline" text="Email" />
+                  <FieldInput type="email" value={selectedUser.email} required placeholder="Enter email address" onChange={e => updateSelectedUser('email', e.target.value)} />
+                </div>
+                <div>
+                  <FormLabel icon="mdi:shield-account-outline" text="Role" />
+                  <FieldSelect value={selectedUser.role} required onChange={e => updateSelectedUser('role', e.target.value)}>
+                    <option value="" disabled>Select Role</option>
+                    {roles.map(r => <option key={r} value={r}>{formatRole(r)}</option>)}
+                  </FieldSelect>
+                </div>
+                <div>
+                  <FormLabel icon="mdi:phone-outline" text="Contact Number" />
+                  <FieldInput type="tel" value={selectedUser.contact} placeholder="Enter contact number" onChange={e => updateSelectedUser('contact', e.target.value)} />
+                </div>
+                <div>
+                  <FormLabel icon="mdi:briefcase-outline" text="Designation" />
+                  <FieldInput type="text" value={selectedUser.designation} placeholder="e.g. Cloud Engineer" onChange={e => updateSelectedUser('designation', e.target.value)} />
+                </div>
+                <div className="sm:col-span-2">
+                  <FormLabel icon="mdi:lock-outline" text="Password" />
+                  <FieldInput type="password" value={selectedUser.password} required={!selectedUser.id} placeholder={selectedUser.id ? 'Leave blank to keep current password' : 'Enter password'} onChange={e => updateSelectedUser('password', e.target.value)} />
+                </div>
+
+                {selectedUser.parentId && (
+                  <div className="sm:col-span-2">
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-lg">
+                      <Icon icon="mdi:sitemap-outline" width={13} color="rgba(0,0,0,0.4)" />
+                      <span className="text-xs text-[rgba(0,0,0,0.6)]">Will be created as a <strong className="text-[rgba(0,0,0,0.88)]">sub-user</strong> (Parent ID: {selectedUser.parentId})</span>
+                      <button type="button" onClick={() => updateSelectedUser('parentId', '')} className="ml-auto p-1 hover:text-rose-500 text-[rgba(0,0,0,0.3)] transition-colors">
+                        <Icon icon="mdi:close" width={13} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-[rgba(0,0,0,0.06)]">
+                <button type="button" onClick={cancelEdit} className="inline-flex items-center gap-2 px-4 py-2 border border-[rgba(0,0,0,0.12)] rounded-md bg-white text-[rgba(0,0,0,0.5)] text-xs font-medium hover:bg-[rgba(0,0,0,0.03)] transition-colors">
+                  <Icon icon="mdi:close" width={13} />
+                  Cancel
+                </button>
+                <button type="submit" className="inline-flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-md text-xs font-semibold transition-colors">
+                  <Icon icon="mdi:content-save-outline" width={13} />
+                  Save User
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── KPI Cards ── */}
+      {!loading && users.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { icon: 'mdi:account-group-outline', label: 'Total Users',  value: stats.total,   color: 'rgba(0,0,0,0.88)' },
+            { icon: 'mdi:shield-crown-outline',   label: 'Admins',       value: stats.admin,   color: 'rgba(0,0,0,0.88)' },
+            { icon: 'mdi:account-outline',         label: 'BillOps',      value: stats.billops, color: 'rgba(0,0,0,0.88)' },
+            { icon: 'mdi:cloud-outline',           label: 'XamOps',       value: stats.xamops,  color: 'rgba(0,0,0,0.88)' },
+          ].map((s, i) => (
+            <div key={i} className="relative bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-4 overflow-hidden">
+              {/* Watermark */}
+              <svg className="absolute right-2 bottom-1 opacity-[0.04] pointer-events-none" width="56" height="56" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" fill="black" />
+              </svg>
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.06)] flex items-center justify-center flex-shrink-0">
+                  <Icon icon={s.icon} width={16} color="rgba(0,0,0,0.5)" />
+                </div>
+                <div>
+                  <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)' }}>{s.value}</p>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5 leading-tight">{s.label}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Main Table Card ── */}
+      <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Icon icon="mdi:loading" width={28} color="rgba(0,0,0,0.25)" className="animate-spin" />
+            <p className="text-sm text-[rgba(0,0,0,0.4)]">Loading users…</p>
+          </div>
+        ) : users.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <div className="w-14 h-14 rounded-xl bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] flex items-center justify-center">
+              <Icon icon="mdi:account-group-outline" width={28} color="rgba(0,0,0,0.2)" />
+            </div>
+            <h3 className="text-sm font-bold text-[rgba(0,0,0,0.7)]">No Users Found</h3>
+            <p className="text-xs text-[rgba(0,0,0,0.4)]">Create your first user to get started.</p>
+          </div>
+        ) : (
+          <>
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-[rgba(0,0,0,0.06)]">
+              {/* Search */}
+              <div className="relative flex-1 min-w-[180px]">
+                <Icon icon="mdi:magnify" width={14} color="rgba(0,0,0,0.35)" className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search name, email, designation…"
+                  className="w-full pl-8 pr-8 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.15)] transition-colors"
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.6)]">
+                    <Icon icon="mdi:close" width={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Role filter */}
+              <select
+                value={filterRole}
+                onChange={e => setFilterRole(e.target.value as BillOpsRole | '')}
+                className="px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.7)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.15)] transition-colors"
+              >
+                <option value="">All Roles</option>
+                {roles.map(r => <option key={r} value={r}>{formatRole(r)}</option>)}
+              </select>
+
+              {/* Sort */}
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as typeof sortBy)}
+                className="px-3 py-2 text-xs bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.7)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.15)] transition-colors"
+              >
+                <option value="name-asc">Name A → Z</option>
+                <option value="name-desc">Name Z → A</option>
+                <option value="count-desc">Most Users First</option>
+              </select>
+
+              {/* Expand / Collapse */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setExpandedClients(new Set(clientGroups.map(g => g.clientName)))}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-[rgba(0,0,0,0.08)] bg-white text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] transition-colors"
+                >
+                  <Icon icon="mdi:arrow-expand-all" width={11} />All
+                </button>
+                <button
+                  onClick={() => setExpandedClients(new Set())}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-[rgba(0,0,0,0.08)] bg-white text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] transition-colors"
+                >
+                  <Icon icon="mdi:arrow-collapse-all" width={11} />None
+                </button>
+              </div>
+
+              {(searchQuery || filterRole) && (
+                <button
+                  onClick={() => { setSearchQuery(''); setFilterRole(''); }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold text-rose-500 border border-rose-100 bg-rose-50 hover:bg-rose-100 transition-colors"
+                >
+                  <Icon icon="mdi:filter-remove-outline" width={11} />
+                  Clear
+                </button>
+              )}
+
+              <span className="ml-auto text-[11px] text-[rgba(0,0,0,0.4)] whitespace-nowrap">
+                {totalFilteredCount === users.length
+                  ? `${clientGroups.length} client${clientGroups.length !== 1 ? 's' : ''} · ${users.length} users`
+                  : `${totalFilteredCount} of ${users.length} users`}
+                {totalPages > 1 && ` · p.${currentPage}/${totalPages}`}
+              </span>
+            </div>
+
+            {/* Table */}
+            {clientGroups.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2">
+                <Icon icon="mdi:magnify" width={28} color="rgba(0,0,0,0.15)" />
+                <p className="text-sm font-semibold text-[rgba(0,0,0,0.5)]">No Results Found</p>
+                <p className="text-xs text-[rgba(0,0,0,0.35)]">Try adjusting your search or filter.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-[rgba(0,0,0,0.06)]">
+                      {['User', 'Email', 'Contact', 'Designation', 'Role', 'Actions'].map(h => (
+                        <th key={h} className="px-4 py-2.5 text-[10px] font-bold text-[rgba(0,0,0,0.4)] uppercase tracking-wider whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedGroups.map(({ clientName, primaries, subMap }) => {
+                      const clientExpanded = isClientExpanded(clientName);
+                      const totalInClient  = primaries.reduce((s, p) => s + 1 + (subMap.get(String(p.id))?.length ?? 0), 0);
+                      return (
+                        <React.Fragment key={clientName}>
+                          {/* ── Level 1: Client row ── */}
+                          <tr
+                            className="cursor-pointer select-none bg-[rgba(0,0,0,0.025)] hover:bg-[rgba(0,0,0,0.04)] transition-colors border-t border-[rgba(0,0,0,0.06)]"
+                            onClick={() => toggleClient(clientName)}
+                          >
+                            <td colSpan={6} className="px-4 py-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <Icon
+                                    icon={clientExpanded ? 'mdi:chevron-down' : 'mdi:chevron-right'}
+                                    width={14}
+                                    color="rgba(0,0,0,0.35)"
+                                  />
+                                  <div className="w-8 h-8 rounded-xl bg-[rgba(0,0,0,0.88)] text-white flex items-center justify-center text-[11px] font-bold flex-shrink-0">
+                                    {getInitials(clientName)}
+                                  </div>
+                                  <span className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{clientName}</span>
+                                  <span className="px-2 py-0.5 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] rounded-full text-[10px] font-bold">
+                                    {primaries.length} primary · {totalInClient} total
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={e => { e.stopPropagation(); handleNewUserForClient(clientName); }}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-lg text-[10px] font-bold transition-colors"
+                                >
+                                  <Icon icon="mdi:account-plus-outline" width={11} />
+                                  Add User
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* ── Level 2: Primary users ── */}
+                          {clientExpanded && primaries.map((primary: BillOpsUser) => {
+                            const subs = subMap.get(String(primary.id)) || [];
+                            const primaryExpanded = isPrimaryExpanded(primary.id, subs);
+                            const meta = getRoleMeta(primary.role);
+                            return (
+                              <React.Fragment key={primary.id}>
+                                <tr className="bg-white border-b border-[rgba(0,0,0,0.04)] border-l-2 border-l-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.01)] transition-colors">
+                                  <td className="pl-10 pr-4 py-3">
+                                    <div className="flex items-center gap-2.5">
+                                      {subs.length > 0 ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePrimaryUser(primary.id)}
+                                          className="w-4 h-4 flex items-center justify-center text-[rgba(0,0,0,0.35)] hover:text-[rgba(0,0,0,0.7)] flex-shrink-0"
+                                        >
+                                          <Icon icon={primaryExpanded ? 'mdi:chevron-down' : 'mdi:chevron-right'} width={13} />
+                                        </button>
+                                      ) : (
+                                        <span className="w-4 flex-shrink-0" />
+                                      )}
+                                      <div className="w-8 h-8 rounded-xl bg-[rgba(0,0,0,0.88)] text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                                        {getInitials(primary.username)}
+                                      </div>
+                                      <div className="flex flex-col leading-tight">
+                                        <span className="text-xs font-bold text-[rgba(0,0,0,0.88)]">@{primary.username}</span>
+                                        {subs.length > 0 && (
+                                          <span className="text-[9px] text-[rgba(0,0,0,0.4)] font-semibold">{subs.length} sub-user{subs.length !== 1 ? 's' : ''}</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-xs text-[rgba(0,0,0,0.6)]">{primary.email}</td>
+                                  <td className="px-4 py-3 text-xs text-[rgba(0,0,0,0.5)]">{primary.contact || <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
+                                  <td className="px-4 py-3 text-xs text-[rgba(0,0,0,0.5)]">{primary.designation || <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] font-bold uppercase tracking-wide ${meta.badge}`}>
+                                      <Icon icon={meta.icon} width={10} />
+                                      {meta.label}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => handleNewSubUser(primary)}
+                                        title="Add sub-user"
+                                        className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] rounded-md transition-colors"
+                                      >
+                                        <Icon icon="mdi:account-plus-outline" width={11} />
+                                      </button>
+                                      <button
+                                        onClick={() => editUser(primary)}
+                                        title="Edit user"
+                                        className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] rounded-md transition-colors"
+                                      >
+                                        <Icon icon="mdi:pencil-outline" width={11} />
+                                      </button>
+                                      <button
+                                        onClick={() => deleteUser(primary.id)}
+                                        title="Delete user"
+                                        className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-rose-50 border border-rose-100 text-rose-500 hover:bg-rose-100 rounded-md transition-colors"
+                                      >
+                                        <Icon icon="mdi:trash-can-outline" width={11} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+
+                                {/* ── Level 3: Sub-users ── */}
+                                {primaryExpanded && subs.map((sub: BillOpsUser) => {
+                                  const subMeta = getRoleMeta(sub.role);
+                                  return (
+                                    <tr key={sub.id} className="bg-[rgba(0,0,0,0.01)] border-b border-[rgba(0,0,0,0.04)] border-l-2 border-l-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+                                      <td className="pl-20 pr-4 py-2.5">
+                                        <div className="flex items-center gap-2">
+                                          <Icon icon="mdi:subdirectory-arrow-right" width={12} color="rgba(0,0,0,0.2)" className="flex-shrink-0" />
+                                          <div className="w-6 h-6 rounded-lg bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.6)] flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                                            {getInitials(sub.username)}
+                                          </div>
+                                          <span className="text-xs text-[rgba(0,0,0,0.6)] font-semibold">@{sub.username}</span>
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-2.5 text-xs text-[rgba(0,0,0,0.5)]">{sub.email}</td>
+                                      <td className="px-4 py-2.5 text-xs text-[rgba(0,0,0,0.4)]">{sub.contact || <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
+                                      <td className="px-4 py-2.5 text-xs text-[rgba(0,0,0,0.4)]">{sub.designation || <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
+                                      <td className="px-4 py-2.5">
+                                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] font-bold uppercase tracking-wide ${subMeta.badge}`}>
+                                          <Icon icon={subMeta.icon} width={10} />
+                                          {subMeta.label}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-2.5">
+                                        <div className="flex items-center gap-1.5">
+                                          <button
+                                            onClick={() => editUser(sub)}
+                                            title="Edit user"
+                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] rounded-md transition-colors"
+                                          >
+                                            <Icon icon="mdi:pencil-outline" width={11} />
+                                          </button>
+                                          <button
+                                            onClick={() => deleteUser(sub.id)}
+                                            title="Delete user"
+                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-rose-50 border border-rose-100 text-rose-500 hover:bg-rose-100 rounded-md transition-colors"
+                                          >
+                                            <Icon icon="mdi:trash-can-outline" width={11} />
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </React.Fragment>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── Pagination ── */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-1.5">
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="flex items-center gap-1 px-3 py-2 bg-white border border-[rgba(0,0,0,0.1)] rounded-lg text-xs font-semibold text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <Icon icon="mdi:chevron-left" width={14} /> Prev
+          </button>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+            const isActive = page === currentPage;
+            const show = page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1;
+            if (!show) {
+              if (page === 2 || page === totalPages - 1) return <span key={page} className="text-[rgba(0,0,0,0.3)] text-xs select-none">…</span>;
+              return null;
+            }
+            return (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                className={`w-9 h-9 rounded-lg text-xs font-bold transition-colors ${isActive ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-white border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)]'}`}
+              >
+                {page}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="flex items-center gap-1 px-3 py-2 bg-white border border-[rgba(0,0,0,0.1)] rounded-lg text-xs font-semibold text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Next <Icon icon="mdi:chevron-right" width={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Notification */}
+      {notification && (
+        <NotificationModal
+          isOpen={!!notification}
+          onClose={clearNotification}
+          type={notification.type}
+          title={notification.title}
+          message={notification.message}
+        />
+      )}
+    </div>
+  );
 };
 
 export default BillOpsAdminUserManagerPage;

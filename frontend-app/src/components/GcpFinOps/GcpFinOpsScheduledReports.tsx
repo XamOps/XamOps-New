@@ -1,11 +1,6 @@
-/**
- * GCP FinOps Scheduled Reports Component
- *
- * Displays and manages scheduled GCP FinOps email reports
- */
-
 import React from 'react';
 import type { GcpReportSchedule } from '../../types/gcpFinops';
+import { Icon } from '@iconify/react';
 
 interface GcpFinOpsScheduledReportsProps {
   schedules: GcpReportSchedule[];
@@ -13,51 +8,44 @@ interface GcpFinOpsScheduledReportsProps {
 }
 
 const GcpFinOpsScheduledReports: React.FC<GcpFinOpsScheduledReportsProps> = ({ schedules, onDeleteSchedule }) => {
-  if (!schedules || schedules.length === 0) {
-    return null;
-  }
-
+  if (!schedules || schedules.length === 0) return null;
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md fade-in">
-      <div className="flex items-center space-x-3 mb-6">
-        <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-md">
-          <i className="fas fa-calendar-alt text-white"></i>
-        </div>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-xl font-bold text-gray-800">Scheduled Reports</h3>
-          <p className="text-sm text-gray-600">Your automated email reports</p>
+          <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Scheduled Reports</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block"></span>
+            Automated email reports
+          </p>
         </div>
+        <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)] bg-[rgba(0,0,0,0.06)] px-1.5 py-0.5 rounded-md">{schedules.length}</span>
       </div>
-
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
-        <table className="w-full text-sm text-left text-gray-600">
-          <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
-            <tr>
-              <th className="px-6 py-4">Account</th>
-              <th className="px-6 py-4">Email</th>
-              <th className="px-6 py-4">Frequency</th>
-              <th className="px-6 py-4">Actions</th>
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-[rgba(0,0,0,0.06)]">
+            <th className="pb-2 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Account</th>
+            <th className="pb-2 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Email</th>
+            <th className="pb-2 text-left text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Frequency</th>
+            <th className="pb-2 text-right text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.6)]">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {schedules.map((s) => (
+            <tr key={s.id} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)]">
+              <td className="py-3 text-[13px] text-[rgba(0,0,0,0.88)] font-medium">{s.accountName}</td>
+              <td className="py-3 text-[13px] text-[rgba(0,0,0,0.6)]">{s.email}</td>
+              <td className="py-3 text-[13px] text-[rgba(0,0,0,0.6)]">{s.frequency}</td>
+              <td className="py-3 text-right">
+                <button onClick={() => onDeleteSchedule(s.id)} className="inline-flex items-center gap-1 text-[12px] text-red-500 hover:text-red-700 transition-colors">
+                  <Icon icon="mdi:trash-can-outline" width={14} />
+                  Delete
+                </button>
+              </td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {schedules.map((schedule) => (
-              <tr key={schedule.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 font-semibold">{schedule.accountName}</td>
-                <td className="px-6 py-4">{schedule.email}</td>
-                <td className="px-6 py-4">{schedule.frequency}</td>
-                <td className="px-6 py-4">
-                  <button
-                    onClick={() => onDeleteSchedule(schedule.id)}
-                    className="text-red-500 hover:text-red-700 flex items-center"
-                  >
-                    <i className="fas fa-trash-alt mr-1"></i>Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 };

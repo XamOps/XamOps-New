@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Icon } from '@iconify/react';
 import type { HeatmapCell } from '../../types/aiops';
 import { InfoTooltip } from '../ui/Tooltip';
 
@@ -44,16 +45,16 @@ const TokenHeatmap: React.FC<TokenHeatmapProps> = ({ data, loading }) => {
 
   if (loading) {
     return (
-      <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-12 text-center">
-        <i className="fas fa-circle-notch fa-spin text-indigo-400 text-xl mb-2" />
-        <p className="text-sm text-gray-400">Loading token heatmap...</p>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-12 text-center">
+        <Icon icon="mdi:loading" width={20} color="#818CF8" className="animate-spin mx-auto mb-2" />
+        <p className="text-sm text-[rgba(0,0,0,0.4)]">Loading token heatmap...</p>
       </div>
     );
   }
 
   if (data.length === 0) {
     return (
-      <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm p-8 text-center text-gray-400 text-sm">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-8 text-center text-[rgba(0,0,0,0.4)] text-sm">
         No token usage data for heatmap
       </div>
     );
@@ -62,18 +63,18 @@ const TokenHeatmap: React.FC<TokenHeatmapProps> = ({ data, loading }) => {
   const hoveredValue = hoveredCell ? grid[hoveredCell.dow][hoveredCell.hr] : null;
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
-            <i className="fas fa-th text-white text-xs" />
+          <div className="w-8 h-8 bg-amber-50 border border-amber-100 rounded-lg flex items-center justify-center">
+            <Icon icon="mdi:grid" width={16} color="#D97706" />
           </div>
-          <h3 className="text-sm font-bold text-gray-800">Token Usage Heatmap</h3>
+          <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Token Usage Heatmap</h3>
           <InfoTooltip placement="right">Token consumption by day of week and hour. Darker cells = more tokens used.</InfoTooltip>
         </div>
         {hoveredCell !== null && hoveredValue !== null && (
-          <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+          <span className="text-xs text-[rgba(0,0,0,0.5)] bg-[rgba(0,0,0,0.04)] px-3 py-1 rounded-full">
             {DAY_LABELS[hoveredCell.dow]} {HOUR_LABELS[hoveredCell.hr]}: <strong>{formatNumber(hoveredValue)} tokens</strong>
           </span>
         )}
@@ -85,7 +86,7 @@ const TokenHeatmap: React.FC<TokenHeatmapProps> = ({ data, loading }) => {
           {/* Hour labels */}
           <div className="flex ml-12 mb-1">
             {HOUR_LABELS.map((label, i) => (
-              <div key={i} className="flex-1 text-center text-[10px] text-gray-400">
+              <div key={i} className="flex-1 text-center text-[10px] text-[rgba(0,0,0,0.4)]">
                 {i % 3 === 0 ? label : ''}
               </div>
             ))}
@@ -94,7 +95,7 @@ const TokenHeatmap: React.FC<TokenHeatmapProps> = ({ data, loading }) => {
           {/* Rows */}
           {DAY_LABELS.map((day, dow) => (
             <div key={dow} className="flex items-center gap-1 mb-1">
-              <div className="w-10 text-right text-xs text-gray-500 font-medium pr-2">
+              <div className="w-10 text-right text-xs text-[rgba(0,0,0,0.5)] font-medium pr-2">
                 {day}
               </div>
               <div className="flex flex-1 gap-[2px]">
@@ -126,7 +127,7 @@ const TokenHeatmap: React.FC<TokenHeatmapProps> = ({ data, loading }) => {
 
           {/* Legend */}
           <div className="flex items-center justify-end gap-2 mt-4 mr-1">
-            <span className="text-[10px] text-gray-400">Less</span>
+            <span className="text-[10px] text-[rgba(0,0,0,0.4)]">Less</span>
             {['#f8fafc', '#e0e7ff', '#c7d2fe', '#a5b4fc', '#818cf8', '#6366f1'].map((color, i) => (
               <div
                 key={i}
@@ -134,7 +135,7 @@ const TokenHeatmap: React.FC<TokenHeatmapProps> = ({ data, loading }) => {
                 style={{ backgroundColor: color }}
               />
             ))}
-            <span className="text-[10px] text-gray-400">More</span>
+            <span className="text-[10px] text-[rgba(0,0,0,0.4)]">More</span>
           </div>
         </div>
       </div>

@@ -15,6 +15,7 @@
  */
 
 import React, { useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useReservationData } from '../hooks/useReservationData';
 import { AriaTabGroup } from '../components/ui';
@@ -60,16 +61,16 @@ export const ReservationPage: React.FC = () => {
   // Show error state
   if (error) {
     return (
-      <main className="flex-1 flex items-center justify-center min-h-screen bg-gray-50">
+      <main className="flex-1 flex items-center justify-center min-h-screen bg-[rgba(0,0,0,0.02)]">
         <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full mx-4">
-          <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
-            <i className="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
+          <div className="flex items-center justify-center w-14 h-14 mx-auto mb-4 bg-red-100 border border-[rgba(0,0,0,0.08)] rounded-xl">
+            <Icon icon="mdi:alert-outline" className="text-red-600 text-2xl" width={28} />
           </div>
-          <h2 className="text-2xl font-bold text-center mb-4 text-gray-800">Error</h2>
-          <p className="text-center text-gray-600 mb-6">{error.message}</p>
+          <h2 className="text-2xl font-bold text-center mb-4 text-[rgba(0,0,0,0.88)]">Error</h2>
+          <p className="text-center text-[rgba(0,0,0,0.6)] mb-6">{error.message}</p>
           <button
             onClick={() => window.location.reload()}
-            className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
+            className="w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition-colors"
           >
             Try Again
           </button>
@@ -124,24 +125,24 @@ export const ReservationPage: React.FC = () => {
                   (!data.savingsPlans || data.savingsPlans.length === 0) && (
                     <div className="glass-card rounded-xl p-12 text-center">
                       <div className="flex flex-col items-center">
-                        <div className="w-24 h-24 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center mb-6 shadow-lg">
-                          <i className="fas fa-inbox text-gray-400 text-4xl"></i>
+                        <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mb-6 shadow-lg">
+                          <Icon icon="mdi:inbox-outline" className="text-[rgba(0,0,0,0.4)]" width={32} />
                         </div>
-                        <h3 className="text-2xl font-black text-gray-900 mb-3">
+                        <h3 className="text-2xl font-black text-[rgba(0,0,0,0.88)] mb-3">
                           No Reservation Data Available
                         </h3>
-                        <p className="text-gray-600 text-base mb-2 max-w-md">
+                        <p className="text-[rgba(0,0,0,0.6)] text-base mb-2 max-w-md">
                           No Reserved Instances or Savings Plans were found for this account.
                         </p>
-                        <p className="text-gray-500 text-sm mb-6">
+                        <p className="text-[rgba(0,0,0,0.5)] text-sm mb-6">
                           This could mean you haven't purchased any reservations yet, or data is
                           still being processed.
                         </p>
                         <button
                           onClick={() => fetchReservationData(true)}
-                          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all active:scale-95 transform"
+                          className="flex items-center gap-2 px-6 py-3 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-sm font-semibold rounded-md shadow-md hover:shadow-lg transition-all active:scale-95 transform"
                         >
-                          <i className="fas fa-sync-alt text-sm"></i>
+                          <Icon icon="mdi:refresh" width={16} />
                           <span>Refresh Data</span>
                         </button>
                       </div>

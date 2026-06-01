@@ -1,241 +1,371 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import type { GcpCostHistory, GcpBillingSummary } from '../../types/gcpDashboard';
 
 interface GcpCostSectionProps {
-    costHistory: GcpCostHistory;
-    billingSummary: GcpBillingSummary;
-    isLoading: boolean;
+  costHistory: GcpCostHistory;
+  billingSummary: GcpBillingSummary;
+  isLoading: boolean;
+  accountId: string;
 }
 
 declare global {
-    interface Window {
-        Chart: any;
-    }
+  interface Window { Chart: any; }
 }
 
-const GcpCostSection: React.FC<GcpCostSectionProps> = ({ costHistory, billingSummary, isLoading }) => {
-    const chartCanvasRef = useRef<HTMLCanvasElement>(null);
-    const chartInstanceRef = useRef<any>(null);
+const SERVICE_COLORS = [
+  '#8b5cf6', '#22d3ee', '#f59e0b', '#6b7280', '#10b981',
+  '#f97316', '#3b82f6', '#ec4899', '#84cc16', '#14b8a6',
+];
 
-    const formatCurrency = (num: number): string => {
-        return '₹' + (num != null ? num.toLocaleString('en-IN', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        }) : '0.00');
+function getLastSixMonths(): { label: string; startDate: string; endDate: string }[] {
+  const months = [];
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const start = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const end = isCurrentMonth ? todayStr : `${year}-${String(month + 1).padStart(2, '0')}-${lastDay}`;
+    const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+    months.push({ label, startDate: start, endDate: end });
+  }
+  return months;
+}
+
+interface MonthBreakdown {
+  label: string;
+  services: { name: string; amount: number }[];
+}
+
+const GcpCostSection: React.FC<GcpCostSectionProps> = ({ billingSummary, isLoading, accountId }) => {
+  const chartCanvasRef = useRef<HTMLCanvasElement>(null);
+  const chartInstanceRef = useRef<any>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [breakdownData, setBreakdownData] = useState<MonthBreakdown[]>([]);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
+
+  const formatCurrency = (num: number): string =>
+    '$' + (num != null ? num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
+
+  const getCurrentMonthServices = useCallback((): { name: string; amount: number }[] => {
+    if (!billingSummary?.topServices) return [];
+    return billingSummary.topServices
+      .map((s: any) => ({ name: s.serviceName || s.name, amount: s.cost || s.monthToDateCost || 0 }))
+      .filter((s: any) => s.name && s.amount > 0);
+  }, [billingSummary]);
+
+  const fetchBreakdown = useCallback(async () => {
+    if (!accountId) return;
+    setBreakdownLoading(true);
+    const months = getLastSixMonths();
+    const historicalMonths = months.slice(0, 5);
+    const currentMonth = months[5];
+    try {
+      const results = await Promise.all(
+        historicalMonths.map(m =>
+          fetch(`/api/xamops/gcp/costs/breakdown?accountId=${accountId}&groupBy=SERVICE&forceRefresh=false&startDate=${m.startDate}&endDate=${m.endDate}`)
+            .then(r => r.ok ? r.json() : [])
+            .catch(() => [])
+        )
+      );
+      const historical = historicalMonths.map((m, i) => ({
+        label: m.label,
+        services: Array.isArray(results[i])
+          ? results[i].map((s: any) => ({ name: s.name || s.serviceName, amount: s.amount || s.cost || 0 }))
+          : [],
+      }));
+      const currentServices = getCurrentMonthServices();
+      setBreakdownData([...historical, { label: currentMonth.label, services: currentServices }]);
+    } finally {
+      setBreakdownLoading(false);
+    }
+  }, [accountId, getCurrentMonthServices]);
+
+  useEffect(() => {
+    fetchBreakdown();
+  }, [fetchBreakdown, billingSummary]);
+
+  useEffect(() => {
+    if (!chartCanvasRef.current || breakdownLoading || breakdownData.length === 0) return;
+    const globalAny = globalThis as any;
+    if (!globalAny.Chart) return;
+
+    if (chartInstanceRef.current) chartInstanceRef.current.destroy();
+    const ctx = chartCanvasRef.current.getContext('2d');
+    if (!ctx) return;
+
+    const totals: Record<string, number> = {};
+    breakdownData.forEach(month => {
+      month.services.forEach(s => {
+        totals[s.name] = (totals[s.name] || 0) + s.amount;
+      });
+    });
+    const topServices = Object.entries(totals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([name]) => name);
+
+    const labels = breakdownData.map(m => m.label);
+    const serviceActualColors = topServices.map((_s, idx) => SERVICE_COLORS[idx % SERVICE_COLORS.length]);
+
+    const datasets = topServices.map((service, idx) => ({
+      label: service,
+      data: breakdownData.map(month => {
+        const found = month.services.find(s => s.name === service);
+        return found ? found.amount : 0;
+      }),
+      backgroundColor: 'transparent',
+      borderWidth: 0,
+      borderSkipped: false,
+      pointBackgroundColor: serviceActualColors[idx],
+    }));
+
+    function drawPill(c: CanvasRenderingContext2D, color: string, x: number, y: number, w: number, bottom: number, radius: number) {
+      const rawH = bottom - y;
+      if (rawH <= 0) return;
+      const gap = Math.min(2, rawH * 0.12);
+      const left = x - w / 2;
+      const right = x + w / 2;
+      const top = y + gap;
+      const bot = bottom - gap;
+      const h = bot - top;
+      if (h < 1) return;
+      const r = Math.min(radius, h / 2, w / 2);
+      c.save();
+      c.fillStyle = color;
+      c.beginPath();
+      c.moveTo(left + r, top);
+      c.arcTo(right, top, right, bot, r);
+      c.arcTo(right, bot, left, bot, r);
+      c.arcTo(left, bot, left, top, r);
+      c.arcTo(left, top, right, top, r);
+      c.closePath();
+      c.fill();
+      c.restore();
+    }
+
+    const pillPlugin = {
+      id: 'pillBars',
+      afterDatasetsDraw(chart: any) {
+        const { ctx: c, data, chartArea } = chart;
+        if (!chartArea) return;
+        const R = 6;
+        data.datasets.forEach((_ds: any, dsIdx: number) => {
+          const meta = chart.getDatasetMeta(dsIdx);
+          if (meta.hidden) return;
+          const color = serviceActualColors[dsIdx];
+          meta.data.forEach((bar: any, barIdx: number) => {
+            const val = data.datasets[dsIdx].data[barIdx];
+            if (!val || val <= 0) return;
+            const props = bar.getProps(['x', 'y', 'width', 'base'], true);
+            const pillW = props.width * 0.38;
+            drawPill(c, color, props.x, props.y, pillW, props.base, R);
+          });
+        });
+      },
     };
 
-    useEffect(() => {
-        if (!chartCanvasRef.current || isLoading || !costHistory || !costHistory.monthlyCosts) {
-            return;
-        }
-
-        if (!window.Chart) {
-            console.warn('Chart.js not loaded');
-            return;
-        }
-
-        if (chartInstanceRef.current) {
-            chartInstanceRef.current.destroy();
-        }
-
-        const ctx = chartCanvasRef.current.getContext('2d');
-        if (!ctx) return;
-
-        // Prepare data
-        const monthlyCosts = costHistory.monthlyCosts || [];
-        // Sort just in case? Usually backend sends sorted.
-        // Map to labels and data
-        const labels = monthlyCosts.map(item => new Date(item.date).toLocaleDateString('en-US', { month: 'short' }));
-        const data = monthlyCosts.map(item => item.cost);
-        const anomalies = monthlyCosts.map(item => item.isAnomaly);
-
-        const backgroundColors = monthlyCosts.map(item =>
-            item.isAnomaly ? 'rgba(234, 67, 53, 0.8)' : 'rgba(66, 133, 244, 0.8)' // Google Red/Blue
-        );
-        const borderColors = monthlyCosts.map(item =>
-            item.isAnomaly ? 'rgba(234, 67, 53, 1)' : 'rgba(66, 133, 244, 1)'
-        );
-
-        const chart = new window.Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Monthly Cost',
-                    data: data,
-                    backgroundColor: backgroundColors,
-                    borderColor: borderColors,
-                    borderWidth: 2,
-                    borderRadius: 8,
-                    borderSkipped: false
-                }]
+    chartInstanceRef.current = new globalAny.Chart(ctx, {
+      type: 'bar',
+      plugins: [pillPlugin],
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        categoryPercentage: 0.7,
+        barPercentage: 1.0,
+        interaction: { mode: 'index' as const, intersect: false },
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top' as const,
+            align: 'end' as const,
+            labels: {
+              boxWidth: 10,
+              boxHeight: 10,
+              borderRadius: 3,
+              useBorderRadius: true,
+              padding: 14,
+              font: { size: 11 },
+              color: 'rgba(0,0,0,0.55)',
+              generateLabels: (chart: any) =>
+                chart.data.datasets.map((ds: any, i: number) => ({
+                  text: ds.label,
+                  fillStyle: serviceActualColors[i],
+                  strokeStyle: serviceActualColors[i],
+                  lineWidth: 0,
+                  hidden: chart.getDatasetMeta(i).hidden,
+                  datasetIndex: i,
+                })),
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: 'white',
-                        bodyColor: 'white',
-                        borderColor: 'rgba(66, 133, 244, 0.8)',
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        callbacks: {
-                            label: (c: any) => `Cost: ${formatCurrency(c.parsed.y)}`,
-                            afterLabel: (c: any) => anomalies[c.dataIndex] ? 'Anomaly detected!' : ''
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            callback: (v: any) => formatCurrency(v),
-                            color: '#6b7280'
-                        },
-                        grid: { color: 'rgba(0, 0, 0, 0.05)' }
-                    },
-                    x: {
-                        ticks: { color: '#6b7280' },
-                        grid: { display: false }
-                    }
-                },
-                onClick: (_evt: any, elements: any) => {
-                    if (elements.length > 0) {
-                        const index = elements[0].index;
-                        if (anomalies[index]) {
-                            alert(`Cost Anomaly Detected!\nCheck ${labels[index]} usage.`);
-                        }
-                    }
-                }
-            }
-        });
+          },
+          tooltip: {
+            enabled: false,
+            external: (context: any) => {
+              const tooltipEl = tooltipRef.current;
+              if (!tooltipEl) return;
+              const { tooltip } = context;
+              if (tooltip.opacity === 0) { tooltipEl.style.opacity = '0'; return; }
+              const title = tooltip.title?.[0] || '';
+              const lines: string[] = (tooltip.dataPoints || [])
+                .filter((p: any) => p.parsed.y > 0)
+                .sort((a: any, b: any) => b.parsed.y - a.parsed.y)
+                .map((p: any) => {
+                  const color = serviceActualColors[p.datasetIndex] || '#888';
+                  return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+                    <span style="width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0;display:inline-block"></span>
+                    <span style="font-size:12px;color:rgba(0,0,0,0.6);flex:1;white-space:nowrap">${p.dataset.label}</span>
+                    <span style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-left:8px">${formatCurrency(p.parsed.y)}</span>
+                  </div>`;
+                });
+              tooltipEl.innerHTML = `<div style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-bottom:6px">${title}</div>${lines.join('')}`;
+              const canvasRect = context.chart.canvas.getBoundingClientRect();
+              const containerRect = tooltipEl.parentElement?.getBoundingClientRect();
+              if (!containerRect) return;
+              let left = canvasRect.left - containerRect.left + tooltip.caretX + 12;
+              let top = canvasRect.top - containerRect.top + tooltip.caretY - 10;
+              const ttW = tooltipEl.offsetWidth || 220;
+              const ttH = tooltipEl.offsetHeight || 100;
+              if (left + ttW > containerRect.width) left = left - ttW - 24;
+              if (top + ttH > containerRect.height) top = containerRect.height - ttH - 8;
+              tooltipEl.style.opacity = '1';
+              tooltipEl.style.left = left + 'px';
+              tooltipEl.style.top = top + 'px';
+            },
+          },
+        },
+        scales: {
+          x: {
+            stacked: true,
+            ticks: { color: 'rgba(0,0,0,0.4)', font: { size: 11 } },
+            grid: { display: false },
+            border: { display: false },
+          },
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            ticks: {
+              maxTicksLimit: 5,
+              callback: (v: any) => '$' + (v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v),
+              color: 'rgba(0,0,0,0.4)',
+              font: { size: 11 },
+            },
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            border: { display: false },
+          },
+        },
+      },
+    });
 
-        chartInstanceRef.current = chart;
+    return () => {
+      if (chartInstanceRef.current) { chartInstanceRef.current.destroy(); chartInstanceRef.current = null; }
+    };
+  }, [breakdownData, breakdownLoading]);
 
-        return () => {
-            if (chartInstanceRef.current) {
-                chartInstanceRef.current.destroy();
-                chartInstanceRef.current = null;
-            }
-        };
-    }, [costHistory, isLoading]);
+  const topServices = [...(billingSummary?.topServices || [])].sort((a, b) => b.cost - a.cost);
 
-    const topServices = billingSummary?.topServices || [];
-    // Sort by cost descending just in case
-    const sortedSummary = [...topServices].sort((a, b) => b.cost - a.cost).slice(0, 5);
+  return (
+    <>
+      {/* Cost Breakdown Chart */}
+      <div className="lg:col-span-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-full">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost Breakdown</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[rgba(0,0,0,0.2)] inline-block"></span>
+              6-Month by Service
+            </p>
+          </div>
+        </div>
 
-    return (
-        <>
-            {/* Cost History Chart */}
-            <div className="lg:col-span-2 glass-card p-6 rounded-2xl border border-gray-200 shadow-xl shadow-blue-500/5 relative overflow-hidden h-full">
-                <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center border border-blue-100 shadow-sm">
-                            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                            </svg>
-                        </div>
-                        <div>
-                            <h3 className="text-xl font-black text-gray-900 tracking-tight uppercase px-1">Cost History</h3>
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1.5 px-1 mt-0.5">
-                                <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>
-                                6-Month Trend
-                            </p>
-                        </div>
-                    </div>
-                    {!isLoading && (
-                        <div className="flex items-center gap-2 bg-white/50 backdrop-blur-sm px-4 py-2 rounded-full border border-gray-100 shadow-sm">
-                            <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                            </svg>&nbsp;<span className="text-[10px] uppercase font-black tracking-widest text-gray-500">Anomaly Check Active</span>
-                        </div>
-                    )}
-                </div>
+        {(isLoading || breakdownLoading) ? (
+          <div className="h-72 bg-[rgba(0,0,0,0.03)] rounded-lg animate-pulse"></div>
+        ) : breakdownData.length === 0 ? (
+          <div className="h-72 flex items-center justify-center">
+            <p className="text-[13px] text-[rgba(0,0,0,0.35)]">No breakdown data available</p>
+          </div>
+        ) : (
+          <div className="h-72 relative">
+            <canvas ref={chartCanvasRef} style={{ width: '100%', height: '100%' }}></canvas>
+            <div
+              ref={tooltipRef}
+              style={{
+                position: 'absolute',
+                pointerEvents: 'none',
+                opacity: 0,
+                transition: 'opacity 0.15s',
+                background: '#fff',
+                border: '1px solid rgba(0,0,0,0.08)',
+                borderRadius: '10px',
+                padding: '10px 12px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+                minWidth: '200px',
+                zIndex: 10,
+              }}
+            />
+          </div>
+        )}
+      </div>
 
-                {isLoading && (
-                    <div className="absolute inset-x-0 bottom-0 top-16 z-10 flex items-center justify-center bg-white/50 backdrop-blur-sm rounded-b-xl">
-                        <div className="loading-spinner w-12 h-12"></div>
-                    </div>
+      {/* Billing Summary */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-full">
+        <div className="mb-5">
+          <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Billing Summary</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[rgba(0,0,0,0.2)] inline-block"></span>
+            Month-to-Date
+          </p>
+        </div>
+
+        {isLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="h-[41px] bg-[rgba(0,0,0,0.04)] rounded animate-pulse"></div>
+            ))}
+          </div>
+        ) : (
+          <div className="overflow-y-auto inventory-hide-scrollbar" style={{ maxHeight: '340px', scrollbarWidth: 'none' }}>
+            <table className="w-full table-fixed">
+              <colgroup>
+                <col style={{ width: '65%' }} />
+                <col style={{ width: '35%' }} />
+              </colgroup>
+              <thead>
+                <tr className="border-b border-[rgba(0,0,0,0.06)]">
+                  <th className="pb-2 text-left text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.6)]">Service</th>
+                  <th className="pb-2 text-right text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.6)]">Cost (USD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topServices.length > 0 ? topServices.map((item, index) => (
+                  <tr key={item.serviceName} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+                    <td className="py-2.5 pr-4">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: SERVICE_COLORS[index % SERVICE_COLORS.length] }}></span>
+                        <span className="text-[14px] font-normal text-[rgba(0,0,0,0.88)] leading-5 truncate max-w-[160px]">{item.serviceName}</span>
+                      </div>
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{formatCurrency(item.cost)}</span>
+                    </td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan={2} className="py-10 text-center">
+                      <p className="text-[13px] text-[rgba(0,0,0,0.35)]">No billing data available</p>
+                    </td>
+                  </tr>
                 )}
-
-                <div className="h-80 p-6 bg-gray-50/50 backdrop-blur-sm rounded-2xl border border-gray-100 shadow-inner">
-                    <canvas ref={chartCanvasRef}></canvas>
-                </div>
-            </div>
-
-            {/* Billing Summary */}
-            <div className="glass-card p-6 rounded-2xl border border-gray-200 shadow-xl shadow-blue-500/5 relative overflow-hidden h-full">
-                <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center border border-blue-100 shadow-sm">
-                            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                        </div>
-                        <div>
-                            <h3 className="text-xl font-black text-gray-900 tracking-tight uppercase px-1">Billing Summary</h3>
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1.5 px-1 mt-0.5">
-                                <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>
-                                Month-to-Date
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                {isLoading && (
-                    <div className="absolute inset-x-0 bottom-0 top-16 z-10 p-6 space-y-3 bg-white/80 backdrop-blur-sm rounded-b-xl">
-                        <div className="h-10 w-full skeleton rounded"></div>
-                        <div className="h-10 w-full skeleton rounded"></div>
-                        <div className="h-10 w-full skeleton rounded"></div>
-                    </div>
-                )}
-
-                {!isLoading && (
-                    <div className="overflow-y-auto max-h-80 custom-scrollbar">
-                        <table className="w-full text-sm text-left text-gray-500">
-                            <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 rounded-lg">
-                                <tr>
-                                    <th className="px-4 py-3 rounded-l-lg">Service</th>
-                                    <th className="px-4 py-3 text-right rounded-r-lg">Cost</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {sortedSummary.length > 0 ? (
-                                    sortedSummary.map((item, index) => (
-                                        <tr key={index} className="border-b border-gray-50 hover:bg-gray-50/80 transition-all group">
-                                            <th className="px-4 py-4 font-semibold text-gray-800 text-left">
-                                                <div className="flex items-center space-x-2">
-                                                    <div
-                                                        className="w-2 h-2 rounded-full"
-                                                        style={{
-                                                            backgroundColor: `hsl(${210 + (index * 60) % 360}, 70%, 60%)` // Blue variations
-                                                        }}
-                                                    ></div>
-                                                    <span>{item.serviceName}</span>
-                                                </div>
-                                            </th>
-                                            <td className="px-4 py-4 text-right">
-                                                <span className="font-bold text-gray-900">{formatCurrency(item.cost)}</span>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan={2} className="px-4 py-8 text-center text-gray-500">
-                                            <p>No billing data available</p>
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-        </>
-    );
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
 };
 
 export default GcpCostSection;

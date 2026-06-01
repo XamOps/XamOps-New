@@ -1,10 +1,5 @@
-/**
- * Wizard Step 2 - Configure Capacity
- *
- * Optional configuration: VPC, Security Group, SSH Key, EBS Volume, AMI
- */
-
 import React, { useState } from 'react';
+import { Icon } from '@iconify/react';
 import type { ConfigureCapacityForm } from '../../types/flexCompute';
 
 interface WizardStep2ConfigureProps {
@@ -35,20 +30,30 @@ const TooltipIcon: React.FC<{ field: string }> = ({ field }) => {
         onMouseLeave={() => setVisible(false)}
         onFocus={() => setVisible(true)}
         onBlur={() => setVisible(false)}
-        className="w-4 h-4 rounded-full border border-blue-400 text-blue-500 text-xs font-bold flex items-center justify-center hover:bg-blue-50 transition-colors focus:outline-none"
+        className="w-4 h-4 rounded-full border border-indigo-300 text-indigo-500 text-[10px] font-bold flex items-center justify-center hover:bg-indigo-50 transition-colors focus:outline-none"
         aria-label="Help"
       >
         ?
       </button>
       {visible && (
-        <div className="absolute z-50 left-6 top-0 w-72 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl whitespace-pre-line leading-relaxed">
+        <div className="absolute z-50 left-6 top-0 w-72 bg-[rgba(0,0,0,0.88)] text-white text-[11px] rounded-lg p-3 shadow-xl whitespace-pre-line leading-relaxed">
           {text}
-          {/* Arrow */}
-          <span className="absolute -left-1.5 top-2 w-3 h-3 bg-gray-900 rotate-45"></span>
+          <span className="absolute -left-1.5 top-2 w-3 h-3 bg-[rgba(0,0,0,0.88)] rotate-45" />
         </div>
       )}
     </span>
   );
+};
+
+const inputCls = 'w-full px-3 py-2.5 border border-[rgba(0,0,0,0.15)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white';
+const labelCls = 'block text-[12px] font-semibold text-[rgba(0,0,0,0.65)] mb-1.5';
+
+const FIELD_ICONS: Record<string, string> = {
+  vpcId:           'mdi:lan-connect',
+  securityGroupId: 'mdi:shield-outline',
+  sshKeyName:      'mdi:key-outline',
+  ebsVolumeSize:   'mdi:harddisk',
+  amiImageId:      'mdi:image-outline',
 };
 
 const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
@@ -58,14 +63,14 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
   onBack,
 }) => {
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-2xl shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-violet-600 px-6 py-4 text-white">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.01)]">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center text-sm font-bold">2</div>
+          <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-[12px] font-bold text-white">2</div>
           <div>
-            <h3 className="font-semibold">Configure Capacity</h3>
-            <p className="text-xs text-purple-100">Optional infrastructure settings (defaults will be used if left blank)</p>
+            <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Configure Capacity</h3>
+            <p className="text-[12px] text-[rgba(0,0,0,0.45)]">Optional infrastructure settings (defaults will be used if left blank)</p>
           </div>
         </div>
       </div>
@@ -74,8 +79,8 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
       <div className="p-6 space-y-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              <i className="fas fa-network-wired mr-1.5 text-gray-400"></i>
+            <label className={labelCls}>
+              <Icon icon={FIELD_ICONS.vpcId} width={12} className="inline mr-1.5 text-[rgba(0,0,0,0.35)]" />
               VPC ID
               <TooltipIcon field="vpcId" />
             </label>
@@ -84,12 +89,12 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
               value={form.vpcId}
               onChange={(e) => onChange({ vpcId: e.target.value })}
               placeholder="Default VPC"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+              className={inputCls}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              <i className="fas fa-shield-alt mr-1.5 text-gray-400"></i>
+            <label className={labelCls}>
+              <Icon icon={FIELD_ICONS.securityGroupId} width={12} className="inline mr-1.5 text-[rgba(0,0,0,0.35)]" />
               Security Group ID
               <TooltipIcon field="securityGroupId" />
             </label>
@@ -98,15 +103,15 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
               value={form.securityGroupId}
               onChange={(e) => onChange({ securityGroupId: e.target.value })}
               placeholder="Default Security Group"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+              className={inputCls}
             />
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              <i className="fas fa-key mr-1.5 text-gray-400"></i>
+            <label className={labelCls}>
+              <Icon icon={FIELD_ICONS.sshKeyName} width={12} className="inline mr-1.5 text-[rgba(0,0,0,0.35)]" />
               SSH Key Name
               <TooltipIcon field="sshKeyName" />
             </label>
@@ -115,12 +120,12 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
               value={form.sshKeyName}
               onChange={(e) => onChange({ sshKeyName: e.target.value })}
               placeholder="None"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+              className={inputCls}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              <i className="fas fa-hdd mr-1.5 text-gray-400"></i>
+            <label className={labelCls}>
+              <Icon icon={FIELD_ICONS.ebsVolumeSize} width={12} className="inline mr-1.5 text-[rgba(0,0,0,0.35)]" />
               EBS Volume Size (GiB)
               <TooltipIcon field="ebsVolumeSize" />
             </label>
@@ -130,14 +135,14 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
               onChange={(e) => onChange({ ebsVolumeSize: parseInt(e.target.value) || 10 })}
               min={1}
               max={16384}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+              className={inputCls}
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            <i className="fas fa-image mr-1.5 text-gray-400"></i>
+          <label className={labelCls}>
+            <Icon icon={FIELD_ICONS.amiImageId} width={12} className="inline mr-1.5 text-[rgba(0,0,0,0.35)]" />
             AMI Image ID
             <TooltipIcon field="amiImageId" />
           </label>
@@ -146,26 +151,26 @@ const WizardStep2Configure: React.FC<WizardStep2ConfigureProps> = ({
             value={form.amiImageId}
             onChange={(e) => onChange({ amiImageId: e.target.value })}
             placeholder="Default AMI"
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+            className={inputCls}
           />
-          <p className="text-xs text-gray-400 mt-1">Leave blank to use the default AMI for your selected platform</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">Leave blank to use the default AMI for your selected platform</p>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+        <div className="flex items-center justify-between pt-4 border-t border-[rgba(0,0,0,0.06)]">
           <button
             onClick={onBack}
-            className="px-6 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold text-[rgba(0,0,0,0.65)] bg-white border border-[rgba(0,0,0,0.12)] rounded-xl hover:bg-[rgba(0,0,0,0.02)] transition-colors"
           >
-            <i className="fas fa-arrow-left mr-2"></i>
+            <Icon icon="mdi:arrow-left" width={14} />
             Back
           </button>
           <button
             onClick={onNext}
-            className="px-8 py-2.5 bg-gradient-to-r from-purple-600 to-violet-600 text-white text-sm font-semibold rounded-lg hover:from-purple-700 hover:to-violet-700 transition-all shadow-lg shadow-purple-500/25"
+            className="flex items-center gap-2 px-7 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-colors"
           >
             Next
-            <i className="fas fa-arrow-right ml-2"></i>
+            <Icon icon="mdi:arrow-right" width={14} />
           </button>
         </div>
       </div>

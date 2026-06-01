@@ -1,15 +1,9 @@
-/**
- * CostBreakdownSection Component
- * Displays cost breakdown with filters, donut chart, and detailed table
- */
-
 import React, { useEffect, useRef } from 'react';
 import { Chart, ChartConfiguration, ArcElement, DoughnutController, Tooltip, Legend } from 'chart.js';
 import type { CostDataItem, CostFilters, GroupByType } from '../../types/cost';
 import type { ResourceLabel } from '../../types/resourceLabels';
 import type { TrackedResource } from '../../services/resourceLabelsApi';
 
-// Register Chart.js components
 Chart.register(ArcElement, DoughnutController, Tooltip, Legend);
 
 interface CostBreakdownSectionProps {
@@ -27,6 +21,14 @@ interface CostBreakdownSectionProps {
   labelTrackedResources?: TrackedResource[];
   labelApproximationWarning?: string;
 }
+
+const COLORS = [
+  '#6366f1', '#8b5cf6', '#22d3ee', '#f59e0b', '#10b981',
+  '#f97316', '#3b82f6', '#ec4899', '#84cc16', '#14b8a6',
+  '#a78bfa',
+];
+
+const inputCls = 'px-2.5 py-1.5 text-[12px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.25)] transition-colors';
 
 const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
   costData,
@@ -49,355 +51,246 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
   const sortedData = [...costData].sort((a, b) => b.amount - a.amount);
   const totalCost = costData.reduce((sum, item) => sum + item.amount, 0);
 
-  // Color palette
-  const colors = [
-    '#4f46e5', '#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe',
-    '#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#f87171', '#fb923c'
-  ];
-
-  // Render chart
   useEffect(() => {
     if (!chartRef.current || costData.length === 0) return;
-
-    // Destroy previous chart
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-    }
+    if (chartInstanceRef.current) chartInstanceRef.current.destroy();
 
     const topN = 10;
     const chartData = sortedData.slice(0, topN);
     const otherData = sortedData.slice(topN);
-    const labels = chartData.map(d => d.name);
+    const chartLabels = chartData.map(d => d.name);
     const data = chartData.map(d => d.amount);
 
     if (otherData.length > 0) {
-      labels.push('Other');
+      chartLabels.push('Other');
       data.push(otherData.reduce((sum, item) => sum + item.amount, 0));
     }
 
     const config: ChartConfiguration<'doughnut'> = {
       type: 'doughnut',
       data: {
-        labels,
+        labels: chartLabels,
         datasets: [{
-          label: 'Cost',
           data,
-          backgroundColor: colors,
-          borderWidth: 0,
-          hoverOffset: 6,
+          backgroundColor: COLORS,
+          borderWidth: 2,
+          borderColor: '#ffffff',
+          hoverOffset: 4,
         }],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        cutout: '68%',
         plugins: {
           legend: {
             position: 'bottom',
             labels: {
-              boxWidth: 12,
-              font: { size: 12 },
+              boxWidth: 8,
+              boxHeight: 8,
+              font: { size: 11, family: 'Inter' },
               usePointStyle: true,
-              padding: 15,
+              pointStyle: 'circle',
+              padding: 12,
+              color: 'rgba(0,0,0,0.55)',
             },
           },
           tooltip: {
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            backgroundColor: 'rgba(0,0,0,0.88)',
             titleColor: 'white',
-            bodyColor: 'white',
-            borderColor: 'rgba(102,126,234,0.8)',
+            bodyColor: 'rgba(255,255,255,0.7)',
+            borderColor: 'rgba(255,255,255,0.08)',
             borderWidth: 1,
             cornerRadius: 8,
+            padding: 10,
             callbacks: {
-              label: (context) => {
+              label: (ctx) => {
                 const total = data.reduce((a, b) => a + b, 0);
-                const pct = ((context.parsed / total) * 100).toFixed(1);
-                return `${context.label}: $${context.parsed.toFixed(2)} (${pct}%)`;
+                const pct = ((ctx.parsed / total) * 100).toFixed(1);
+                return ` $${ctx.parsed.toFixed(2)}  (${pct}%)`;
               },
             },
           },
         },
         onClick: (_evt, elements) => {
           if (elements.length > 0 && chartInstanceRef.current) {
-            const clickedLabel = chartInstanceRef.current.data.labels?.[elements[0].index] as string;
-            if (clickedLabel && clickedLabel !== 'Other') {
-              onHistoricalClick(clickedLabel);
-            }
+            const label = chartInstanceRef.current.data.labels?.[elements[0].index] as string;
+            if (label && label !== 'Other') onHistoricalClick(label);
           }
         },
       },
     };
 
     chartInstanceRef.current = new Chart(chartRef.current, config);
-
-    return () => {
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.destroy();
-      }
-    };
+    return () => { chartInstanceRef.current?.destroy(); };
   }, [costData, sortedData, onHistoricalClick]);
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-8 shadow-md">
-      <div className="flex flex-wrap items-center justify-between gap-6 mb-8">
-        <div className="flex items-center space-x-4">
-          <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
-            <i className="fas fa-chart-pie text-white"></i>
-          </div>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm">
+
+      {/* Header + Filters */}
+      <div className="px-5 pt-5 pb-4 border-b border-[rgba(0,0,0,0.06)]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold text-gray-800">Cost Breakdown</h2>
-            <p className="text-sm text-gray-600">
+            <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost Breakdown</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">
               {labelFilterId && labels.length > 0
-                ? (
-                  <>
-                    Filtered by label:{' '}
-                    <span className="font-semibold text-indigo-600">{labels.find(l => l.id === labelFilterId)?.name}</span>
-                    {labelResourceLevel === true && (
-                      <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
-                        <i className="fas fa-check-circle" style={{ fontSize: '9px' }} /> resource-level
-                      </span>
-                    )}
-                    {labelResourceLevel === false && (
-                      <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                        <i className="fas fa-info-circle" style={{ fontSize: '9px' }} />
-                        {labelApproximationWarning ? 'service-level approx.' : 'estimated (on-demand)'}
-                      </span>
-                    )}
+                ? <>Filtered by label: <span className="font-semibold text-indigo-600">{labels.find(l => l.id === labelFilterId)?.name}</span>
+                    {labelResourceLevel === true && <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">resource-level</span>}
+                    {labelResourceLevel === false && <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">estimated</span>}
                   </>
-                )
                 : 'Spending analysis for selected range'}
             </p>
           </div>
-        </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center space-x-4 bg-gray-50/80 rounded-xl p-4 border border-gray-200">
-          <div className="flex items-center space-x-2">
-            <span className="text-sm font-medium text-gray-700">From:</span>
-            <input
-              type="date"
-              value={filters.startDate}
-              onChange={(e) => onFiltersChange({ startDate: e.target.value })}
-              className="px-3 py-1.5 text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white"
-            />
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-sm font-medium text-gray-700">To:</span>
-            <input
-              type="date"
-              value={filters.endDate}
-              onChange={(e) => onFiltersChange({ endDate: e.target.value })}
-              className="px-3 py-1.5 text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white"
-            />
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-sm font-medium text-gray-700">Group by:</span>
-            <select
-              value={filters.groupBy}
-              onChange={(e) => onFiltersChange({ groupBy: e.target.value as GroupByType })}
-              className="px-3 py-1.5 text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white"
-            >
+          {/* Filters row */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">From:</span>
+              <input type="date" value={filters.startDate} onChange={e => onFiltersChange({ startDate: e.target.value })} className={inputCls} />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">To:</span>
+              <input type="date" value={filters.endDate} onChange={e => onFiltersChange({ endDate: e.target.value })} className={inputCls} />
+            </div>
+            <select value={filters.groupBy} onChange={e => onFiltersChange({ groupBy: e.target.value as GroupByType })} className={inputCls}>
               <option value="SERVICE">Service</option>
               <option value="REGION">Region</option>
               <option value="TAG">Tag</option>
             </select>
+            {filters.groupBy === 'TAG' && (
+              <input type="text" value={filters.tagKey} onChange={e => onFiltersChange({ tagKey: e.target.value })} placeholder="Tag Key" className={`${inputCls} w-28`} />
+            )}
+            {labels.length > 0 && onLabelFilterChange && (
+              <div className="flex items-center gap-1">
+                <i className={`fas fa-tag text-[rgba(0,0,0,0.3)] text-[10px] ${labelFilterLoading ? 'animate-pulse' : ''}`} />
+                <select value={labelFilterId ?? ''} onChange={e => onLabelFilterChange(e.target.value ? Number(e.target.value) : null)} className={inputCls}>
+                  <option value="">All Labels</option>
+                  {labels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+                {labelFilterId && (
+                  <button onClick={() => onLabelFilterChange(null)} className="text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.6)] px-1 transition-colors" title="Clear">
+                    <i className="fas fa-times text-[10px]" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          {filters.groupBy === 'TAG' && (
-            <div className="relative">
-              <input
-                type="text"
-                value={filters.tagKey}
-                onChange={(e) => onFiltersChange({ tagKey: e.target.value })}
-                placeholder="Tag Key"
-                className="px-3 py-1.5 text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white w-32"
-              />
-            </div>
-          )}
-          {/* XamOps Label filter */}
-          {labels.length > 0 && onLabelFilterChange && (
-            <div className="flex items-center space-x-2">
-              <i className={`fas fa-tag text-indigo-400 text-xs ${labelFilterLoading ? 'animate-pulse' : ''}`} />
-              <select
-                value={labelFilterId ?? ''}
-                onChange={e => onLabelFilterChange(e.target.value ? Number(e.target.value) : null)}
-                className="px-3 py-1.5 text-sm rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white"
-              >
-                <option value="">All Labels</option>
-                {labels.map(l => (
-                  <option key={l.id} value={l.id}>{l.name}</option>
-                ))}
-              </select>
-              {labelFilterId && (
-                <button
-                  type="button"
-                  onClick={() => onLabelFilterChange(null)}
-                  className="text-xs text-gray-400 hover:text-gray-600 px-1"
-                  title="Clear label filter"
-                >
-                  <i className="fas fa-times" />
-                </button>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Tracked resources banner — shown when a label filter is active */}
+      {/* Tracked resources banner */}
       {labelFilterId && labelTrackedResources && labelTrackedResources.length > 0 && (
-        <div className={`mb-6 rounded-xl border px-4 py-3 flex gap-3 ${
-          labelResourceLevel
-            ? 'bg-green-50 border-green-200'
-            : 'bg-amber-50 border-amber-200'
-        }`}>
-          <div className="flex-shrink-0 mt-0.5">
-            <i className={`fas ${labelResourceLevel ? 'fa-check-circle text-green-500' : 'fa-exclamation-triangle text-amber-500'}`} />
-          </div>
+        <div className={`mx-5 mt-4 rounded-xl border px-4 py-3 flex gap-3 ${labelResourceLevel ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'}`}>
+          <i className={`fas ${labelResourceLevel ? 'fa-check-circle text-emerald-500' : 'fa-exclamation-triangle text-amber-500'} mt-0.5 flex-shrink-0`} />
           <div className="flex-1 min-w-0">
-            <p className={`text-xs font-semibold mb-1.5 ${labelResourceLevel ? 'text-green-700' : 'text-amber-700'}`}>
+            <p className={`text-[11px] font-semibold mb-1.5 ${labelResourceLevel ? 'text-emerald-700' : 'text-amber-700'}`}>
               {labelResourceLevel
                 ? `Showing costs for ${labelTrackedResources.length} tagged resource${labelTrackedResources.length !== 1 ? 's' : ''}`
-                : `Showing per-resource cost estimates for ${labelTrackedResources.length} tagged resource${labelTrackedResources.length !== 1 ? 's' : ''}`}
+                : `Estimated costs for ${labelTrackedResources.length} tagged resource${labelTrackedResources.length !== 1 ? 's' : ''}`}
             </p>
-            <div className="flex flex-wrap gap-1.5 mb-1.5">
+            <div className="flex flex-wrap gap-1.5">
               {labelTrackedResources.map(r => (
-                <span
-                  key={r.id}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-gray-200 text-gray-700 shadow-sm"
-                  title={`${r.type} • ${r.region} • ${r.id}`}
-                >
-                  <i className="fas fa-server text-indigo-400" style={{ fontSize: '9px' }} />
+                <span key={r.id} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-white border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)]" title={`${r.type} • ${r.region} • ${r.id}`}>
+                  <i className="fas fa-server text-[rgba(0,0,0,0.3)]" style={{ fontSize: '9px' }} />
                   <span className="font-semibold">{r.name !== r.id ? r.name : r.id}</span>
-                  {r.name !== r.id && (
-                    <span className="text-gray-400 font-normal">{r.id}</span>
-                  )}
-                  {r.region && (
-                    <span className="text-gray-400">• {r.region}</span>
-                  )}
+                  {r.region && <span className="text-[rgba(0,0,0,0.35)]">· {r.region}</span>}
                 </span>
               ))}
             </div>
-            {!labelResourceLevel && labelMessage && (
-              <p className="text-xs text-amber-600 italic">{labelMessage}</p>
-            )}
-            {labelApproximationWarning && (
-              <p className="text-xs text-amber-700 mt-1">
-                <i className="fas fa-exclamation-circle mr-1" />
-                {labelApproximationWarning}
-              </p>
-            )}
+            {!labelResourceLevel && labelMessage && <p className="text-[11px] text-amber-600 italic mt-1">{labelMessage}</p>}
+            {labelApproximationWarning && <p className="text-[11px] text-amber-700 mt-1"><i className="fas fa-exclamation-circle mr-1" />{labelApproximationWarning}</p>}
           </div>
         </div>
       )}
 
-      {/* Loading State */}
+      {/* Loading */}
       {isLoading && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="animate-pulse bg-gray-200 h-80 rounded-xl"></div>
-          <div className="lg:col-span-2 animate-pulse bg-gray-200 h-96 rounded-xl"></div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 p-5">
+          <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-72 rounded-xl"></div>
+          <div className="lg:col-span-2 animate-pulse bg-[rgba(0,0,0,0.04)] h-72 rounded-xl"></div>
         </div>
       )}
 
-      {/* Empty State */}
+      {/* Empty */}
       {!isLoading && costData.length === 0 && (
-        <div className="text-center py-16 px-8 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
-          <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
-            <i className="fas fa-dollar-sign text-gray-400 text-3xl"></i>
+        <div className="py-16 text-center">
+          <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-4">
+            <i className="fas fa-dollar-sign text-[rgba(0,0,0,0.2)] text-xl"></i>
           </div>
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Cost Data Available</h3>
-          <p className="text-sm text-gray-500 mb-6">There is no cost data for the selected criteria.</p>
+          <p className="text-[14px] font-medium text-[rgba(0,0,0,0.5)]">No cost data for selected range</p>
         </div>
       )}
 
-      {/* Chart and Table */}
+      {/* Chart + Table */}
       {!isLoading && costData.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          {/* Donut Chart */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm min-h-96">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Cost Distribution</h3>
-              <div className="h-80 relative">
-                <canvas ref={chartRef}></canvas>
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-0 divide-x divide-[rgba(0,0,0,0.06)]">
+
+          {/* Donut */}
+          <div className="lg:col-span-2 p-5">
+            <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] mb-4">Cost Distribution</p>
+            <div className="h-72 relative">
+              <canvas ref={chartRef}></canvas>
             </div>
           </div>
 
           {/* Table */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                  <i className="fas fa-table mr-2 text-indigo-600"></i>
-                  Detailed Breakdown
-                </h3>
-                {filters.groupBy === 'TAG' && (() => {
-                  const untaggedItem = costData.find(d => d.name === 'Untagged');
-                  const untaggedCost = untaggedItem?.amount ?? 0;
-                  const taggedCost = totalCost - untaggedCost;
-                  const coveragePct = totalCost > 0 ? Math.round((taggedCost / totalCost) * 100) : 100;
-                  return (
-                    <div className="mt-2 flex items-center gap-3">
-                      <div className="flex-1 bg-gray-200 rounded-full h-1.5">
-                        <div
-                          className={`h-1.5 rounded-full ${coveragePct >= 80 ? 'bg-green-500' : coveragePct >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
-                          style={{ width: `${coveragePct}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-semibold text-gray-500 whitespace-nowrap">
-                        {coveragePct}% tagged
-                      </span>
+          <div className="lg:col-span-3 flex flex-col">
+            <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+              <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">Detailed Breakdown</p>
+              {filters.groupBy === 'TAG' && (() => {
+                const untaggedCost = costData.find(d => d.name === 'Untagged')?.amount ?? 0;
+                const pct = totalCost > 0 ? Math.round(((totalCost - untaggedCost) / totalCost) * 100) : 100;
+                return (
+                  <div className="flex items-center gap-2">
+                    <div className="w-24 h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`} style={{ width: `${pct}%` }} />
                     </div>
-                  );
-                })()}
-              </div>
-              <div className="overflow-x-auto max-h-96">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 shadow-sm">
-                    <tr>
-                      <th className="px-6 py-4 font-bold">
-                        {filters.groupBy === 'TAG'
-                          ? `Tag: ${filters.tagKey}`
-                          : filters.groupBy.charAt(0) + filters.groupBy.slice(1).toLowerCase()}
-                      </th>
-                      <th className="px-6 py-4 text-right font-bold">Cost (USD)</th>
-                      <th className="px-6 py-4 text-right font-bold">%</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {sortedData.map((item, index) => {
-                      const isUntagged = item.name === 'Untagged';
-                      return (
-                        <tr
-                          key={item.name}
-                          className={`transition-colors duration-150 ${isUntagged ? 'bg-amber-50/60' : 'hover:bg-indigo-50/50 cursor-pointer'}`}
-                          onClick={() => !isUntagged && onHistoricalClick(item.name)}
-                        >
-                          <td className="px-6 py-4 relative group">
-                            {!isUntagged && (
-                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500 scale-y-0 group-hover:scale-y-100 transition-transform origin-left"></div>
-                            )}
-                            <div className="flex items-center space-x-3">
-                              <div
-                                className="w-3 h-3 rounded-full shadow-sm"
-                                style={{ backgroundColor: isUntagged ? '#f59e0b' : colors[index % 11] }}
-                              ></div>
-                              <span className={`font-medium ${isUntagged ? 'text-amber-700' : 'text-gray-800'}`}>
-                                {isUntagged ? '⚠ Untagged' : item.name}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <span className={`font-bold ${isUntagged ? 'text-amber-700' : 'text-gray-900'}`}>
-                              ${item.amount.toFixed(2)}
+                    <span className="text-[11px] text-[rgba(0,0,0,0.4)] font-medium">{pct}% tagged</span>
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="overflow-auto flex-1" style={{ maxHeight: '340px' }}>
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-[rgba(247,247,247,0.95)]">
+                  <tr>
+                    <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">
+                      {filters.groupBy === 'TAG' ? `Tag: ${filters.tagKey}` : filters.groupBy.charAt(0) + filters.groupBy.slice(1).toLowerCase()}
+                    </th>
+                    <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">Cost (USD)</th>
+                    <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedData.map((item, index) => {
+                    const isUntagged = item.name === 'Untagged';
+                    const pct = ((item.amount / totalCost) * 100).toFixed(1);
+                    return (
+                      <tr
+                        key={item.name}
+                        className={`border-t border-[rgba(0,0,0,0.04)] transition-colors ${isUntagged ? 'bg-amber-50/60' : 'hover:bg-[rgba(0,0,0,0.02)] cursor-pointer'}`}
+                        onClick={() => !isUntagged && onHistoricalClick(item.name)}
+                      >
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: isUntagged ? '#f59e0b' : COLORS[index % COLORS.length] }}></span>
+                            <span className={`text-[13px] font-medium truncate ${isUntagged ? 'text-amber-700' : 'text-[rgba(0,0,0,0.88)]'}`}>
+                              {isUntagged ? '⚠ Untagged' : item.name}
                             </span>
-                          </td>
-                          <td className="px-6 py-4 text-right text-gray-600">
-                            {((item.amount / totalCost) * 100).toFixed(1)}%
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <span className={`text-[13px] font-semibold tabular-nums ${isUntagged ? 'text-amber-700' : 'text-[rgba(0,0,0,0.88)]'}`}>
+                            ${item.amount.toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-right text-[13px] text-[rgba(0,0,0,0.4)] tabular-nums">{pct}%</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

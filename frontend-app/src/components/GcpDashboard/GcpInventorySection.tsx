@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Icon } from '@iconify/react';
 import type { GcpResourceType } from '../../types/gcpDashboard';
 
 interface GcpInventorySectionProps {
@@ -12,113 +13,107 @@ interface GcpInventorySectionProps {
 interface ResourceCardProps {
     name: string;
     count: number;
-    icon: string; // Filename like 'compute-engine.png'
     type: string;
     accountIds: string[];
 }
 
-// Helper to get color/style based on service type
-const getServiceStyle = (type: string) => {
-    const typeLower = type.toLowerCase();
-
-    if (typeLower.includes('compute') || typeLower.includes('instance')) return 'bg-blue-100 text-blue-600';
-    if (typeLower.includes('storage') || typeLower.includes('bucket')) return 'bg-green-100 text-green-600';
-    if (typeLower.includes('sql') || typeLower.includes('database')) return 'bg-indigo-100 text-indigo-600';
-    if (typeLower.includes('kubernetes') || typeLower.includes('gke')) return 'bg-blue-50 text-blue-500'; // GKE Blue
-    if (typeLower.includes('network') || typeLower.includes('vpc')) return 'bg-purple-100 text-purple-600';
-    if (typeLower.includes('function')) return 'bg-orange-100 text-orange-600';
-    if (typeLower.includes('dns')) return 'bg-yellow-100 text-yellow-600';
-
-    return 'bg-gray-100 text-gray-600';
+// Map GCP service type → { iconify icon name, color }
+const getIconMeta = (type: string): { iconName: string; iconColor: string } => {
+    const t = type.toLowerCase();
+    if (t.includes('compute') || t.includes('gce') || t.includes('instance'))
+        return { iconName: 'mdi:server', iconColor: '#4285F4' };
+    if (t.includes('storage') || t.includes('bucket'))
+        return { iconName: 'mdi:bucket', iconColor: '#34A853' };
+    if (t.includes('sql') || t.includes('cloud sql'))
+        return { iconName: 'mdi:database', iconColor: '#527FFF' };
+    if (t.includes('kubernetes') || t.includes('gke'))
+        return { iconName: 'simple-icons:kubernetes', iconColor: '#326CE5' };
+    if (t.includes('vpc') || t.includes('network'))
+        return { iconName: 'mdi:network', iconColor: '#8C4FFF' };
+    if (t.includes('dns'))
+        return { iconName: 'mdi:dns', iconColor: '#FBBC05' };
+    if (t.includes('load') || t.includes('balancer'))
+        return { iconName: 'mdi:scale-balance', iconColor: '#4285F4' };
+    if (t.includes('nat') || t.includes('router'))
+        return { iconName: 'mdi:router-network', iconColor: '#34A853' };
+    if (t.includes('artifact') || t.includes('registry'))
+        return { iconName: 'mdi:package-variant-closed', iconColor: '#4285F4' };
+    if (t.includes('kms') || t.includes('key'))
+        return { iconName: 'mdi:key-variant', iconColor: '#EA4335' };
+    if (t.includes('function'))
+        return { iconName: 'mdi:function-variant', iconColor: '#FF9900' };
+    if (t.includes('build'))
+        return { iconName: 'mdi:hammer-wrench', iconColor: '#4285F4' };
+    if (t.includes('secret'))
+        return { iconName: 'mdi:shield-lock', iconColor: '#EA4335' };
+    if (t.includes('armor'))
+        return { iconName: 'mdi:shield-check', iconColor: '#34A853' };
+    return { iconName: 'simple-icons:googlecloud', iconColor: '#4285F4' };
 };
 
-const ResourceCard: React.FC<ResourceCardProps> = ({ name, count, icon, type, accountIds }) => {
+const ResourceCard: React.FC<ResourceCardProps> = ({ name, count, type, accountIds }) => {
     const navigate = useNavigate();
-    const styleClass = getServiceStyle(type);
-
-    const handleClick = () => {
-        navigate(`/gcp-cloudlist?service=${encodeURIComponent(type)}&accountIds=${accountIds.join(',')}`);
-    };
+    const { iconName, iconColor } = getIconMeta(type);
 
     return (
         <button
-            onClick={handleClick}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
-            aria-label={`View ${name} resources`}
-            className="group p-4 rounded-xl border border-gray-100 bg-white hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer transition-all duration-300 flex items-center justify-between active:scale-[0.98] w-full text-left"
+            onClick={() => navigate(`/gcp-cloudlist?service=${encodeURIComponent(type)}&accountIds=${accountIds.join(',')}`)}
+            className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-[rgba(0,0,0,0.025)] transition-colors text-left group"
         >
-            <div className="flex items-center space-x-3">
-                <div className={`w-12 h-12 ${styleClass.split(' ')[0]} rounded-xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform duration-300`}>
-                    <img src={icon} alt={name} className="w-7 h-7 object-contain drop-shadow-sm" onError={(e) => (e.currentTarget.style.display = 'none')} />
+            <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${iconColor}14` }}>
+                    <Icon icon={iconName} width={20} height={20} color={iconColor} />
                 </div>
                 <div>
-                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest leading-tight">{name}</p>
-                    <div className="flex items-center mt-1">
-                        <span className={`text-[10px] ${styleClass.split(' ')[1]} font-bold uppercase tracking-tight`}>Active Count</span>
-                        <svg className={`w-2.5 h-2.5 ml-1 opacity-0 group-hover:opacity-100 transition-opacity ${styleClass.split(' ')[1]}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                        </svg>
-                    </div>
+                    <p className="text-[14px] font-normal text-[rgba(0,0,0,0.88)] leading-5">{name}</p>
+                    <p className="text-[10px] text-[rgba(0,0,0,0.35)] uppercase tracking-wide leading-tight">Active Count</p>
                 </div>
             </div>
-            <div className="text-right ml-4">
-                <p className="text-3xl font-black text-gray-900 tracking-tight">{count}</p>
-            </div>
+            <span
+                className="text-[24px] font-extrabold text-[rgba(0,0,0,0.88)] tabular-nums flex-shrink-0"
+                style={{ fontFamily: "'Barlow Condensed', 'Inter', sans-serif", fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}
+            >
+                {count}
+            </span>
         </button>
     );
 };
 
-const GcpInventorySection: React.FC<GcpInventorySectionProps> = ({ resources, totalResources, loading, accountIds }) => {
+const GcpInventorySection: React.FC<GcpInventorySectionProps> = ({ resources, loading, accountIds }) => {
     return (
-        <div className="lg:col-span-2 glass-card p-6 rounded-2xl border border-gray-200 shadow-xl shadow-blue-500/5 relative overflow-hidden h-full">
-            <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center border border-blue-100 shadow-sm">
-                        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 012 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h3 className="text-xl font-black text-gray-900 tracking-tight uppercase px-1">Resource Inventory</h3>
-                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1.5 px-1 mt-0.5">
-                            <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>&nbsp;Live Infrastructure
-                        </p>
-                    </div>
+        <div className="lg:col-span-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm flex flex-col overflow-hidden h-full">
+            {/* Header — identical to AWS */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 flex-shrink-0">
+                <div>
+                    <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Resource Inventory</p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#1BE68B] animate-pulse inline-block"></span>
+                        Live Infrastructure
+                    </p>
                 </div>
-                <div className="text-sm text-gray-500 bg-white/50 backdrop-blur-sm p-2 rounded-lg border border-gray-100 shadow-sm">
-                    <span className="font-bold mr-1">{totalResources}</span>
-                    <span className="text-xs">Total</span>
+                <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]">
+                    <svg className={`w-3.5 h-3.5 text-[rgba(0,0,0,0.3)] ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
                 </div>
             </div>
 
-            {/* Inventory Skeleton */}
-            {loading && (
-                <div className="space-y-4 py-2 px-1">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                        <div key={i} className="h-16 w-full skeleton rounded-xl"></div>
+            {/* List */}
+            {loading ? (
+                <div className="px-5 pb-5 space-y-2">
+                    {[1,2,3,4,5].map(i => (
+                        <div key={i} className="h-[46px] bg-[rgba(0,0,0,0.04)] rounded-lg animate-pulse"></div>
                     ))}
                 </div>
-            )}
-
-            {/* Inventory Grid */}
-            {!loading && (
-                <div
-                    className="flex flex-col gap-4 overflow-y-auto pb-2 custom-scrollbar fade-in px-1"
-                    style={{ maxHeight: '420px' }}
-                >
-                    {resources.length > 0 ? (
-                        resources.map((resource) => (
-                            <ResourceCard key={resource.type} {...resource} accountIds={accountIds} />
+            ) : (
+                <div className="flex-1 overflow-y-auto inventory-hide-scrollbar" style={{ scrollbarWidth: 'none' }}>
+                    {resources.filter(r => r.count > 0).length > 0 ? (
+                        resources.filter(r => r.count > 0).map((resource) => (
+                            <ResourceCard key={resource.type} name={resource.name} count={resource.count} type={resource.type} accountIds={accountIds} />
                         ))
                     ) : (
-                        <div className="col-span-full py-12 text-center">
-                            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-100">
-                                <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                                </svg>
-                            </div>
-                            <p className="text-gray-500 font-bold text-xs uppercase tracking-widest">No Active Resources</p>
-                            <p className="text-[10px] text-gray-400 mt-1">Found in this account</p>
+                        <div className="py-12 text-center">
+                            <p className="text-[13px] text-[rgba(0,0,0,0.35)]">No active resources found</p>
                         </div>
                     )}
                 </div>

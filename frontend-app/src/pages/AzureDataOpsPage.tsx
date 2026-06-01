@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import {
@@ -14,36 +15,28 @@ const fmt$ = (n: number) =>
 
 function EncBadge({ val }: { val: boolean }) {
   return val
-    ? <span className="text-green-600 dark:text-green-400"><i className="fas fa-lock mr-1" />Yes</span>
-    : <span className="text-red-500"><i className="fas fa-unlock mr-1" />No</span>;
+    ? <span className="text-green-600"><Icon icon="mdi:lock-outline" width={13} className="inline mr-1" />Yes</span>
+    : <span className="text-red-500"><Icon icon="mdi:lock-open-outline" width={13} className="inline mr-1" />No</span>;
 }
 
 // ── Summary Cards ─────────────────────────────────────────────────────────────
 
 function SummaryCards({ s }: { s: DbSavingsSummary }) {
   const cards = [
-    { icon: 'fas fa-dollar-sign',  label: 'Monthly DB Spend',         value: fmt$(s.totalDbMonthlyCost),      accent: 'border-l-[#cc785c]',    iconBg: 'from-[#cc785c] to-[#a9583e]',       glow: 'rgba(204,120,92,0.25)' },
-    { icon: 'fas fa-piggy-bank',   label: 'Savings Potential',         value: fmt$(s.totalPotentialSavings),   accent: 'border-l-emerald-500', iconBg: 'from-emerald-500 to-teal-600',  glow: 'rgba(16,185,129,0.25)' },
-    { icon: 'fas fa-server',       label: 'Total Instances',           value: String(s.totalInstances),        accent: 'border-l-indigo-500',  iconBg: 'from-indigo-500 to-purple-600', glow: 'rgba(99,102,241,0.25)' },
-    { icon: 'fas fa-moon',         label: 'Idle Instances',            value: `${s.idleInstances} (${fmt$(s.idleSavingsPotential)})`, accent: 'border-l-amber-500', iconBg: 'from-amber-500 to-orange-600', glow: 'rgba(245,158,11,0.25)' },
-    { icon: 'fas fa-compress-alt', label: 'Right-sizing Candidates',   value: `${s.rightsizingCandidates} (${fmt$(s.rightsizingSavingsPotential)})`, accent: 'border-l-pink-500', iconBg: 'from-pink-500 to-rose-600', glow: 'rgba(236,72,153,0.25)' },
-    { icon: 'fas fa-camera',       label: 'Backup Waste',              value: fmt$(s.snapshotWasteCost),       accent: 'border-l-violet-500',  iconBg: 'from-violet-500 to-purple-600', glow: 'rgba(139,92,246,0.25)' },
+    { label: 'Monthly DB Spend',       value: fmt$(s.totalDbMonthlyCost) },
+    { label: 'Savings Potential',      value: fmt$(s.totalPotentialSavings) },
+    { label: 'Total Instances',        value: String(s.totalInstances) },
+    { label: 'Idle Instances',         value: `${s.idleInstances}`, sub: fmt$(s.idleSavingsPotential) + ' savings' },
+    { label: 'Right-sizing Candidates',value: `${s.rightsizingCandidates}`, sub: fmt$(s.rightsizingSavingsPotential) + ' savings' },
+    { label: 'Backup Waste',           value: fmt$(s.snapshotWasteCost) },
   ];
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
-      {cards.map((c, idx) => (
-        <div
-          key={c.label}
-          className={`dataops-summary-card dataops-fade-in-up bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700/50 border-l-4 ${c.accent} p-4 flex flex-col gap-2`}
-          style={{ animationDelay: `${idx * 60}ms` }}
-          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = `0 12px 28px -4px ${c.glow}`; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = ''; }}
-        >
-          <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${c.iconBg} flex items-center justify-center shadow-sm`}>
-            <i className={`${c.icon} text-white text-xs`} />
-          </div>
-          <p className="text-[10px] text-[#6c6a64] dark:text-gray-400 leading-tight font-semibold uppercase tracking-wider mt-0.5">{c.label}</p>
-          <p className="text-sm font-bold text-gray-900 dark:text-gray-50 leading-tight">{c.value}</p>
+      {cards.map((c) => (
+        <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.45)] mb-2 leading-tight">{c.label}</p>
+          <p className="text-[22px] font-bold text-gray-900 leading-tight tabular-nums">{c.value}</p>
+          {c.sub && <p className="text-[11px] text-gray-400 mt-1">{c.sub}</p>}
         </div>
       ))}
     </div>
@@ -93,37 +86,37 @@ function InventoryTab({
     <div>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#cc785c] text-sm" />
+          <Icon icon="mdi:magnify" width={16} color="#38bdf8" className="absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search instances..."
-            className="dataops-search-input w-full pl-9 pr-3 py-2 text-sm border border-[#e6dfd8] dark:border-gray-600 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#cc785c]"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-800 focus:outline-none focus:border-[#cc785c]"
           />
         </div>
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#efe9de] dark:bg-orange-900/20 border border-[#e6dfd8] dark:border-orange-800/50 text-[#3d3d3a] dark:text-orange-300 text-xs font-semibold">
-          <i className="fas fa-database text-[9px]" />
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#efe9de] border border-[#e6dfd8] text-[#3d3d3a] text-xs font-semibold">
+          <Icon icon="mdi:database-outline" width={12} />
           {filtered.length} instances
         </span>
         {/* Azure badge */}
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#efe9de] dark:bg-blue-900/20 border border-[#e6dfd8] dark:border-blue-800/50 text-[#3d3d3a] dark:text-blue-400 text-xs font-semibold">
-          <i className="fab fa-microsoft text-[9px] text-[#cc785c]" />
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#efe9de] border border-[#e6dfd8] text-[#3d3d3a] text-xs font-semibold">
+          <Icon icon="mdi:microsoft-azure" width={12} color="#cc785c" />
           Azure SQL / PostgreSQL / MySQL
         </span>
         <button
           onClick={() => onSelect({ instanceId: '', source: 'agent', engine: 'mysql' })}
-          className="dataops-connect-btn ml-auto flex items-center gap-2 px-4 py-2 bg-[#cc785c] hover:bg-[#a9583e] text-white rounded-xl text-sm font-semibold transition-colors"
+          className="ml-auto flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-colors"
         >
-          <i className="fas fa-plus text-xs" /> Connect a Database
+          <Icon icon="mdi:plus" width={14} /> Connect a Database
         </button>
       </div>
-      <div className="dataops-fade-in-up bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-sm border border-[#e6dfd8] dark:border-gray-700/50 overflow-hidden" style={{ animationDelay: '120ms' }}>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#e6dfd8] dark:border-gray-700/50" style={{ background: 'linear-gradient(90deg, rgba(204,120,92,0.04) 0%, rgba(169,88,62,0.04) 100%)' }}>
+              <tr className="border-b border-[#e6dfd8] bg-gray-50">
                 {['Instance ID', 'Source', 'Engine', 'Tier', 'Region', 'Status', 'Storage (GB)', 'Encrypted', 'Backups', 'HA', 'Est. Cost/mo'].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-[10px] font-bold text-[#6c6a64] dark:text-gray-400 uppercase tracking-widest whitespace-nowrap">{h}</th>
+                  <th key={h} className="text-left px-4 py-3 text-[10px] font-bold text-[#6c6a64] uppercase tracking-widest whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -132,10 +125,10 @@ function InventoryTab({
                 <tr>
                   <td colSpan={11}>
                     <div className="flex flex-col items-center justify-center py-16 gap-3">
-                      <div className="dataops-empty-icon w-14 h-14 rounded-2xl flex items-center justify-center">
-                        <i className="fas fa-database text-[#cc785c] text-xl" />
+                      <div className="w-14 h-14 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center">
+                        <Icon icon="mdi:database-outline" width={28} color="#0284c7" />
                       </div>
-                      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No Azure SQL / PostgreSQL / MySQL instances found</p>
+                      <p className="text-sm font-medium text-gray-500">No Azure SQL / PostgreSQL / MySQL instances found</p>
                     </div>
                   </td>
                 </tr>
@@ -150,9 +143,9 @@ function InventoryTab({
                   <tr
                     key={row.instanceId}
                     onClick={() => onSelect(row)}
-                    className="dataops-table-row border-b border-[#ebe6df] dark:border-gray-700/30 hover:bg-[#faf9f5] dark:hover:bg-orange-900/10 cursor-pointer"
+                    className="border-b border-[#ebe6df] hover:bg-[#faf9f5] cursor-pointer"
                   >
-                    <td className="dataops-table-first-cell px-4 py-3 font-semibold text-[#cc785c] dark:text-orange-400 whitespace-nowrap">
+                    <td className="px-4 py-3 font-semibold text-[#cc785c] whitespace-nowrap">
                       <span className="hover:underline underline-offset-2">
                         {row.instanceId.split(':').pop() ?? row.instanceId}
                       </span>
@@ -160,46 +153,46 @@ function InventoryTab({
                     </td>
                     <td className="px-4 py-3">
                       {row.source === 'rds'
-                        ? <span className="px-2 py-0.5 text-xs rounded-full bg-[#efe9de] text-[#3d3d3a] dark:bg-orange-900/30 dark:text-orange-400 font-semibold">Azure SQL</span>
-                        : <span className="px-2 py-0.5 text-xs rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 font-semibold">Agent</span>}
+                        ? <span className="px-2 py-0.5 text-xs rounded-full bg-[#efe9de] text-[#3d3d3a] font-semibold">Azure SQL</span>
+                        : <span className="px-2 py-0.5 text-xs rounded-full bg-violet-100 text-violet-700 font-semibold">Agent</span>}
                     </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-medium">{row.engine}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-mono text-xs">
+                    <td className="px-4 py-3 text-gray-700 font-medium">{row.engine}</td>
+                    <td className="px-4 py-3 text-gray-700 font-mono text-xs">
                       {i?.instanceClass ?? (am?.ec2InstanceType
-                        ? <span title={am.ec2InstanceId ?? undefined} className="text-[#cc785c] dark:text-orange-400">{am.ec2InstanceType}</span>
+                        ? <span title={am.ec2InstanceId ?? undefined} className="text-[#cc785c]">{am.ec2InstanceType}</span>
                         : <span className="text-gray-400">—</span>)}
                     </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
                       {(i?.region ?? am?.region)
-                        ? <span className="inline-flex items-center gap-1"><i className="fas fa-location-dot text-[9px] text-[#cc785c]" />{i?.region ?? am?.region}</span>
+                        ? <span className="inline-flex items-center gap-1"><Icon icon="mdi:map-marker-outline" width={12} color="#38bdf8" className="inline" />{i?.region ?? am?.region}</span>
                         : <span className="text-gray-400">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       {i ? (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${i.status === 'runnable' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-yellow-100 text-yellow-700'}`}>
-                          {i.status === 'runnable' && <i className="fas fa-circle text-[6px] mr-1 align-middle" />}{i.status}
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${i.status === 'runnable' ? 'bg-emerald-100 text-emerald-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                          {i.status === 'runnable' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block mr-1 align-middle" />}{i.status}
                         </span>
-                      ) : <span className="px-2 py-0.5 rounded-full text-xs bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 font-semibold">live</span>}
+                      ) : <span className="px-2 py-0.5 rounded-full text-xs bg-violet-100 text-violet-700 font-semibold">live</span>}
                     </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 text-center tabular-nums">{i?.allocatedStorage ?? (dbSizeGb ? dbSizeGb : <span className="text-gray-400">—</span>)}</td>
+                    <td className="px-4 py-3 text-gray-700 text-center tabular-nums">{i?.allocatedStorage ?? (dbSizeGb ? dbSizeGb : <span className="text-gray-400">—</span>)}</td>
                     <td className="px-4 py-3">{i ? <EncBadge val={i.storageEncrypted} /> : <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-3">
                       {i ? (i.backupEnabled
-                        ? <span className="text-emerald-600 dark:text-emerald-400 font-medium"><i className="fas fa-check mr-1 text-[10px]" />{i.backupRetentionDays}d</span>
-                        : <span className="text-red-500 font-medium"><i className="fas fa-times mr-1 text-[10px]" />Off</span>)
+                        ? <span className="text-emerald-600 font-medium"><Icon icon="mdi:check" width={12} className="inline mr-1" />{i.backupRetentionDays}d</span>
+                        : <span className="text-red-500 font-medium"><Icon icon="mdi:close" width={12} className="inline mr-1" />Off</span>)
                       : <span className="text-gray-400">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
+                    <td className="px-4 py-3 text-gray-700">
                       {i?.multiAz != null
                         ? (isHA
-                            ? <span className="text-emerald-600 dark:text-emerald-400"><i className="fas fa-check mr-1 text-[10px]" />HA</span>
+                            ? <span className="text-emerald-600"><Icon icon="mdi:check" width={12} className="inline mr-1" />HA</span>
                             : <span className="text-gray-400">Zonal</span>)
                         : <span className="text-gray-400">—</span>}
                     </td>
-                    <td className="px-4 py-3 font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap tabular-nums">
-                      {i ? <span className="text-emerald-600 dark:text-emerald-400">{fmt$(i.estimatedMonthlyCost)}</span>
+                    <td className="px-4 py-3 font-bold text-gray-800 whitespace-nowrap tabular-nums">
+                      {i ? <span className="text-emerald-600">{fmt$(i.estimatedMonthlyCost)}</span>
                         : (am?.ec2HourlyPrice && am.ec2HourlyPrice > 0
-                            ? <span title="VM on-demand monthly cost" className="text-emerald-600 dark:text-emerald-400">{fmt$(am.ec2HourlyPrice * 730)}</span>
+                            ? <span title="VM on-demand monthly cost" className="text-emerald-600">{fmt$(am.ec2HourlyPrice * 730)}</span>
                             : <span className="text-gray-400">—</span>)}
                     </td>
                   </tr>
@@ -220,24 +213,24 @@ function LoadingSkeleton() {
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="dataops-shimmer bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-4 h-[96px] border border-[#e6dfd8] dark:border-gray-700/50 border-l-4 border-l-[#cc785c]/30 dark:border-l-orange-800/50">
-            <div className="w-9 h-9 bg-[#efe9de] dark:bg-orange-900/20 rounded-xl mb-3" />
-            <div className="h-2.5 bg-[#efe9de] dark:bg-orange-900/20 rounded-full w-2/3 mb-2" />
-            <div className="h-4 bg-[#efe9de] dark:bg-orange-900/20 rounded-full w-1/2" />
+          <div key={i} className="animate-pulse bg-gray-200/60 rounded-xl p-4 h-[96px] border border-gray-100 border-l-4 border-l-sky-200">
+            <div className="w-9 h-9 bg-gray-300/60 rounded-xl mb-3" />
+            <div className="h-2.5 bg-gray-300/60 rounded-full w-2/3 mb-2" />
+            <div className="h-4 bg-gray-300/60 rounded-full w-1/2" />
           </div>
         ))}
       </div>
-      <div className="dataops-shimmer bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-[#e6dfd8] dark:border-gray-700/50">
-        <div className="p-4 border-b border-[#e6dfd8]/40 dark:border-orange-800/20 flex gap-3">
-          <div className="h-9 w-56 bg-[#efe9de] dark:bg-orange-900/20 rounded-xl" />
-          <div className="h-9 w-28 bg-[#efe9de] dark:bg-orange-900/20 rounded-full ml-auto" />
+      <div className="animate-pulse bg-gray-200/60 rounded-xl border border-gray-100">
+        <div className="p-4 border-b border-gray-200/40 flex gap-3">
+          <div className="h-9 w-56 bg-gray-300/60 rounded-xl" />
+          <div className="h-9 w-28 bg-gray-300/60 rounded-full ml-auto" />
         </div>
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex gap-4 px-4 py-3.5 border-b border-[#ebe6df]/50 dark:border-orange-800/10 last:border-0">
-            <div className="h-4 bg-[#efe9de] dark:bg-orange-900/20 rounded-full w-48" />
-            <div className="h-4 bg-[#efe9de] dark:bg-orange-900/20 rounded-full w-16" />
-            <div className="h-4 bg-[#efe9de] dark:bg-orange-900/20 rounded-full w-20" />
-            <div className="h-4 bg-[#efe9de] dark:bg-orange-900/20 rounded-full w-24 ml-auto" />
+          <div key={i} className="flex gap-4 px-4 py-3.5 border-b border-gray-100/50 last:border-0">
+            <div className="h-4 bg-gray-300/60 rounded-full w-48" />
+            <div className="h-4 bg-gray-300/60 rounded-full w-16" />
+            <div className="h-4 bg-gray-300/60 rounded-full w-20" />
+            <div className="h-4 bg-gray-300/60 rounded-full w-24 ml-auto" />
           </div>
         ))}
       </div>
@@ -292,38 +285,38 @@ const AzureDataOpsPage: React.FC = () => {
           <button
             onClick={() => { setSelectedInstance(null); setInstanceHealth(null); }}
             className="group flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11px] font-medium
-              bg-white/60 dark:bg-white/5 border border-[#e6dfd8] dark:border-white/10
-              text-[#6c6a64] dark:text-slate-400
-              hover:text-[#cc785c] dark:hover:text-orange-400
-              hover:border-[#cc785c]/60 dark:hover:border-orange-500/40
-              hover:bg-[#faf9f5] dark:hover:bg-orange-500/10
-              transition-all duration-200 backdrop-blur-sm"
+              bg-white border border-[#e6dfd8]
+              text-[#6c6a64]
+              hover:text-[#cc785c]
+              hover:border-[#cc785c]/60
+              hover:bg-[#faf9f5]
+              transition-all duration-200"
           >
-            <i className="fas fa-chevron-left text-[9px] transition-transform duration-200 group-hover:-translate-x-0.5" />
+            <Icon icon="mdi:chevron-left" width={14} />
             Back
           </button>
 
           {/* ── Instance identity card ── */}
           <div
-            className="flex items-center gap-2 h-9 px-3 rounded-xl backdrop-blur-sm
-              bg-white/70 dark:bg-slate-900/60 border border-[#e6dfd8] dark:border-white/10"
+            className="flex items-center gap-2 h-9 px-3 rounded-xl
+              bg-white border border-[#e6dfd8]"
             style={{ boxShadow: `0 0 0 1px rgba(${accentRgb},0.12), 0 0 14px rgba(${accentRgb},0.07)` }}
           >
-            <div className={`w-5 h-5 rounded-md flex items-center justify-center text-white text-[9px] font-bold shrink-0 shadow-sm
+            <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold shrink-0 shadow-sm
               ${selectedInstance.source === 'rds'
-                ? 'bg-gradient-to-br from-[#cc785c] to-[#a9583e]'
-                : 'bg-gradient-to-br from-indigo-500 to-purple-600'}`}>
-              <i className={`fas ${selectedInstance.source === 'rds' ? 'fa-database' : 'fa-server'} text-[8px]`} />
+                ? 'bg-orange-50 border border-orange-100'
+                : 'bg-indigo-50 border border-indigo-100'}`}>
+              <Icon icon={selectedInstance.source === 'rds' ? 'mdi:database-outline' : 'mdi:server-outline'} width={10} color={selectedInstance.source === 'rds' ? '#ea580c' : '#4F46E5'} />
             </div>
 
-            <span className="text-[10px] text-[#6c6a64] dark:text-slate-400 font-medium">{engine}</span>
+            <span className="text-[10px] text-[#6c6a64] font-medium">{engine}</span>
 
             {selectedInstance.source === 'rds'
-              ? <span className="px-1.5 py-px text-[9px] rounded font-bold bg-[#efe9de] text-[#3d3d3a] dark:bg-orange-900/30 dark:text-orange-400 tracking-wide">Azure SQL</span>
-              : <span className="px-1.5 py-px text-[9px] rounded font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 tracking-wide">Agent</span>}
+              ? <span className="px-1.5 py-px text-[9px] rounded font-bold bg-[#efe9de] text-[#3d3d3a] tracking-wide">Azure SQL</span>
+              : <span className="px-1.5 py-px text-[9px] rounded font-bold bg-purple-100 text-purple-700 tracking-wide">Agent</span>}
 
             {rd?.status && (
-              <span className="flex items-center gap-1 text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
+              <span className="flex items-center gap-1 text-[9px] font-medium text-emerald-600">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
@@ -333,8 +326,8 @@ const AzureDataOpsPage: React.FC = () => {
             )}
 
             {instanceIdle && (
-              <span className="px-1.5 py-px text-[9px] rounded font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                <i className="fas fa-moon mr-0.5 text-[8px]" />Idle
+              <span className="px-1.5 py-px text-[9px] rounded font-semibold bg-amber-100 text-amber-700">
+                <Icon icon="mdi:moon-waning-crescent" width={10} className="inline mr-0.5" />Idle
               </span>
             )}
           </div>
@@ -342,21 +335,21 @@ const AzureDataOpsPage: React.FC = () => {
           {/* ── Health gauge ── */}
           {h && (
             <div
-              className={`flex items-center gap-2 h-9 px-3 rounded-xl backdrop-blur-sm
+              className={`flex items-center gap-2 h-9 px-3 rounded-xl
                 ${h.status === 'healthy'
-                  ? 'bg-emerald-50/80 dark:bg-emerald-900/20 border border-emerald-200/70 dark:border-emerald-500/25'
+                  ? 'bg-emerald-50 border border-emerald-200'
                   : h.status === 'warning'
-                  ? 'bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/70 dark:border-amber-500/25'
-                  : 'bg-red-50/80 dark:bg-red-900/20 border border-red-200/70 dark:border-red-500/25'}`}
+                  ? 'bg-amber-50 border border-amber-200'
+                  : 'bg-red-50 border border-red-200'}`}
               style={{ boxShadow: `0 0 16px rgba(${accentRgb},0.13)` }}
               title={h.issues.length > 0 ? h.issues.join(' · ') : 'No issues detected'}
             >
               <div className="relative w-7 h-7 shrink-0">
                 <svg className="w-7 h-7 -rotate-90" viewBox="0 0 28 28">
                   <circle cx="14" cy="14" r="10" fill="none" strokeWidth="2.5" stroke="currentColor"
-                    className={h.status === 'healthy' ? 'text-emerald-200 dark:text-emerald-900/60'
-                      : h.status === 'warning' ? 'text-amber-200 dark:text-amber-900/60'
-                      : 'text-red-200 dark:text-red-900/60'} />
+                    className={h.status === 'healthy' ? 'text-emerald-200'
+                      : h.status === 'warning' ? 'text-amber-200'
+                      : 'text-red-200'} />
                   <circle cx="14" cy="14" r="10" fill="none" strokeWidth="2.5" stroke="currentColor"
                     strokeDasharray={`${2 * Math.PI * 10}`}
                     strokeDashoffset={`${2 * Math.PI * 10 * (1 - h.score / 100)}`}
@@ -367,19 +360,19 @@ const AzureDataOpsPage: React.FC = () => {
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className={`text-[9px] font-black leading-none tabular-nums
-                    ${h.status === 'healthy' ? 'text-emerald-700 dark:text-emerald-300'
-                      : h.status === 'warning' ? 'text-amber-700 dark:text-amber-300'
-                      : 'text-red-700 dark:text-red-300'}`}>{h.score}</span>
+                    ${h.status === 'healthy' ? 'text-emerald-700'
+                      : h.status === 'warning' ? 'text-amber-700'
+                      : 'text-red-700'}`}>{h.score}</span>
                 </div>
               </div>
               <div className="flex flex-col leading-none">
                 <span className={`text-[10px] font-bold
-                  ${h.status === 'healthy' ? 'text-emerald-700 dark:text-emerald-300'
-                    : h.status === 'warning' ? 'text-amber-700 dark:text-amber-300'
-                    : 'text-red-700 dark:text-red-300'}`}>
+                  ${h.status === 'healthy' ? 'text-emerald-700'
+                    : h.status === 'warning' ? 'text-amber-700'
+                    : 'text-red-700'}`}>
                   {h.status === 'healthy' ? 'Healthy' : h.status === 'warning' ? 'Warning' : 'Critical'}
                 </span>
-                <span className="text-[8px] text-gray-400 dark:text-slate-500 mt-0.5">Health Score</span>
+                <span className="text-[8px] text-gray-400 mt-0.5">Health Score</span>
               </div>
             </div>
           )}
@@ -388,46 +381,46 @@ const AzureDataOpsPage: React.FC = () => {
           {h && h.issues.length > 0 && (
             <div className="hidden md:flex items-center gap-1.5">
               {h.issues.slice(0, 2).map((issue, i) => (
-                <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-semibold backdrop-blur-sm
+                <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-semibold
                   ${h.status === 'critical'
-                    ? 'bg-red-50 dark:bg-red-900/25 border border-red-200/70 dark:border-red-500/25 text-red-600 dark:text-red-400'
-                    : 'bg-amber-50 dark:bg-amber-900/25 border border-amber-200/70 dark:border-amber-500/25 text-amber-600 dark:text-amber-400'}`}>
-                  <i className="fas fa-circle-dot text-[7px]" />
+                    ? 'bg-red-50 border border-red-200 text-red-600'
+                    : 'bg-amber-50 border border-amber-200 text-amber-600'}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
                   {issue}
                 </span>
               ))}
               {h.issues.length > 2 && (
-                <span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium">+{h.issues.length - 2}</span>
+                <span className="text-[9px] text-gray-400 font-medium">+{h.issues.length - 2}</span>
               )}
             </div>
           )}
 
           {/* ── Meta strip ── */}
-          <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-slate-500 font-medium">
+          <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-gray-400 font-medium">
             {rd?.instanceClass && (
               <span className="flex items-center gap-1">
-                <i className="fas fa-microchip text-[8px] text-gray-300 dark:text-slate-600" />{rd.instanceClass}
+                <Icon icon="mdi:chip" width={10} color="#d1d5db" className="inline" />{rd.instanceClass}
               </span>
             )}
             {rd?.region && (
               <>
-                <span className="text-gray-200 dark:text-slate-700">·</span>
+                <span className="text-gray-200">·</span>
                 <span className="flex items-center gap-1">
-                  <i className="fas fa-location-dot text-[8px] text-gray-300 dark:text-slate-600" />{rd.region}
+                  <Icon icon="mdi:map-marker-outline" width={10} color="#d1d5db" className="inline" />{rd.region}
                 </span>
               </>
             )}
             {rd?.estimatedMonthlyCost !== undefined && (
               <>
-                <span className="text-gray-200 dark:text-slate-700">·</span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                <span className="text-gray-200">·</span>
+                <span className="font-bold text-emerald-600 tabular-nums">
                   {fmt$(rd.estimatedMonthlyCost)}/mo
                 </span>
               </>
             )}
           </div>
 
-          <span className="w-px h-5 bg-[#e6dfd8] dark:bg-slate-700/80 mx-0.5" />
+          <span className="w-px h-5 bg-[#e6dfd8] mx-0.5" />
 
           {/* ── Copy endpoint ── */}
           {endpoint && (
@@ -438,13 +431,13 @@ const AzureDataOpsPage: React.FC = () => {
                 setTimeout(() => setCopiedEndpoint(false), 2000);
               }}
               className={`group flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11px] font-medium
-                backdrop-blur-sm transition-all duration-200
+                transition-all duration-200
                 ${copiedEndpoint
-                  ? 'bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-300/70 dark:border-emerald-500/35 text-emerald-600 dark:text-emerald-400'
-                  : 'bg-white/60 dark:bg-slate-800/60 border border-[#e6dfd8] dark:border-white/10 text-[#6c6a64] dark:text-slate-300 hover:bg-[#faf9f5] dark:hover:bg-orange-500/10 hover:border-[#cc785c]/60 dark:hover:border-orange-500/40 hover:text-[#cc785c] dark:hover:text-orange-400'}`}
+                  ? 'bg-emerald-50 border border-emerald-300 text-emerald-600'
+                  : 'bg-white border border-[#e6dfd8] text-[#6c6a64] hover:bg-[#faf9f5] hover:border-[#cc785c]/60 hover:text-[#cc785c]'}`}
               title={`Copy: ${endpoint}`}
             >
-              <i className={`fas ${copiedEndpoint ? 'fa-check' : 'fa-copy'} text-[10px]`} />
+              {copiedEndpoint ? <Icon icon="mdi:check" width={13} /> : <Icon icon="mdi:content-copy" width={13} />}
               <span>{copiedEndpoint ? 'Copied!' : 'Copy'}</span>
             </button>
           )}
@@ -453,16 +446,16 @@ const AzureDataOpsPage: React.FC = () => {
           <button
             onClick={() => { refresh(); setLastRefreshed(new Date()); }}
             disabled={loading}
-            className="group flex items-center justify-center w-8 h-8 rounded-lg backdrop-blur-sm
-              bg-white/60 dark:bg-slate-800/60 border border-[#e6dfd8] dark:border-white/10
-              text-[#6c6a64] dark:text-slate-400
-              hover:text-[#cc785c] dark:hover:text-orange-400
-              hover:bg-[#faf9f5] dark:hover:bg-orange-500/10
-              hover:border-[#cc785c]/60 dark:hover:border-orange-500/40
+            className="group flex items-center justify-center w-8 h-8 rounded-lg
+              bg-white border border-[#e6dfd8]
+              text-[#6c6a64]
+              hover:text-[#cc785c]
+              hover:bg-[#faf9f5]
+              hover:border-[#cc785c]/60
               transition-all duration-200 disabled:opacity-40"
             title={`Last updated: ${lastRefreshed.toLocaleTimeString()}`}
           >
-            <i className={`fas fa-rotate-right text-[11px] ${loading ? 'animate-spin' : 'group-hover:rotate-180'} transition-transform duration-500`} />
+            <Icon icon="mdi:refresh" width={14} className={loading ? 'animate-spin' : ''} />
           </button>
 
         </div>
@@ -472,12 +465,12 @@ const AzureDataOpsPage: React.FC = () => {
       setActions(
         <div className="flex items-center gap-2">
           {/* Azure badge */}
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#efe9de] dark:bg-blue-900/20 border border-[#e6dfd8] dark:border-blue-700/50 text-[#3d3d3a] dark:text-blue-400 text-xs font-semibold">
-            <i className="fab fa-microsoft text-[9px] text-[#cc785c]" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#efe9de] border border-[#e6dfd8] text-[#3d3d3a] text-xs font-semibold">
+            <Icon icon="mdi:microsoft-azure" width={12} color="#cc785c" />
             Azure
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#efe9de] dark:bg-amber-900/20 border border-[#e6dfd8] dark:border-amber-700/50 text-[#3d3d3a] dark:text-amber-400 text-xs font-semibold">
-            <i className="fas fa-flask text-[9px]" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#efe9de] border border-[#e6dfd8] text-[#3d3d3a] text-xs font-semibold">
+            <Icon icon="mdi:flask-outline" width={12} />
             Beta
           </span>
           <button
@@ -485,7 +478,7 @@ const AzureDataOpsPage: React.FC = () => {
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#cc785c] hover:bg-[#a9583e] text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
           >
-            <i className={`fas fa-sync-alt text-[10px] ${loading ? 'animate-spin' : ''}`} />
+            <Icon icon="mdi:refresh" width={14} className={loading ? 'animate-spin' : ''} />
             Refresh
           </button>
         </div>
@@ -495,17 +488,17 @@ const AzureDataOpsPage: React.FC = () => {
   }, [setActions, clearActions, selectedInstance, subscriptionId, summary, loading, refresh, idle, instanceHealth, copiedEndpoint, lastRefreshed]);
 
   return (
-    <main className="dataops-page flex-1 flex flex-col min-h-screen bg-transparent">
-      <div className="flex-1 p-6">
+    <main className={`flex-1 flex flex-col min-h-screen ${selectedInstance ? 'bg-white' : 'bg-gray-50'}`}>
+      <div className={`flex-1 ${selectedInstance ? '' : 'p-6'}`}>
 
         {/* No account selected */}
         {!subscriptionId && (
-          <div className="dataops-fade-in-up text-center py-24 bg-white/90 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-sm border border-[#e6dfd8] dark:border-gray-700/50">
-            <div className="dataops-float-animation w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 bg-gradient-to-br from-[#cc785c]/10 to-[#a9583e]/10 border border-[#cc785c]/20 dark:border-[#cc785c]/20">
-              <i className="fas fa-database text-[#cc785c] text-3xl" />
+          <div className="text-center py-24 bg-white border border-gray-200 rounded-xl shadow-sm">
+            <div className="w-20 h-20 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center mx-auto mb-6">
+              <Icon icon="mdi:database-outline" width={40} color="#0284c7" />
             </div>
-            <h3 className="dataops-gradient-text text-xl font-bold mb-2">Select an Azure Subscription</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto leading-relaxed">
+            <h3 className="text-xl font-bold text-gray-800 mb-2">Select an Azure Subscription</h3>
+            <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
               Choose an Azure subscription from the sidebar to view Azure SQL / PostgreSQL / MySQL database optimisation data.
             </p>
           </div>
@@ -513,12 +506,12 @@ const AzureDataOpsPage: React.FC = () => {
 
         {/* Error */}
         {subscriptionId && error && (
-          <div className="dataops-fade-in-up mb-4 flex items-center gap-3 p-4 bg-red-50/90 dark:bg-red-900/20 backdrop-blur-sm border border-red-200 dark:border-red-800/50 rounded-xl text-red-700 dark:text-red-400 text-sm shadow-sm">
-            <div className="w-7 h-7 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-              <i className="fas fa-exclamation-circle text-red-500 text-xs" />
+          <div className="mb-4 flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm shadow-sm">
+            <div className="w-7 h-7 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
+              <Icon icon="mdi:alert-circle-outline" width={16} color="#ef4444" />
             </div>
             <span className="flex-1">{error}</span>
-            <button onClick={refresh} className="px-3 py-1 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-xs font-semibold hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors">Retry</button>
+            <button onClick={refresh} className="px-3 py-1 rounded-lg bg-red-100 text-red-700 text-xs font-semibold hover:bg-red-200 transition-colors">Retry</button>
           </div>
         )}
 

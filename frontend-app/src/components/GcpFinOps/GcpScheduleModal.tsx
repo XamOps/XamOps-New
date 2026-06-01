@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import type { GcpNewSchedule } from '../../types/gcpFinops';
 import { DialogRoot, DialogPanel } from '../ui';
+import { Icon } from '@iconify/react';
 
 interface GcpScheduleModalProps {
   isOpen: boolean;
@@ -74,10 +75,10 @@ const GcpScheduleModal: React.FC<GcpScheduleModalProps> = ({
       <DialogPanel
         title={
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
-              <i className="fas fa-calendar-alt text-white"></i>
+            <div className="w-10 h-10 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl flex items-center justify-center">
+              <Icon icon="mdi:email-outline" width={20} color="#2563eb" />
             </div>
-            <span>Schedule GCP FinOps Report</span>
+            <span className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Schedule GCP FinOps Report</span>
           </div>
         }
         onClose={onClose}
@@ -85,7 +86,7 @@ const GcpScheduleModal: React.FC<GcpScheduleModalProps> = ({
           <>
             <button type="button" onClick={onClose} className="px-6 py-3 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-all">Cancel</button>
             <button type="submit" form="gcp-schedule-form" disabled={isCreating} className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center">
-              {isCreating ? <><div className="loading-spinner mr-2"></div>Saving...</> : 'Create Schedule'}
+              {isCreating ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>Saving...</> : 'Create Schedule'}
             </button>
           </>
         }
@@ -127,8 +128,8 @@ const GcpScheduleModal: React.FC<GcpScheduleModalProps> = ({
 
             {/* Custom Time Fields (shown when CUSTOM is selected) */}
             {frequency === 'CUSTOM' && (
-              <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <h4 className="text-sm font-semibold text-gray-800 mb-3">Custom Schedule Settings</h4>
+              <div className="space-y-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <h4 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] mb-3">Custom Schedule Settings</h4>
 
                 {/* Frequency Type */}
                 <div>

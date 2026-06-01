@@ -108,6 +108,9 @@ public class TeamUserService {
             throw new RuntimeException("Only primary users can manage team members");
         }
 
+        List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
+        Set<Long> allClientAccountIds = clientAccounts.stream().map(CloudAccount::getId).collect(Collectors.toSet());
+
         List<User> teamUsers = userRepository.findByCreatedBy(currentUserId);
         return teamUsers.stream()
                 .map(user -> {
@@ -120,6 +123,11 @@ public class TeamUserService {
                     // Get assigned account IDs
                     List<Long> accountIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(user.getId());
                     dto.setAccountIds(accountIds);
+
+                    // Mark allAccountsAccess if user has all client accounts mapped
+                    if (!allClientAccountIds.isEmpty() && new java.util.HashSet<>(accountIds).containsAll(allClientAccountIds)) {
+                        dto.setAllAccountsAccess(true);
+                    }
 
                     // Get full cloud account details for display
                     if (!accountIds.isEmpty()) {
@@ -174,7 +182,13 @@ public class TeamUserService {
         User saved = userRepository.save(newUser);
 
         // Assign cloud account access
-        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+        if (dto.isAllAccountsAccess()) {
+            // Grant access to all current client accounts
+            List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
+            for (CloudAccount account : clientAccounts) {
+                userCloudAccountAccessRepository.save(new UserCloudAccountAccess(saved, account));
+            }
+        } else if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
             for (Long accountId : dto.getAccountIds()) {
                 CloudAccount account = cloudAccountRepository.findById(accountId)
                         .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
@@ -246,7 +260,13 @@ public class TeamUserService {
         userCloudAccountAccessRepository.deleteByUserId(userId);
         entityManager.flush(); // Force deletion to complete before inserting new records
 
-        if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
+        if (dto.isAllAccountsAccess()) {
+            // Grant access to all current client accounts
+            List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(currentUser.getClient().getId());
+            for (CloudAccount account : clientAccounts) {
+                userCloudAccountAccessRepository.save(new UserCloudAccountAccess(saved, account));
+            }
+        } else if (dto.getAccountIds() != null && !dto.getAccountIds().isEmpty()) {
             for (Long accountId : dto.getAccountIds()) {
                 CloudAccount account = cloudAccountRepository.findById(accountId)
                         .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));

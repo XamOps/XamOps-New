@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import type { AzureRightsizingRecommendation, RightsizingStatus } from '../../types/azureRightsizing';
 
 interface AzureRightsizingTableProps {
@@ -9,98 +10,73 @@ interface AzureRightsizingTableProps {
 
 type ImpactFilter = 'All' | 'High' | 'Medium' | 'Low';
 
-const formatINR = (value: number) =>
-  '₹' + value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-// Map Azure resource types to icons
-const getResourceIcon = (resourceType: string): string => {
-  const t = (resourceType || '').toLowerCase();
-  if (t.includes('virtualmachine') || t.includes('vm')) return 'virtual-machine.png';
-  if (t.includes('managedcluster') || t.includes('aks'))  return 'azure-aks.png';
-  if (t.includes('storageaccount'))                        return 'azure-storage-account.png';
-  if (t.includes('disk'))                                  return 'disk-storage.png';
-  if (t.includes('container'))                             return 'azure-container-instances.png';
-  return 'azure-icon.png'; // generic Azure icon for savings plans, etc.
+const RESOURCE_ICONS: Record<string, { icon: string; color: string; bg: string }> = {
+  virtualmachine: { icon: 'mdi:monitor',          color: '#3B82F6', bg: '#3B82F614' },
+  managedcluster: { icon: 'mdi:kubernetes',        color: '#3B82F6', bg: '#3B82F614' },
+  storageaccount: { icon: 'mdi:database',          color: '#6366F1', bg: '#6366F114' },
+  disk:           { icon: 'mdi:harddisk',          color: '#8B5CF6', bg: '#8B5CF614' },
+  container:      { icon: 'mdi:docker',            color: '#0EA5E9', bg: '#0EA5E914' },
 };
 
-const SkeletonRows: React.FC = () => (
-  <>
-    {[...Array(5)].map((_, i) => (
-      <tr key={i} className="animate-pulse">
-        {[...Array(4)].map((_, j) => (
-          <td key={j} className="px-6 py-4">
-            <div className="h-3 bg-gray-200 rounded w-full"></div>
-          </td>
-        ))}
-      </tr>
-    ))}
-  </>
-);
+const getResourceMeta = (resourceType: string) => {
+  const t = (resourceType || '').toLowerCase();
+  for (const [key, meta] of Object.entries(RESOURCE_ICONS)) {
+    if (t.includes(key)) return meta;
+  }
+  return { icon: 'mdi:cloud-outline', color: '#6B7280', bg: '#6B728014' };
+};
+
+const IMPACT_COLORS: Record<string, string> = {
+  High:   'bg-rose-50 text-rose-600 border-rose-100',
+  Medium: 'bg-amber-50 text-amber-600 border-amber-100',
+  Low:    'bg-emerald-50 text-emerald-600 border-emerald-100',
+};
 
 const EmptyState: React.FC<{ status: RightsizingStatus | null; hasFilter: boolean }> = ({ status, hasFilter }) => {
   if (hasFilter) {
     return (
-      <div className="flex flex-col items-center">
-        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-          <i className="fas fa-compress-arrows-alt text-gray-400 text-2xl"></i>
+      <>
+        <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+          <Icon icon="mdi:filter-outline" width={22} color="rgba(0,0,0,0.3)" />
         </div>
-        <h3 className="text-lg font-bold text-gray-700 mb-1">No matching recommendations</h3>
-        <p className="text-sm text-gray-500 max-w-md">Try adjusting the impact filter or search term.</p>
-      </div>
+        <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Matching Results</p>
+        <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Try adjusting the impact filter or search term.</p>
+      </>
     );
   }
-
   if (status === 'PERMISSION_ERROR') {
     return (
-      <div className="flex flex-col items-center">
-        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-          <i className="fas fa-lock text-red-500 text-2xl"></i>
+      <>
+        <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-3">
+          <Icon icon="mdi:lock-outline" width={22} color="#DC2626" />
         </div>
-        <h3 className="text-lg font-bold text-gray-700 mb-1">Permission Required</h3>
-        <p className="text-sm text-gray-500 max-w-md text-center">
-          The service principal lacks access to Azure Advisor. Assign the{' '}
-          <span className="font-semibold text-blue-700">"Advisor Reviews Reader"</span> or{' '}
-          <span className="font-semibold text-blue-700">"Reader"</span> role on the subscription.
+        <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">Permission Required</p>
+        <p className="text-[13px] text-[rgba(0,0,0,0.45)] max-w-sm mx-auto">
+          Assign the <span className="font-semibold text-blue-600">Advisor Reviews Reader</span> or{' '}
+          <span className="font-semibold text-blue-600">Reader</span> role on the subscription.
         </p>
-      </div>
+      </>
     );
   }
-
   if (status === 'API_ERROR') {
     return (
-      <div className="flex flex-col items-center">
-        <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">
-          <i className="fas fa-exclamation-triangle text-amber-500 text-2xl"></i>
+      <>
+        <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3">
+          <Icon icon="mdi:alert-outline" width={22} color="#D97706" />
         </div>
-        <h3 className="text-lg font-bold text-gray-700 mb-1">Unable to Reach Azure Advisor</h3>
-        <p className="text-sm text-gray-500 max-w-md text-center">
-          An error occurred while contacting the Azure Advisor API. Check the backend logs, then try refreshing.
-        </p>
-      </div>
+        <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">Unable to Reach Azure Advisor</p>
+        <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Check the backend logs, then try refreshing.</p>
+      </>
     );
   }
-
-  if (status === 'NO_DATA') {
-    return (
-      <div className="flex flex-col items-center">
-        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-          <i className="fas fa-check-circle text-green-500 text-2xl"></i>
-        </div>
-        <h3 className="text-lg font-bold text-gray-700 mb-1">No Cost Recommendations</h3>
-        <p className="text-sm text-gray-500 max-w-md text-center">
-          Azure Advisor has no cost recommendations for this subscription — your resources appear well-optimized.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col items-center">
-      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-        <i className="fas fa-compress-arrows-alt text-gray-400 text-2xl"></i>
+    <>
+      <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
+        <Icon icon="mdi:check-circle-outline" width={24} color="#16A34A" />
       </div>
-      <h3 className="text-lg font-bold text-gray-700 mb-1">No cost recommendations from Azure Advisor</h3>
-    </div>
+      <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Cost Recommendations</p>
+      <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Azure Advisor has no cost recommendations — your resources appear well-optimized.</p>
+    </>
   );
 };
 
@@ -114,194 +90,160 @@ const AzureRightsizingTable: React.FC<AzureRightsizingTableProps> = ({
 
   const filtered = useMemo(() => {
     return recommendations.filter(r => {
-      const matchSearch = !search ||
-        r.resourceName.toLowerCase().includes(search.toLowerCase());
+      const matchSearch = !search || r.resourceName.toLowerCase().includes(search.toLowerCase());
       const matchImpact = impactFilter === 'All' || r.impact === impactFilter;
       return matchSearch && matchImpact;
     });
   }, [recommendations, search, impactFilter]);
 
-  const impactOptions: ImpactFilter[] = ['All', 'High', 'Medium', 'Low'];
   const hasFilter = !!(search || impactFilter !== 'All');
 
-  return (
-    <div className="glass-card-table p-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-          <img src="/icons/azure-icon.png" alt="Azure" className="w-4 h-4" />
-          <span className="text-xs italic">These recommendations are coming directly from Azure Advisor</span>
-        </div>
+  if (isLoading) {
+    return (
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="px-5 py-4 border-t border-[rgba(0,0,0,0.04)] animate-pulse flex items-center gap-4">
+            <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)] flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="h-2.5 w-40 bg-[rgba(0,0,0,0.06)] rounded" />
+              <div className="h-2 w-24 bg-[rgba(0,0,0,0.04)] rounded" />
+            </div>
+          </div>
+        ))}
       </div>
+    );
+  }
 
+  return (
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
       {/* Toolbar */}
-      <div className="flex flex-wrap gap-3 items-center justify-between mb-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          {impactOptions.map(opt => (
+      <div className="flex flex-wrap items-center gap-3 px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
+        {/* Impact filter pills */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {(['All', 'High', 'Medium', 'Low'] as ImpactFilter[]).map(opt => (
             <button
               key={opt}
               onClick={() => setImpactFilter(opt)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-all ${
                 impactFilter === opt
-                  ? opt === 'High'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : opt === 'Medium'
-                    ? 'bg-amber-500 text-white shadow-sm'
-                    : opt === 'Low'
-                    ? 'bg-green-600 text-white shadow-sm'
-                    : 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ? opt === 'High'   ? 'bg-rose-500 text-white'
+                  : opt === 'Medium' ? 'bg-amber-500 text-white'
+                  : opt === 'Low'    ? 'bg-emerald-600 text-white'
+                  : 'bg-[rgba(0,0,0,0.88)] text-white'
+                  : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.07)]'
               }`}
             >
               {opt}
               {opt !== 'All' && (
-                <span className="ml-1 opacity-80">
-                  ({recommendations.filter(r => r.impact === opt).length})
-                </span>
+                <span className="ml-1 opacity-75">({recommendations.filter(r => r.impact === opt).length})</span>
               )}
             </button>
           ))}
         </div>
 
-        <div className="relative">
-          <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+        {/* Search */}
+        <div className="relative ml-auto">
+          <Icon icon="mdi:magnify" width={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)]" />
           <input
             type="text"
-            placeholder="Search resources..."
+            placeholder="Search resources…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="pl-8 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white w-52"
+            className="pl-7 pr-3 py-1.5 text-[12px] border border-[rgba(0,0,0,0.1)] rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white w-44 text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.3)]"
           />
         </div>
+
+        <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{filtered.length} of {recommendations.length}</span>
       </div>
 
-      {/* Table */}
-      <div
-        className="table-scroll-container"
-        onScroll={(e) => {
-          const target = e.currentTarget;
-          const isAtEnd = target.scrollLeft + target.clientWidth >= target.scrollWidth - 10;
-          if (isAtEnd) target.classList.add('scrolled-to-end');
-          else target.classList.remove('scrolled-to-end');
-        }}
-      >
-        <div className="table-enhanced">
-          <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: '24%' }} />
-              <col style={{ width: '28%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '34%' }} />
-            </colgroup>
-            <thead className="text-xs !text-gray-700 dark:!text-gray-300 uppercase !bg-gradient-to-r !from-gray-50 !to-gray-100 dark:!from-gray-800 dark:!to-gray-900 sticky top-0 z-10">
-              <tr>
-                <th className="px-6 py-4 text-left font-bold">Resource</th>
-                <th className="px-6 py-4 text-left font-bold">Current → Recommended</th>
-                <th className="px-6 py-4 text-left font-bold">Savings</th>
-                <th className="px-6 py-4 text-left font-bold">Recommendation</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <SkeletonRows />
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-16 text-center">
-                    <EmptyState status={status} hasFilter={hasFilter && recommendations.length > 0} />
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((rec, idx) => (
-                  <tr key={rec.recommendationId || idx} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-all">
+      {/* Subheader note */}
+      <div className="flex items-center gap-2 px-5 py-2.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.01)]">
+        <Icon icon="mdi:microsoft-azure" width={13} color="#0078D4" />
+        <span className="text-[11px] text-[rgba(0,0,0,0.4)] italic">Recommendations sourced directly from Azure Advisor</span>
+      </div>
 
-                    {/* Resource */}
-                    <td className="px-6 py-4 first-cell-indicator">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-lg flex-shrink-0">
-                          <img
-                            src={`/icons/${getResourceIcon(rec.resourceType)}`}
-                            alt={rec.resourceType}
-                            className="w-full h-full rounded-lg object-cover"
-                          />
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span
-                            className="font-medium text-gray-800 dark:text-gray-200 truncate"
-                            title={rec.resourceName}
-                          >
-                            {rec.resourceName || '—'}
-                          </span>
-                          {(rec.location || rec.resourceType) && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                              {[rec.resourceType, rec.location].filter(Boolean).join(' · ')}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
+      {/* Empty / error state */}
+      {filtered.length === 0 ? (
+        <div className="p-10 text-center">
+          <EmptyState status={status} hasFilter={hasFilter && recommendations.length > 0} />
+        </div>
+      ) : (
+        <>
+          {/* Column headers */}
+          <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
+            <div className="col-span-3">Resource</div>
+            <div className="col-span-3">Current → Recommended</div>
+            <div className="col-span-2">Impact</div>
+            <div className="col-span-2">Savings / mo</div>
+            <div className="col-span-2">Recommendation</div>
+          </div>
 
-                    {/* Current → Recommended */}
-                    <td className="px-6 py-4">
-                      {rec.currentSku || rec.targetSku ? (
-                        <div className="flex items-center gap-2">
-                          <div className="text-left min-w-0">
-                            <p className="font-bold text-red-600 dark:text-red-400 text-xs truncate">
-                              {rec.currentSku || '—'}
-                            </p>
-                          </div>
-                          <i className="fas fa-arrow-right text-gray-400 dark:text-gray-500 text-xs flex-shrink-0"></i>
-                          <div className="text-left min-w-0">
-                            <p className="font-bold text-green-600 dark:text-green-400 text-xs truncate">
-                              {rec.targetSku || '—'}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400 text-xs">—</span>
-                      )}
-                      {rec.impact && (
-                        <p className={`text-xs mt-1 font-medium ${
-                          rec.impact === 'High' ? 'text-red-500' :
-                          rec.impact === 'Medium' ? 'text-amber-500' : 'text-green-500'
-                        }`}>
-                          {rec.impact} Impact
-                        </p>
-                      )}
-                    </td>
-
-                    {/* Savings */}
-                    <td className="px-6 py-4">
-                      {rec.monthlySavings > 0 ? (
-                        <div className="flex flex-col space-y-1">
-                          <span className="savings-badge px-3 py-1 text-xs font-semibold">
-                            {formatINR(rec.monthlySavings)}
-                          </span>
-                          <span className="text-xs text-gray-500">/month</span>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-
-                    {/* Recommendation */}
-                    <td className="px-6 py-4">
-                      <p className="text-sm text-gray-900 dark:text-gray-100 reason-text">
-                        {rec.problem || '—'}
+          {filtered.map((rec, idx) => {
+            const meta = getResourceMeta(rec.resourceType);
+            return (
+              <div
+                key={rec.recommendationId || idx}
+                className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+              >
+                {/* Resource */}
+                <div className="col-span-3 flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border border-[rgba(0,0,0,0.08)]" style={{ backgroundColor: meta.bg }}>
+                    <Icon icon={meta.icon} width={14} color={meta.color} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[rgba(0,0,0,0.88)] truncate" title={rec.resourceName}>{rec.resourceName || '—'}</p>
+                    {(rec.location || rec.resourceType) && (
+                      <p className="text-[11px] text-[rgba(0,0,0,0.35)] truncate">
+                        {[rec.resourceType, rec.location].filter(Boolean).join(' · ')}
                       </p>
-                    </td>
+                    )}
+                  </div>
+                </div>
 
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                {/* Current → Recommended */}
+                <div className="col-span-3">
+                  {rec.currentSku || rec.targetSku ? (
+                    <div className="flex items-center gap-2">
+                      <p className="font-mono text-[12px] font-semibold text-rose-600 truncate">{rec.currentSku || '—'}</p>
+                      <svg className="w-3 h-3 text-[rgba(0,0,0,0.25)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      <p className="font-mono text-[12px] font-semibold text-emerald-600 truncate">{rec.targetSku || '—'}</p>
+                    </div>
+                  ) : (
+                    <span className="text-[rgba(0,0,0,0.3)]">—</span>
+                  )}
+                </div>
 
-      {!isLoading && filtered.length > 0 && (
-        <div className="mt-3 text-xs text-gray-500">
-          Showing {filtered.length} of {recommendations.length} recommendations
-        </div>
+                {/* Impact */}
+                <div className="col-span-2">
+                  {rec.impact && (
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${IMPACT_COLORS[rec.impact] ?? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.55)] border-[rgba(0,0,0,0.08)]'}`}>
+                      {rec.impact}
+                    </span>
+                  )}
+                </div>
+
+                {/* Savings */}
+                <div className="col-span-2">
+                  {rec.monthlySavings > 0 ? (
+                    <>
+                      <p className="font-semibold text-emerald-600">${rec.monthlySavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p className="text-[11px] text-[rgba(0,0,0,0.35)]">/month</p>
+                    </>
+                  ) : (
+                    <span className="text-[rgba(0,0,0,0.3)]">—</span>
+                  )}
+                </div>
+
+                {/* Recommendation */}
+                <div className="col-span-2 text-[12px] text-[rgba(0,0,0,0.55)] leading-relaxed">
+                  {rec.problem || '—'}
+                </div>
+              </div>
+            );
+          })}
+        </>
       )}
     </div>
   );

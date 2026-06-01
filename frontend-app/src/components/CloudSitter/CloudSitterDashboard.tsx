@@ -1,12 +1,23 @@
-/**
- * CloudSitter Dashboard Component
- *
- * Main dashboard view with EC2 instances table and filters
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { EC2Resource } from '../../types/cloudsitter';
-import Skeleton from '../Shared/Skeleton';
+
+const NUM_STYLE: React.CSSProperties = {
+  fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
+  fontSize: '32px',
+  fontWeight: 400,
+  lineHeight: '32px',
+  color: 'rgb(10,10,10)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const CLOUD_SVG = (
+  <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+    <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+      <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
+    </svg>
+  </div>
+);
 
 // Hourly on-demand prices (us-east-1 baseline)
 const HOURLY_PRICES: Record<string, number> = {
@@ -28,10 +39,9 @@ function getMonthlyRunCost(resource: EC2Resource): number {
   return Math.round(getHourlyPrice(resource.type) * 730 * 100) / 100;
 }
 
-// Returns the savings amount to display, or null if not yet available, or 0 if none.
 function getPotentialSavings(resource: EC2Resource): number | null {
-  if (resource.savings > 0) return resource.savings;               // policy-backed: always ready
-  if (resource.recommendedSavings === undefined) return null;      // still loading from CloudWatch
+  if (resource.savings > 0) return resource.savings;
+  if (resource.recommendedSavings === undefined) return null;
   return resource.recommendedSavings ?? 0;
 }
 
@@ -77,10 +87,10 @@ interface CloudSitterDashboardProps {
   provider?: 'AWS' | 'GCP' | 'AZURE';
 }
 
-const RESOURCE_LABEL: Record<string, { icon: string; label: string }> = {
-  AWS:   { icon: 'fab fa-aws',     label: 'EC2 Instances' },
-  GCP:   { icon: 'fab fa-google',  label: 'VM Instances' },
-  AZURE: { icon: 'fab fa-microsoft', label: 'Virtual Machines' },
+const PROVIDER_META: Record<string, { icon: string; label: string; color: string }> = {
+  AWS:   { icon: 'mdi:aws',              label: 'EC2 Instances',    color: '#FF9900' },
+  GCP:   { icon: 'mdi:google-cloud',     label: 'VM Instances',     color: '#4285F4' },
+  AZURE: { icon: 'mdi:microsoft-azure',  label: 'Virtual Machines', color: '#0078D4' },
 };
 
 const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
@@ -100,162 +110,143 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
   const coveragePct = kpi.totalInstances > 0
     ? Math.round((kpi.managedCount / kpi.totalInstances) * 100)
     : 0;
+  const provMeta = PROVIDER_META[provider];
 
   return (
     <>
       {/* KPI Cards */}
       {(allResources.length > 0 || isLoading) && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-4 gap-4 mb-5">
           {/* Total Instances */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
-              <i className="fas fa-server text-indigo-600 text-lg"></i>
-            </div>
-            <div className="min-w-0">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">
-                Total Instances
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+            {CLOUD_SVG}
+            <div className="relative z-10">
+              <div className="flex items-start justify-between mb-2">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">Total Instances</p>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#6366F114' }}>
+                  <Icon icon="mdi:server" width={18} color="#6366F1" />
+                </div>
               </div>
-              {isLoading ? (
-                <Skeleton variant="text" width={48} height={28} />
-              ) : (
-                <div className="text-2xl font-bold text-gray-900">{kpi.totalInstances}</div>
-              )}
-              <div className="text-xs text-gray-400 mt-0.5">EC2 resources</div>
+              {isLoading
+                ? <div className="h-8 w-16 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
+                : <p style={NUM_STYLE}>{kpi.totalInstances}</p>}
+              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">resources tracked</p>
             </div>
           </div>
 
           {/* Managed */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
-              <i className="fas fa-shield-alt text-green-600 text-lg"></i>
-            </div>
-            <div className="min-w-0">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">
-                Managed
-              </div>
-              {isLoading ? (
-                <Skeleton variant="text" width={48} height={28} />
-              ) : (
-                <div className="text-2xl font-bold text-gray-900">
-                  {kpi.managedCount}
-                  <span className="text-sm font-medium text-gray-400 ml-1.5">/ {kpi.totalInstances}</span>
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+            {CLOUD_SVG}
+            <div className="relative z-10">
+              <div className="flex items-start justify-between mb-2">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">Managed</p>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#16A34A14' }}>
+                  <Icon icon="mdi:shield-check-outline" width={18} color="#16A34A" />
                 </div>
-              )}
-              <div className="text-xs text-gray-400 mt-0.5">{coveragePct}% coverage</div>
+              </div>
+              {isLoading
+                ? <div className="h-8 w-20 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
+                : <p style={NUM_STYLE}>{kpi.managedCount}<span className="text-[16px] font-normal text-[rgba(0,0,0,0.35)] ml-1">/ {kpi.totalInstances}</span></p>}
+              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">{coveragePct}% coverage</p>
             </div>
           </div>
 
           {/* Total Monthly Cost */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-              <i className="fas fa-dollar-sign text-blue-600 text-lg"></i>
-            </div>
-            <div className="min-w-0">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">
-                Total Monthly Cost
-              </div>
-              {isLoading ? (
-                <Skeleton variant="text" width={80} height={28} />
-              ) : (
-                <div className="text-2xl font-bold text-gray-900">
-                  ${kpi.totalMonthlyCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+            {CLOUD_SVG}
+            <div className="relative z-10">
+              <div className="flex items-start justify-between mb-2">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">Monthly Cost</p>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#3B82F614' }}>
+                  <Icon icon="mdi:currency-usd" width={18} color="#3B82F6" />
                 </div>
-              )}
-              <div className="text-xs text-gray-400 mt-0.5">24/7 run cost est.</div>
+              </div>
+              {isLoading
+                ? <div className="h-8 w-24 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
+                : <p style={NUM_STYLE}>${kpi.totalMonthlyCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>}
+              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">24/7 run cost est.</p>
             </div>
           </div>
 
           {/* Potential Savings */}
-          <div className="bg-white rounded-xl border border-emerald-100 shadow-sm p-5 flex items-center gap-4 relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-emerald-50/60 to-transparent pointer-events-none" />
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0 relative">
-              <i className="fas fa-piggy-bank text-emerald-600 text-lg"></i>
-            </div>
-            <div className="min-w-0 relative">
-              <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-0.5">
-                Potential Savings
-              </div>
-              {isLoading ? (
-                <Skeleton variant="text" width={80} height={28} />
-              ) : (
-                <div className="text-2xl font-bold text-emerald-700">
-                  ${kpi.potentialSavings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                  <span className="text-sm font-medium text-emerald-500 ml-1">/mo</span>
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+            {CLOUD_SVG}
+            <div className="relative z-10">
+              <div className="flex items-start justify-between mb-2">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">Potential Savings</p>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#16A34A14' }}>
+                  <Icon icon="mdi:piggy-bank" width={18} color="#16A34A" />
                 </div>
-              )}
-              <div className="text-xs text-emerald-600/70 mt-0.5 flex items-center gap-1">
-                <i className="fas fa-clock text-[10px]"></i>
-                From active schedule policies
               </div>
+              {isLoading
+                ? <div className="h-8 w-24 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
+                : <p style={{ ...NUM_STYLE, color: '#16A34A' }}>${kpi.potentialSavings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}<span className="text-[16px] font-normal ml-1">/mo</span></p>}
+              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">from active schedule policies</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Filter Bar */}
-      <div className="flex justify-between items-center mb-6 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-        <div className="flex gap-4 items-center">
-          <span className="text-sm font-bold text-gray-700 uppercase tracking-wide">
-            Filter Resources:
-          </span>
-          <label className="flex items-center gap-2 px-3 py-1.5 border rounded-lg cursor-pointer bg-indigo-50 border-indigo-100 text-indigo-700 transition-colors">
-            <input
-              type="checkbox"
-              checked
-              disabled
-              className="rounded text-indigo-600 focus:ring-indigo-500"
-            />
-            <span className="text-sm font-medium">
-              <i className={`${RESOURCE_LABEL[provider].icon} mr-1`}></i> {RESOURCE_LABEL[provider].label}
-            </span>
-          </label>
+      {/* Filter / Toolbar */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm px-4 py-3 mb-5 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Icon icon={provMeta.icon} width={14} color={provMeta.color} />
+          <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.55)]">{provMeta.label}</span>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex items-center gap-2 ml-auto">
           <button
             onClick={onRefresh}
             disabled={isLoading}
-            className="text-gray-600 hover:text-indigo-600 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition-all border border-gray-300 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 text-[11px] font-semibold text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-40 border border-[rgba(0,0,0,0.1)] rounded-lg px-3 py-1.5"
           >
-            <i className={`fas fa-sync-alt ${isLoading ? 'animate-spin' : ''}`}></i> Refresh
+            <svg className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
           </button>
 
           <button
             onClick={onManagePolicies}
-            className="text-gray-600 hover:text-indigo-600 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition-all border border-gray-300 flex items-center gap-2"
+            className="flex items-center gap-1.5 text-[11px] font-semibold text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors border border-[rgba(0,0,0,0.1)] rounded-lg px-3 py-1.5"
           >
-            <i className="fas fa-cog"></i> Manage Policies
+            <Icon icon="mdi:cog-outline" width={12} />
+            Manage Policies
           </button>
 
           <div className="relative">
-            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+            <Icon icon="mdi:magnify" width={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)]" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Search name or ID..."
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+              placeholder="Search name or ID…"
+              className="pl-7 pr-3 py-1.5 text-[12px] border border-[rgba(0,0,0,0.1)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white w-48 text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.3)]"
             />
           </div>
+
           <button
             onClick={onCreatePolicy}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg flex items-center gap-2"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[12px] font-semibold transition-colors"
           >
-            <i className="fas fa-plus"></i> Create Policy
+            <Icon icon="mdi:plus" width={13} />
+            Create Policy
           </button>
         </div>
       </div>
 
-      {/* Loading State */}
+      {/* Loading skeletons */}
       {isLoading && (
-        <div className="space-y-4">
-          {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm flex items-center gap-4">
-              <div className="flex-1">
-                <Skeleton variant="text" width="30%" height={24} className="mb-2" />
-                <Skeleton variant="text" width="50%" height={16} />
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="px-5 py-4 border-t border-[rgba(0,0,0,0.04)] animate-pulse flex items-center gap-4">
+              <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)] flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-2.5 w-40 bg-[rgba(0,0,0,0.06)] rounded" />
+                <div className="h-2 w-24 bg-[rgba(0,0,0,0.04)] rounded" />
               </div>
-              <Skeleton variant="text" width={100} height={32} className="rounded-md" />
+              <div className="h-6 w-24 bg-[rgba(0,0,0,0.04)] rounded-full" />
             </div>
           ))}
         </div>
@@ -263,157 +254,151 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
 
       {/* Empty State */}
       {!isLoading && (!accountId || resources.length === 0) && (
-        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-gray-200 shadow-sm">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-400 text-2xl">
-            <i className="fas fa-server"></i>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:server" width={22} color="rgba(0,0,0,0.3)" />
           </div>
-          <h3 className="text-lg font-bold text-gray-800 mb-1">No Resources Found</h3>
-          <p className="text-gray-500 text-sm max-w-md text-center">
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Resources Found</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
             {accountId
-              ? 'No EC2 instances matched your search criteria.'
-              : 'Please select an AWS account from the sidebar to view resources.'}
+              ? 'No instances matched your search criteria.'
+              : 'Select an account from the sidebar to view resources.'}
           </p>
         </div>
       )}
 
       {/* Resources Table */}
       {!isLoading && resources.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold border-b">
-              <tr>
-                <th className="p-4">Name / Instance ID</th>
-                <th className="p-4">Region</th>
-                <th className="p-4">Type</th>
-                <th className="p-4">State</th>
-                <th className="p-4">CloudSitter Policy</th>
-                <th className="p-4 text-right">Est. Monthly Cost</th>
-                <th className="p-4 text-right">Potential Savings</th>
-                <th className="p-4 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 text-sm">
-              {resources.map((resource) => {
-                const isTerminated = resource.state === 'terminated' || resource.state === 'stopped';
-                const monthlyCost = getMonthlyRunCost(resource);
-                const potSavings = getPotentialSavings(resource);
-                const hasPolicy = !!resource.policyName;
-                const recLoading = isRecommendationLoading(resource);
-                return (
-                  <tr key={resource.id} className="hover:bg-gray-50 transition-colors group">
-                    <td className="p-4">
-                      <div className="font-bold text-gray-900">{resource.name || '-'}</div>
-                      <div className="text-gray-500 text-xs font-mono mt-0.5 flex items-center gap-1">
-                        <span>{resource.id}</span>
-                        <i
-                          className="far fa-copy cursor-pointer hover:text-indigo-600"
-                          title="Copy ID"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigator.clipboard.writeText(resource.id);
-                          }}
-                        ></i>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <img
-                          src="/icons/aws-icon.png"
-                          className="w-4 h-4 object-contain"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                          alt="AWS"
-                        />
-                        <span>{resource.region}</span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-mono border border-gray-200">
-                        {resource.type}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`w-2.5 h-2.5 rounded-full ${resource.state === 'running' ? 'bg-green-500' : 'bg-gray-400'
-                            }`}
-                        ></div>
-                        <span className="text-gray-700 font-medium capitalize">{resource.state}</span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      {resource.policyName ? (
-                        <div className="flex items-center gap-2">
-                          <span className="bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5">
-                            <i className="fas fa-clock"></i> <span>{resource.policyName}</span>
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="text-gray-400 text-xs italic pl-2">No Policy</div>
-                      )}
-                    </td>
-                    <td className="p-4 text-right">
-                      {isTerminated ? (
-                        <div className="text-gray-300">—</div>
-                      ) : (
-                        <>
-                          <div className="text-gray-600 font-medium">${monthlyCost.toFixed(2)}</div>
-                          <div className="text-gray-400 text-xs">24/7 est.</div>
-                        </>
-                      )}
-                    </td>
-                    <td className="p-4 text-right">
-                      {isTerminated ? (
-                        <div className="text-gray-300">—</div>
-                      ) : recLoading ? (
-                        <div className="flex flex-col items-end gap-1">
-                          <div className="h-4 w-16 bg-gray-100 rounded animate-pulse" />
-                          <div className="text-xs text-gray-300 flex items-center gap-1">
-                            <i className="fas fa-circle-notch fa-spin text-[10px]"></i> Analyzing
-                          </div>
-                        </div>
-                      ) : !hasPolicy && (potSavings === null || potSavings === 0) ? (
-                        <div className="text-gray-300">—</div>
-                      ) : (
-                        <>
-                          <div
-                            className={`font-bold ${hasPolicy ? 'text-emerald-600' : 'text-amber-500'}`}
-                            title={
-                              !hasPolicy && resource.recommendedOffHoursPerWeek
-                                ? `Based on ${resource.recommendedOffHoursPerWeek}h/week off-hours from past CPU usage`
-                                : undefined
-                            }
-                          >
-                            ${(potSavings ?? 0).toFixed(2)}
-                          </div>
-                          <div className={`text-xs mt-0.5 ${hasPolicy ? 'text-emerald-500' : 'text-amber-400'}`}>
-                            {hasPolicy ? (
-                              <span className="flex items-center justify-end gap-1">
-                                <i className="fas fa-check-circle text-[10px]"></i> Active
-                              </span>
-                            ) : (
-                              <span className="flex items-center justify-end gap-1" title="Estimated from historical CPU utilisation">
-                                <i className="fas fa-brain text-[10px]"></i> AI Estimate
-                              </span>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </td>
-                    <td className="p-4 text-center">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+          {/* Column headers */}
+          <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
+            <div className="col-span-3">Name / ID</div>
+            <div className="col-span-2">Region</div>
+            <div className="col-span-1">Type</div>
+            <div className="col-span-1">State</div>
+            <div className="col-span-2">CloudSitter Policy</div>
+            <div className="col-span-1">Cost/mo</div>
+            <div className="col-span-1">Savings</div>
+            <div className="col-span-1 text-center">Actions</div>
+          </div>
+
+          {resources.map((resource) => {
+            const isTerminated = resource.state === 'terminated' || resource.state === 'stopped';
+            const monthlyCost  = getMonthlyRunCost(resource);
+            const potSavings   = getPotentialSavings(resource);
+            const hasPolicy    = !!resource.policyName;
+            const recLoading   = isRecommendationLoading(resource);
+
+            return (
+              <div
+                key={resource.id}
+                className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+              >
+                {/* Name / ID */}
+                <div className="col-span-3 flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border border-[rgba(0,0,0,0.08)]" style={{ backgroundColor: '#6366F114' }}>
+                    <Icon icon="mdi:server" width={14} color="#6366F1" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[rgba(0,0,0,0.88)] truncate">{resource.name || '—'}</p>
+                    <div className="flex items-center gap-1 text-[11px] text-[rgba(0,0,0,0.35)] font-mono">
+                      <span className="truncate">{resource.id}</span>
                       <button
-                        onClick={() => onAssignPolicy(resource)}
-                        className="text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border border-transparent hover:border-indigo-200"
+                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(resource.id); }}
+                        className="flex-shrink-0 hover:text-indigo-500 transition-colors"
+                        title="Copy ID"
                       >
-                        <i className="fas fa-calendar-check mr-1"></i> Assign
+                        <Icon icon="mdi:content-copy" width={10} />
                       </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Region */}
+                <div className="col-span-2 flex items-center gap-1.5 text-[rgba(0,0,0,0.55)]">
+                  <Icon icon={provMeta.icon} width={13} color={provMeta.color} />
+                  <span>{resource.region}</span>
+                </div>
+
+                {/* Type */}
+                <div className="col-span-1">
+                  <span className="px-2 py-0.5 rounded bg-[rgba(0,0,0,0.04)] text-[11px] font-mono text-[rgba(0,0,0,0.65)] border border-[rgba(0,0,0,0.06)]">
+                    {resource.type}
+                  </span>
+                </div>
+
+                {/* State */}
+                <div className="col-span-1 flex items-center gap-1.5">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${resource.state === 'running' ? 'bg-emerald-500' : 'bg-[rgba(0,0,0,0.2)]'}`} />
+                  <span className="capitalize text-[rgba(0,0,0,0.65)]">{resource.state}</span>
+                </div>
+
+                {/* Policy */}
+                <div className="col-span-2">
+                  {resource.policyName ? (
+                    <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-0.5 rounded-full text-[11px] font-semibold">
+                      <Icon icon="mdi:clock-outline" width={11} />
+                      {resource.policyName}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-[rgba(0,0,0,0.3)] italic">No Policy</span>
+                  )}
+                </div>
+
+                {/* Cost */}
+                <div className="col-span-1">
+                  {isTerminated ? (
+                    <span className="text-[rgba(0,0,0,0.2)]">—</span>
+                  ) : (
+                    <>
+                      <p className="font-semibold text-[rgba(0,0,0,0.88)]">${monthlyCost.toFixed(2)}</p>
+                      <p className="text-[11px] text-[rgba(0,0,0,0.35)]">24/7 est.</p>
+                    </>
+                  )}
+                </div>
+
+                {/* Savings */}
+                <div className="col-span-1">
+                  {isTerminated ? (
+                    <span className="text-[rgba(0,0,0,0.2)]">—</span>
+                  ) : recLoading ? (
+                    <div>
+                      <div className="h-4 w-14 bg-[rgba(0,0,0,0.06)] rounded animate-pulse mb-1" />
+                      <div className="flex items-center gap-1 text-[10px] text-[rgba(0,0,0,0.3)]">
+                        <Icon icon="mdi:loading" width={10} className="animate-spin" /> Analyzing
+                      </div>
+                    </div>
+                  ) : !hasPolicy && (potSavings === null || potSavings === 0) ? (
+                    <span className="text-[rgba(0,0,0,0.2)]">—</span>
+                  ) : (
+                    <>
+                      <p className={`font-semibold ${hasPolicy ? 'text-emerald-600' : 'text-amber-500'}`}>
+                        ${(potSavings ?? 0).toFixed(2)}
+                      </p>
+                      <div className={`text-[10px] mt-0.5 flex items-center gap-1 ${hasPolicy ? 'text-emerald-500' : 'text-amber-400'}`}>
+                        {hasPolicy ? (
+                          <><Icon icon="mdi:check-circle" width={10} /> Active</>
+                        ) : (
+                          <><Icon icon="mdi:brain" width={10} /> AI Estimate</>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="col-span-1 flex justify-center">
+                  <button
+                    onClick={() => onAssignPolicy(resource)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 transition-colors"
+                  >
+                    <Icon icon="mdi:calendar-check-outline" width={11} />
+                    Assign
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </>

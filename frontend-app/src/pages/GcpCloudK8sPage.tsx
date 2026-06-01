@@ -16,7 +16,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import apiClient from '../utils/apiClient';
-import clsx from 'clsx';
+import { Icon } from '@iconify/react';
 import GcpCloudK8sClusterTable from '../components/GcpCloudK8s/GcpCloudK8sClusterTable';
 import GcpCloudK8sIntegrations from '../components/GcpCloudK8s/GcpCloudK8sIntegrations';
 import GcpCloudK8sHelpModal from '../components/GcpCloudK8s/GcpCloudK8sHelpModal';
@@ -113,17 +113,27 @@ const GcpCloudK8sPage: React.FC = () => {
     }
   }, [selectedAccountDisplay.provider, navigate]);
 
-  // Topbar Integration
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-amber-400" />
+        <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.65)]">GKE Dashboard</span>
+        <span className="text-[rgba(0,0,0,0.2)]">|</span>
         <button
           onClick={() => fetchClusters(true)}
           disabled={isRefreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors disabled:opacity-50"
         >
-          <i className={clsx('fas fa-sync-alt', isRefreshing && 'animate-spin')}></i>
-          <span>{isRefreshing ? 'Refreshing...' : 'Refresh Now'}</span>
+          <Icon icon={isRefreshing ? 'mdi:loading' : 'mdi:refresh'} width={13} className={isRefreshing ? 'animate-spin' : ''} />
+          {isRefreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+        <span className="text-[rgba(0,0,0,0.2)]">|</span>
+        <button
+          onClick={() => setIsHelpModalOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors"
+        >
+          <Icon icon="mdi:book-open-outline" width={13} />
+          Setup Guide
         </button>
       </div>
     );
@@ -131,34 +141,13 @@ const GcpCloudK8sPage: React.FC = () => {
   }, [setActions, clearActions, isRefreshing, fetchClusters]);
 
   return (
-    <main className="gcp-cloudk8s-page flex-1 flex flex-col min-h-screen bg-gray-50">
-      {/* Header Removed - Integrated into Topbar */}
-
-      {/* Main Content */}
-      <div className="flex-1 p-4 md:p-8 space-y-8">
-        <div className="space-y-8">
-          {/* Clusters Table */}
-          <GcpCloudK8sClusterTable
-            clusters={clusters}
-            isLoading={isLoading}
-            onViewDetails={navigateToDetails}
-          />
-
-          {/* Available Integrations */}
-          <GcpCloudK8sIntegrations />
-        </div>
-      </div>
-
-      {/* Floating Help Button */}
-      <button
-        onClick={() => setIsHelpModalOpen(true)}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-2xl shadow-lg cursor-pointer hover:scale-110 hover:shadow-xl transition-all z-30 group"
-        aria-label="Open setup guide"
-      >
-        <i className="fas fa-question group-hover:animate-pulse"></i>
-      </button>
-
-      {/* Help Modal */}
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
+      <GcpCloudK8sClusterTable
+        clusters={clusters}
+        isLoading={isLoading}
+        onViewDetails={navigateToDetails}
+      />
+      <GcpCloudK8sIntegrations />
       <GcpCloudK8sHelpModal
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}

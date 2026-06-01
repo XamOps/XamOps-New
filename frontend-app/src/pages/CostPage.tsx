@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useCostData } from '../hooks/useCostData';
 import type { CostFilters, HistoricalData, ForecastData, CostDataItem } from '../types/cost';
@@ -232,12 +233,12 @@ const CostPage: React.FC = () => {
       <div className="flex-1 p-8 space-y-8">
         {/* No Account State */}
         {!selectedAccountId && !isLoading && (
-          <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
-            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-              <i className="fas fa-dollar-sign text-gray-400 text-2xl"></i>
+          <div className="text-center py-12 rounded-xl border border-dashed border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.02)]">
+            <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mx-auto mb-4">
+              <Icon icon="mdi:currency-usd" width={28} color="rgba(0,0,0,0.25)" />
             </div>
-            <h4 className="text-lg font-bold text-gray-800 mb-2">No Account Selected</h4>
-            <p className="text-gray-600">Please select an account from the sidebar to view cost management data.</p>
+            <h4 className="text-sm font-bold text-[rgba(0,0,0,0.7)] mb-2">No Account Selected</h4>
+            <p className="text-sm text-[rgba(0,0,0,0.4)]">Please select an account from the sidebar to view cost management data.</p>
           </div>
         )}
 

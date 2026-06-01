@@ -1,10 +1,5 @@
-/**
- * XamOps Recommendations Table Component
- *
- * Displays XamAi rightsizing recommendations in a table format
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { XamOpsRecommendation } from '../../hooks/useRightsizingData';
 
 interface XamOpsRecommendationsTableProps {
@@ -14,181 +9,147 @@ interface XamOpsRecommendationsTableProps {
   onApply?: (instanceId: string, targetType: string, region: string) => void;
 }
 
+const extractInstanceType = (recommendation: string): string =>
+  recommendation.split('(')[0].trim();
+
+const extractUtilization = (recommendation: string): string => {
+  const match = recommendation.match(/\((.*?)\)/);
+  return match ? match[0] : '';
+};
+
 const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
   recommendations,
   isLoading,
   canApply = false,
   onApply,
 }) => {
-  // Extract instance type from recommendation string
-  const extractInstanceType = (recommendation: string): string => {
-    return recommendation.split('(')[0].trim();
-  };
-
-  // Extract utilization info from recommendation string
-  const extractUtilization = (recommendation: string): string => {
-    const match = recommendation.match(/\((.*?)\)/);
-    return match ? match[0] : '';
-  };
-
-  // Loading State
   if (isLoading) {
     return (
-      <div className="glass-card-table p-6">
-        <div className="skeleton h-96 rounded-2xl"></div>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
+          <div className="h-2.5 w-48 bg-[rgba(0,0,0,0.06)] rounded" />
+        </div>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="px-5 py-4 border-t border-[rgba(0,0,0,0.04)] animate-pulse flex items-center gap-4">
+            <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)] flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="h-2.5 w-40 bg-[rgba(0,0,0,0.06)] rounded" />
+              <div className="h-2 w-24 bg-[rgba(0,0,0,0.04)] rounded" />
+            </div>
+            <div className="h-2.5 w-20 bg-[rgba(0,0,0,0.06)] rounded" />
+          </div>
+        ))}
       </div>
     );
   }
 
-  // Table with Data
   return (
-    <div className="glass-card-table p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center space-x-4">
-          <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-            <i className="fas fa-bolt text-white"></i>
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">XamAi Recommendations</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Proprietary analysis for enhanced optimization</p>
-          </div>
-        </div>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      {/* Subheader */}
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
+        <Icon icon="mdi:lightning-bolt" width={14} color="#6366F1" />
+        <span className="text-[11px] text-[rgba(0,0,0,0.4)] italic">Proprietary XamAi analysis — cross-architecture Intel &amp; AMD recommendations</span>
+        <span className="ml-auto text-[11px] font-semibold text-[rgba(0,0,0,0.4)]">{recommendations.length} item{recommendations.length !== 1 ? 's' : ''}</span>
       </div>
 
-      <div
-        className="table-scroll-container"
-        onScroll={(e) => {
-          const target = e.currentTarget;
-          const isAtEnd = target.scrollLeft + target.clientWidth >= target.scrollWidth - 10;
-          if (isAtEnd) {
-            target.classList.add('scrolled-to-end');
-          } else {
-            target.classList.remove('scrolled-to-end');
-          }
-        }}
-      >
-        <div className="table-enhanced">
-          <table style={{ tableLayout: 'fixed', width: '100%', minWidth: '1200px' }}>
-            <colgroup>
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '19%' }} />
-              <col style={{ width: '16%' }} />
-            </colgroup>
-            <thead className="sticky top-0 !bg-gradient-to-r !from-gray-50 !to-gray-100 dark:!from-gray-800 dark:!to-gray-900">
-              <tr>
-                <th className="!text-gray-700 dark:!text-gray-300">Instance</th>
-                <th className="!text-gray-700 dark:!text-gray-300">Current<br />Instance</th>
-                <th className="!text-gray-700 dark:!text-gray-300">Load Range</th>
-                <th className="!text-gray-700 dark:!text-gray-300">Intel Rec</th>
-                <th className="!text-gray-700 dark:!text-gray-300">AMD Rec</th>
-                <th className="!text-gray-700 dark:!text-gray-300">Projected<br />Max Util</th>
-                <th className="!text-gray-700 dark:!text-gray-300">Approx.<br />Savings</th>
-                <th className="!text-gray-700 dark:!text-gray-300">Reason</th>
-                <th className="!text-gray-700 dark:!text-gray-300">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recommendations.map((rec, index) => (
-                <tr key={`${rec.instanceId || rec.currentInstance}-${index}`}>
-                  <td className="first-cell-indicator">
-                    <div className="flex items-center space-x-1">
-                      <i className="fas fa-server text-indigo-600 dark:text-indigo-400" style={{ fontSize: '0.6rem' }}></i>
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-semibold text-gray-800 dark:text-gray-200 truncate" style={{ fontSize: '0.75rem' }}>
-                          {rec.instanceName || rec.instanceId || 'N/A'}
-                        </span>
-                        {rec.instanceName && (
-                          <span className="font-mono text-gray-400 dark:text-gray-500 truncate" style={{ fontSize: '0.65rem' }}>
-                            {rec.instanceId}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="flex flex-col">
-                      <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{rec.currentInstance}</span>
-                      {rec.currentUtilization && (
-                        <span className="text-indigo-600 dark:text-indigo-400 font-medium" style={{ fontSize: '0.65rem' }}>
-                          {rec.currentUtilization}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="text-gray-900 dark:text-gray-100">{rec.loadRange}</td>
-                  <td>
-                    <div className="flex flex-col">
-                      <span className="font-medium text-gray-800 dark:text-gray-200" style={{ fontSize: '0.7rem' }}>
-                        {extractInstanceType(rec.intelRecommendation)}
-                      </span>
-                      {extractUtilization(rec.intelRecommendation) && (
-                        <span className="text-gray-500 dark:text-gray-400" style={{ fontSize: '0.6rem' }}>
-                          {extractUtilization(rec.intelRecommendation)}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="flex flex-col">
-                      <span className="font-medium text-gray-800 dark:text-gray-200" style={{ fontSize: '0.7rem' }}>
-                        {extractInstanceType(rec.amdRecommendation)}
-                      </span>
-                      {extractUtilization(rec.amdRecommendation) && (
-                        <span className="text-gray-500 dark:text-gray-400" style={{ fontSize: '0.6rem' }}>
-                          {extractUtilization(rec.amdRecommendation)}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="text-gray-900 dark:text-gray-100">{rec.projectedMaxUtil}</td>
-                  <td>
-                    <span className="savings-badge">{rec.approxCostSavings}</span>
-                  </td>
-                  <td className="reason-text text-gray-900 dark:text-gray-100">
-                    {rec.reason}
-                  </td>
-                  <td>
-                    <div className="flex flex-col gap-1">
-                      <button
-                        onClick={() => onApply && rec.region && onApply(rec.instanceId, extractInstanceType(rec.intelRecommendation), rec.region)}
-                        disabled={!canApply || !rec.region || !onApply}
-                        title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply Intel: ${extractInstanceType(rec.intelRecommendation)}`}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-all ${
-                          canApply && rec.region
-                            ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                        }`}
-                        style={{ fontSize: '0.65rem' }}
-                      >
-                        <i className="fas fa-microchip"></i> Intel
-                      </button>
-                      <button
-                        onClick={() => onApply && rec.region && onApply(rec.instanceId, extractInstanceType(rec.amdRecommendation), rec.region)}
-                        disabled={!canApply || !rec.region || !onApply}
-                        title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply AMD: ${extractInstanceType(rec.amdRecommendation)}`}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-all ${
-                          canApply && rec.region
-                            ? 'bg-purple-600 hover:bg-purple-700 text-white cursor-pointer'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                        }`}
-                        style={{ fontSize: '0.65rem' }}
-                      >
-                        <i className="fas fa-microchip"></i> AMD
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Column headers */}
+      <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
+        <div className="col-span-3">Instance</div>
+        <div className="col-span-1">Current</div>
+        <div className="col-span-1">Load</div>
+        <div className="col-span-2">Intel Rec</div>
+        <div className="col-span-2">AMD Rec</div>
+        <div className="col-span-1">Max Util</div>
+        <div className="col-span-1">Savings</div>
+        <div className="col-span-1 text-right">Action</div>
       </div>
+
+      {/* Rows */}
+      {recommendations.map((rec, idx) => {
+        const intelType = extractInstanceType(rec.intelRecommendation);
+        const amdType = extractInstanceType(rec.amdRecommendation);
+        const intelUtil = extractUtilization(rec.intelRecommendation);
+        const amdUtil = extractUtilization(rec.amdRecommendation);
+
+        return (
+          <div
+            key={`${rec.instanceId || rec.currentInstance}-${idx}`}
+            className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[12px]"
+          >
+            {/* Instance */}
+            <div className="col-span-3 flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border border-[rgba(0,0,0,0.08)]" style={{ backgroundColor: '#6366F114' }}>
+                <Icon icon="mdi:server" width={14} color="#6366F1" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-[rgba(0,0,0,0.88)] truncate text-[13px]">{rec.instanceName || rec.instanceId || 'N/A'}</p>
+                {rec.instanceName && (
+                  <p className="text-[10px] font-mono text-[rgba(0,0,0,0.35)] truncate">{rec.instanceId}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Current instance */}
+            <div className="col-span-1">
+              <p className="font-mono font-semibold text-[rgba(0,0,0,0.88)] text-[11px]">{rec.currentInstance}</p>
+              {rec.currentUtilization && (
+                <p className="text-[10px] text-indigo-500 font-medium">{rec.currentUtilization}</p>
+              )}
+            </div>
+
+            {/* Load range */}
+            <div className="col-span-1 text-[rgba(0,0,0,0.55)]">{rec.loadRange}</div>
+
+            {/* Intel rec */}
+            <div className="col-span-2">
+              <p className="font-mono font-medium text-[rgba(0,0,0,0.8)] text-[11px]">{intelType}</p>
+              {intelUtil && <p className="text-[10px] text-[rgba(0,0,0,0.35)]">{intelUtil}</p>}
+            </div>
+
+            {/* AMD rec */}
+            <div className="col-span-2">
+              <p className="font-mono font-medium text-[rgba(0,0,0,0.8)] text-[11px]">{amdType}</p>
+              {amdUtil && <p className="text-[10px] text-[rgba(0,0,0,0.35)]">{amdUtil}</p>}
+            </div>
+
+            {/* Projected max util */}
+            <div className="col-span-1 text-[rgba(0,0,0,0.55)]">{rec.projectedMaxUtil}</div>
+
+            {/* Savings */}
+            <div className="col-span-1 font-semibold text-emerald-600">{rec.approxCostSavings}</div>
+
+            {/* Actions */}
+            <div className="col-span-1 flex flex-col items-end gap-1">
+              <button
+                onClick={() => onApply && rec.region && onApply(rec.instanceId, intelType, rec.region)}
+                disabled={!canApply || !rec.region || !onApply}
+                title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply Intel: ${intelType}`}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border transition-colors ${
+                  canApply && rec.region
+                    ? 'border-blue-200 text-blue-600 hover:bg-blue-50 cursor-pointer'
+                    : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.25)] cursor-not-allowed'
+                }`}
+              >
+                <Icon icon="mdi:chip" width={10} />
+                Intel
+              </button>
+              <button
+                onClick={() => onApply && rec.region && onApply(rec.instanceId, amdType, rec.region)}
+                disabled={!canApply || !rec.region || !onApply}
+                title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply AMD: ${amdType}`}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border transition-colors ${
+                  canApply && rec.region
+                    ? 'border-purple-200 text-purple-600 hover:bg-purple-50 cursor-pointer'
+                    : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.25)] cursor-not-allowed'
+                }`}
+              >
+                <Icon icon="mdi:chip" width={10} />
+                AMD
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };

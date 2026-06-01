@@ -1,27 +1,10 @@
-/**
- * Rightsizing Page
- *
- * Converted from: rightsizing.html
- *
- * This is the main Rightsizing page for optimizing cloud resource sizing.
- *
- * Features:
- * - Two tabs: AWS Recommendations and XamAi Recommendations
- * - Real-time data fetching from backend
- * - AI-powered analysis for detailed recommendations
- * - Resource scanning with force refresh
- * - Session storage caching for better performance
- * - Cost comparison and savings calculations
- */
-
 import React, { useState, useCallback } from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useRightsizingData } from '../hooks/useRightsizingData';
-import { AriaTabGroup } from '../components/ui';
 import { AlertDialog } from '../components/ui/AlertDialog';
 import apiClient from '../utils/apiClient';
 
-// Component imports
 import RightsizingHeader from '../components/Rightsizing/RightsizingHeader';
 import AWSRecommendationsTable from '../components/Rightsizing/AWSRecommendationsTable';
 import XamOpsRecommendationsTable from '../components/Rightsizing/XamOpsRecommendationsTable';
@@ -38,11 +21,9 @@ export const RightsizingPage: React.FC = () => {
   const { selectedAccountIds, accounts } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  // Determine if the active account has read-write access
   const selectedAccount = accounts.find(a => a.id === selectedAccountIds[0]);
   const canApply = selectedAccount?.access === 'read-write';
 
-  // Get rightsizing data
   const {
     awsRecommendations,
     xamopsRecommendations,
@@ -51,41 +32,27 @@ export const RightsizingPage: React.FC = () => {
     isRefreshing,
     error,
     refreshAll,
-  } = useRightsizingData({
-    selectedAccountId,
-  });
+  } = useRightsizingData({ selectedAccountId });
 
-  // Tab state
   const [activeTab, setActiveTab] = useTabState<'aws' | 'xamops'>('aws');
-
-  // Apply confirmation state
   const [applyTarget, setApplyTarget] = useState<ApplyTarget | null>(null);
   const [isApplying, setIsApplying] = useState(false);
 
-  // Filter out already optimized resources from AWS recommendations
   const filteredAWSRecommendations = awsRecommendations.filter(rec => {
-    // Check recommendedType field
     if (rec.recommendedType) {
-      const recType = rec.recommendedType.toLowerCase();
-      if (recType.includes('optimized')) return false;
+      if (rec.recommendedType.toLowerCase().includes('optimized')) return false;
     }
-
-    // Check recommendationReason field for optimized resources
     if (rec.recommendationReason) {
       const reason = rec.recommendationReason.toLowerCase();
       if (reason.includes('optimized') || reason.includes('no recommendation')) return false;
     }
-
     return true;
   });
 
-  // Handle apply request — find the current type from the recommendation list
   const handleApplyRequest = useCallback((instanceId: string, targetType: string, region: string) => {
-    // Look up current type from both recommendation lists
     const awsRec = awsRecommendations.find(r => r.resourceId === instanceId);
     const xamopsRec = xamopsRecommendations.find(r => r.instanceId === instanceId);
     const currentType = awsRec?.currentType || xamopsRec?.currentInstance || 'current type';
-
     setApplyTarget({ instanceId, currentType, targetType, region });
   }, [awsRecommendations, xamopsRecommendations]);
 
@@ -106,113 +73,114 @@ export const RightsizingPage: React.FC = () => {
     }
   }, [applyTarget, selectedAccountId]);
 
-  // Show error state
   if (error) {
     return (
-      <main className="flex-1 flex flex-col min-h-screen bg-transparent">
-        <div className="fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
-          <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
-              <i className="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
-            </div>
-            <h2 className="text-2xl font-bold text-center mb-4 text-gray-800">Error</h2>
-            <p className="text-center text-gray-600 mb-6">{error.message}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Try Again
-            </button>
+      <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
+        <RightsizingHeader isRefreshing={false} onRefresh={refreshAll} />
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+          <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:alert-circle-outline" width={22} color="#DC2626" />
           </div>
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">Error Loading Data</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-4">{error.message}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 text-[12px] font-semibold rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors"
+          >
+            Try Again
+          </button>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="flex-1 flex flex-col min-h-screen bg-transparent min-w-0 overflow-x-auto">
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <RightsizingHeader isRefreshing={isRefreshing} onRefresh={refreshAll} />
 
-      <div className="flex-1 p-8 space-y-8 min-w-0">
-        {/* No Account State */}
-        {!selectedAccountId && !isLoadingAWS && !isLoadingXamOps && (
-          <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
-            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-              <i className="fas fa-compress-arrows-alt text-gray-400 text-2xl"></i>
-            </div>
-            <h4 className="text-lg font-bold text-gray-800 mb-2">No Account Selected</h4>
-            <p className="text-gray-600">
-              Please select an account from the sidebar to view rightsizing recommendations.
-            </p>
+      {/* No account */}
+      {!selectedAccountId && !isLoadingAWS && !isLoadingXamOps && (
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:resize" width={22} color="rgba(0,0,0,0.3)" />
           </div>
-        )}
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Account Selected</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Select an AWS account from the sidebar to view rightsizing recommendations.</p>
+        </div>
+      )}
 
-        {/* Tabs */}
-        {selectedAccountId && (
-          <>
-            <AriaTabGroup
-              tabs={[
-                { id: 'aws',    label: 'AWS Recommendations',  icon: 'fab fa-aws' },
-                { id: 'xamops', label: 'XamAi Recommendations', icon: 'fas fa-bolt' },
-              ]}
-              selectedKey={activeTab}
-              onSelectionChange={(key) => setActiveTab(key as 'aws' | 'xamops')}
-            />
+      {/* Tabs + content */}
+      {selectedAccountId && (
+        <>
+          {/* Tab switcher */}
+          <div className="flex gap-1 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.07)] rounded-xl p-1 w-fit">
+            {([
+              { id: 'aws', label: 'AWS Recommendations', icon: 'mdi:aws' },
+              { id: 'xamops', label: 'XamAi Recommendations', icon: 'mdi:lightning-bolt' },
+            ] as const).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[12px] font-semibold transition-all ${
+                  activeTab === tab.id
+                    ? 'bg-white shadow-sm text-[rgba(0,0,0,0.88)] border border-[rgba(0,0,0,0.08)]'
+                    : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'
+                }`}
+              >
+                <Icon icon={tab.icon} width={14} />
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-            {/* AWS Recommendations Tab */}
-            {activeTab === 'aws' && (
-              !isLoadingAWS && filteredAWSRecommendations.length === 0 ? (
-                <div className="rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-md p-8 text-center">
-                  <div className="w-14 h-14 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <i className="fas fa-inbox text-gray-400 dark:text-gray-500 text-xl"></i>
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">No Recommendations</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">No rightsizing recommendations available at this time.</p>
-                  <div className="inline-flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl px-4 py-3 text-left max-w-md mx-auto">
-                    <i className="fas fa-exclamation-triangle text-amber-500 mt-0.5 flex-shrink-0 text-sm"></i>
-                    <p className="text-xs text-amber-700 dark:text-amber-300">
-                      If you expected recommendations, ensure <strong>AWS Cost Optimization Hub</strong> is enabled in your AWS Cost Management console.
-                    </p>
-                  </div>
+          {/* AWS tab */}
+          {activeTab === 'aws' && (
+            !isLoadingAWS && filteredAWSRecommendations.length === 0 ? (
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
+                  <Icon icon="mdi:check-circle-outline" width={24} color="#16A34A" />
                 </div>
-              ) : (
-                <div className="fade-in">
-                  <AWSRecommendationsTable
-                    recommendations={filteredAWSRecommendations}
-                    isLoading={isLoadingAWS}
-                    canApply={canApply}
-                    onApply={handleApplyRequest}
-                  />
+                <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Recommendations</p>
+                <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-4">No rightsizing recommendations available at this time.</p>
+                <div className="inline-flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-left max-w-md mx-auto">
+                  <Icon icon="mdi:information-outline" width={15} color="#D97706" className="flex-shrink-0 mt-0.5" />
+                  <p className="text-[12px] text-amber-700">
+                    Ensure <strong>AWS Cost Optimization Hub</strong> is enabled in your AWS Cost Management console.
+                  </p>
                 </div>
-              )
-            )}
+              </div>
+            ) : (
+              <AWSRecommendationsTable
+                recommendations={filteredAWSRecommendations}
+                isLoading={isLoadingAWS}
+                canApply={canApply}
+                onApply={handleApplyRequest}
+              />
+            )
+          )}
 
-            {/* XamOps Recommendations Tab */}
-            {activeTab === 'xamops' && (
-              !isLoadingXamOps && xamopsRecommendations.length === 0 ? (
-                <div className="rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-md p-8 text-center">
-                  <div className="w-14 h-14 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <i className="fas fa-lightbulb text-gray-400 dark:text-gray-500 text-xl"></i>
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">No XamOps Recommendations</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Could not load custom recommendations at this time.</p>
+          {/* XamOps tab */}
+          {activeTab === 'xamops' && (
+            !isLoadingXamOps && xamopsRecommendations.length === 0 ? (
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+                <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Icon icon="mdi:lightning-bolt-outline" width={24} color="rgba(0,0,0,0.3)" />
                 </div>
-              ) : (
-                <div className="fade-in">
-                  <XamOpsRecommendationsTable
-                    recommendations={xamopsRecommendations}
-                    isLoading={isLoadingXamOps}
-                    canApply={canApply}
-                    onApply={handleApplyRequest}
-                  />
-                </div>
-              )
-            )}
-          </>
-        )}
-      </div>
+                <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No XamAi Recommendations</p>
+                <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Could not load custom recommendations at this time.</p>
+              </div>
+            ) : (
+              <XamOpsRecommendationsTable
+                recommendations={xamopsRecommendations}
+                isLoading={isLoadingXamOps}
+                canApply={canApply}
+                onApply={handleApplyRequest}
+              />
+            )
+          )}
+        </>
+      )}
 
-      {/* Apply Rightsizing Confirmation Dialog */}
       <AlertDialog
         isOpen={applyTarget !== null}
         title="Apply Rightsizing?"

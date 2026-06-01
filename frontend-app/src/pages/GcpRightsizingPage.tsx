@@ -1,90 +1,71 @@
-/**
- * GCP Rightsizing Page
- *
- * Converted from: gcp_rightsizing.html
- *
- * Features:
- * - KPI cards (Potential Savings, Current Costs, Recommendations, Top Service)
- * - Recommendations table with filtering and search
- * - Real-time data fetching from backend
- * - Force refresh capability
- * - LocalStorage caching for 24 hours
- * - Modern GCP styling with improved UI/UX
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpRightsizingData } from '../hooks/useGcpRightsizingData';
 
-// Component imports
 import {
   GcpRightsizingHeader,
   GcpRightsizingKPICards,
   GcpRightsizingTable,
 } from '../components/GcpRightsizing';
 
-// Import styles
-import '../styles/gcpRightsizing.css';
-
 const GcpRightsizingPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  // Get rightsizing data using custom hook
   const { recommendations, isLoading, isRefreshing, loadRecommendations } = useGcpRightsizingData({
     selectedAccountId,
   });
 
-  // Refresh handler
-  const handleRefresh = () => {
-    loadRecommendations(true);
-  };
+  const handleRefresh = () => loadRecommendations(true);
 
   return (
-    <main className="gcp-rightsizing-page">
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <GcpRightsizingHeader isRefreshing={isRefreshing} onRefresh={handleRefresh} />
 
-      <div className="gcp-rightsizing-content">
-        {/* No Account State */}
-        {!selectedAccountId && !isLoading && (
-          <div className="gcp-rightsizing-no-account">
-            <div className="gcp-rightsizing-no-account-icon">
-              <i className="fas fa-compress-arrows-alt"></i>
-            </div>
-            <h4>No Account Selected</h4>
-            <p>Please select a GCP account from the sidebar to view rightsizing recommendations.</p>
+      {/* No account */}
+      {!selectedAccountId && !isLoading && (
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:resize" width={22} color="rgba(0,0,0,0.3)" />
           </div>
-        )}
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Account Selected</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Select a GCP account from the sidebar to view rightsizing recommendations.</p>
+        </div>
+      )}
 
-        {/* Loading State */}
-        {selectedAccountId && isLoading && recommendations.length === 0 && (
-          <div className="gcp-rightsizing-loading">
-            {/* KPI Skeleton */}
-            <div className="gcp-rightsizing-kpi-cards">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="gcp-rightsizing-skeleton-card"></div>
-              ))}
-            </div>
-            {/* Table Skeleton */}
-            <div className="gcp-rightsizing-skeleton-table"></div>
+      {/* Loading skeletons */}
+      {selectedAccountId && isLoading && recommendations.length === 0 && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-[110px] animate-pulse">
+                <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+                <div className="h-7 w-28 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+                <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] rounded" />
+              </div>
+            ))}
           </div>
-        )}
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="px-5 py-4 border-t border-[rgba(0,0,0,0.04)] animate-pulse flex items-center gap-4">
+                <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)] flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-2.5 w-40 bg-[rgba(0,0,0,0.06)] rounded" />
+                  <div className="h-2 w-24 bg-[rgba(0,0,0,0.04)] rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
-        {/* Rightsizing Data Content */}
-        {selectedAccountId && !isLoading && (
-          <>
-            {/* KPI Cards */}
-            <GcpRightsizingKPICards recommendations={recommendations} isLoading={isLoading} />
-
-            {/* Recommendations Table */}
-            <GcpRightsizingTable
-              recommendations={recommendations}
-              isLoading={isLoading}
-              onRefresh={handleRefresh}
-            />
-          </>
-        )}
-      </div>
+      {selectedAccountId && !isLoading && (
+        <>
+          <GcpRightsizingKPICards recommendations={recommendations} isLoading={isLoading} />
+          <GcpRightsizingTable recommendations={recommendations} isLoading={isLoading} onRefresh={handleRefresh} />
+        </>
+      )}
     </main>
   );
 };

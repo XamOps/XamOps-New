@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import { useTopbar } from '../../contexts/TopbarContext';
 
 interface AzureAlertsHeaderProps {
@@ -18,7 +19,7 @@ const AzureAlertsHeader: React.FC<AzureAlertsHeaderProps> = ({
     setActions(
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 text-xs font-semibold px-3 py-1.5 rounded-full">
-          <i className="fas fa-chart-line text-xs"></i>
+          <Icon icon="mdi:chart-line" width={12} />
           <span>Powered by Azure Monitor</span>
         </div>
         {selectedAccountId && (
@@ -27,7 +28,7 @@ const AzureAlertsHeader: React.FC<AzureAlertsHeaderProps> = ({
             disabled={isRefreshing}
             className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50 active:scale-95"
           >
-            <i className={`fas fa-sync-alt text-xs ${isRefreshing ? 'animate-spin' : ''}`}></i>
+            <Icon icon="mdi:refresh" width={12} className={isRefreshing ? 'animate-spin' : ''} />
             <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         )}

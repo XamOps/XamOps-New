@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureRightsizingData } from '../hooks/useAzureRightsizingData';
 import {
@@ -14,31 +15,26 @@ const AzureRightsizingPage: React.FC = () => {
   const { recommendations, status, isLoading, isRefreshing, loadRecommendations } =
     useAzureRightsizingData({ selectedAccountId });
 
-  const handleRefresh = () => {
-    loadRecommendations(true);
-  };
+  const handleRefresh = () => loadRecommendations(true);
 
   return (
-    <main className="p-6 space-y-6">
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <AzureRightsizingHeader selectedAccountId={selectedAccountId} isRefreshing={isRefreshing} onRefresh={handleRefresh} />
 
+      {/* No account */}
       {!selectedAccountId && !isLoading && (
-        <div className="glass-card rounded-xl p-16 text-center">
-          <div className="flex flex-col items-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-              <i className="fas fa-compress-arrows-alt text-blue-500 text-2xl"></i>
-            </div>
-            <h3 className="text-lg font-bold text-gray-700 mb-1">No Account Selected</h3>
-            <p className="text-sm text-gray-500 max-w-md">
-              Please select an Azure account from the sidebar to view rightsizing recommendations.
-            </p>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+            <Icon icon="mdi:resize" width={22} color="rgba(0,0,0,0.3)" />
           </div>
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Account Selected</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Select an Azure account from the sidebar to view rightsizing recommendations.</p>
         </div>
       )}
 
       {selectedAccountId && (
         <>
-          <AzureRightsizingKPICards recommendations={recommendations} />
+          <AzureRightsizingKPICards recommendations={recommendations} isLoading={isLoading} />
           <AzureRightsizingTable recommendations={recommendations} status={status} isLoading={isLoading} />
         </>
       )}

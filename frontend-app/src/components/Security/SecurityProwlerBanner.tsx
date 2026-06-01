@@ -1,10 +1,5 @@
-/**
- * Security Prowler Status Banner Component
- *
- * Shows a banner when Prowler deep scan is running
- */
-
 import React from 'react';
+import { Icon } from '@iconify/react';
 import type { ProwlerStatus } from '../../types/security';
 
 interface SecurityProwlerBannerProps {
@@ -12,22 +7,14 @@ interface SecurityProwlerBannerProps {
 }
 
 const SecurityProwlerBanner: React.FC<SecurityProwlerBannerProps> = ({ prowlerStatus }) => {
-  if (prowlerStatus.status !== 'RUNNING') {
-    return null;
-  }
+  if (prowlerStatus.status !== 'RUNNING') return null;
 
   return (
-    <div className="security-prowler-banner">
-      <div className="security-prowler-banner-content">
-        <div className="security-prowler-banner-icon">
-          <i className="fas fa-circle-notch fa-spin"></i>
-        </div>
-        <div className="security-prowler-banner-text">
-          <p className="security-prowler-banner-title">Deep Scan in Progress (Prowler)</p>
-          <p className="security-prowler-banner-message">
-            {prowlerStatus.message || 'Scanning cloud resources...'}
-          </p>
-        </div>
+    <div className="flex items-center gap-3 bg-blue-50 border-b border-blue-100 px-6 py-3 text-sm text-blue-800">
+      <Icon icon="mdi:loading" width={16} className="animate-spin text-blue-500 shrink-0" />
+      <div>
+        <span className="font-semibold">Deep Scan in Progress (Prowler) — </span>
+        <span className="text-blue-700">{prowlerStatus.message || 'Scanning cloud resources...'}</span>
       </div>
     </div>
   );

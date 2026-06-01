@@ -26,8 +26,6 @@ import {
   GcpCostForecastChart,
 } from '../components/GcpCost';
 
-// Import styles
-import '../styles/gcpCost.css';
 
 const GcpCostPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -144,21 +142,21 @@ const GcpCostPage: React.FC = () => {
   }, [refreshAll, loadForecastData]);
 
   return (
-    <main className="gcp-cost-page">
+    <main className="flex-1 flex flex-col min-h-screen bg-transparent">
       <GcpCostHeader
         isLoading={isRefreshing}
         onRefresh={handleRefresh}
       />
 
-      <div className="gcp-cost-content">
+      <div className="flex-1 p-8 space-y-8">
         {/* No Account State */}
         {!selectedAccountId && !isLoading && (
-          <div className="gcp-cost-no-account">
-            <div className="gcp-cost-no-account-icon">
-              <i className="fas fa-dollar-sign"></i>
+          <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
+            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+              <i className="fas fa-dollar-sign text-gray-400 text-2xl"></i>
             </div>
-            <h4>No Account Selected</h4>
-            <p>Please select a GCP account from the sidebar to view cost management data.</p>
+            <h4 className="text-lg font-bold text-gray-800 mb-2">No Account Selected</h4>
+            <p className="text-gray-600">Please select a GCP account from the sidebar to view cost management data.</p>
           </div>
         )}
 

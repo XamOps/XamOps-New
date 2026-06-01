@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import type { CloudAccount, VerificationDetails } from '../../types/accountManager';
 import { DialogRoot, DialogPanel } from '../ui';
 
@@ -61,11 +62,11 @@ const VerificationModal: React.FC<VerificationModalProps> = ({
         title={
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center">
-              <i className="fas fa-check-double text-white text-lg" />
+              <Icon icon="mdi:check-all" width={22} color="white" />
             </div>
             <div>
-              <div className="text-xl font-bold text-gray-900">Verify AWS Account Connection</div>
-              <div className="text-sm text-gray-500">Complete the account verification</div>
+              <div className="text-xl font-bold text-[rgba(0,0,0,0.88)]">Verify AWS Account Connection</div>
+              <div className="text-sm text-[rgba(0,0,0,0.5)]">Complete the account verification</div>
             </div>
           </div>
         }
@@ -79,7 +80,7 @@ const VerificationModal: React.FC<VerificationModalProps> = ({
               {isVerifying ? (
                 <><span className="loading-spinner mr-2" />Verifying...</>
               ) : (
-                <><i className="fas fa-check-circle mr-2" />Verify & Connect</>
+                <><Icon icon="mdi:check-circle-outline" width={16} className="inline mr-2" />Verify & Connect</>
               )}
             </button>
           </>
@@ -87,7 +88,7 @@ const VerificationModal: React.FC<VerificationModalProps> = ({
       >
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
           <div className="flex gap-3">
-            <i className="fas fa-info-circle text-blue-500 mt-0.5" />
+            <Icon icon="mdi:information-outline" width={16} color="#3B82F6" className="mt-0.5 flex-shrink-0" />
             <p className="text-sm text-blue-700">
               After deploying the CloudFormation stack in your AWS account, enter the details
               from the stack's "Outputs" tab to complete the connection.
@@ -111,7 +112,7 @@ const VerificationModal: React.FC<VerificationModalProps> = ({
               pattern="[0-9]{12}"
               title="AWS Account ID must be 12 digits"
             />
-            <p className="text-xs text-gray-500 mt-1">12-digit AWS account identifier</p>
+            <p className="text-xs text-[rgba(0,0,0,0.5)] mt-1">12-digit AWS account identifier</p>
           </div>
 
           <div>
@@ -127,13 +128,13 @@ const VerificationModal: React.FC<VerificationModalProps> = ({
               className="form-input"
               required
             />
-            <p className="text-xs text-gray-500 mt-1">Name of the IAM role created by CloudFormation</p>
+            <p className="text-xs text-[rgba(0,0,0,0.5)] mt-1">Name of the IAM role created by CloudFormation</p>
           </div>
 
           {error && (
             <div className="bg-red-50 border border-red-100 rounded-xl p-4">
               <div className="flex gap-3">
-                <i className="fas fa-exclamation-circle text-red-500 mt-0.5" />
+                <Icon icon="mdi:alert-circle-outline" width={16} color="#EF4444" className="mt-0.5 flex-shrink-0" />
                 <p className="text-sm text-red-700">{error}</p>
               </div>
             </div>

@@ -1,10 +1,5 @@
-/**
- * FlexCompute Table Component
- *
- * Displays capacity list with pagination, search, status filter, and actions
- */
-
 import React, { useState, useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import type { FlexComputeCapacity } from '../../types/flexCompute';
 import ViewCapacityDetailModal from './ViewCapacityDetailModal';
 import { AlertDialog } from '../ui';
@@ -15,7 +10,6 @@ interface FlexComputeTableProps {
   onCancelCapacity: (cidrId: string) => Promise<boolean>;
   onExtendCapacity: (cidrId: string, datetime: string, timezone: string) => Promise<boolean>;
   onContinuePurchase?: (capacity: FlexComputeCapacity) => void;
-  // Pagination
   currentPage: number;
   pageSize: number;
   totalElements: number;
@@ -24,48 +18,44 @@ interface FlexComputeTableProps {
 }
 
 const STATUS_OPTIONS = [
-  { value: 'ACTIVE', label: 'Active', color: 'bg-green-100 text-green-700' },
-  { value: 'COMPLETED', label: 'Completed', color: 'bg-blue-100 text-blue-700' },
-  { value: 'EXPIRED', label: 'Expired', color: 'bg-gray-100 text-gray-600' },
-  { value: 'CANCELED', label: 'Cancelled', color: 'bg-red-100 text-red-700' },
+  { value: 'ACTIVE',     label: 'Active',     cls: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+  { value: 'COMPLETED',  label: 'Completed',  cls: 'bg-blue-50 text-blue-600 border-blue-100' },
+  { value: 'EXPIRED',    label: 'Expired',    cls: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.08)]' },
+  { value: 'CANCELED',   label: 'Cancelled',  cls: 'bg-rose-50 text-rose-600 border-rose-100' },
 ];
 
-const statusBadge = (status: string) => {
-  const styles: Record<string, string> = {
-    active: 'bg-green-100 text-green-700',
-    running: 'bg-green-100 text-green-700',
-    completed: 'bg-blue-100 text-blue-700',
-    scheduled: 'bg-blue-100 text-blue-700',
-    pending: 'bg-yellow-100 text-yellow-700',
-    ready_for_purchase: 'bg-yellow-100 text-yellow-700',
-    stopped: 'bg-gray-100 text-gray-600',
-    expired: 'bg-gray-100 text-gray-600',
-    expired_not_purchased: 'bg-gray-100 text-gray-600',
-    terminated: 'bg-red-100 text-red-700',
-    canceled: 'bg-red-100 text-red-700',
-    cancelled: 'bg-red-100 text-red-700',
-  };
-  const normalized = (status || '').toLowerCase().replace(/ /g, '_');
-  const style = styles[normalized] || 'bg-gray-100 text-gray-600';
+const STATUS_BADGE: Record<string, string> = {
+  active:               'bg-emerald-50 text-emerald-600 border-emerald-100',
+  running:              'bg-emerald-50 text-emerald-600 border-emerald-100',
+  completed:            'bg-blue-50 text-blue-600 border-blue-100',
+  scheduled:            'bg-blue-50 text-blue-600 border-blue-100',
+  pending:              'bg-amber-50 text-amber-600 border-amber-100',
+  ready_for_purchase:   'bg-amber-50 text-amber-600 border-amber-100',
+  stopped:              'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.08)]',
+  expired:              'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.08)]',
+  expired_not_purchased:'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.08)]',
+  terminated:           'bg-rose-50 text-rose-600 border-rose-100',
+  canceled:             'bg-rose-50 text-rose-600 border-rose-100',
+  cancelled:            'bg-rose-50 text-rose-600 border-rose-100',
+};
+
+const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
+  const key = (status || '').toLowerCase().replace(/ /g, '_');
+  const cls = STATUS_BADGE[key] ?? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.08)]';
   return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${style}`}>
+    <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>
       {status || 'N/A'}
     </span>
   );
 };
 
-const formatCurrency = (value: number): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-  }).format(value || 0);
-};
+const formatCurrency = (value: number): string =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(value || 0);
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
 
 const isReadyForPurchase = (cap: FlexComputeCapacity): boolean => {
-  const status = (cap.policyStatus || '').toLowerCase().replace(/ /g, '_');
+  const status  = (cap.policyStatus || '').toLowerCase().replace(/ /g, '_');
   const opState = (cap.policyOperatingState || '').toLowerCase().replace(/ /g, '_');
   return status === 'ready_for_purchase' || opState === 'ready_for_purchase';
 };
@@ -82,10 +72,10 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({
   totalPages,
   onPageChange,
 }) => {
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [openDropdown, setOpenDropdown]   = useState<string | null>(null);
+  const [cancelling, setCancelling]       = useState<string | null>(null);
   const [selectedCapacity, setSelectedCapacity] = useState<FlexComputeCapacity | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery]     = useState('');
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [confirmCancel, setConfirmCancel] = useState<{ cidrId: string; name: string } | null>(null);
 
@@ -98,19 +88,16 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({
     if (!confirmCancel) return;
     setCancelling(confirmCancel.cidrId);
     setConfirmCancel(null);
-    try {
-      await onCancelCapacity(confirmCancel.cidrId);
-    } finally {
-      setCancelling(null);
-    }
+    try { await onCancelCapacity(confirmCancel.cidrId); }
+    finally { setCancelling(null); }
   };
 
   const toggleStatus = (status: string) => {
-    const newStatuses = selectedStatuses.includes(status)
+    const next = selectedStatuses.includes(status)
       ? selectedStatuses.filter((s) => s !== status)
       : [...selectedStatuses, status];
-    setSelectedStatuses(newStatuses);
-    onPageChange(1, pageSize, newStatuses);
+    setSelectedStatuses(next);
+    onPageChange(1, pageSize, next);
   };
 
   const clearFilters = () => {
@@ -119,320 +106,264 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({
     onPageChange(1, pageSize, []);
   };
 
-  // Client-side search filtering (search by name, id, instance type, account)
   const filteredCapacities = useMemo(() => {
     if (!searchQuery.trim()) return capacities;
     const q = searchQuery.toLowerCase();
-    return capacities.filter(
-      (cap) =>
-        (cap.name || '').toLowerCase().includes(q) ||
-        (cap.id || '').toLowerCase().includes(q) ||
-        (cap.instanceType || '').toLowerCase().includes(q) ||
-        (cap.accountName || '').toLowerCase().includes(q) ||
-        (cap.regionZoneId || '').toLowerCase().includes(q)
+    return capacities.filter((cap) =>
+      (cap.name || '').toLowerCase().includes(q) ||
+      (cap.id || '').toLowerCase().includes(q) ||
+      (cap.instanceType || '').toLowerCase().includes(q) ||
+      (cap.accountName || '').toLowerCase().includes(q) ||
+      (cap.regionZoneId || '').toLowerCase().includes(q)
     );
   }, [capacities, searchQuery]);
 
   const startItem = (currentPage - 1) * pageSize + 1;
-  const endItem = Math.min(currentPage * pageSize, totalElements);
+  const endItem   = Math.min(currentPage * pageSize, totalElements);
 
   return (
     <>
-    <AlertDialog
-      isOpen={!!confirmCancel}
-      title={`Cancel "${confirmCancel?.name}"?`}
-      description="This action cannot be undone."
-      confirmLabel="Cancel Capacity"
-      cancelLabel="Keep"
-      variant="danger"
-      onConfirm={handleConfirmCancel}
-      onCancel={() => setConfirmCancel(null)}
-    />
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-      {/* Header with search and filters */}
-      <div className="px-6 py-4 border-b border-gray-200 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Scheduled Capacities
-            <span className="ml-2 text-sm font-normal text-gray-500">({totalElements})</span>
-          </h3>
-          <div className="flex items-center gap-2">
+      <AlertDialog
+        isOpen={!!confirmCancel}
+        title={`Cancel "${confirmCancel?.name}"?`}
+        description="This action cannot be undone."
+        confirmLabel="Cancel Capacity"
+        cancelLabel="Keep"
+        variant="danger"
+        onConfirm={handleConfirmCancel}
+        onCancel={() => setConfirmCancel(null)}
+      />
+
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+        {/* Toolbar */}
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">
+              Scheduled Capacities
+              <span className="ml-2 text-[12px] font-normal text-[rgba(0,0,0,0.4)]">({totalElements})</span>
+            </h3>
             <select
               value={pageSize}
               onChange={(e) => onPageChange(1, parseInt(e.target.value), selectedStatuses)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+              className="px-3 py-1.5 border border-[rgba(0,0,0,0.1)] rounded-lg text-[12px] bg-white text-[rgba(0,0,0,0.65)] focus:outline-none focus:ring-2 focus:ring-indigo-300"
             >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>{size} per page</option>
-              ))}
+              {PAGE_SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s} per page</option>)}
             </select>
           </div>
-        </div>
 
-        {/* Search bar + Status filter chips */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          {/* Search */}
-          <div className="relative flex-1 w-full sm:max-w-xs">
-            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, ID, instance type..."
-              className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                <i className="fas fa-times text-xs"></i>
-              </button>
-            )}
-          </div>
-
-          {/* Status filter chips */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-gray-500 font-medium">Status:</span>
-            {STATUS_OPTIONS.map((opt) => {
-              const isSelected = selectedStatuses.includes(opt.value);
-              return (
-                <button
-                  key={opt.value}
-                  onClick={() => toggleStatus(opt.value)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    isSelected
-                      ? `${opt.color} border-current`
-                      : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  {opt.label}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            {/* Search */}
+            <div className="relative">
+              <Icon icon="mdi:magnify" width={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name, ID, instance type…"
+                className="pl-7 pr-8 py-1.5 text-[12px] border border-[rgba(0,0,0,0.1)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white w-56 text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.3)]"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.6)]">
+                  <Icon icon="mdi:close" width={12} />
                 </button>
-              );
-            })}
-            {(selectedStatuses.length > 0 || searchQuery) && (
-              <button
-                onClick={clearFilters}
-                className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                Clear all
-              </button>
-            )}
+              )}
+            </div>
+
+            {/* Status filter pills */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] text-[rgba(0,0,0,0.4)] font-medium">Status:</span>
+              {STATUS_OPTIONS.map((opt) => {
+                const isSelected = selectedStatuses.includes(opt.value);
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => toggleStatus(opt.value)}
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-colors ${
+                      isSelected ? `${opt.cls}` : 'bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.06)]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+              {(selectedStatuses.length > 0 || searchQuery) && (
+                <button onClick={clearFilters} className="text-[11px] text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)]">
+                  Clear all
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Loading state */}
-      {isLoading ? (
-        <div className="p-8">
-          <div className="space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="animate-pulse flex space-x-4">
-                <div className="h-4 bg-gray-200 rounded w-1/12"></div>
-                <div className="h-4 bg-gray-200 rounded w-2/12"></div>
-                <div className="h-4 bg-gray-200 rounded w-2/12"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/12"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/12"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/12"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/12"></div>
-                <div className="h-4 bg-gray-200 rounded w-2/12"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/12"></div>
+        {/* Loading */}
+        {isLoading ? (
+          <div className="p-5 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="animate-pulse flex gap-4">
+                {[3,2,2,1,1,1,1,2,1].map((w, j) => (
+                  <div key={j} className={`h-3 bg-[rgba(0,0,0,0.06)] rounded flex-${w === 3 ? '[3]' : w === 2 ? '[2]' : '[1]'} w-0`} style={{ flex: w }} />
+                ))}
               </div>
             ))}
           </div>
-        </div>
-      ) : filteredCapacities.length === 0 ? (
-        <div className="p-16 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-search text-gray-400 text-2xl"></i>
+        ) : filteredCapacities.length === 0 ? (
+          <div className="p-10 text-center">
+            <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+              <Icon icon="mdi:magnify" width={22} color="rgba(0,0,0,0.3)" />
+            </div>
+            <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Results Found</p>
+            <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
+              {searchQuery ? 'Try a different search term or ' : ''}
+              {selectedStatuses.length > 0 ? 'adjust your status filters.' : 'No capacity reservations yet.'}
+            </p>
+            {(searchQuery || selectedStatuses.length > 0) && (
+              <button onClick={clearFilters} className="mt-3 text-[13px] text-indigo-600 hover:text-indigo-700 font-medium">
+                Clear filters
+              </button>
+            )}
           </div>
-          <h3 className="text-lg font-semibold text-gray-800 mb-1">No results found</h3>
-          <p className="text-sm text-gray-500">
-            {searchQuery ? 'Try a different search term or ' : ''}
-            {selectedStatuses.length > 0 ? 'adjust your status filters.' : 'No capacity reservations yet.'}
-          </p>
-          {(searchQuery || selectedStatuses.length > 0) && (
-            <button
-              onClick={clearFilters}
-              className="mt-3 px-4 py-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
-            >
-              Clear filters
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-50 text-left">
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Id</th>
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Account Name</th>
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Policy Status</th>
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Instance State</th>
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Instance Type</th>
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Qty</th>
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Region / Zone-Id</th>
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Est. Savings</th>
-                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredCapacities.map((cap) => (
-                <tr key={cap.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-mono text-gray-600">{cap.id?.substring(0, 8)}...</td>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{cap.name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{cap.accountName}</td>
-                  <td className="px-6 py-4">{statusBadge(cap.policyStatus)}</td>
-                  <td className="px-6 py-4">{statusBadge(cap.instanceState)}</td>
-                  <td className="px-6 py-4 text-sm font-mono text-gray-700">{cap.instanceType}</td>
-                  <td className="px-6 py-4 text-sm text-gray-700">{cap.quantities}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{cap.regionZoneId}</td>
-                  <td className="px-6 py-4 text-sm font-semibold text-green-600">{formatCurrency(cap.estimatedSavings)}</td>
-                  <td className="px-6 py-4 relative">
-                    <button
-                      onClick={() => setOpenDropdown(openDropdown === cap.id ? null : cap.id)}
-                      className="text-gray-400 hover:text-gray-600 transition-colors p-2"
-                      disabled={cancelling === cap.id}
-                    >
-                      {cancelling === cap.id ? (
-                        <i className="fas fa-spinner fa-spin"></i>
-                      ) : (
-                        <i className="fas fa-ellipsis-v"></i>
-                      )}
-                    </button>
+        ) : (
+          <>
+            {/* Column headers */}
+            <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
+              <div className="col-span-1">ID</div>
+              <div className="col-span-2">Name</div>
+              <div className="col-span-2">Account</div>
+              <div className="col-span-1">Policy Status</div>
+              <div className="col-span-1">Instance State</div>
+              <div className="col-span-1">Type</div>
+              <div className="col-span-1">Qty</div>
+              <div className="col-span-1">Region / Zone</div>
+              <div className="col-span-1">Est. Savings</div>
+              <div className="col-span-1 text-center">Actions</div>
+            </div>
 
-                    {/* Dropdown Menu */}
-                    {openDropdown === cap.id && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-10"
-                          onClick={() => setOpenDropdown(null)}
-                        ></div>
-                        <div className="absolute right-0 mt-2 w-52 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+            {filteredCapacities.map((cap) => (
+              <div
+                key={cap.id}
+                className="grid grid-cols-12 items-center px-5 py-3 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[12px]"
+              >
+                <div className="col-span-1 font-mono text-[rgba(0,0,0,0.45)] truncate">{cap.id?.substring(0, 8)}…</div>
+                <div className="col-span-2 font-medium text-[rgba(0,0,0,0.88)] truncate">{cap.name}</div>
+                <div className="col-span-2 text-[rgba(0,0,0,0.55)] truncate">{cap.accountName}</div>
+                <div className="col-span-1"><StatusBadge status={cap.policyStatus} /></div>
+                <div className="col-span-1"><StatusBadge status={cap.instanceState} /></div>
+                <div className="col-span-1 font-mono text-[rgba(0,0,0,0.65)]">{cap.instanceType}</div>
+                <div className="col-span-1 text-[rgba(0,0,0,0.65)]">{cap.quantities}</div>
+                <div className="col-span-1 text-[rgba(0,0,0,0.55)] truncate">{cap.regionZoneId}</div>
+                <div className="col-span-1 font-semibold text-emerald-600">{formatCurrency(cap.estimatedSavings)}</div>
+                <div className="col-span-1 flex justify-center relative">
+                  <button
+                    onClick={() => setOpenDropdown(openDropdown === cap.id ? null : cap.id)}
+                    disabled={cancelling === cap.id}
+                    className="p-1.5 rounded-lg text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)] transition-colors"
+                  >
+                    {cancelling === cap.id
+                      ? <Icon icon="mdi:loading" width={14} className="animate-spin" />
+                      : <Icon icon="mdi:dots-vertical" width={14} />}
+                  </button>
+
+                  {openDropdown === cap.id && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setOpenDropdown(null)} />
+                      <div className="absolute right-0 mt-8 w-48 bg-white rounded-xl shadow-lg border border-[rgba(0,0,0,0.08)] py-1 z-20">
+                        <button
+                          onClick={() => { setOpenDropdown(null); setSelectedCapacity(cap); }}
+                          className="w-full text-left px-4 py-2 text-[12px] text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.03)] flex items-center gap-2"
+                        >
+                          <Icon icon="mdi:eye-outline" width={13} /> View Detail
+                        </button>
+                        {isReadyForPurchase(cap) && onContinuePurchase && (
                           <button
-                            onClick={() => {
-                              setOpenDropdown(null);
-                              setSelectedCapacity(cap);
-                            }}
-                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
+                            onClick={() => { setOpenDropdown(null); onContinuePurchase(cap); }}
+                            className="w-full text-left px-4 py-2 text-[12px] text-emerald-700 hover:bg-emerald-50 flex items-center gap-2 font-medium"
                           >
-                            <i className="fas fa-eye w-4"></i>
-                            View Detail
+                            <Icon icon="mdi:cart-outline" width={13} /> Continue Purchase
                           </button>
-                          {isReadyForPurchase(cap) && onContinuePurchase && (
-                            <button
-                              onClick={() => {
-                                setOpenDropdown(null);
-                                onContinuePurchase(cap);
-                              }}
-                              className="w-full text-left px-4 py-2 text-sm text-green-700 hover:bg-green-50 transition-colors flex items-center gap-2 font-medium"
-                            >
-                              <i className="fas fa-shopping-cart w-4"></i>
-                              Continue Purchase
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleCancel(cap.id, cap.name)}
-                            disabled={cancelling === cap.id}
-                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <i className="fas fa-times-circle w-4"></i>
-                            Cancel
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                        )}
+                        <button
+                          onClick={() => handleCancel(cap.id, cap.name)}
+                          disabled={cancelling === cap.id}
+                          className="w-full text-left px-4 py-2 text-[12px] text-rose-600 hover:bg-rose-50 flex items-center gap-2 disabled:opacity-50"
+                        >
+                          <Icon icon="mdi:close-circle-outline" width={13} /> Cancel
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
 
-        {/* Pagination */}
-        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-          <p className="text-sm text-gray-600">
-            Showing <span className="font-medium">{startItem}</span> to <span className="font-medium">{endItem}</span> of{' '}
-            <span className="font-medium">{totalElements}</span> results
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onPageChange(1, pageSize, selectedStatuses)}
-              disabled={currentPage <= 1}
-              className="px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              title="First page"
-            >
-              <i className="fas fa-angle-double-left"></i>
-            </button>
-            <button
-              onClick={() => onPageChange(currentPage - 1, pageSize, selectedStatuses)}
-              disabled={currentPage <= 1}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <i className="fas fa-angle-left mr-1"></i>
-              Prev
-            </button>
-
-            {/* Page numbers */}
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              let pageNum: number;
-              if (totalPages <= 5) {
-                pageNum = i + 1;
-              } else if (currentPage <= 3) {
-                pageNum = i + 1;
-              } else if (currentPage >= totalPages - 2) {
-                pageNum = totalPages - 4 + i;
-              } else {
-                pageNum = currentPage - 2 + i;
-              }
-              return (
+            {/* Pagination */}
+            <div className="px-5 py-3 border-t border-[rgba(0,0,0,0.06)] flex items-center justify-between bg-[rgba(0,0,0,0.01)]">
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)]">
+                Showing <span className="font-medium">{startItem}</span>–<span className="font-medium">{endItem}</span> of <span className="font-medium">{totalElements}</span>
+              </p>
+              <div className="flex items-center gap-1.5">
                 <button
-                  key={pageNum}
-                  onClick={() => onPageChange(pageNum, pageSize, selectedStatuses)}
-                  className={`w-9 h-9 text-sm rounded-lg transition-colors ${
-                    pageNum === currentPage
-                      ? 'bg-blue-600 text-white font-semibold'
-                      : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
-                  }`}
+                  onClick={() => onPageChange(1, pageSize, selectedStatuses)}
+                  disabled={currentPage <= 1}
+                  className="p-1.5 text-[rgba(0,0,0,0.45)] border border-[rgba(0,0,0,0.1)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[11px]"
                 >
-                  {pageNum}
+                  <Icon icon="mdi:chevron-double-left" width={13} />
                 </button>
-              );
-            })}
+                <button
+                  onClick={() => onPageChange(currentPage - 1, pageSize, selectedStatuses)}
+                  disabled={currentPage <= 1}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] border border-[rgba(0,0,0,0.1)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[rgba(0,0,0,0.55)]"
+                >
+                  <Icon icon="mdi:chevron-left" width={12} /> Prev
+                </button>
 
-            <button
-              onClick={() => onPageChange(currentPage + 1, pageSize, selectedStatuses)}
-              disabled={currentPage >= totalPages}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              Next
-              <i className="fas fa-angle-right ml-1"></i>
-            </button>
-            <button
-              onClick={() => onPageChange(totalPages, pageSize, selectedStatuses)}
-              disabled={currentPage >= totalPages}
-              className="px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              title="Last page"
-            >
-              <i className="fas fa-angle-double-right"></i>
-            </button>
-          </div>
-        </div>
-        </>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  let pageNum: number;
+                  if (totalPages <= 5)          pageNum = i + 1;
+                  else if (currentPage <= 3)    pageNum = i + 1;
+                  else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                  else                          pageNum = currentPage - 2 + i;
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => onPageChange(pageNum, pageSize, selectedStatuses)}
+                      className={`w-8 h-8 text-[11px] rounded-lg transition-colors ${
+                        pageNum === currentPage
+                          ? 'bg-indigo-600 text-white font-semibold'
+                          : 'border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.02)]'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+
+                <button
+                  onClick={() => onPageChange(currentPage + 1, pageSize, selectedStatuses)}
+                  disabled={currentPage >= totalPages}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] border border-[rgba(0,0,0,0.1)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[rgba(0,0,0,0.55)]"
+                >
+                  Next <Icon icon="mdi:chevron-right" width={12} />
+                </button>
+                <button
+                  onClick={() => onPageChange(totalPages, pageSize, selectedStatuses)}
+                  disabled={currentPage >= totalPages}
+                  className="p-1.5 text-[rgba(0,0,0,0.45)] border border-[rgba(0,0,0,0.1)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[11px]"
+                >
+                  <Icon icon="mdi:chevron-double-right" width={13} />
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {selectedCapacity && (
+        <ViewCapacityDetailModal
+          capacity={selectedCapacity}
+          onClose={() => setSelectedCapacity(null)}
+          onExtend={onExtendCapacity}
+        />
       )}
-    </div>
-
-    {/* View Detail Modal */}
-    {selectedCapacity && (
-      <ViewCapacityDetailModal
-        capacity={selectedCapacity}
-        onClose={() => setSelectedCapacity(null)}
-        onExtend={onExtendCapacity}
-      />
-    )}
     </>
   );
 };

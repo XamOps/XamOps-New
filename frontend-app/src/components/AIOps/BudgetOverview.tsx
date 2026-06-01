@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { Chart, registerables } from 'chart.js';
+import { Icon } from '@iconify/react';
 import type { BudgetSummary, BudgetStatus, BudgetAlert, DailySpendEntry } from '../../types/aiops';
 import { InfoTooltip } from '../ui/Tooltip';
 
@@ -31,7 +32,7 @@ function getProgressColor(pct: number): string {
 
 function getStatusBadge(status: string, usagePct: number) {
   if (usagePct >= 100) return { label: 'EXCEEDED', cls: 'bg-red-100 text-red-700' };
-  if (status === 'PAUSED') return { label: 'PAUSED', cls: 'bg-gray-100 text-gray-600' };
+  if (status === 'PAUSED') return { label: 'PAUSED', cls: 'bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.5)]' };
   if (usagePct >= 80) return { label: 'WARNING', cls: 'bg-amber-100 text-amber-700' };
   return { label: 'ACTIVE', cls: 'bg-emerald-100 text-emerald-700' };
 }
@@ -49,10 +50,10 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="animate-pulse bg-gray-200/60 rounded-2xl h-28" />
+            <div key={i} className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded-xl h-28" />
           ))}
         </div>
-        <div className="animate-pulse bg-gray-200/60 rounded-2xl h-48" />
+        <div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded-xl h-48" />
       </div>
     );
   }
@@ -60,10 +61,10 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
   if (!summary) return null;
 
   const kpis = [
-    { label: 'Total Budget', value: formatCurrency(summary.totalBudgetUsd), icon: 'fas fa-wallet', gradient: 'from-green-500 to-emerald-600', tip: 'Sum of all monthly budget limits across providers.' },
-    { label: 'Current Spend', value: formatCurrency(summary.totalSpendUsd), icon: 'fas fa-credit-card', gradient: 'from-blue-500 to-indigo-600', tip: 'Total spend across all budgets this month.' },
-    { label: 'Usage', value: summary.overallUsagePct.toFixed(1) + '%', icon: 'fas fa-tachometer-alt', gradient: summary.overallUsagePct >= 80 ? 'from-red-500 to-rose-600' : summary.overallUsagePct >= 50 ? 'from-amber-500 to-orange-600' : 'from-emerald-500 to-green-600', tip: 'Overall spend as a percentage of total budget.' },
-    { label: 'Active / Alerts', value: `${summary.activeBudgetCount} / ${summary.alertsThisMonth}`, icon: 'fas fa-bell', gradient: 'from-purple-500 to-violet-600', tip: 'Active budgets / alert threshold breaches this month.' },
+    { label: 'Total Budget', value: formatCurrency(summary.totalBudgetUsd), icon: 'mdi:wallet-outline', iconColor: '#059669', boxCls: 'bg-emerald-50 border border-emerald-100', tip: 'Sum of all monthly budget limits across providers.' },
+    { label: 'Current Spend', value: formatCurrency(summary.totalSpendUsd), icon: 'mdi:credit-card-outline', iconColor: '#4F46E5', boxCls: 'bg-indigo-50 border border-indigo-100', tip: 'Total spend across all budgets this month.' },
+    { label: 'Usage', value: summary.overallUsagePct.toFixed(1) + '%', icon: 'mdi:speedometer', iconColor: summary.overallUsagePct >= 80 ? '#DC2626' : summary.overallUsagePct >= 50 ? '#D97706' : '#059669', boxCls: summary.overallUsagePct >= 80 ? 'bg-red-50 border border-red-100' : summary.overallUsagePct >= 50 ? 'bg-amber-50 border border-amber-100' : 'bg-emerald-50 border border-emerald-100', tip: 'Overall spend as a percentage of total budget.' },
+    { label: 'Active / Alerts', value: `${summary.activeBudgetCount} / ${summary.alertsThisMonth}`, icon: 'mdi:bell-outline', iconColor: '#7C3AED', boxCls: 'bg-violet-50 border border-violet-100', tip: 'Active budgets / alert threshold breaches this month.' },
   ];
 
   return (
@@ -71,36 +72,36 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpis.map(kpi => (
-          <div key={kpi.label} className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl p-5 shadow-sm">
+          <div key={kpi.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">{kpi.label} <InfoTooltip placement="bottom">{kpi.tip}</InfoTooltip></span>
-              <div className={`w-8 h-8 bg-gradient-to-br ${kpi.gradient} rounded-lg flex items-center justify-center`}>
-                <i className={`${kpi.icon} text-white text-xs`} />
+              <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-[0.09em] leading-[15px] inline-flex items-center gap-1">{kpi.label} <InfoTooltip placement="bottom">{kpi.tip}</InfoTooltip></span>
+              <div className={`w-8 h-8 ${kpi.boxCls} rounded-lg flex items-center justify-center`}>
+                <Icon icon={kpi.icon} width={16} color={kpi.iconColor} />
               </div>
             </div>
-            <p className="text-2xl font-bold text-gray-900">{kpi.value}</p>
+            <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{kpi.value}</p>
           </div>
         ))}
       </div>
 
       {/* Budget Status Cards */}
-      <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-              <i className="fas fa-shield-alt text-white text-xs" />
+            <div className="w-8 h-8 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center">
+              <Icon icon="mdi:shield-outline" width={16} color="#4F46E5" />
             </div>
-            <h3 className="text-sm font-bold text-gray-800">Budget Controls</h3>
+            <h3 className="text-sm font-bold text-[rgba(0,0,0,0.7)]">Budget Controls</h3>
             <InfoTooltip placement="right">Set spending limits per provider with alerts at custom thresholds.</InfoTooltip>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+            <span className="text-xs text-[rgba(0,0,0,0.4)] bg-[rgba(0,0,0,0.04)] px-2 py-0.5 rounded-full">
               {summary.budgets.length} budgets
             </span>
           </div>
           <button
             onClick={onAdd}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-white bg-[rgba(0,0,0,0.88)] hover:bg-black rounded-md transition-all shadow-sm"
           >
-            <i className="fas fa-plus" />
+            <Icon icon="mdi:plus" width={14} />
             Add Budget
           </button>
         </div>
@@ -108,16 +109,16 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
         {summary.budgets.length === 0 ? (
           <div className="p-8 text-center">
             <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mx-auto mb-3">
-              <i className="fas fa-wallet text-indigo-400 text-lg" />
+              <Icon icon="mdi:wallet-outline" width={24} color="#818CF8" />
             </div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-1">No Budgets Set</h4>
-            <p className="text-xs text-gray-400 max-w-sm mx-auto">
+            <h4 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-1">No Budgets Set</h4>
+            <p className="text-xs text-[rgba(0,0,0,0.4)] max-w-sm mx-auto">
               Create a budget to set spending limits on your LLM providers.
               Get alerts at custom thresholds and optionally auto-disable when exceeded.
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-[rgba(0,0,0,0.04)]">
             {summary.budgets.map(b => (
               <BudgetCard
                 key={b.budgetId}
@@ -134,18 +135,18 @@ const BudgetOverview: React.FC<BudgetOverviewProps> = ({
 
       {/* Recent Alerts */}
       {summary.recentAlerts.length > 0 && (
-        <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
-              <i className="fas fa-bell text-white text-xs" />
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-3">
+            <div className="w-8 h-8 bg-red-50 border border-red-100 rounded-lg flex items-center justify-center">
+              <Icon icon="mdi:bell-outline" width={16} color="#DC2626" />
             </div>
-            <h3 className="text-sm font-bold text-gray-800">Recent Alerts</h3>
+            <h3 className="text-sm font-bold text-[rgba(0,0,0,0.7)]">Recent Alerts</h3>
             <InfoTooltip placement="right">Budget threshold breach notifications. Dismiss to acknowledge.</InfoTooltip>
             <span className="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-semibold">
               {summary.recentAlerts.length}
             </span>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-[rgba(0,0,0,0.04)]">
             {summary.recentAlerts.slice(0, 10).map(alert => (
               <AlertRow key={alert.id} alert={alert} onDismiss={onDismissAlert} />
             ))}
@@ -220,11 +221,11 @@ function BudgetCard({
   const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
 
   return (
-    <div className="px-6 py-4 hover:bg-gray-50/50 transition-colors">
+    <div className="px-6 py-4 hover:bg-[rgba(0,0,0,0.025)] transition-colors">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold text-gray-900">{budget.budgetName}</span>
-          <span className="text-xs text-gray-400">
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">{budget.budgetName}</span>
+          <span className="text-xs text-[rgba(0,0,0,0.4)]">
             {budget.providerName || 'All Providers'}
           </span>
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${badge.cls}`}>
@@ -232,7 +233,7 @@ function BudgetCard({
           </span>
           {budget.autoDisable && (
             <span className="inline-flex items-center gap-1 text-[10px] text-indigo-500" title="Auto-disable on exceed">
-              <i className="fas fa-shield-alt" /> Auto-block
+              <Icon icon="mdi:shield-outline" width={11} className="inline" color="#6366f1" /> Auto-block
             </span>
           )}
         </div>
@@ -240,28 +241,28 @@ function BudgetCard({
           {onToggleStatus && (
             <button
               onClick={() => onToggleStatus(budget.budgetId, budget.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE')}
-              className={`text-xs px-2 py-0.5 rounded-md transition-colors ${
+              className={`text-xs px-2 py-0.5 rounded-md transition-colors flex items-center gap-1 ${
                 budget.status === 'ACTIVE'
                   ? 'text-amber-600 hover:bg-amber-50'
                   : 'text-emerald-600 hover:bg-emerald-50'
               }`}
               title={budget.status === 'ACTIVE' ? 'Pause budget' : 'Resume budget'}
             >
-              <i className={`fas ${budget.status === 'ACTIVE' ? 'fa-pause' : 'fa-play'} mr-1`} />
+              <Icon icon={budget.status === 'ACTIVE' ? 'mdi:pause' : 'mdi:play'} width={12} />
               {budget.status === 'ACTIVE' ? 'Pause' : 'Resume'}
             </button>
           )}
-          <button onClick={() => onEdit(budget.budgetId)} className="text-gray-400 hover:text-indigo-600 text-xs transition-colors" title="Edit">
-            <i className="fas fa-edit" />
+          <button onClick={() => onEdit(budget.budgetId)} className="text-[rgba(0,0,0,0.4)] hover:text-indigo-600 transition-colors" title="Edit">
+            <Icon icon="mdi:pencil-outline" width={14} />
           </button>
           <button
             onClick={() => {
               if (window.confirm(`Delete budget "${budget.budgetName}"?`)) onDelete(budget.budgetId);
             }}
-            className="text-gray-400 hover:text-red-600 text-xs transition-colors"
+            className="text-[rgba(0,0,0,0.4)] hover:text-red-600 transition-colors"
             title="Delete"
           >
-            <i className="fas fa-trash" />
+            <Icon icon="mdi:trash-can-outline" width={14} />
           </button>
         </div>
       </div>
@@ -269,11 +270,11 @@ function BudgetCard({
       {/* Progress bar */}
       <div className="flex items-center gap-4">
         <div className="flex-1">
-          <div className="relative w-full bg-gray-100 rounded-full h-3">
+          <div className="relative w-full bg-[rgba(0,0,0,0.04)] rounded-full h-3">
             {budget.thresholds.map(t => (
               <div
                 key={t}
-                className="absolute top-0 h-3 w-px bg-gray-400/50"
+                className="absolute top-0 h-3 w-px bg-[rgba(0,0,0,0.3)]"
                 style={{ left: `${Math.min(t, 100)}%` }}
                 title={`${t}% threshold`}
               />
@@ -285,9 +286,9 @@ function BudgetCard({
           </div>
         </div>
         <div className="text-right min-w-[140px]">
-          <span className="text-sm font-bold text-gray-900">{formatCurrency(budget.currentSpendUsd)}</span>
-          <span className="text-xs text-gray-400"> / {formatCurrency(budget.monthlyLimitUsd)}</span>
-          <span className={`ml-2 text-xs font-semibold ${budget.usagePct >= 80 ? 'text-red-600' : 'text-gray-500'}`}>
+          <span className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{formatCurrency(budget.currentSpendUsd)}</span>
+          <span className="text-xs text-[rgba(0,0,0,0.4)]"> / {formatCurrency(budget.monthlyLimitUsd)}</span>
+          <span className={`ml-2 text-xs font-semibold ${budget.usagePct >= 80 ? 'text-red-600' : 'text-[rgba(0,0,0,0.5)]'}`}>
             {budget.usagePct.toFixed(1)}%
           </span>
         </div>
@@ -295,18 +296,18 @@ function BudgetCard({
 
       {/* Forecast + Sparkline row */}
       <div className="flex items-center justify-between mt-2">
-        <div className="flex items-center gap-4 text-[11px] text-gray-500">
+        <div className="flex items-center gap-4 text-[11px] text-[rgba(0,0,0,0.5)]">
           {budget.projectedSpend > 0 && (
             <span>
-              <i className="fas fa-chart-line mr-1 text-indigo-400" />
-              Projected: <strong className={budget.projectedSpend > budget.monthlyLimitUsd ? 'text-red-600' : 'text-gray-700'}>
+              <Icon icon="mdi:chart-line" width={12} className="inline mr-1" color="#818CF8" />
+              Projected: <strong className={budget.projectedSpend > budget.monthlyLimitUsd ? 'text-red-600' : 'text-[rgba(0,0,0,0.7)]'}>
                 {formatCurrency(budget.projectedSpend)}
               </strong> by month end
             </span>
           )}
           {budget.estimatedRunoutDay > 0 && budget.estimatedRunoutDay <= daysInMonth && budget.usagePct < 100 && (
             <span className="text-amber-600">
-              <i className="fas fa-exclamation-triangle mr-1" />
+              <Icon icon="mdi:alert-outline" width={12} className="inline mr-1" color="#D97706" />
               Limit hit ~Day {budget.estimatedRunoutDay}
             </span>
           )}
@@ -332,10 +333,10 @@ function AlertRow({ alert, onDismiss }: { alert: BudgetAlert; onDismiss: (id: nu
           {alert.thresholdPct}%
         </span>
         <div>
-          <p className="text-sm font-medium text-gray-900">
+          <p className="text-sm font-medium text-[rgba(0,0,0,0.88)]">
             {alert.budgetName} — {alert.providerName || 'Global'}
           </p>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-[rgba(0,0,0,0.5)]">
             Spend: {formatCurrency(alert.actualSpendUsd)} / {formatCurrency(alert.budgetLimitUsd)} — {formatTimestamp(alert.triggeredAt)}
           </p>
         </div>
@@ -343,13 +344,15 @@ function AlertRow({ alert, onDismiss }: { alert: BudgetAlert; onDismiss: (id: nu
       {!alert.dismissed && (
         <button
           onClick={() => onDismiss(alert.id)}
-          className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          className="text-xs text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.6)] transition-colors"
         >
           Dismiss
         </button>
       )}
       {alert.dismissed && (
-        <span className="text-xs text-emerald-500"><i className="fas fa-check mr-1" />Dismissed</span>
+        <span className="text-xs text-emerald-500 inline-flex items-center gap-1">
+          <Icon icon="mdi:check" width={12} />Dismissed
+        </span>
       )}
     </div>
   );

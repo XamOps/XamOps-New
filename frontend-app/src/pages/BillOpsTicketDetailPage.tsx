@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
+import { Icon } from '@iconify/react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
 import { RCAFormData, RCAFormSection, TicketReply } from '../types/billopsTickets';
@@ -193,8 +194,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        globalThis.alert('File is too large. Max size is 10MB.');
+      if (file.size > 50 * 1024 * 1024) {
+        globalThis.alert('File is too large. Max size is 50MB.');
         return;
       }
       setAttachment(file);
@@ -258,8 +259,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
           .then(res => res.blob())
           .then(blob => {
             const file = new File([blob], 'pasted-image.png', { type: blob.type });
-            if (file.size > 10 * 1024 * 1024) {
-              globalThis.alert('Pasted image is too large. Max size is 10MB.');
+            if (file.size > 50 * 1024 * 1024) {
+              globalThis.alert('Pasted image is too large. Max size is 50MB.');
               return;
             }
             setAttachment(file);
@@ -461,7 +462,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
           className="w-8 h-8 flex items-center justify-center rounded-md bg-gray-100 text-gray-500 hover:text-indigo-600 hover:bg-gray-200 transition-colors flex-shrink-0"
           title="Back to List"
         >
-          <i className="fas fa-arrow-left text-[12px]"></i>
+          <Icon icon="mdi:arrow-left" width={14} />
         </button>
 
         <div className="hidden lg:block min-w-0 pr-3 border-r border-gray-200">
@@ -499,10 +500,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   <span className="hidden xl:inline truncate max-w-[80px]">{ticket.assignedToUsername}</span>
                 </>
               ) : (
-                <><i className="fas fa-user-plus text-[10px]"></i><span className="hidden xl:inline ml-1">Assign</span></>
+                <><Icon icon="mdi:account-plus-outline" width={12} /><span className="hidden xl:inline ml-1">Assign</span></>
               )}
-              {!isAssigning && ticket.status !== 'CLOSED' && <i className="fas fa-chevron-down text-[9px] opacity-50 ml-0.5"></i>}
-              {isAssigning && <i className="fas fa-circle-notch fa-spin text-[10px] ml-0.5"></i>}
+              {!isAssigning && ticket.status !== 'CLOSED' && <Icon icon="mdi:chevron-down" width={12} className="opacity-50 ml-0.5" />}
+              {isAssigning && <Icon icon="mdi:loading" width={12} className="animate-spin ml-0.5" />}
             </button>
 
             {showAssignDropdown && adminUsers.length > 0 && (
@@ -520,7 +521,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       {admin.username.charAt(0).toUpperCase()}
                     </div>
                     {admin.username}
-                    {ticket.assignedToId === admin.id && <i className="fas fa-check text-indigo-500 ml-auto text-[10px]"></i>}
+                    {ticket.assignedToId === admin.id && <Icon icon="mdi:check" width={14} className="text-indigo-500 ml-auto" />}
                   </button>
                 ))}
                 {ticket.assignedToUsername && (
@@ -528,7 +529,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     onClick={() => handleAssign(0, '')}
                     className="w-full text-left flex items-center gap-2 px-3 py-2 text-[12px] text-red-500 hover:bg-red-50 transition-colors border-t border-gray-100"
                   >
-                    <i className="fas fa-user-times text-[10px]"></i>
+                    <Icon icon="mdi:account-remove-outline" width={12} />
                     Unassign
                   </button>
                 )}
@@ -543,9 +544,9 @@ const BillOpsTicketDetailPage: React.FC = () => {
             onClick={() => setShowActionsDropdown(v => !v)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-[12px] font-medium hover:bg-indigo-700 transition-colors"
           >
-            <i className="fas fa-bolt text-[10px]"></i>
+            <Icon icon="mdi:lightning-bolt" width={12} />
             <span className="hidden lg:inline">Actions</span>
-            <i className="fas fa-chevron-down text-[9px] opacity-70 ml-0.5"></i>
+            <Icon icon="mdi:chevron-down" width={12} className="opacity-70 ml-0.5" />
           </button>
 
           {showActionsDropdown && (
@@ -555,7 +556,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   onClick={() => { setShowRcaModal(true); setShowActionsDropdown(false); }}
                   className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
                 >
-                  <i className="fas fa-file-medical-alt text-purple-500 w-4 text-center"></i>
+                  <Icon icon="mdi:file-document-edit-outline" width={16} className="text-purple-500 flex-shrink-0" />
                   Generate RCA
                 </button>
               )}
@@ -564,7 +565,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   onClick={() => { openMeetModal(); setShowActionsDropdown(false); }}
                   className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
                 >
-                  <i className="fas fa-video text-emerald-500 w-4 text-center"></i>
+                  <Icon icon="mdi:video-outline" width={16} className="text-emerald-500 flex-shrink-0" />
                   Schedule Meet
                 </button>
               )}
@@ -573,7 +574,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   onClick={() => { setShowEmailModal(true); setShowActionsDropdown(false); }}
                   className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-gray-700 hover:bg-sky-50 hover:text-sky-700 transition-colors"
                 >
-                  <i className="fas fa-envelope text-sky-500 w-4 text-center"></i>
+                  <Icon icon="mdi:email-outline" width={16} className="text-sky-500 flex-shrink-0" />
                   Email Thread
                 </button>
               )}
@@ -582,7 +583,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   onClick={() => { handleCloseTicket(); setShowActionsDropdown(false); }}
                   className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-red-600 hover:bg-red-50 transition-colors border-t border-gray-100"
                 >
-                  <i className="far fa-times-circle text-red-500 w-4 text-center"></i>
+                  <Icon icon="mdi:close-circle-outline" width={16} className="text-red-500 flex-shrink-0" />
                   Close Ticket
                 </button>
               )}
@@ -591,7 +592,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   onClick={() => { handleReopenTicket(); setShowActionsDropdown(false); }}
                   className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-emerald-700 hover:bg-emerald-50 transition-colors"
                 >
-                  <i className="fas fa-lock-open text-emerald-500 w-4 text-center"></i>
+                  <Icon icon="mdi:lock-open-outline" width={16} className="text-emerald-500 flex-shrink-0" />
                   Reopen Ticket
                 </button>
               )}
@@ -994,7 +995,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
       {sections.map((section, index) => (
         <div key={index} className="mb-3 bg-gray-50 p-4 rounded-lg border border-gray-200 relative group">
           <button type="button" onClick={() => removeRcaSection(arrayName, index)} className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors">
-            <i className="fas fa-times"></i>
+            <Icon icon="mdi:close" width={14} />
           </button>
           <div className="mb-2">
             <input value={section.heading} onChange={e => updateRcaSection(arrayName, index, 'heading', e.target.value)} type="text" className="block w-full bg-transparent border-0 border-b border-gray-300 focus:border-purple-500 focus:ring-0 text-sm font-semibold placeholder-gray-400 px-0" placeholder="Sub-heading" />
@@ -1002,8 +1003,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
           <textarea value={section.content} onChange={e => updateRcaSection(arrayName, index, 'content', e.target.value)} className="w-full bg-white border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500 text-sm" rows={2} placeholder="Details..."></textarea>
         </div>
       ))}
-      <button type="button" onClick={() => addRcaSection(arrayName)} className="text-sm text-purple-600 hover:text-purple-800 flex items-center font-medium">
-        <i className="fas fa-plus-circle mr-1"></i> Add Sub-section
+      <button type="button" onClick={() => addRcaSection(arrayName)} className="text-sm text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium">
+        <Icon icon="mdi:plus-circle-outline" width={14} /> Add Sub-section
       </button>
     </>
   );
@@ -1011,7 +1012,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <i className="fas fa-spinner fa-spin text-5xl text-indigo-600"></i>
+        <Icon icon="mdi:loading" width={40} className="animate-spin text-[rgba(0,0,0,0.3)]" />
       </div>
     );
   }
@@ -1020,8 +1021,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
-          <i className="fas fa-exclamation-circle text-5xl text-red-500 mb-4"></i>
-          <p className="text-xl text-gray-700">{error}</p>
+          <Icon icon="mdi:alert-circle-outline" width={40} className="text-red-500 mb-4 mx-auto block" />
+          <p className="text-xl text-[rgba(0,0,0,0.5)]">{error}</p>
           <button onClick={goBackToTickets} className="mt-4 text-indigo-600 hover:text-indigo-500 underline">
             Back to Tickets
           </button>
@@ -1038,22 +1039,21 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const responseSlaLabel = getResponseSlaLabel(ticket.createdAt, ticket.severity, ticket.chatStartedAt);
 
   return (
-    <div className="flex flex-col overflow-hidden" style={{ height: 'calc(100dvh - 104px)', background: '#f5f6f8' }}>
+    <div className="flex flex-col overflow-hidden bg-white" style={{ height: 'calc(100dvh - 104px)' }}>
       {/* Chat Container */}
       <div
         ref={chatContainerRef}
-        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar scroll-smooth"
-        style={{ background: '#f5f6f8' }}
+        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar scroll-smooth bg-[rgba(0,0,0,0.02)]"
         onScroll={handleChatScroll}
       >
         <div className="w-full p-5 lg:p-8 space-y-6">
 
           {/* Original Ticket + Metadata Card */}
-          <div className="bg-white border border-gray-200 rounded-md shadow-sm p-6">
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
             <div className="flex gap-4">
               <div className="flex-shrink-0">
-                <div className="w-10 h-10 rounded-md bg-indigo-600 flex items-center justify-center text-white">
-                  <i className="fas fa-ticket-alt text-sm"></i>
+                <div className="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
+                  <Icon icon="mdi:ticket-outline" width={18} />
                 </div>
               </div>
               <div className="flex-1 min-w-0 space-y-4">
@@ -1118,7 +1118,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                 {/* SLA card (admin only) */}
                 {isAdmin && (
-                  <div className={`flex items-center gap-3 px-4 py-3 rounded-md border ${
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
                     slaStatus.status === 'ok' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                     slaStatus.status === 'warning' ? 'bg-amber-50 text-amber-700 border-amber-200' :
                     'bg-red-50 text-red-700 border-red-200'
@@ -1163,8 +1163,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       <div className="flex w-full justify-end">
                         <div className="flex max-w-[85%] md:max-w-[70%] gap-3 flex-row-reverse min-w-0">
                           <div className="flex-shrink-0 mt-auto">
-                            <div className="w-8 h-8 rounded-md flex items-center justify-center text-sm shadow-sm bg-amber-500 text-white">
-                              <i className="fas fa-lock text-xs"></i>
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shadow-sm bg-amber-500 text-white">
+                              <Icon icon="mdi:lock-outline" width={14} />
                             </div>
                           </div>
                           <div className="space-y-1 text-left min-w-0">
@@ -1199,8 +1199,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   <div className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'}`}>
                     <div className={`flex max-w-[85%] md:max-w-[72%] gap-3 min-w-0 ${isMine ? 'flex-row-reverse' : ''}`}>
                       <div className="flex-shrink-0 mt-auto">
-                        <div className={`w-8 h-8 rounded-md flex items-center justify-center text-sm font-semibold ${reply.admin ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600'}`}>
-                          {reply.admin ? <i className="fas fa-shield-alt text-xs"></i> : <span>{getInitials(reply.authorUsername)}</span>}
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold ${reply.admin ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                          {reply.admin ? <Icon icon="mdi:shield-account" width={16} /> : <span>{getInitials(reply.authorUsername)}</span>}
                         </div>
                       </div>
 
@@ -1228,7 +1228,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           )}
                         </div>
 
-                        <div className={`group/msg relative p-4 rounded-xl shadow-sm text-sm leading-relaxed overflow-visible ${isMine ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white text-gray-700 border border-gray-200 rounded-tl-sm'}`}>
+                        <div className={`group/msg relative p-4 rounded-xl shadow-sm text-sm leading-relaxed overflow-visible ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-[rgba(0,0,0,0.88)] border border-[rgba(0,0,0,0.08)] rounded-tl-none'}`}>
 
                           {/* ── Edit / Delete hover buttons ── */}
                           {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
@@ -1245,7 +1245,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                   className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
                                   title="Edit (within 15 min)"
                                 >
-                                  <i className="fas fa-pencil-alt text-[10px] text-white/70 hover:text-white"></i>
+                                  <Icon icon="mdi:pencil-outline" width={12} className="text-white/70" />
                                 </button>
                               )}
                               <button
@@ -1253,14 +1253,14 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                 className="p-1.5 rounded-lg bg-white/20 hover:bg-red-500/40 transition-colors"
                                 title="Delete message"
                               >
-                                <i className="fas fa-trash text-[10px] text-white/70 hover:text-red-200"></i>
+                                <Icon icon="mdi:trash-can-outline" width={12} className="text-white/70" />
                               </button>
                             </div>
                           )}
 
                           {reply.deleted ? (
-                            <div className={`flex items-center gap-2 italic ${isMine ? 'text-white/50' : 'text-slate-400'}`}>
-                              <i className="fas fa-ban text-xs"></i>
+                            <div className={`flex items-center gap-2 italic ${isMine ? 'text-white/50' : 'text-[rgba(0,0,0,0.35)]'}`}>
+                              <Icon icon="mdi:cancel" width={14} />
                               <span className="text-sm">This message was deleted</span>
                             </div>
                           ) : editingReplyId === reply.id ? (
@@ -1294,7 +1294,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                             <>
                               <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0 break-words" />
                               {reply.edited && (
-                                <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMine ? 'text-white/40' : 'text-slate-400'}`}>Edited</span>
+                                <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMine ? 'text-white/40' : 'text-[rgba(0,0,0,0.35)]'}`}>Edited</span>
                               )}
                             </>
                           )}
@@ -1318,13 +1318,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                 >
                                   <div className={`flex items-center p-3 ${isMine ? 'bg-white/10' : 'bg-purple-50'}`}>
                                     <div className="p-2 bg-purple-600 text-white rounded-md mr-3">
-                                      <i className="fas fa-file-medical-alt"></i>
+                                      <Icon icon="mdi:file-document-edit-outline" width={16} />
                                     </div>
                                     <div className="flex-1">
                                       <h4 className={`text-sm font-semibold leading-tight ${isMine ? 'text-white' : 'text-purple-900'}`}>RCA Report Generated</h4>
                                       <p className={`text-[10px] mt-0.5 ${isMine ? 'text-white/70' : 'text-purple-600'}`}>Download PDF Report</p>
                                     </div>
-                                    <i className={`fas fa-download text-sm ${isMine ? 'text-white/50' : 'text-purple-400'}`}></i>
+                                    <Icon icon="mdi:download-outline" width={16} className={isMine ? 'text-white/50' : 'text-purple-400'} />
                                   </div>
                                 </div>
                               )}
@@ -1335,13 +1335,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                   onClick={() => reply.attachmentUrl ? globalThis.open(reply.attachmentUrl, '_blank') : alert('File URL not found')}
                                 >
                                   <div className={`w-8 h-8 flex items-center justify-center rounded-md mr-3 ${isMine ? 'bg-white/20 text-white' : 'bg-white border border-gray-200 text-indigo-500'}`}>
-                                    {reply.attachmentType?.startsWith('image/') ? <i className="fas fa-file-image"></i> : reply.attachmentType?.includes('pdf') ? <i className="fas fa-file-pdf"></i> : <i className="fas fa-file-alt"></i>}
+                                    {reply.attachmentType?.startsWith('image/') ? <Icon icon="mdi:file-image-outline" width={16} /> : reply.attachmentType?.includes('pdf') ? <Icon icon="mdi:file-pdf-box" width={16} /> : <Icon icon="mdi:file-outline" width={16} />}
                                   </div>
                                   <div className="flex-1 min-w-0">
-                                    <p className={`text-xs font-medium truncate ${isMine ? 'text-white' : 'text-gray-800'}`}>{reply.attachmentName || 'Attached File'}</p>
-                                    <p className={`text-[10px] mt-0.5 ${isMine ? 'text-white/60' : 'text-gray-400'}`}>Click to view</p>
+                                    <p className={`text-xs font-medium truncate ${isMine ? 'text-white' : 'text-[rgba(0,0,0,0.88)]'}`}>{reply.attachmentName || 'Attached File'}</p>
+                                    <p className={`text-[10px] mt-0.5 ${isMine ? 'text-white/60' : 'text-[rgba(0,0,0,0.35)]'}`}>Click to view</p>
                                   </div>
-                                  <i className={`fas fa-download text-xs ${isMine ? 'text-white/40' : 'text-gray-300'}`}></i>
+                                  <Icon icon="mdi:download-outline" width={14} className={isMine ? 'text-white/40' : 'text-[rgba(0,0,0,0.2)]'} />
                                 </div>
                               )}
                             </div>
@@ -1362,9 +1362,9 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
           {/* Closed banner — shown inline at bottom of chat */}
           {isClosed && (
-            <div className="flex items-center justify-between gap-3 px-5 py-3.5 bg-gray-100 rounded-md border border-gray-200 text-[12px] text-gray-500">
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5 bg-[rgba(0,0,0,0.03)] rounded-xl border border-[rgba(0,0,0,0.08)] text-[12px] text-[rgba(0,0,0,0.5)]">
               <div className="flex items-center gap-2.5">
-                <i className="fas fa-lock text-gray-400"></i>
+                <Icon icon="mdi:lock-outline" width={14} className="text-[rgba(0,0,0,0.35)]" />
                 This ticket was closed
                 {ticket.closedAt && <span className="text-gray-400">· {new Date(ticket.closedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>}
               </div>
@@ -1373,7 +1373,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   onClick={handleReopenTicket}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-md text-[11px] font-medium border border-emerald-200 hover:bg-emerald-100 transition-colors"
                 >
-                  <i className="fas fa-lock-open text-[10px]"></i>
+                  <Icon icon="mdi:lock-open-outline" width={14} />
                   Reopen
                 </button>
               )}
@@ -1388,7 +1388,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
               onClick={scrollToBottom}
               className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-medium rounded-md shadow-md transition-colors"
             >
-              <i className="fas fa-chevron-down text-[9px]"></i>
+              <Icon icon="mdi:chevron-down" width={14} />
               Latest
             </button>
           </div>
@@ -1397,21 +1397,21 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
       {/* Footer - Reply Form */}
       {ticket.status !== 'CLOSED' ? (
-        <div className="px-5 py-4 bg-white border-t border-gray-200">
+        <div className="px-5 py-4 bg-white border-t border-[rgba(0,0,0,0.08)]">
           <form onSubmit={handleSubmitReply}>
-            <div className="bg-white rounded-md border border-gray-200 overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-400 transition-all">
-              <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between bg-gray-50">
-                <div className="flex items-center gap-2 text-[11px] font-medium text-gray-500">
-                  <i className="fas fa-reply text-indigo-500 text-[10px]"></i>
+            <div className="bg-white rounded-xl border border-[rgba(0,0,0,0.12)] overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-400 transition-all">
+              <div className="px-4 py-2.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between bg-[rgba(0,0,0,0.02)]">
+                <div className="flex items-center gap-2 text-[11px] font-medium text-[rgba(0,0,0,0.5)]">
+                  <Icon icon="mdi:reply" width={12} className="text-indigo-500" />
                   Official Ticket Response
                 </div>
                 <div className="flex items-center gap-2">
                   {attachment && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100 text-[11px] font-medium">
-                      <i className="fas fa-paperclip text-[10px]"></i>
+                      <Icon icon="mdi:paperclip" width={12} />
                       <span className="max-w-[140px] truncate">{fileName}</span>
                       <button type="button" onClick={clearFile} className="hover:text-red-500 transition-colors ml-0.5">
-                        <i className="fas fa-times text-[10px]"></i>
+                        <Icon icon="mdi:close" width={12} />
                       </button>
                     </div>
                   )}
@@ -1422,7 +1422,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       title={noteFirstLine ? `Note: ${noteFirstLine}` : 'Internal note pad (Ctrl/⌘+Shift+N)'}
                       className="relative flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100"
                     >
-                      <i className="fas fa-sticky-note text-[10px]"></i>
+                      <Icon icon="mdi:note-outline" width={12} />
                       Note
                       {hasNoteContent && (
                         <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 border border-white"></span>
@@ -1441,9 +1441,9 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 <div ref={quillRef} className="bg-white"></div>
               </div>
 
-              <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between bg-gray-50">
-                <label className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 rounded-md text-[11px] font-medium cursor-pointer transition-colors">
-                  <i className="fas fa-paperclip text-[11px]"></i>
+              <div className="px-4 py-2.5 border-t border-[rgba(0,0,0,0.06)] flex items-center justify-between bg-[rgba(0,0,0,0.02)]">
+                <label className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] rounded-md text-[11px] font-medium cursor-pointer transition-colors">
+                  <Icon icon="mdi:paperclip" width={14} />
                   Attach Files
                   <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
                 </label>
@@ -1451,11 +1451,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmitting || (!newReplyHasContent && !attachment)}
-                  className="flex items-center gap-1.5 px-5 py-2 text-white rounded-md text-[12px] font-medium transition-colors disabled:opacity-50 bg-indigo-600 hover:bg-indigo-700"
+                  className="flex items-center gap-1.5 px-5 py-2 text-white rounded-md text-[12px] font-medium transition-colors disabled:opacity-50 bg-[rgba(0,0,0,0.88)] hover:bg-black"
                 >
                   {isSubmitting
-                    ? <><i className="fas fa-circle-notch fa-spin text-[11px]"></i> Sending...</>
-                    : <><i className="fas fa-paper-plane text-[11px]"></i> Send</>
+                    ? <><Icon icon="mdi:loading" width={14} className="animate-spin" /> Sending...</>
+                    : <><Icon icon="mdi:send-outline" width={14} /> Send</>
                   }
                 </button>
               </div>
@@ -1467,38 +1467,38 @@ const BillOpsTicketDetailPage: React.FC = () => {
       {/* Email Thread Modal — rendered via portal so fixed/backdrop works regardless of scroll/transforms */}
       {showEmailModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={closeEmailModal}></div>
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden z-10" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 bg-black/40" onClick={closeEmailModal}></div>
+          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden z-10" onClick={e => e.stopPropagation()}>
 
               {/* Header */}
-              <div className="px-6 pt-6 pb-4 border-b border-slate-100">
+              <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)]">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-sky-100 flex items-center justify-center flex-shrink-0">
-                      <i className="fas fa-envelope text-sky-600 text-sm"></i>
+                  <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-sky-50 border border-sky-100 flex items-center justify-center flex-shrink-0">
+                      <Icon icon="mdi:email-outline" width={16} className="text-sky-600" />
                     </div>
                     Email Ticket Thread
                   </h3>
-                  <button onClick={closeEmailModal} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
-                    <i className="fas fa-times text-sm"></i>
+                  <button onClick={closeEmailModal} className="w-8 h-8 flex items-center justify-center rounded-lg bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.08)] transition-colors">
+                    <Icon icon="mdi:close" width={16} />
                   </button>
                 </div>
-                <p className="mt-1 text-xs text-slate-400 pl-10">Send the full conversation history as a formatted email.</p>
+                <p className="mt-1 text-xs text-[rgba(0,0,0,0.35)] pl-10">Send the full conversation history as a formatted email.</p>
               </div>
 
-              <div className="px-6 py-5 space-y-5 max-h-[65vh] overflow-y-auto custom-scrollbar">
+              <div className="px-5 py-4 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
 
                 {/* Chip-based recipients input */}
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">
+                  <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] mb-1.5 uppercase tracking-[0.08em]">
                     Recipients <span className="text-red-500">*</span>
                   </label>
-                  <div className="min-h-[52px] border border-slate-200 rounded-xl px-3 py-2 flex flex-wrap gap-1.5 items-center focus-within:ring-2 focus-within:ring-sky-400 focus-within:border-sky-400 transition-all bg-white cursor-text">
+                  <div className="min-h-[44px] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 flex flex-wrap gap-1.5 items-center focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-400 transition-all bg-[rgba(0,0,0,0.04)] cursor-text">
                     {emailRecipients.map(email => (
-                      <span key={email} className="flex items-center gap-1 pl-2.5 pr-1 py-0.5 bg-sky-100 text-sky-800 rounded-full text-[11px] font-bold border border-sky-200 flex-shrink-0">
+                      <span key={email} className="flex items-center gap-1 pl-2.5 pr-1 py-0.5 bg-sky-100 text-sky-800 rounded-full text-[11px] font-semibold border border-sky-200 flex-shrink-0">
                         {email}
                         <button type="button" onClick={() => removeEmailRecipient(email)} className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-sky-200 transition-colors ml-0.5 text-sky-500">
-                          <i className="fas fa-times text-[7px]"></i>
+                          <Icon icon="mdi:close" width={10} />
                         </button>
                       </span>
                     ))}
@@ -1509,42 +1509,42 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       onKeyDown={handleEmailInputKeyDown}
                       onBlur={() => emailInput.trim() && addEmailRecipient(emailInput)}
                       placeholder={emailRecipients.length === 0 ? 'Type email and press Enter...' : 'Add more...'}
-                      className="flex-1 min-w-[160px] outline-none text-sm text-slate-700 placeholder-slate-300 bg-transparent py-0.5"
+                      className="flex-1 min-w-[160px] outline-none text-[13px] text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.25)] bg-transparent py-0.5"
                     />
                   </div>
-                  <p className="mt-1 text-[10px] text-slate-400">Press Enter or comma to add • Backspace to remove last</p>
+                  <p className="mt-1 text-[10px] text-[rgba(0,0,0,0.35)]">Press Enter or comma to add • Backspace to remove last</p>
                 </div>
 
                 {/* Quick-add: known users */}
                 {(adminUsers.filter(a => a.email).length > 0 || ticket?.creatorEmail) && (
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">Quick Add Users</label>
-                    <div className="space-y-1.5 border border-slate-100 rounded-xl overflow-hidden divide-y divide-slate-100">
+                    <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] mb-1.5 uppercase tracking-[0.08em]">Quick Add Users</label>
+                    <div className="space-y-0 border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden divide-y divide-[rgba(0,0,0,0.04)]">
 
                       {/* Ticket creator */}
                       {ticket?.creatorEmail && (
-                        <div className="flex items-center justify-between px-3.5 py-3 bg-white hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center justify-between px-3.5 py-3 bg-white hover:bg-[rgba(0,0,0,0.02)] transition-colors">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-black flex-shrink-0">
+                            <div className="w-7 h-7 rounded-full bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.5)] flex items-center justify-center text-[10px] font-semibold flex-shrink-0">
                               {(ticket.creatorUsername || 'U').charAt(0).toUpperCase()}
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
-                                <p className="text-[11px] font-bold text-slate-700 leading-none">{ticket.creatorUsername}</p>
-                                <span className="px-1.5 py-0.5 text-[8px] font-black bg-emerald-100 text-emerald-700 rounded-full uppercase tracking-widest border border-emerald-200">Creator</span>
+                                <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">{ticket.creatorUsername}</p>
+                                <span className="px-1.5 py-0.5 text-[8px] font-semibold bg-emerald-50 text-emerald-700 rounded-full uppercase tracking-widest border border-emerald-200">Creator</span>
                               </div>
-                              <p className="text-[10px] text-slate-400 mt-0.5 truncate">{ticket.creatorEmail}</p>
+                              <p className="text-[10px] text-[rgba(0,0,0,0.35)] mt-0.5 truncate">{ticket.creatorEmail}</p>
                             </div>
                           </div>
                           <button
                             type="button"
                             onClick={() => addEmailRecipient(ticket.creatorEmail!)}
                             disabled={emailRecipients.includes(ticket.creatorEmail!.toLowerCase())}
-                            className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 ml-3 bg-white text-sky-600 border-sky-200 hover:bg-sky-50 active:scale-95"
+                            className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 ml-3 bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.04)]"
                           >
                             {emailRecipients.includes(ticket.creatorEmail.toLowerCase())
-                              ? <><i className="fas fa-check text-emerald-500"></i> Added</>
-                              : <><i className="fas fa-plus"></i> Add</>
+                              ? <><Icon icon="mdi:check" width={12} className="text-emerald-500" /> Added</>
+                              : <><Icon icon="mdi:plus" width={12} /> Add</>
                             }
                           </button>
                         </div>
@@ -1552,28 +1552,28 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                       {/* Admin users */}
                       {adminUsers.filter(a => a.email).map(admin => (
-                        <div key={admin.id} className="flex items-center justify-between px-3.5 py-3 bg-white hover:bg-slate-50 transition-colors">
+                        <div key={admin.id} className="flex items-center justify-between px-3.5 py-3 bg-white hover:bg-[rgba(0,0,0,0.02)] transition-colors">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black flex-shrink-0">
+                            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-semibold flex-shrink-0">
                               {admin.username.charAt(0).toUpperCase()}
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
-                                <p className="text-[11px] font-bold text-slate-700 leading-none">{admin.username}</p>
-                                <span className="px-1.5 py-0.5 text-[8px] font-black bg-indigo-100 text-indigo-700 rounded-full uppercase tracking-widest border border-indigo-200">Admin</span>
+                                <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">{admin.username}</p>
+                                <span className="px-1.5 py-0.5 text-[8px] font-semibold bg-indigo-50 text-indigo-700 rounded-full uppercase tracking-widest border border-indigo-200">Admin</span>
                               </div>
-                              <p className="text-[10px] text-slate-400 mt-0.5 truncate">{admin.email}</p>
+                              <p className="text-[10px] text-[rgba(0,0,0,0.35)] mt-0.5 truncate">{admin.email}</p>
                             </div>
                           </div>
                           <button
                             type="button"
                             onClick={() => addEmailRecipient(admin.email!)}
                             disabled={emailRecipients.includes(admin.email!.toLowerCase())}
-                            className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 ml-3 bg-white text-sky-600 border-sky-200 hover:bg-sky-50 active:scale-95"
+                            className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 ml-3 bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.04)]"
                           >
                             {emailRecipients.includes(admin.email!.toLowerCase())
-                              ? <><i className="fas fa-check text-emerald-500"></i> Added</>
-                              : <><i className="fas fa-plus"></i> Add</>
+                              ? <><Icon icon="mdi:check" width={12} className="text-emerald-500" /> Added</>
+                              : <><Icon icon="mdi:plus" width={12} /> Add</>
                             }
                           </button>
                         </div>
@@ -1584,23 +1584,23 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                 {/* Send mode toggle */}
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">Send Mode</label>
+                  <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] mb-1.5 uppercase tracking-[0.08em]">Send Mode</label>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => setSendMode('separate')}
                       className={`flex-1 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-left transition-all ${
                         sendMode === 'separate'
-                          ? 'bg-sky-50 border-sky-400 text-sky-800 shadow-sm shadow-sky-100'
-                          : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                          ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
+                          : 'bg-white border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.5)] hover:border-[rgba(0,0,0,0.2)]'
                       }`}
                     >
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'separate' ? 'border-sky-500' : 'border-slate-300'}`}>
-                        {sendMode === 'separate' && <div className="w-2 h-2 rounded-full bg-sky-500"></div>}
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'separate' ? 'border-indigo-500' : 'border-[rgba(0,0,0,0.2)]'}`}>
+                        {sendMode === 'separate' && <div className="w-2 h-2 rounded-full bg-indigo-500"></div>}
                       </div>
                       <div>
-                        <div className="text-[11px] font-black uppercase tracking-widest leading-none">Separate</div>
-                        <div className="text-[9px] font-medium text-slate-400 mt-0.5 leading-snug">One email per recipient</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-widest leading-none">Separate</div>
+                        <div className="text-[9px] font-medium text-[rgba(0,0,0,0.35)] mt-0.5 leading-snug">One email per recipient</div>
                       </div>
                     </button>
                     <button
@@ -1608,16 +1608,16 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       onClick={() => setSendMode('combined')}
                       className={`flex-1 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-left transition-all ${
                         sendMode === 'combined'
-                          ? 'bg-sky-50 border-sky-400 text-sky-800 shadow-sm shadow-sky-100'
-                          : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                          ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
+                          : 'bg-white border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.5)] hover:border-[rgba(0,0,0,0.2)]'
                       }`}
                     >
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'combined' ? 'border-sky-500' : 'border-slate-300'}`}>
-                        {sendMode === 'combined' && <div className="w-2 h-2 rounded-full bg-sky-500"></div>}
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'combined' ? 'border-indigo-500' : 'border-[rgba(0,0,0,0.2)]'}`}>
+                        {sendMode === 'combined' && <div className="w-2 h-2 rounded-full bg-indigo-500"></div>}
                       </div>
                       <div>
-                        <div className="text-[11px] font-black uppercase tracking-widest leading-none">Combined</div>
-                        <div className="text-[9px] font-medium text-slate-400 mt-0.5 leading-snug">All in one email (CC visible)</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-widest leading-none">Combined</div>
+                        <div className="text-[9px] font-medium text-[rgba(0,0,0,0.35)] mt-0.5 leading-snug">All in one email (CC visible)</div>
                       </div>
                     </button>
                   </div>
@@ -1625,7 +1625,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                 {/* Info banner */}
                 <div className="bg-sky-50 border border-sky-100 rounded-xl px-4 py-3 text-xs text-sky-700 space-y-1">
-                  <div className="font-bold flex items-center gap-1.5"><i className="fas fa-info-circle"></i> What will be sent:</div>
+                  <div className="font-semibold flex items-center gap-1.5"><Icon icon="mdi:information-outline" width={14} /> What will be sent:</div>
                   <ul className="list-disc list-inside space-y-0.5 pl-1 text-sky-600">
                     <li>Ticket #{ticket?.id} — {ticket?.subject}</li>
                     <li>All public replies (internal notes excluded)</li>
@@ -1635,15 +1635,15 @@ const BillOpsTicketDetailPage: React.FC = () => {
               </div>
 
               {/* Footer */}
-              <div className="px-6 py-4 flex justify-between items-center border-t border-slate-100 bg-slate-50/50">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              <div className="px-5 py-4 flex justify-between items-center border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
+                <span className="text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest">
                   {emailRecipients.length + (emailInput.trim() ? 1 : 0)} recipient{(emailRecipients.length + (emailInput.trim() ? 1 : 0)) !== 1 ? 's' : ''} selected
                 </span>
                 <div className="flex gap-3">
                   <button
                     type="button"
                     onClick={closeEmailModal}
-                    className="px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 rounded-xl transition-colors"
+                    className="px-4 py-2 text-[13px] font-medium text-[rgba(0,0,0,0.5)] bg-white border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors"
                   >
                     Cancel
                   </button>
@@ -1651,11 +1651,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     type="button"
                     onClick={handleSendEmail}
                     disabled={isSendingEmail || (emailRecipients.length === 0 && !emailInput.trim())}
-                    className="flex items-center gap-2 px-5 py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-xl shadow-lg shadow-sky-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+                    className="flex items-center gap-2 px-5 py-2 text-[13px] font-medium text-white bg-[rgba(0,0,0,0.88)] hover:bg-black rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isSendingEmail
-                      ? <><i className="fas fa-circle-notch fa-spin"></i> Sending...</>
-                      : <><i className="fas fa-paper-plane"></i> Send Email</>
+                      ? <><Icon icon="mdi:loading" width={14} className="animate-spin" /> Sending...</>
+                      : <><Icon icon="mdi:send-outline" width={14} /> Send Email</>
                     }
                   </button>
                 </div>
@@ -1669,8 +1669,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
       <DialogRoot isOpen={showRcaModal} onClose={() => setShowRcaModal(false)} maxWidth="max-w-4xl">
         <DialogPanel
           title={
-            <span className="flex items-center gap-2 text-lg font-medium text-gray-900">
-              <i className="fas fa-file-medical-alt text-purple-600"></i> Generate Root Cause Analysis
+            <span className="flex items-center gap-2 text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">
+              <Icon icon="mdi:file-document-edit-outline" width={18} className="text-purple-600" /> Generate Root Cause Analysis
             </span>
           }
           onClose={() => setShowRcaModal(false)}
@@ -1680,7 +1680,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 Cancel
               </button>
               <button type="button" onClick={handleSubmitRca} disabled={rcaSubmitting} className="inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-purple-600 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50">
-                {rcaSubmitting ? <><i className="fas fa-circle-notch fa-spin mr-2"></i> Generating PDF...</> : 'Submit & Close Ticket'}
+                {rcaSubmitting ? <><Icon icon="mdi:loading" width={14} className="animate-spin mr-2" /> Generating PDF...</> : 'Submit & Close Ticket'}
               </button>
             </>
           }
@@ -1725,82 +1725,82 @@ const BillOpsTicketDetailPage: React.FC = () => {
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/40"
             onClick={closeMeetModal}
           />
 
-          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="relative w-full max-w-lg bg-white rounded-xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50 flex-shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex-shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-200">
-                  <i className="fas fa-video text-white text-sm"></i>
+                <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+                  <Icon icon="mdi:video-outline" width={18} className="text-emerald-600" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">Schedule Google Meet</h2>
-                  <p className="text-[10px] text-slate-500 font-medium mt-0.5">Admin only · Ticket #{ticket?.id}</p>
+                  <h2 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Schedule Google Meet</h2>
+                  <p className="text-[10px] text-[rgba(0,0,0,0.35)] mt-0.5">Admin only · Ticket #{ticket?.id}</p>
                 </div>
               </div>
               <button
                 onClick={closeMeetModal}
-                className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-lg bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.08)] transition-colors"
               >
-                <i className="fas fa-times text-sm"></i>
+                <Icon icon="mdi:close" width={16} />
               </button>
             </div>
 
             {/* Body */}
             <div className="overflow-y-auto flex-1 custom-scrollbar">
-              <div className="px-6 py-5 space-y-4">
+              <div className="px-5 py-4 space-y-4">
 
                 {/* Meeting Title */}
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">Meeting Title</label>
+                  <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] mb-1.5 uppercase tracking-[0.08em]">Meeting Title</label>
                   <input
                     type="text"
                     value={meetTitle}
                     onChange={e => setMeetTitle(e.target.value)}
                     placeholder={`Support Meeting — Ticket #${ticket?.id}`}
-                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent bg-slate-50"
+                    className="w-full px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-[rgba(0,0,0,0.04)]"
                   />
                 </div>
 
                 {/* Date + Time (IST) */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">Date (IST)</label>
+                    <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] mb-1.5 uppercase tracking-[0.08em]">Date (IST)</label>
                     <input
                       type="date"
                       value={meetDate}
                       onChange={e => setMeetDate(e.target.value)}
                       min={new Date().toISOString().substring(0, 10)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent bg-slate-50"
+                      className="w-full px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-[rgba(0,0,0,0.04)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">Time (IST)</label>
+                    <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] mb-1.5 uppercase tracking-[0.08em]">Time (IST)</label>
                     <input
                       type="time"
                       value={meetTime}
                       onChange={e => setMeetTime(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent bg-slate-50"
+                      className="w-full px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-[rgba(0,0,0,0.04)]"
                     />
                   </div>
                 </div>
 
                 {/* Duration */}
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">Duration</label>
+                  <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] mb-1.5 uppercase tracking-[0.08em]">Duration</label>
                   <div className="flex gap-2 flex-wrap">
                     {[{ v: '30', l: '30 min' }, { v: '45', l: '45 min' }, { v: '60', l: '1 hour' }, { v: '90', l: '1.5 hrs' }, { v: '120', l: '2 hrs' }].map(opt => (
                       <button
                         key={opt.v}
                         type="button"
                         onClick={() => setMeetDuration(opt.v)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                        className={`px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-all ${
                           meetDuration === opt.v
-                            ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-200'
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-600'
+                            ? 'bg-emerald-500 text-white border-emerald-500'
+                            : 'bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)] hover:border-emerald-300 hover:text-emerald-600'
                         }`}
                       >
                         {opt.l}
@@ -1823,16 +1823,16 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       href="https://meet.google.com/new"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-200 hover:bg-emerald-700 transition-colors"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors"
                     >
-                      <i className="fas fa-video text-[10px]"></i>
+                      <Icon icon="mdi:video-outline" width={14} />
                       Open Google Meet
                     </a>
                   </div>
 
                   {/* Step 2 — Paste the link */}
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-widest">
+                    <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] mb-1.5 uppercase tracking-[0.08em]">
                       Step 2 — Paste the Meet Link
                     </label>
                     <div className="flex gap-2 items-center">
@@ -1841,18 +1841,18 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         value={meetLink}
                         onChange={e => setMeetLink(e.target.value)}
                         placeholder="https://meet.google.com/xxx-xxxx-xxx"
-                        className="flex-1 px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent bg-slate-50 font-mono"
+                        className="flex-1 px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-[rgba(0,0,0,0.04)] font-mono"
                       />
                       {meetLink && (
                         <button type="button" onClick={() => setMeetLink('')}
-                          className="px-3 py-2.5 text-slate-400 hover:text-slate-600 transition-colors">
-                          <i className="fas fa-times text-xs"></i>
+                          className="px-2 py-2 text-[rgba(0,0,0,0.35)] hover:text-[rgba(0,0,0,0.88)] transition-colors">
+                          <Icon icon="mdi:close" width={14} />
                         </button>
                       )}
                     </div>
                     {meetLink && !/^https:\/\/meet\.google\.com\//.test(meetLink) && (
                       <p className="text-[10px] text-amber-600 mt-1 font-medium flex items-center gap-1">
-                        <i className="fas fa-exclamation-triangle text-[9px]"></i>
+                        <Icon icon="mdi:alert-triangle-outline" width={12} />
                         Should start with https://meet.google.com/
                       </p>
                     )}
@@ -1863,7 +1863,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       href={generateGoogleCalendarUrl()}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[10px] text-slate-400 hover:text-indigo-500 font-medium underline underline-offset-2 transition-colors"
+                      className="text-[10px] text-[rgba(0,0,0,0.35)] hover:text-indigo-500 font-medium underline underline-offset-2 transition-colors"
                     >
                       Add to Google Calendar ↗
                     </a>
@@ -1873,8 +1873,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 {/* Share options — always visible once link exists */}
                 {meetLink && (
                   <div className="space-y-3 pt-1">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                      <i className="fas fa-share-alt text-slate-400 text-[10px]"></i>
+                    <p className="text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] flex items-center gap-1.5">
+                      <Icon icon="mdi:share-variant-outline" width={14} className="text-[rgba(0,0,0,0.35)]" />
                       Share the Link
                     </p>
 
@@ -1884,11 +1884,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         type="button"
                         onClick={handleShareMeetInChat}
                         disabled={isSharingMeet || !meetDate || !meetTime}
-                        className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-[13px] font-medium hover:bg-indigo-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isSharingMeet
-                          ? <i className="fas fa-circle-notch fa-spin text-indigo-500"></i>
-                          : <i className="fas fa-comment-dots text-indigo-500"></i>
+                          ? <Icon icon="mdi:loading" width={16} className="animate-spin text-indigo-500" />
+                          : <Icon icon="mdi:message-text-outline" width={16} className="text-indigo-500" />
                         }
                         <div className="text-left">
                           <div className="text-xs font-black">{isSharingMeet ? 'Sharing…' : 'Share in Chat'}</div>
@@ -1898,27 +1898,27 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     )}
 
                     {/* Email recipients */}
-                    <div className="border border-slate-200 rounded-xl overflow-hidden">
-                      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100">
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                          <i className="fas fa-envelope text-slate-400 text-[10px]"></i>
+                    <div className="border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+                      <div className="px-4 py-2.5 bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+                        <p className="text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-[0.08em] flex items-center gap-1.5">
+                          <Icon icon="mdi:email-outline" width={14} className="text-[rgba(0,0,0,0.35)]" />
                           Send Invite via Email
                         </p>
                       </div>
                       <div className="p-4 space-y-3">
                         {/* Recipient pills */}
-                        <div className="flex flex-wrap gap-1.5 min-h-[36px] px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 cursor-text"
+                        <div className="flex flex-wrap gap-1.5 min-h-[36px] px-3 py-2 border border-[rgba(0,0,0,0.08)] rounded-lg bg-[rgba(0,0,0,0.04)] cursor-text"
                           onClick={() => document.getElementById('meet-email-input')?.focus()}
                         >
                           {meetEmailRecipients.map(email => (
-                            <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-[11px] font-bold shadow-sm">
+                            <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.88)] rounded-lg text-[11px] font-medium">
                               {email}
                               <button
                                 type="button"
                                 onClick={e => { e.stopPropagation(); setMeetEmailRecipients(prev => prev.filter(r => r !== email)); }}
-                                className="text-slate-400 hover:text-rose-500 transition-colors ml-0.5"
+                                className="text-[rgba(0,0,0,0.35)] hover:text-red-500 transition-colors ml-0.5"
                               >
-                                <i className="fas fa-times text-[9px]"></i>
+                                <Icon icon="mdi:close" width={12} />
                               </button>
                             </span>
                           ))}
@@ -1930,7 +1930,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                             onKeyDown={handleMeetEmailKeyDown}
                             onBlur={() => meetEmailInput.trim() && addMeetEmailRecipient(meetEmailInput)}
                             placeholder={meetEmailRecipients.length === 0 ? 'Enter email and press Enter…' : ''}
-                            className="flex-1 min-w-[160px] bg-transparent text-xs outline-none text-slate-700 placeholder-slate-400"
+                            className="flex-1 min-w-[160px] bg-transparent text-[12px] outline-none text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.25)]"
                           />
                         </div>
 
@@ -1943,11 +1943,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                 type="button"
                                 onClick={() => !meetEmailRecipients.includes(admin.email!.toLowerCase()) && addMeetEmailRecipient(admin.email!)}
                                 disabled={meetEmailRecipients.includes(admin.email!.toLowerCase())}
-                                className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold border rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-600"
+                                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)] hover:border-emerald-300 hover:text-emerald-600"
                               >
                                 {meetEmailRecipients.includes(admin.email!.toLowerCase())
-                                  ? <><i className="fas fa-check text-emerald-500"></i> {admin.username}</>
-                                  : <><i className="fas fa-plus text-[9px]"></i> {admin.username}</>
+                                  ? <><Icon icon="mdi:check" width={12} className="text-emerald-500" /> {admin.username}</>
+                                  : <><Icon icon="mdi:plus" width={12} /> {admin.username}</>
                                 }
                               </button>
                             ))}
@@ -1958,11 +1958,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           type="button"
                           onClick={handleSendMeetEmail}
                           disabled={isSendingMeetEmail || (meetEmailRecipients.length === 0 && !meetEmailInput.trim())}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-sky-500/20 hover:bg-sky-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[rgba(0,0,0,0.88)] text-white rounded-lg text-[12px] font-medium hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isSendingMeetEmail
-                            ? <><i className="fas fa-circle-notch fa-spin"></i> Sending…</>
-                            : <><i className="fas fa-paper-plane"></i> Send Meeting Invite</>
+                            ? <><Icon icon="mdi:loading" width={14} className="animate-spin" /> Sending…</>
+                            : <><Icon icon="mdi:send-outline" width={14} /> Send Meeting Invite</>
                           }
                         </button>
                       </div>
@@ -1973,11 +1973,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/50 flex justify-end flex-shrink-0">
+            <div className="px-5 py-3 border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] flex justify-end flex-shrink-0">
               <button
                 type="button"
                 onClick={closeMeetModal}
-                className="px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 rounded-xl transition-colors"
+                className="px-4 py-2 text-[13px] font-medium text-[rgba(0,0,0,0.5)] bg-white border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors"
               >
                 Close
               </button>
@@ -2020,7 +2020,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
               <div className="flex items-center justify-between pl-6 pr-4 pt-4 pb-3 border-b border-current/10 flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.08)' }}>
-                    <i className="fas fa-lock text-xs" />
+                    <Icon icon="mdi:lock-outline" width={14} />
                   </div>
                   <div>
                     <div className="text-[11px] font-black uppercase tracking-widest leading-none">Internal Note</div>
@@ -2043,7 +2043,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     onClick={() => setShowNotePanel(false)}
                     className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-current/10"
                   >
-                    <i className="fas fa-times text-sm" />
+                    <Icon icon="mdi:close" width={16} />
                   </button>
                 </div>
               </div>
@@ -2054,13 +2054,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   onClick={() => setNoteTab('note')}
                   className={`px-3 py-2.5 text-[10px] font-black uppercase tracking-widest transition-all border-b-2 flex items-center gap-1.5 ${noteTab === 'note' ? 'border-current/60 opacity-100' : 'border-transparent opacity-45 hover:opacity-70'}`}
                 >
-                  <i className="fas fa-pen text-[9px]" /> Note
+                  <Icon icon="mdi:pencil-outline" width={12} /> Note
                 </button>
                 <button
                   onClick={() => setNoteTab('tasks')}
                   className={`px-3 py-2.5 text-[10px] font-black uppercase tracking-widest transition-all border-b-2 flex items-center gap-1.5 ${noteTab === 'tasks' ? 'border-current/60 opacity-100' : 'border-transparent opacity-45 hover:opacity-70'}`}
                 >
-                  <i className="fas fa-check-square text-[9px]" /> Tasks
+                  <Icon icon="mdi:checkbox-marked-outline" width={12} /> Tasks
                   {noteTasks.filter(t => !t.done).length > 0 && (
                     <span className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-black" style={{ background: 'rgba(0,0,0,0.12)' }}>
                       {noteTasks.filter(t => !t.done).length}
@@ -2099,13 +2099,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     className="w-9 h-9 flex items-center justify-center rounded-xl font-black text-sm transition-all active:scale-95"
                     style={{ background: 'rgba(0,0,0,0.12)' }}
                   >
-                    <i className="fas fa-plus text-xs" />
+                    <Icon icon="mdi:plus" width={16} />
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2">
                   {noteTasks.length === 0 ? (
                     <div className="py-12 text-center opacity-40">
-                      <i className="fas fa-clipboard-list text-3xl mb-3 block" />
+                      <Icon icon="mdi:clipboard-list-outline" width={36} className="mb-3 mx-auto block" />
                       <p className="text-xs font-bold">No tasks yet — add one above</p>
                     </div>
                   ) : noteTasks.map(task => (
@@ -2119,11 +2119,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         className="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center border-2 transition-all"
                         style={{ borderColor: 'rgba(0,0,0,0.3)', background: task.done ? 'rgba(0,0,0,0.25)' : 'transparent' }}
                       >
-                        {task.done && <i className="fas fa-check text-[8px]" />}
+                        {task.done && <Icon icon="mdi:check" width={12} />}
                       </button>
                       <span className={`flex-1 text-sm font-medium leading-snug ${task.done ? 'line-through opacity-60' : ''}`}>{task.text}</span>
                       <button onClick={() => deleteTask(task.id)} className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity">
-                        <i className="fas fa-times text-[10px]" />
+                        <Icon icon="mdi:close" width={12} />
                       </button>
                     </div>
                   ))}
@@ -2141,7 +2141,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 <div className="min-w-0">
                   {noteSaved ? (
                     <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 uppercase tracking-widest">
-                      <i className="fas fa-check-circle" /> Saved
+                      <Icon icon="mdi:check-circle-outline" width={12} /> Saved
                     </span>
                   ) : (
                     <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest">
@@ -2162,13 +2162,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         title="Restore a previous version"
                         className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-current/10 opacity-50 hover:opacity-100"
                       >
-                        <i className="fas fa-history text-[11px]" />
+                        <Icon icon="mdi:history" width={14} />
                       </button>
                       {showNoteHistory && (
-                        <div className="absolute bottom-9 right-0 w-64 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden z-30">
-                          <div className="px-3 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 flex items-center justify-between">
+                        <div className="absolute bottom-9 right-0 w-64 bg-white rounded-xl shadow-2xl border border-[rgba(0,0,0,0.12)] overflow-hidden z-30">
+                          <div className="px-3 py-2 text-[9px] font-black text-[rgba(0,0,0,0.35)] uppercase tracking-widest border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
                             <span>Restore version</span>
-                            <button onClick={() => setShowNoteHistory(false)} className="text-slate-300 hover:text-slate-500"><i className="fas fa-times" /></button>
+                            <button onClick={() => setShowNoteHistory(false)} className="text-[rgba(0,0,0,0.25)] hover:text-[rgba(0,0,0,0.5)]"><Icon icon="mdi:close" width={12} /></button>
                           </div>
                           {noteHistory.map((entry, i) => (
                             <button
@@ -2180,12 +2180,12 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                 }
                                 setShowNoteHistory(false);
                               }}
-                              className="w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
+                              className="w-full text-left px-3 py-2.5 hover:bg-[rgba(0,0,0,0.02)] transition-colors border-b border-[rgba(0,0,0,0.04)] last:border-0"
                             >
                               <div className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">
                                 {new Date(entry.savedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'short' })}
                               </div>
-                              <div className="text-xs text-slate-600 font-medium line-clamp-2 leading-snug">
+                              <div className="text-xs text-[rgba(0,0,0,0.5)] font-medium line-clamp-2 leading-snug">
                                 {(() => { const d = document.createElement('div'); d.innerHTML = entry.html; return d.textContent || ''; })()}
                               </div>
                             </button>
@@ -2201,7 +2201,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     title="Copy to clipboard"
                     className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-current/10 opacity-50 hover:opacity-100"
                   >
-                    <i className="fas fa-copy text-[11px]" />
+                    <Icon icon="mdi:content-copy" width={14} />
                   </button>
 
                   {/* Post as internal note in thread */}
@@ -2212,7 +2212,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       title="Post as internal message in ticket thread"
                       className="flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg border border-current/20 transition-all active:scale-95 disabled:opacity-40 hover:bg-current/10"
                     >
-                      {isPostingNote ? <i className="fas fa-circle-notch fa-spin text-[9px]" /> : <i className="fas fa-share text-[9px]" />}
+                      {isPostingNote ? <Icon icon="mdi:loading" width={12} className="animate-spin" /> : <Icon icon="mdi:share-variant" width={12} />}
                       Post
                     </button>
                   )}
@@ -2236,7 +2236,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       }}
                       className="flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg border border-current/20 transition-all active:scale-95 opacity-50 hover:opacity-100 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
                     >
-                      <i className="fas fa-trash-alt text-[8px]" /> Clear
+                      <Icon icon="mdi:trash-can-outline" width={12} /> Clear
                     </button>
                   )}
                 </div>

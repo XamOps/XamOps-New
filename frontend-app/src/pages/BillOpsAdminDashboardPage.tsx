@@ -66,6 +66,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   const [clientsData, setClientsData] = useState<ClientsApiData[] | null>(null);
   const [clientsLoading, setClientsLoading] = useState(true);
 
+
   useEffect(() => {
     apiFetch('/api/xamops/billops-admin/clients', { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
@@ -254,6 +255,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     LOW: 'admin-severity-low', MEDIUM: 'admin-severity-medium',
     HIGH: 'admin-severity-high', CRITICAL: 'admin-severity-critical',
   }[severity || ''] || '');
+
 
   const getProviderIconClass = (provider: string): string => ({
     AWS: 'fab fa-aws admin-provider-aws',
@@ -986,6 +988,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             </div>
           </div>
         )}
+
 
       </main>
     </div>

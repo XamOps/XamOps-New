@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import type { ViewType } from '../../types/cloudsitter';
 import { useTopbar } from '../../contexts/TopbarContext';
 
@@ -17,28 +18,31 @@ const CloudSitterHeader: React.FC<CloudSitterHeaderProps> = ({
 
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-4">
-        {/* Navigation & Breadcrumbs */}
-        <div className="flex items-center gap-2 text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
-          <button
-            onClick={onNavigateToDashboard}
-            className={`flex items-center gap-2 transition-colors ${currentView !== 'dashboard' ? 'text-slate-500 hover:text-indigo-600' : 'text-indigo-600 font-bold'
-              }`}
-          >
-            <i className="fas fa-th-large text-xs"></i>
-            <span>Overview</span>
-          </button>
+      <div className="flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+        <span className="text-[11px] font-medium uppercase tracking-wide text-[rgba(0,0,0,0.4)]">CloudSitter</span>
+        <span className="text-[rgba(0,0,0,0.15)] text-[12px] select-none">|</span>
+        <button
+          onClick={onNavigateToDashboard}
+          className={`flex items-center gap-1 text-[11px] font-semibold transition-colors ${
+            currentView === 'dashboard'
+              ? 'text-indigo-600'
+              : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)]'
+          }`}
+        >
+          <Icon icon="mdi:view-dashboard-outline" width={12} />
+          Overview
+        </button>
 
-          {currentView === 'createPolicy' && (
-            <>
-              <i className="fas fa-chevron-right text-[10px] text-slate-300"></i>
-              <span className="flex items-center gap-2 text-slate-800 font-bold">
-                <i className={`fas ${editMode ? 'fa-edit' : 'fa-plus-circle'} text-indigo-500 text-xs`}></i>
-                {editMode ? 'Edit Policy' : 'New Policy'}
-              </span>
-            </>
-          )}
-        </div>
+        {currentView === 'createPolicy' && (
+          <>
+            <Icon icon="mdi:chevron-right" width={12} color="rgba(0,0,0,0.25)" />
+            <span className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600">
+              <Icon icon={editMode ? 'mdi:pencil-outline' : 'mdi:plus-circle-outline'} width={12} />
+              {editMode ? 'Edit Policy' : 'New Policy'}
+            </span>
+          </>
+        )}
       </div>
     );
     return () => clearActions();

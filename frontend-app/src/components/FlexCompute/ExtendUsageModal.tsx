@@ -1,10 +1,5 @@
-/**
- * Extend Usage Modal
- *
- * Allows users to extend the end date/time of an active capacity reservation
- */
-
 import React, { useState } from 'react';
+import { Icon } from '@iconify/react';
 import type { FlexComputeCapacity } from '../../types/flexCompute';
 import { DialogRoot, DialogPanel } from '../ui';
 import { TIME_ZONES } from '../../types/flexCompute';
@@ -15,8 +10,6 @@ interface ExtendUsageModalProps {
   onClose: () => void;
 }
 
-// Round minutes to the nearest 15-min increment in a "YYYY-MM-DDTHH:mm" string
-// without using Date (avoids browser-local timezone interpretation).
 const roundToQuarterHour = (datetimeStr: string): string => {
   if (!datetimeStr) return datetimeStr;
   const [datePart, timePart] = datetimeStr.split('T');
@@ -25,39 +18,30 @@ const roundToQuarterHour = (datetimeStr: string): string => {
   const rounded = Math.round(totalMins / 15) * 15;
   const rh = Math.floor(rounded / 60) % 24;
   const rm = rounded % 60;
-  // If rounding pushed past midnight, advance the date
   const date = new Date(`${datePart}T00:00Z`);
   if (Math.floor(rounded / 60) >= 24) date.setUTCDate(date.getUTCDate() + 1);
   const newDate = date.toISOString().slice(0, 10);
   return `${newDate}T${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
 };
 
+const inputCls = 'w-full px-3 py-2.5 border border-[rgba(0,0,0,0.15)] rounded-lg text-[13px] text-[rgba(0,0,0,0.88)] focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white';
+const labelCls = 'block text-[12px] font-semibold text-[rgba(0,0,0,0.65)] mb-1.5';
+
 const ExtendUsageModal: React.FC<ExtendUsageModalProps> = ({ capacity, onExtend, onClose }) => {
   const [newEndDatetime, setNewEndDatetime] = useState('');
-  const [timezone, setTimezone] = useState('America/Los_Angeles');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [timezone, setTimezone]             = useState('America/Los_Angeles');
+  const [isSubmitting, setIsSubmitting]     = useState(false);
+  const [error, setError]                   = useState<string | null>(null);
 
   const handleSubmit = async () => {
-    if (!newEndDatetime) {
-      setError('Please select a new end date and time.');
-      return;
-    }
-
+    if (!newEndDatetime) { setError('Please select a new end date and time.'); return; }
     const rounded = roundToQuarterHour(newEndDatetime);
-
     setIsSubmitting(true);
     setError(null);
-
     try {
-      // Pass the raw wall-clock datetime and IANA timezone to the hook,
-      // which will convert to UTC using DST-aware Intl APIs.
       const success = await onExtend(capacity.id, rounded, timezone);
-      if (success) {
-        onClose();
-      } else {
-        setError('Failed to extend capacity. Please try again.');
-      }
+      if (success) { onClose(); }
+      else { setError('Failed to extend capacity. Please try again.'); }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Extend failed');
     } finally {
@@ -65,7 +49,6 @@ const ExtendUsageModal: React.FC<ExtendUsageModalProps> = ({ capacity, onExtend,
     }
   };
 
-  // Minimum datetime = now + 1 hour, rounded to next 15-min mark
   const minDatetime = roundToQuarterHour(
     new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16)
   );
@@ -75,39 +58,50 @@ const ExtendUsageModal: React.FC<ExtendUsageModalProps> = ({ capacity, onExtend,
       <DialogPanel
         title={
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-purple-100 rounded-lg flex items-center justify-center">
-              <i className="fas fa-clock text-purple-600"></i>
+            <div className="w-9 h-9 bg-indigo-50 rounded-lg flex items-center justify-center">
+              <Icon icon="mdi:clock-plus-outline" width={18} color="#6366F1" />
             </div>
             <div>
-              <div className="text-base font-bold text-gray-900">Extend Usage</div>
-              <div className="text-xs text-gray-500">{capacity.name}</div>
+              <div className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Extend Usage</div>
+              <div className="text-[12px] text-[rgba(0,0,0,0.45)]">{capacity.name}</div>
             </div>
           </div>
         }
         onClose={onClose}
         footer={
           <>
-            <button onClick={onClose} disabled={isSubmitting} className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50">
+            <button
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold text-[rgba(0,0,0,0.65)] bg-white border border-[rgba(0,0,0,0.12)] rounded-xl hover:bg-[rgba(0,0,0,0.02)] transition-colors disabled:opacity-50"
+            >
               Cancel
             </button>
-            <button onClick={handleSubmit} disabled={isSubmitting || !newEndDatetime} className="px-5 py-2.5 text-sm font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-              {isSubmitting ? <><i className="fas fa-spinner fa-spin"></i>Extending...</> : <><i className="fas fa-clock"></i>Extend Usage</>}
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting || !newEndDatetime}
+              className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting
+                ? <><Icon icon="mdi:loading" width={14} className="animate-spin" />Extending...</>
+                : <><Icon icon="mdi:clock-plus-outline" width={14} />Extend Usage</>
+              }
             </button>
           </>
         }
       >
         <div className="space-y-5">
-          <div className="bg-gray-50 rounded-xl p-4">
-            <p className="text-xs text-gray-500 mb-1">Current End Date</p>
-            <p className="text-sm font-semibold text-gray-800">{capacity.endDate || '—'}</p>
+          <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-xl p-4">
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Current End Date</p>
+            <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{capacity.endDate || '—'}</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              <i className="fas fa-globe mr-1.5 text-gray-400"></i>
+            <label className={labelCls}>
+              <Icon icon="mdi:earth" width={12} className="inline mr-1.5 text-[rgba(0,0,0,0.35)]" />
               Time Zone
             </label>
-            <select value={timezone} onChange={(e) => setTimezone(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none bg-white">
+            <select value={timezone} onChange={(e) => setTimezone(e.target.value)} className={inputCls}>
               {TIME_ZONES.map((tz) => (
                 <option key={tz.value} value={tz.value}>{tz.label}</option>
               ))}
@@ -115,20 +109,26 @@ const ExtendUsageModal: React.FC<ExtendUsageModalProps> = ({ capacity, onExtend,
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              <i className="fas fa-calendar-alt mr-1.5 text-gray-400"></i>
+            <label className={labelCls}>
+              <Icon icon="mdi:calendar-clock-outline" width={12} className="inline mr-1.5 text-[rgba(0,0,0,0.35)]" />
               New End Date & Time
             </label>
-            <input type="datetime-local" value={newEndDatetime} min={minDatetime} onChange={(e) => setNewEndDatetime(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none" />
-            <p className="text-xs text-gray-400 mt-1">
-              <i className="fas fa-info-circle mr-1"></i>
+            <input
+              type="datetime-local"
+              value={newEndDatetime}
+              min={minDatetime}
+              onChange={(e) => setNewEndDatetime(e.target.value)}
+              className={inputCls}
+            />
+            <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1 flex items-center gap-1">
+              <Icon icon="mdi:information-outline" width={12} />
               Time will be rounded to the nearest 15-minute increment (00, 15, 30, 45).
             </p>
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 flex items-start gap-2">
-              <i className="fas fa-exclamation-circle mt-0.5 flex-shrink-0"></i>
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-[13px] text-red-700 flex items-start gap-2">
+              <Icon icon="mdi:alert-circle-outline" width={15} className="mt-0.5 flex-shrink-0" />
               <span>{error}</span>
             </div>
           )}

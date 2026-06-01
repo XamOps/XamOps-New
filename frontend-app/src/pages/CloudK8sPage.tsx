@@ -112,27 +112,17 @@ const CloudK8sPage: React.FC = () => {
   }, [fetchClusters]);
 
   return (
-    <main className="cloudk8s-page flex-1 flex flex-col min-h-screen bg-gray-50">
-      {/* Header */}
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <CloudK8sHeader
         isRefreshing={isRefreshing}
         onRefresh={() => fetchClusters(true)}
       />
-
-      <div className="flex-1 p-4 md:p-8 space-y-8">
-        <div className="space-y-8">
-          {/* Clusters Table */}
-          <CloudK8sClusterTable
-            clusters={clusters}
-            isLoading={isLoading}
-            onViewDetails={navigateToDetails}
-          />
-
-          {/* Available Integrations */}
-          <CloudK8sIntegrations />
-        </div>
-      </div>
-
+      <CloudK8sClusterTable
+        clusters={clusters}
+        isLoading={isLoading}
+        onViewDetails={navigateToDetails}
+      />
+      <CloudK8sIntegrations />
     </main>
   );
 };

@@ -1,10 +1,5 @@
-/**
- * GcpRightsizingKPICards Component
- *
- * KPI cards displaying key metrics for GCP rightsizing recommendations
- */
-
 import React, { useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import type { GcpRightsizingRecommendation } from '../../types/gcpRightsizing';
 
 interface GcpRightsizingKPICardsProps {
@@ -12,111 +7,150 @@ interface GcpRightsizingKPICardsProps {
   isLoading: boolean;
 }
 
+const NUM_STYLE: React.CSSProperties = {
+  fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
+  fontSize: '32px',
+  fontWeight: 400,
+  lineHeight: '32px',
+  color: 'rgb(10,10,10)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const CENTS_STYLE: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif",
+  fontSize: '14px',
+  fontWeight: 400,
+  lineHeight: '20px',
+  color: 'rgb(10,10,10)',
+};
+
+const CLOUD_SVG = (
+  <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+    <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+      <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
+    </svg>
+    <svg className="absolute top-16 right-2 w-24 h-24" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+      <path d="M120 60c0-10-8-18-18-18-2 0-4 0-5 1-4-8-13-14-23-14s-19 6-23 14c-1-1-3-1-5-1-10 0-18 8-18 18s8 18 18 18h74c10 0 18-8 18-18z"/>
+    </svg>
+  </div>
+);
+
+const splitValue = (str: string) => {
+  const dot = str.lastIndexOf('.');
+  return dot === -1 ? { main: str, cents: '' } : { main: str.slice(0, dot), cents: str.slice(dot) };
+};
+
 export const GcpRightsizingKPICards: React.FC<GcpRightsizingKPICardsProps> = ({
   recommendations,
   isLoading,
 }) => {
-  // Calculate metrics
-  const potentialSavings = useMemo(() => {
-    return recommendations
-      .filter(rec => rec.recommendationType === 'COST_SAVINGS')
-      .reduce((total, rec) => total + (rec.monthlySavings || 0), 0);
-  }, [recommendations]);
-
-  const totalCurrentCosts = useMemo(() => {
-    return recommendations
-      .filter(rec => rec.recommendationType === 'PERFORMANCE_IMPROVEMENT')
-      .reduce((total, rec) => total + (rec.monthlySavings || 0), 0);
-  }, [recommendations]);
+  const potentialSavings = useMemo(() =>
+    recommendations
+      .filter(r => r.recommendationType === 'COST_SAVINGS')
+      .reduce((sum, r) => sum + (r.monthlySavings || 0), 0),
+    [recommendations]
+  );
 
   const recommendationCount = recommendations.length;
 
   const topService = useMemo(() => {
-    if (recommendationCount === 0) return 'N/A';
-    const counts = recommendations.reduce((acc, r) => {
-      const service = r.service || 'Other';
-      acc[service] = (acc[service] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+    if (!recommendationCount) return '—';
+    const counts: Record<string, number> = {};
+    for (const r of recommendations) {
+      const s = r.service || 'Other';
+      counts[s] = (counts[s] || 0) + 1;
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
   }, [recommendations, recommendationCount]);
 
-  // Format currency
-  const formatCurrency = (value: number): string => {
-    if (value === null || value === undefined || isNaN(value)) return '₹0.00';
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
+  const performanceCount = useMemo(() =>
+    recommendations.filter(r => r.recommendationType === 'PERFORMANCE_IMPROVEMENT').length,
+    [recommendations]
+  );
 
   if (isLoading) {
     return (
-      <div className="gcp-rightsizing-kpi-cards">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="gcp-rightsizing-skeleton-card"></div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-[110px] animate-pulse">
+            <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+            <div className="h-7 w-28 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+            <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] rounded" />
+          </div>
         ))}
       </div>
     );
   }
 
+  const savingsStr = `$${potentialSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const savingsSplit = splitValue(savingsStr);
+
   return (
-    <div className="gcp-rightsizing-kpi-cards">
-      {/* Potential Savings Card */}
-      <div className="gcp-rightsizing-kpi-card">
-        <div className="gcp-rightsizing-kpi-content">
-          <h3>Potential Savings</h3>
-          <p className="gcp-rightsizing-kpi-value savings">
-            {formatCurrency(potentialSavings)}
-          </p>
-          <p className="gcp-rightsizing-kpi-label">per month</p>
-        </div>
-        <div className="gcp-rightsizing-kpi-icon savings">
-          <i className="fas fa-piggy-bank"></i>
-        </div>
-      </div>
-
-      {/* Current Costs Card */}
-      <div className="gcp-rightsizing-kpi-card">
-        <div className="gcp-rightsizing-kpi-content">
-          <h3>Current Costs</h3>
-          <p className="gcp-rightsizing-kpi-value warning">
-            {formatCurrency(totalCurrentCosts)}
-          </p>
-          <p className="gcp-rightsizing-kpi-label">underprovisioned resources</p>
-        </div>
-        <div className="gcp-rightsizing-kpi-icon warning">
-          <i className="fas fa-chart-line"></i>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Potential Savings */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        {CLOUD_SVG}
+        <div className="relative z-10">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Potential Savings</p>
+          <div className="flex items-end justify-between mb-3">
+            <p className="leading-8 flex items-baseline gap-0.5">
+              <span style={NUM_STYLE}>{savingsSplit.main}</span>
+              {savingsSplit.cents && <span style={CENTS_STYLE}>{savingsSplit.cents}</span>}
+            </p>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: '#16A34A14' }}>
+              <Icon icon="mdi:piggy-bank" width={18} color="#16A34A" />
+            </div>
+          </div>
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">per month if applied</span>
         </div>
       </div>
 
-      {/* Recommendations Count Card */}
-      <div className="gcp-rightsizing-kpi-card">
-        <div className="gcp-rightsizing-kpi-content">
-          <h3>Recommendations</h3>
-          <p className="gcp-rightsizing-kpi-value info">
-            {recommendationCount}
-          </p>
-          <p className="gcp-rightsizing-kpi-label">optimization opportunities</p>
-        </div>
-        <div className="gcp-rightsizing-kpi-icon info">
-          <i className="fas fa-lightbulb"></i>
+      {/* Total Recommendations */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        {CLOUD_SVG}
+        <div className="relative z-10">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Recommendations</p>
+          <div className="flex items-end justify-between mb-3">
+            <p className="leading-8">
+              <span style={NUM_STYLE}>{recommendationCount}</span>
+            </p>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: '#6366F114' }}>
+              <Icon icon="mdi:lightbulb-on-outline" width={18} color="#6366F1" />
+            </div>
+          </div>
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">optimization opportunities</span>
         </div>
       </div>
 
-      {/* Top Service Card */}
-      <div className="gcp-rightsizing-kpi-card">
-        <div className="gcp-rightsizing-kpi-content">
-          <h3>Top Service</h3>
-          <p className="gcp-rightsizing-kpi-value service">
-            {topService}
-          </p>
-          <p className="gcp-rightsizing-kpi-label">needs optimization</p>
+      {/* Performance Issues */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        {CLOUD_SVG}
+        <div className="relative z-10">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Performance Issues</p>
+          <div className="flex items-end justify-between mb-3">
+            <p className="leading-8">
+              <span style={NUM_STYLE}>{performanceCount}</span>
+            </p>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: '#DC262614' }}>
+              <Icon icon="mdi:speedometer" width={18} color="#DC2626" />
+            </div>
+          </div>
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">underprovisioned resources</span>
         </div>
-        <div className="gcp-rightsizing-kpi-icon service">
-          <i className="fas fa-crown"></i>
+      </div>
+
+      {/* Top Service */}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        {CLOUD_SVG}
+        <div className="relative z-10">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Top Service</p>
+          <div className="flex items-end justify-between mb-3">
+            <p className="leading-8 truncate pr-2" style={{ ...NUM_STYLE, fontSize: topService.length > 14 ? '18px' : '32px' }}>{topService}</p>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: '#F5922814' }}>
+              <Icon icon="mdi:crown" width={18} color="#F59228" />
+            </div>
+          </div>
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">needs optimization</span>
         </div>
       </div>
     </div>

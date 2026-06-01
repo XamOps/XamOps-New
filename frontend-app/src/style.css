@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hide main page scrollbar while keeping scroll functional */
+.main-content-scroll::-webkit-scrollbar {
+    display: none;
+}
+.main-content-scroll {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
 /* NOTE: Dark mode styles use !important to override hardcoded colors in individual CSS files */
 
 /* Global Dark Mode Variables - Overrides dashboard.css and all other CSS variables */

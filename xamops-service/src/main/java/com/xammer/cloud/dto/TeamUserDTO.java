@@ -17,4 +17,5 @@ public class TeamUserDTO {
     private String password; // Only used for create/update, never returned
     private List<Long> accountIds; // Cloud account IDs this user can access
     private List<ProfileDTO.CloudAccountInfo> cloudAccounts; // Full cloud account details for display
+    private boolean allAccountsAccess; // When true, user gets access to all current client accounts
 }

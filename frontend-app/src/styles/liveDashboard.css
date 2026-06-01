@@ -55,34 +55,12 @@
 }
 
 .glass-card {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
     position: relative;
     overflow: hidden;
-}
-
-.glass-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-    transition: left 0.5s;
-}
-
-.glass-card:hover::before {
-    left: 100%;
-}
-
-.glass-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
-    border-color: rgba(99, 102, 241, 0.2);
 }
 
 .gradient-bg {
@@ -92,86 +70,15 @@
 .kpi-card {
     position: relative;
     overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    box-shadow: var(--shadow-md);
-    height: 160px;
-}
-
-.kpi-card:hover {
-    transform: translateY(-6px) scale(1.02);
-    box-shadow: var(--shadow-xl);
-    border-color: rgba(79, 70, 229, 0.3);
-}
-
-.kpi-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: var(--gradient-primary);
-    transform: scaleX(0);
-    transition: transform 0.3s ease;
-}
-
-.kpi-card:hover::before {
-    transform: scaleX(1);
-}
-
-.kpi-card .main-content {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 1.5rem;
-    z-index: 2;
-    transition: opacity 0.3s ease-in-out;
-}
-
-.kpi-card:hover .main-content {
-    opacity: 0;
-}
-
-.kpi-card .sparkline-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    opacity: 0;
-    transition: opacity 0.3s ease-in-out;
-    pointer-events: none;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.kpi-card:hover .sparkline-container {
-    opacity: 1;
-    pointer-events: auto;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
 }
 
 .resource-card {
-    transition: all 0.3s ease;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.resource-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
-    border-color: rgba(79, 70, 229, 0.3);
-}
-
-.resource-card:hover .resource-icon {
-    transform: scale(1.1) rotate(5deg);
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .resource-icon {
@@ -265,35 +172,21 @@
 
 .chart-container {
     position: relative;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
+    background: #ffffff;
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    box-shadow: var(--shadow-lg);
+    border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .optimization-card {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.1) 100%);
-    border: 1px solid rgba(16, 185, 129, 0.2);
-    transition: all 0.3s ease;
-}
-
-.optimization-card:hover {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.2) 100%);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
+    background: #F0FDF4;
+    border: 1px solid #D1FAE5;
+    border-radius: 10px;
 }
 
 .anomaly-card {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.1) 100%);
-    border: 1px solid rgba(239, 68, 68, 0.2);
-    transition: all 0.3s ease;
-}
-
-.anomaly-card:hover {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(220, 38, 38, 0.2) 100%);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
+    background: #FEF2F2;
+    border: 1px solid #FECACA;
+    border-radius: 10px;
 }
 
 .status-indicator {
@@ -438,6 +331,11 @@
 .floating-action:hover {
     transform: scale(1.1);
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+/* Hide scrollbar for inventory list while keeping scroll functional */
+.inventory-hide-scrollbar::-webkit-scrollbar {
+    display: none;
 }
 
 /* --- Styles for Animated CloudMap Button --- */

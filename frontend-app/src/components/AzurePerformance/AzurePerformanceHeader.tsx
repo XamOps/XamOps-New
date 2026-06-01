@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import { useTopbar } from '../../contexts/TopbarContext';
 
 interface AzurePerformanceHeaderProps {
@@ -18,7 +19,7 @@ const AzurePerformanceHeader: React.FC<AzurePerformanceHeaderProps> = ({
     setActions(
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold px-3 py-1.5 rounded-full">
-          <i className="fas fa-lightbulb text-xs"></i>
+          <Icon icon="mdi:lightbulb-outline" width={12} />
           <span>Powered by Azure Advisor</span>
         </div>
         {selectedAccountId && (
@@ -27,7 +28,7 @@ const AzurePerformanceHeader: React.FC<AzurePerformanceHeaderProps> = ({
             disabled={isRefreshing}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50 active:scale-95"
           >
-            <i className={`fas fa-sync-alt text-xs ${isRefreshing ? 'animate-spin' : ''}`}></i>
+            <Icon icon="mdi:refresh" width={12} className={isRefreshing ? 'animate-spin' : ''} />
             <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         )}

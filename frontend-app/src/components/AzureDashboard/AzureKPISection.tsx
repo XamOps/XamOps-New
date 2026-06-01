@@ -10,15 +10,14 @@ interface AzureKPISectionProps {
 interface KPICardProps {
   title: string;
   value: string;
-  icon: string;
-  gradientClass: string;
-  chartColor: string;
-  trendData: number[];
   change: number;
+  changeLabel: string;
+  trendData: number[];
+  chartColor: string;
   sparklineId: string;
+  isSavings?: boolean;
 }
 
-// Helper to convert hex to rgba
 const hexToRgba = (hex: string, alpha: number): string => {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -26,112 +25,73 @@ const hexToRgba = (hex: string, alpha: number): string => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-const KPICard: React.FC<KPICardProps> = ({
-  title,
-  value,
-  icon,
-  gradientClass,
-  chartColor,
-  trendData,
-  change,
-  sparklineId
-}) => {
+const KPICard: React.FC<KPICardProps> = ({ title, value, change, changeLabel, trendData, chartColor, sparklineId, isSavings = false }) => {
   const chartInstanceRef = useRef<any>(null);
 
   const handleMouseEnter = useCallback(() => {
     if (!window.Chart || !trendData || trendData.length === 0) return;
-
     const canvas = document.getElementById(sparklineId) as HTMLCanvasElement;
     if (!canvas) return;
-
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-      chartInstanceRef.current = null;
-    }
-
+    if (chartInstanceRef.current) { chartInstanceRef.current.destroy(); chartInstanceRef.current = null; }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
     chartInstanceRef.current = new window.Chart(ctx, {
       type: 'line',
       data: {
         labels: trendData.map((_, i) => i.toString()),
-        datasets: [{
-          data: trendData,
-          borderColor: chartColor,
-          backgroundColor: hexToRgba(chartColor, 0.1),
-          borderWidth: 3,
-          pointRadius: 0,
-          pointHoverRadius: 6,
-          pointHoverBackgroundColor: chartColor,
-          pointHoverBorderColor: '#ffffff',
-          pointHoverBorderWidth: 2,
-          tension: 0.4,
-          fill: true
-        }]
+        datasets: [{ data: trendData, borderColor: chartColor, backgroundColor: hexToRgba(chartColor, 0.08), borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: true }],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: { display: false },
-          y: { display: false }
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            enabled: true,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            titleColor: 'white',
-            bodyColor: 'white',
-            borderColor: chartColor,
-            borderWidth: 1,
-            cornerRadius: 6,
-            callbacks: {
-              label: (context: any) => `Value: ₹${context.parsed.y?.toLocaleString('en-IN') || 0}`
-            }
-          }
-        },
-        interaction: {
-          intersect: false,
-          mode: 'index'
-        }
-      }
+        responsive: true, maintainAspectRatio: false,
+        scales: { x: { display: false }, y: { display: false } },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      },
     });
   }, [sparklineId, trendData, chartColor]);
 
+  const handleMouseLeave = useCallback(() => {
+    if (chartInstanceRef.current) { chartInstanceRef.current.destroy(); chartInstanceRef.current = null; }
+  }, []);
+
+  const isGood = isSavings ? true : change < 0;
+  const badgeText = `${change >= 0 ? '+' : ''}${Math.abs(change).toFixed(1)}%`;
+
   return (
     <div
-      className="glass-card kpi-card p-6 group transition-all duration-500 hover-glow"
+      className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden group"
       onMouseEnter={handleMouseEnter}
-      style={{ borderTop: `4px solid ${chartColor}` }}
+      onMouseLeave={handleMouseLeave}
     >
-      <div className="main-content relative z-10">
-        <div className="flex justify-between items-start h-full">
-          <div className="flex-1">
-            <h3 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">{title}</h3>
-            <p className="text-3xl font-extrabold text-slate-900 tracking-tight mb-2 metric-value">{value}</p>
-            <div className="flex items-center text-[12px] font-bold">
-              <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full ${change >= 0 ? 'bg-rose-50 text-rose-500' : 'bg-emerald-50 text-emerald-500'}`}>
-                {change !== 0 && (
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={change >= 0 ? "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" : "M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6"} />
-                  </svg>
-                )}
-                {Math.abs(change).toFixed(1)}%
-              </span>
-              <span className="text-slate-400 ml-2 uppercase font-extrabold text-[10px] tracking-wider">vs last period</span>
-            </div>
-          </div>
-          <div className={`w-14 h-14 bg-gradient-to-br ${gradientClass} rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/10 transform group-hover:scale-110 group-hover:rotate-6 transition-all duration-500`}>
-            <i className={`fas ${icon} text-white text-xl`}></i>
-          </div>
-        </div>
+      <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
+        <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
+          <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
+        </svg>
       </div>
-
-      <div className="sparkline-container absolute inset-0 bg-white/98 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all duration-500 z-0">
-        <div className="w-full h-full p-6">
-          <canvas id={sparklineId}></canvas>
+      <div className="absolute inset-x-0 bottom-0 h-14 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+        <canvas id={sparklineId} className="w-full h-full"></canvas>
+      </div>
+      <div className="relative z-10">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{title}</p>
+        <p className="leading-8 mb-3 flex items-baseline gap-0.5">
+          <span style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+            {value.includes('.') ? value.slice(0, value.lastIndexOf('.')) : value}
+          </span>
+          {value.includes('.') && (
+            <span style={{ fontFamily: "'Inter',sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10,10,10)' }}>
+              {value.slice(value.lastIndexOf('.'))}
+            </span>
+          )}
+        </p>
+        <div className="flex items-center gap-2">
+          {change !== 0 && (
+            <span className={`inline-flex items-center gap-0.5 text-[11px] font-bold ${isGood ? 'text-[#158045]' : 'text-[#DC2626]'}`}>
+              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={isGood ? "M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" : "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"} />
+              </svg>
+              {badgeText}
+            </span>
+          )}
+          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{changeLabel}</span>
         </div>
       </div>
     </div>
@@ -139,12 +99,8 @@ const KPICard: React.FC<KPICardProps> = ({
 };
 
 const AzureKPISection: React.FC<AzureKPISectionProps> = ({ kpiData, costHistory, isLoading }) => {
-  const formatCurrency = (num: number): string => {
-    return '₹' + (num != null ? num.toLocaleString('en-IN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }) : '0.00');
-  };
+  const formatCurrency = (num: number): string =>
+    '$' + (num != null ? num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
 
   const costs = costHistory?.costs || [];
   const mtdSpend = kpiData.mtdSpend || 0;
@@ -156,67 +112,27 @@ const AzureKPISection: React.FC<AzureKPISectionProps> = ({ kpiData, costHistory,
   const forecastChange = mtdSpend > 0 ? ((forecastedSpend - mtdSpend) / mtdSpend * 100) : 0;
   const lastMonthChange = costs.length > 2 ? ((lastMonthSpend - costs[costs.length - 3]) / costs[costs.length - 3] * 100) : 0;
 
-  const kpiCards: KPICardProps[] = [
-    {
-      title: 'Month-to-Date Spend',
-      value: formatCurrency(mtdSpend),
-      icon: 'fa-dollar-sign',
-      gradientClass: 'from-blue-500 to-blue-600',
-      chartColor: '#0078D4',
-      trendData: costs.length > 0 ? costs : [0],
-      change: mtdChange,
-      sparklineId: 'sparkline-azure-mtdSpend',
-    },
-    {
-      title: 'Forecasted Spend',
-      value: formatCurrency(forecastedSpend),
-      icon: 'fa-chart-line',
-      gradientClass: 'from-amber-500 to-amber-600',
-      chartColor: '#F59E0B',
-      trendData: costs.length > 0 ? [...costs, forecastedSpend] : [forecastedSpend],
-      change: forecastChange,
-      sparklineId: 'sparkline-azure-forecastedSpend',
-    },
-    {
-      title: 'Last Month Spend',
-      value: formatCurrency(lastMonthSpend),
-      icon: 'fa-calendar-alt',
-      gradientClass: 'from-slate-500 to-slate-600',
-      chartColor: '#64748B',
-      trendData: costs.length > 1 ? costs.slice(0, -1) : [lastMonthSpend],
-      change: lastMonthChange,
-      sparklineId: 'sparkline-azure-lastMonthSpend',
-    },
-    {
-      title: 'Potential Savings',
-      value: formatCurrency(potentialSavings),
-      icon: 'fa-piggy-bank',
-      gradientClass: 'from-emerald-500 to-emerald-600',
-      chartColor: '#10B981',
-      trendData: [0, potentialSavings],
-      change: 0,
-      sparklineId: 'sparkline-azure-potentialSavings',
-    },
-  ];
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-[110px] animate-pulse">
+            <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3"></div>
+            <div className="h-7 w-28 bg-[rgba(0,0,0,0.06)] rounded mb-3"></div>
+            <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] rounded"></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
-    <>
-      {isLoading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="glass-card p-6 rounded-xl h-40 shimmer"></div>
-          ))}
-        </div>
-      )}
-
-      {!isLoading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 fade-in">
-          {kpiCards.map(card => (
-            <KPICard key={card.sparklineId} {...card} />
-          ))}
-        </div>
-      )}
-    </>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <KPICard title="Month-to-Date Spend" value={formatCurrency(mtdSpend)} change={mtdChange} changeLabel="vs last period" trendData={costs.length > 0 ? costs : [0]} chartColor="#6b7280" sparklineId="azure-sparkline-mtd" />
+      <KPICard title="Forecasted Spend" value={formatCurrency(forecastedSpend)} change={forecastChange} changeLabel="vs current MTD" trendData={costs.length > 0 ? [...costs, forecastedSpend] : [forecastedSpend]} chartColor="#6b7280" sparklineId="azure-sparkline-forecast" />
+      <KPICard title="Last Month Spend" value={formatCurrency(lastMonthSpend)} change={lastMonthChange} changeLabel="vs prior month" trendData={costs.length > 1 ? costs.slice(0, -1) : [lastMonthSpend]} chartColor="#6b7280" sparklineId="azure-sparkline-lastmonth" />
+      <KPICard title="Potential Savings" value={formatCurrency(potentialSavings)} change={0} changeLabel="available to reclaim" trendData={[0, potentialSavings]} chartColor="#1BE68B" sparklineId="azure-sparkline-savings" isSavings />
+    </div>
   );
 };
 

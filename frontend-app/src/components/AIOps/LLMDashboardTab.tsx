@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import Chart from 'chart.js/auto';
 import type {
   LlmKpis, AllTimeMetrics, CostTrend, ProviderCostBreakdown, ModelUsageStat,
@@ -69,10 +70,10 @@ function AlertTicker({ insights }: { insights: InsightsSummary | null }) {
   if (items.length === 0) return null;
 
   return (
-    <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl px-4 py-2.5 shadow-sm overflow-hidden">
+    <div className="bg-indigo-600 rounded-xl px-4 py-2.5 shadow-sm overflow-hidden">
       <div className="flex items-center gap-3">
         <div className="flex-shrink-0 flex items-center gap-2">
-          <i className="fas fa-bolt text-yellow-300 text-xs" />
+          <Icon icon="mdi:lightning-bolt" width={14} color="#fde047" />
           <span className="text-white text-xs font-bold uppercase tracking-wider">AI Insights</span>
           <InfoTooltip placement="bottom" iconClass="text-white/60 hover:text-white/90">Auto-generated insights ticker. Hover to pause scrolling.</InfoTooltip>
           <span className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
@@ -104,29 +105,29 @@ function OptimizerSavings({ stats }: { stats: RoutingStats | null }) {
   if (!stats) return null;
 
   const cards = [
-    { label: 'Requests Optimized', value: formatNumber(stats.totalRoutedRequests), icon: 'fas fa-route', color: 'from-green-500 to-emerald-600', tip: 'Requests rerouted to cheaper models via routing rules' },
-    { label: 'Savings This Period', value: formatCurrency(stats.estimatedSavingsUsd), icon: 'fas fa-piggy-bank', color: 'from-blue-500 to-indigo-600', tip: 'Estimated cost savings from model routing optimization' },
-    { label: 'Actual Spend (Routed)', value: formatCurrency(stats.actualSpendUsd), icon: 'fas fa-receipt', color: 'from-purple-500 to-violet-600', tip: 'Real cost of requests after being routed to cheaper models' },
-    { label: 'Active Rules', value: String(stats.rules.filter(r => r.enabled).length), icon: 'fas fa-check-circle', color: 'from-teal-500 to-cyan-600', tip: 'Number of currently enabled routing rules' },
+    { label: 'Requests Optimized', value: formatNumber(stats.totalRoutedRequests), icon: 'mdi:directions-fork', bgCls: 'bg-emerald-50 border border-emerald-100', iconColor: '#059669', tip: 'Requests rerouted to cheaper models via routing rules' },
+    { label: 'Savings This Period', value: formatCurrency(stats.estimatedSavingsUsd), icon: 'mdi:piggy-bank-outline', bgCls: 'bg-blue-50 border border-blue-100', iconColor: '#2563EB', tip: 'Estimated cost savings from model routing optimization' },
+    { label: 'Actual Spend (Routed)', value: formatCurrency(stats.actualSpendUsd), icon: 'mdi:receipt-outline', bgCls: 'bg-purple-50 border border-purple-100', iconColor: '#7c3aed', tip: 'Real cost of requests after being routed to cheaper models' },
+    { label: 'Active Rules', value: String(stats.rules.filter(r => r.enabled).length), icon: 'mdi:check-circle-outline', bgCls: 'bg-teal-50 border border-teal-100', iconColor: '#0d9488', tip: 'Number of currently enabled routing rules' },
   ];
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
-          <i className="fas fa-magic text-white text-xs" />
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-3">
+        <div className="w-8 h-8 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center justify-center">
+          <Icon icon="mdi:auto-fix" width={16} color="#059669" />
         </div>
-        <h3 className="text-sm font-bold text-gray-800">AI Optimizer Savings</h3>
+        <h3 className="text-sm font-bold text-[rgba(0,0,0,0.7)]">AI Optimizer Savings</h3>
         <InfoTooltip placement="right">Savings from routing rules that redirect requests to cheaper alternative models.</InfoTooltip>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6">
         {cards.map(c => (
           <div key={c.label} className="text-center">
-            <div className={`w-10 h-10 mx-auto mb-2 bg-gradient-to-br ${c.color} rounded-xl flex items-center justify-center`}>
-              <i className={`${c.icon} text-white text-sm`} />
+            <div className={`w-10 h-10 mx-auto mb-2 ${c.bgCls} rounded-xl flex items-center justify-center`}>
+              <Icon icon={c.icon} width={18} color={c.iconColor} />
             </div>
-            <p className="text-xl font-bold text-gray-900">{c.value}</p>
-            <p className="text-[11px] text-gray-500 mt-0.5 inline-flex items-center gap-1">{c.label} <InfoTooltip placement="bottom">{c.tip}</InfoTooltip></p>
+            <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{c.value}</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.5)] mt-0.5 inline-flex items-center gap-1">{c.label} <InfoTooltip placement="bottom">{c.tip}</InfoTooltip></p>
           </div>
         ))}
       </div>
@@ -141,53 +142,53 @@ function UsageOverviewKPIs({ kpis, allTime }: { kpis: LlmKpis; allTime: AllTimeM
     {
       label: 'Requests', value: formatNumber(kpis.requestsThisMonth),
       sub: `${formatNumber(kpis.requestsToday)} today`,
-      icon: 'fas fa-paper-plane', accent: 'border-purple-500', iconBg: 'from-purple-500 to-violet-600',
+      icon: 'mdi:send-outline', accent: 'border-purple-500',
       trend: { pct: kpis.todayVsYesterdayPct, label: 'vs yesterday' },
       tip: 'Total API requests for the selected period. Trend compares today vs yesterday.',
     },
     {
       label: 'Tokens Used', value: formatNumber(kpis.inputTokens + kpis.outputTokens),
       sub: `In: ${formatNumber(kpis.inputTokens)} / Out: ${formatNumber(kpis.outputTokens)}`,
-      icon: 'fas fa-coins', accent: 'border-teal-500', iconBg: 'from-teal-500 to-emerald-600',
+      icon: 'mdi:circle-multiple-outline', accent: 'border-teal-500',
       tip: 'Input tokens = prompt tokens sent. Output tokens = completion tokens received.',
     },
     {
       label: 'Cost', value: formatCurrency(kpis.totalSpend),
-      icon: 'fas fa-dollar-sign', accent: 'border-blue-500', iconBg: 'from-blue-500 to-indigo-600',
+      icon: 'mdi:currency-usd', accent: 'border-blue-500',
       tip: 'Total estimated cost based on model pricing for the selected period.',
     },
     {
       label: 'All Time Tokens', value: allTime ? formatNumber(allTime.allTimeTokens) : '-',
-      icon: 'fas fa-database', accent: 'border-gray-400', iconBg: 'from-gray-500 to-slate-600',
+      icon: 'mdi:database-outline', accent: 'border-[rgba(0,0,0,0.3)]',
       tip: 'Cumulative token usage across all providers since first request.',
     },
     {
       label: 'All Time Cost', value: allTime ? formatCurrency(allTime.allTimeCost) : '-',
-      icon: 'fas fa-chart-bar', accent: 'border-gray-400', iconBg: 'from-gray-500 to-slate-600',
+      icon: 'mdi:chart-bar', accent: 'border-[rgba(0,0,0,0.3)]',
       tip: 'Cumulative spend across all providers since first request.',
     },
   ];
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-          <i className="fas fa-chart-line text-white text-xs" />
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-3">
+        <div className="w-8 h-8 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center">
+          <Icon icon="mdi:chart-line" width={16} color="#4F46E5" />
         </div>
-        <h3 className="text-sm font-bold text-gray-800">Usage Overview</h3>
+        <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Usage Overview</h3>
         <InfoTooltip placement="right">Key metrics summarizing LLM API usage for the selected time period.</InfoTooltip>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-6">
         {cards.map(c => (
           <div key={c.label} className={`border-l-4 ${c.accent} pl-4`}>
-            <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider inline-flex items-center gap-1">{c.label} <InfoTooltip placement="bottom">{c.tip}</InfoTooltip></p>
-            <p className="text-xl font-bold text-gray-900 mt-1">{c.value}</p>
-            {'sub' in c && c.sub && <p className="text-[10px] text-gray-500 mt-0.5">{c.sub}</p>}
+            <p className="text-[10px] text-[rgba(0,0,0,0.4)] font-semibold uppercase tracking-wider inline-flex items-center gap-1">{c.label} <InfoTooltip placement="bottom">{c.tip}</InfoTooltip></p>
+            <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '28px', fontWeight: 400, lineHeight: '28px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }} className="mt-1">{c.value}</p>
+            {'sub' in c && c.sub && <p className="text-[10px] text-[rgba(0,0,0,0.5)] mt-0.5">{c.sub}</p>}
             {'trend' in c && c.trend && (
               <span className={`inline-flex items-center mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                 c.trend.pct >= 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
               }`}>
-                <i className={`fas ${c.trend.pct >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'} mr-0.5`} />
+                <Icon icon={c.trend.pct >= 0 ? 'mdi:arrow-up' : 'mdi:arrow-down'} width={10} className="inline mr-0.5" />
                 {Math.abs(c.trend.pct).toFixed(1)}% {c.trend.label}
               </span>
             )}
@@ -262,12 +263,12 @@ function CostByProviderChart({ data }: { data: ProviderCostBreakdown[] }) {
   }, [data, totalCost]);
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
-          <i className="fas fa-chart-bar text-white text-xs" />
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-3">
+        <div className="w-8 h-8 bg-purple-50 border border-purple-100 rounded-lg flex items-center justify-center">
+          <Icon icon="mdi:chart-bar" width={16} color="#7c3aed" />
         </div>
-        <h3 className="text-sm font-bold text-gray-800">Cost by Provider</h3>
+        <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Cost by Provider</h3>
         <InfoTooltip placement="right">Cost distribution across your configured LLM providers for the selected period.</InfoTooltip>
       </div>
       <div className="p-6">
@@ -276,7 +277,7 @@ function CostByProviderChart({ data }: { data: ProviderCostBreakdown[] }) {
             {data.length > 0 ? (
               <canvas ref={chartRef} />
             ) : (
-              <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+              <div className="flex items-center justify-center h-full text-[rgba(0,0,0,0.4)] text-sm">
                 No provider data yet
               </div>
             )}
@@ -285,16 +286,16 @@ function CostByProviderChart({ data }: { data: ProviderCostBreakdown[] }) {
             {data.map(d => {
               const pct = totalCost > 0 ? ((d.cost / totalCost) * 100) : 0;
               return (
-                <div key={d.provider} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+                <div key={d.provider} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                   <span className="w-3 h-3 rounded-full flex-shrink-0"
                     style={{ backgroundColor: PROVIDER_COLORS[d.provider] || '#94a3b8' }} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-800">{d.provider}</p>
-                    <p className="text-[10px] text-gray-500">
+                    <p className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">{d.provider}</p>
+                    <p className="text-[10px] text-[rgba(0,0,0,0.5)]">
                       {formatCurrency(d.cost)} &middot; {pct.toFixed(1)}% &middot; {formatNumber(d.requestCount)} reqs
                     </p>
                   </div>
-                  <div className="w-16 bg-gray-100 rounded-full h-1.5">
+                  <div className="w-16 bg-[rgba(0,0,0,0.06)] rounded-full h-1.5">
                     <div className="h-1.5 rounded-full" style={{
                       width: `${pct}%`,
                       backgroundColor: PROVIDER_COLORS[d.provider] || '#94a3b8',
@@ -378,27 +379,27 @@ function CostTrendsSection({ costTrend, kpis }: { costTrend: CostTrend; kpis: Ll
   const totalSpend = costTrend.costs.reduce((a, b) => a + b, 0);
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-            <i className="fas fa-chart-area text-white text-xs" />
+          <div className="w-8 h-8 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center">
+            <Icon icon="mdi:chart-areaspline" width={16} color="#4F46E5" />
           </div>
-          <h3 className="text-sm font-bold text-gray-800">Cost Trends</h3>
+          <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Cost Trends</h3>
           <InfoTooltip placement="right">Daily cost over time for the selected period.</InfoTooltip>
         </div>
         <div className="flex items-center gap-6">
           <div className="text-right">
-            <p className="text-[10px] text-gray-400 uppercase tracking-wider inline-flex items-center gap-1">Total Spend <InfoTooltip placement="bottom">Sum of all daily costs in the selected period.</InfoTooltip></p>
-            <p className="text-sm font-bold text-gray-900">{formatCurrency(totalSpend)}</p>
+            <p className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase tracking-wider inline-flex items-center gap-1">Total Spend <InfoTooltip placement="bottom">Sum of all daily costs in the selected period.</InfoTooltip></p>
+            <p className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{formatCurrency(totalSpend)}</p>
           </div>
           <div className="text-right">
-            <p className="text-[10px] text-gray-400 uppercase tracking-wider inline-flex items-center gap-1">Total Requests <InfoTooltip placement="bottom">Total API requests made in the selected period.</InfoTooltip></p>
-            <p className="text-sm font-bold text-gray-900">{formatNumber(kpis.requestsThisMonth)}</p>
+            <p className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase tracking-wider inline-flex items-center gap-1">Total Requests <InfoTooltip placement="bottom">Total API requests made in the selected period.</InfoTooltip></p>
+            <p className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{formatNumber(kpis.requestsThisMonth)}</p>
           </div>
           <div className="text-right">
-            <p className="text-[10px] text-gray-400 uppercase tracking-wider inline-flex items-center gap-1">Total Tokens <InfoTooltip placement="bottom">Sum of input + output tokens in the selected period.</InfoTooltip></p>
-            <p className="text-sm font-bold text-gray-900">{formatNumber(kpis.inputTokens + kpis.outputTokens)}</p>
+            <p className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase tracking-wider inline-flex items-center gap-1">Total Tokens <InfoTooltip placement="bottom">Sum of input + output tokens in the selected period.</InfoTooltip></p>
+            <p className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{formatNumber(kpis.inputTokens + kpis.outputTokens)}</p>
           </div>
         </div>
       </div>
@@ -407,9 +408,9 @@ function CostTrendsSection({ costTrend, kpis }: { costTrend: CostTrend; kpis: Ll
           {costTrend.labels.length > 0 ? (
             <canvas ref={chartRef} />
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+            <div className="flex items-center justify-center h-full text-[rgba(0,0,0,0.4)] text-sm">
               <div className="text-center">
-                <i className="fas fa-chart-line text-3xl mb-2 opacity-30" />
+                <Icon icon="mdi:chart-line" width={40} color="#d1d5db" className="mb-2" />
                 <p>No cost data yet</p>
               </div>
             </div>
@@ -545,12 +546,12 @@ function ModelUsageAnalysis({ data }: { data: ModelDailyAnalysis | null }) {
   if (!data || data.models.length === 0) return null;
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-br from-pink-500 to-rose-600 rounded-lg flex items-center justify-center">
-          <i className="fas fa-layer-group text-white text-xs" />
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-3">
+        <div className="w-8 h-8 bg-pink-50 border border-pink-100 rounded-lg flex items-center justify-center">
+          <Icon icon="mdi:layers-outline" width={16} color="#db2777" />
         </div>
-        <h3 className="text-sm font-bold text-gray-800">Model Usage Analysis</h3>
+        <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Model Usage Analysis</h3>
         <InfoTooltip placement="right">Per-model cost and token trends over time. Use checkboxes to filter models.</InfoTooltip>
       </div>
       <div className="p-6">
@@ -559,20 +560,20 @@ function ModelUsageAnalysis({ data }: { data: ModelDailyAnalysis | null }) {
           <button onClick={selectAll} className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800 px-2 py-1 border border-indigo-200 rounded-md">
             Select All
           </button>
-          <button onClick={clearAll} className="text-[10px] font-semibold text-gray-500 hover:text-gray-700 px-2 py-1 border border-gray-200 rounded-md">
+          <button onClick={clearAll} className="text-[10px] font-semibold text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)] px-2 py-1 border border-[rgba(0,0,0,0.12)] rounded-md">
             Clear All
           </button>
-          <span className="w-px h-4 bg-gray-200 mx-1" />
+          <span className="w-px h-4 bg-[rgba(0,0,0,0.08)] mx-1" />
           {data.models.map((model, idx) => (
-            <label key={model} className="inline-flex items-center gap-1.5 cursor-pointer text-xs px-2 py-1 rounded-md hover:bg-gray-50 transition-colors">
+            <label key={model} className="inline-flex items-center gap-1.5 cursor-pointer text-xs px-2 py-1 rounded-md hover:bg-[rgba(0,0,0,0.025)] transition-colors">
               <input
                 type="checkbox"
                 checked={selectedModels.has(model)}
                 onChange={() => toggleModel(model)}
-                className="w-3 h-3 rounded border-gray-300 accent-indigo-600"
+                className="w-3 h-3 rounded border-[rgba(0,0,0,0.12)] accent-indigo-600"
               />
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: MODEL_COLORS[idx % MODEL_COLORS.length] }} />
-              <span className="text-gray-700 truncate max-w-[120px]">{model}</span>
+              <span className="text-[rgba(0,0,0,0.7)] truncate max-w-[120px]">{model}</span>
             </label>
           ))}
         </div>
@@ -580,13 +581,13 @@ function ModelUsageAnalysis({ data }: { data: ModelDailyAnalysis | null }) {
         {/* Two side-by-side charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
-            <p className="text-xs font-semibold text-gray-600 mb-2 inline-flex items-center gap-1">Cost Over Time <InfoTooltip placement="right">Daily estimated cost per model in USD.</InfoTooltip></p>
+            <p className="text-xs font-semibold text-[rgba(0,0,0,0.6)] mb-2 inline-flex items-center gap-1">Cost Over Time <InfoTooltip placement="right">Daily estimated cost per model in USD.</InfoTooltip></p>
             <div className="h-52">
               <canvas ref={costChartRef} />
             </div>
           </div>
           <div>
-            <p className="text-xs font-semibold text-gray-600 mb-2 inline-flex items-center gap-1">Tokens Over Time <InfoTooltip placement="right">Daily token consumption per model (input + output).</InfoTooltip></p>
+            <p className="text-xs font-semibold text-[rgba(0,0,0,0.6)] mb-2 inline-flex items-center gap-1">Tokens Over Time <InfoTooltip placement="right">Daily token consumption per model (input + output).</InfoTooltip></p>
             <div className="h-52">
               <canvas ref={tokensChartRef} />
             </div>
@@ -649,12 +650,12 @@ function CostByOrganization({ data }: { data: TeamAnalyticsSummary | null }) {
   if (!data || !data.costTrend || data.costTrend.labels.length === 0) return null;
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
-          <i className="fas fa-building text-white text-xs" />
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-3">
+        <div className="w-8 h-8 bg-amber-50 border border-amber-100 rounded-lg flex items-center justify-center">
+          <Icon icon="mdi:office-building-outline" width={16} color="#d97706" />
         </div>
-        <h3 className="text-sm font-bold text-gray-800">Cost by Organization / Agent</h3>
+        <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Cost by Organization / Agent</h3>
         <InfoTooltip placement="right">Stacked daily cost breakdown by agent or team. Agents are identified via X-XamOps-Agent header.</InfoTooltip>
       </div>
       <div className="p-6">
@@ -672,32 +673,32 @@ function RecentRequestsTable({ data }: { data: PagedResponse<RequestLogEntry> | 
   if (!data || data.content.length === 0) return null;
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center">
-          <i className="fas fa-list text-white text-xs" />
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-3">
+        <div className="w-8 h-8 bg-cyan-50 border border-cyan-100 rounded-lg flex items-center justify-center">
+          <Icon icon="mdi:format-list-bulleted" width={16} color="#0891b2" />
         </div>
-        <h3 className="text-sm font-bold text-gray-800">Recent Requests</h3>
+        <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Recent Requests</h3>
         <InfoTooltip placement="right">Most recent API requests through the proxy.</InfoTooltip>
-        <span className="text-[10px] text-gray-400 ml-auto">Last {data.content.length} of {data.totalElements}</span>
+        <span className="text-[10px] text-[rgba(0,0,0,0.4)] ml-auto">Last {data.content.length} of {data.totalElements}</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="bg-gray-50/80">
-              <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Time</th>
-              <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Provider</th>
-              <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Agent</th>
-              <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Model</th>
-              <th className="px-4 py-3 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wider"><span className="inline-flex items-center gap-1">Tokens <InfoTooltip placement="bottom">Combined input + output tokens.</InfoTooltip></span></th>
-              <th className="px-4 py-3 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wider"><span className="inline-flex items-center gap-1">Cost <InfoTooltip placement="bottom">Estimated cost based on model pricing.</InfoTooltip></span></th>
-              <th className="px-4 py-3 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wider"><span className="inline-flex items-center gap-1">Latency <InfoTooltip placement="bottom">Round-trip response time from provider.</InfoTooltip></span></th>
+            <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider">Time</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider">Provider</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider">Agent</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider">Model</th>
+              <th className="px-4 py-3 text-right text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider"><span className="inline-flex items-center gap-1">Tokens <InfoTooltip placement="bottom">Combined input + output tokens.</InfoTooltip></span></th>
+              <th className="px-4 py-3 text-right text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider"><span className="inline-flex items-center gap-1">Cost <InfoTooltip placement="bottom">Estimated cost based on model pricing.</InfoTooltip></span></th>
+              <th className="px-4 py-3 text-right text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider"><span className="inline-flex items-center gap-1">Latency <InfoTooltip placement="bottom">Round-trip response time from provider.</InfoTooltip></span></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
             {data.content.map((log) => (
-              <tr key={log.id} className="hover:bg-indigo-50/30 transition-colors">
-                <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{timeAgo(log.timestamp)}</td>
+              <tr key={log.id} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                <td className="px-4 py-2.5 text-[rgba(0,0,0,0.6)] whitespace-nowrap">{timeAgo(log.timestamp)}</td>
                 <td className="px-4 py-2.5">
                   <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold"
                     style={{
@@ -708,11 +709,11 @@ function RecentRequestsTable({ data }: { data: PagedResponse<RequestLogEntry> | 
                     {log.provider}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 text-gray-700 font-medium">{log.agentName || '-'}</td>
-                <td className="px-4 py-2.5 text-gray-600 truncate max-w-[140px]" title={log.model}>{log.model}</td>
-                <td className="px-4 py-2.5 text-right text-gray-600 font-mono">{formatNumber(log.inputTokens + log.outputTokens)}</td>
-                <td className="px-4 py-2.5 text-right font-semibold text-gray-800 font-mono">${log.cost.toFixed(4)}</td>
-                <td className="px-4 py-2.5 text-right text-gray-600 font-mono">{formatLatency(log.latencyMs)}</td>
+                <td className="px-4 py-2.5 text-[rgba(0,0,0,0.7)] font-medium">{log.agentName || '-'}</td>
+                <td className="px-4 py-2.5 text-[rgba(0,0,0,0.6)] truncate max-w-[140px]" title={log.model}>{log.model}</td>
+                <td className="px-4 py-2.5 text-right text-[rgba(0,0,0,0.6)] font-mono">{formatNumber(log.inputTokens + log.outputTokens)}</td>
+                <td className="px-4 py-2.5 text-right font-semibold text-[rgba(0,0,0,0.88)] font-mono">${log.cost.toFixed(4)}</td>
+                <td className="px-4 py-2.5 text-right text-[rgba(0,0,0,0.6)] font-mono">{formatLatency(log.latencyMs)}</td>
               </tr>
             ))}
           </tbody>
@@ -728,18 +729,18 @@ function AnomalyAlerts({ anomalies }: { anomalies: CostAnomaly[] }) {
   if (anomalies.length === 0) return null;
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
-          <i className="fas fa-exclamation-triangle text-white text-xs" />
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-3">
+        <div className="w-8 h-8 bg-red-50 border border-red-100 rounded-lg flex items-center justify-center">
+          <Icon icon="mdi:alert-outline" width={16} color="#dc2626" />
         </div>
-        <h3 className="text-sm font-bold text-gray-800">Cost Anomalies</h3>
+        <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Cost Anomalies</h3>
         <InfoTooltip placement="right">Days where actual cost significantly deviated from expected patterns.</InfoTooltip>
         <span className="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-semibold">
           {anomalies.length} detected
         </span>
       </div>
-      <div className="divide-y divide-gray-100">
+      <div className="divide-y divide-[rgba(0,0,0,0.06)]">
         {anomalies.map((a, idx) => (
           <div key={idx} className="px-6 py-3 flex items-center justify-between hover:bg-red-50/30 transition-colors">
             <div className="flex items-center gap-4">
@@ -749,8 +750,8 @@ function AnomalyAlerts({ anomalies }: { anomalies: CostAnomaly[] }) {
                 {a.severity}
               </span>
               <div>
-                <p className="text-sm font-medium text-gray-900">{a.provider} cost spike on {a.date}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-sm font-medium text-[rgba(0,0,0,0.88)]">{a.provider} cost spike on {a.date}</p>
+                <p className="text-xs text-[rgba(0,0,0,0.5)]">
                   Actual: ${a.actualCost.toFixed(4)} | Expected: ${a.expectedCost.toFixed(4)} | +{a.deviationPct.toFixed(0)}% deviation
                 </p>
               </div>
@@ -760,12 +761,6 @@ function AnomalyAlerts({ anomalies }: { anomalies: CostAnomaly[] }) {
       </div>
     </div>
   );
-}
-
-// ─── Skeleton ─────────────────────────────────────────────────
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-gray-200/60 rounded-2xl ${className}`} />;
 }
 
 // ─── Main Component ───────────────────────────────────────────
@@ -778,14 +773,16 @@ const LLMDashboardTab: React.FC<LLMDashboardTabProps> = ({
   if (kpisLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-10" />
+        <div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded-xl h-10" />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded-xl h-24" />
+          ))}
         </div>
-        <Skeleton className="h-20" />
+        <div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded-xl h-20" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Skeleton className="h-72" />
-          <Skeleton className="h-72" />
+          <div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded-xl h-72" />
+          <div className="animate-pulse bg-[rgba(0,0,0,0.06)] rounded-xl h-72" />
         </div>
       </div>
     );

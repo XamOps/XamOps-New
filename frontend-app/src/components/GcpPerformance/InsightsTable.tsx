@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { Icon } from '@iconify/react';
 import { PerformanceInsight } from '../../types/gcpPerformance';
 
 interface InsightsTableProps {
@@ -25,15 +26,15 @@ const InsightsTable: React.FC<InsightsTableProps> = ({
 }) => {
   if (loading) {
     return (
-      <div className="space-y-4">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="flex items-center space-x-4 p-4 border border-gray-200 rounded-lg">
-            <div className="skeleton w-6 h-6 rounded"></div>
+      <div className="space-y-3">
+        {[1, 2, 3, 4, 5].map(i => (
+          <div key={i} className="flex items-center gap-4 p-4 border-b border-gray-100 animate-pulse">
+            <div className="w-5 h-5 bg-gray-200 rounded" />
             <div className="flex-1 space-y-2">
-              <div className="skeleton h-4 w-3/4 rounded"></div>
-              <div className="skeleton h-3 w-1/2 rounded"></div>
+              <div className="h-3 bg-gray-200 rounded w-3/4" />
+              <div className="h-2.5 bg-gray-100 rounded w-1/2" />
             </div>
-            <div className="skeleton h-6 w-16 rounded-full"></div>
+            <div className="h-5 w-16 bg-gray-200 rounded-full" />
           </div>
         ))}
       </div>
@@ -42,22 +43,22 @@ const InsightsTable: React.FC<InsightsTableProps> = ({
 
   if (insights.length === 0) {
     return (
-      <div className="text-center py-16">
-        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <i className="fas fa-search text-gray-400 text-xl"></i>
+      <div className="flex flex-col items-center py-16">
+        <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mb-3">
+          <Icon icon="mdi:magnify" width={24} className="text-gray-400" />
         </div>
-        <h3 className="text-lg font-semibold text-gray-800 mb-2">No insights found</h3>
-        <p className="text-gray-600">No performance insights available for the selected severity.</p>
+        <h3 className="text-base font-bold text-gray-700 mb-1">No insights found</h3>
+        <p className="text-sm text-gray-500">No performance insights available for the selected severity.</p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-xl border border-[rgba(0,0,0,0.12)]">
       <table className="w-full text-sm">
-        <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+        <thead className="bg-gray-50 border-b border-gray-100">
           <tr>
-            <th className="p-4 w-8">
+            <th className="px-4 py-2 w-12">
               <input
                 type="checkbox"
                 onChange={onToggleAll}
@@ -65,12 +66,12 @@ const InsightsTable: React.FC<InsightsTableProps> = ({
                 className="rounded cursor-pointer"
               />
             </th>
-            <th className="px-6 py-4 text-left font-bold">Insight</th>
-            <th className="px-6 py-4 text-center font-bold">Qty</th>
-            <th className="px-6 py-4 text-left font-bold">Resource</th>
+            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Insight</th>
+            <th className="px-4 py-2 text-center text-xs font-bold uppercase tracking-wider text-gray-500 w-20">Qty</th>
+            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Resource</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-200">
+        <tbody>
           {insights.map((insight) => {
             const insightId = insight.id || `${insight.resourceId}-${insight.insight}`;
             const isSelected = selectedInsights.includes(insightId);
@@ -78,9 +79,11 @@ const InsightsTable: React.FC<InsightsTableProps> = ({
             return (
               <tr
                 key={insightId}
-                className={`insight-row ${isSelected ? 'bg-blue-50 border-l-blue-500' : ''}`}
+                className={`border-t border-gray-100 transition-colors ${
+                  isSelected ? 'bg-blue-50 border-l-2 border-l-indigo-400' : 'hover:bg-gray-50'
+                }`}
               >
-                <td className="p-4">
+                <td className="px-4 py-3">
                   <input
                     type="checkbox"
                     checked={isSelected}
@@ -88,37 +91,32 @@ const InsightsTable: React.FC<InsightsTableProps> = ({
                     className="rounded cursor-pointer"
                   />
                 </td>
-                <td className="px-6 py-4">
-                  <div className="flex items-start space-x-3">
-                    <div className="flex-shrink-0 mt-1">
-                      <i
-                        className={`fas ${insight.severity === 'CRITICAL'
-                            ? 'fa-exclamation-triangle text-red-500'
-                            : insight.severity === 'WARNING'
-                              ? 'fa-exclamation-circle text-orange-500'
-                              : 'fa-info-circle text-yellow-500'
-                          }`}
-                      ></i>
-                    </div>
+                <td className="px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <Icon
+                      icon={insight.severity === 'CRITICAL' ? 'mdi:alert' : insight.severity === 'WARNING' ? 'mdi:alert-circle-outline' : 'mdi:information-outline'}
+                      width={15}
+                      className={`mt-0.5 flex-shrink-0 ${insight.severity === 'CRITICAL' ? 'text-red-500' : insight.severity === 'WARNING' ? 'text-orange-500' : 'text-yellow-500'}`}
+                    />
                     <div className="flex-1">
-                      <p className="font-medium text-gray-900 leading-relaxed">{insight.insight}</p>
+                      <p className="font-medium text-gray-900 text-sm leading-relaxed">{insight.insight}</p>
                       {insight.description && (
-                        <p className="text-xs text-gray-500 mt-1">{insight.description}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{insight.description}</p>
                       )}
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4 text-center">
-                  <span className="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-blue-500 rounded-full">
+                <td className="px-4 py-3 text-center">
+                  <span className="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-indigo-500 rounded-full">
                     {insight.quantity || 1}
                   </span>
                 </td>
-                <td className="px-6 py-4">
-                  <span className="font-medium text-gray-900">{insight.resourceType}</span>
+                <td className="px-4 py-3">
+                  <span className="font-medium text-gray-900 text-sm">{insight.resourceType}</span>
                   {insight.resourceId && (
-                    <p className="text-xs text-gray-500 font-mono">{insight.resourceId}</p>
+                    <p className="text-xs text-gray-500 font-mono mt-0.5">{insight.resourceId}</p>
                   )}
-                  {insight.region && <p className="text-xs text-gray-500">{insight.region}</p>}
+                  {insight.region && <p className="text-xs text-gray-400 mt-0.5">{insight.region}</p>}
                 </td>
               </tr>
             );

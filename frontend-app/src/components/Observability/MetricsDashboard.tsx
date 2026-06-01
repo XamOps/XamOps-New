@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useTheme } from '../../contexts/ThemeContext';
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import { useObservabilityData, MetricResult } from '../../hooks/useObservabilityData';
-import clsx from 'clsx';
+import { Icon } from '@iconify/react';
 
 // ── Time ranges ───────────────────────────────────────────────────────────────
 
@@ -165,7 +164,6 @@ interface MetricPanelProps extends PanelDef {
 const MetricPanel: React.FC<MetricPanelProps> = ({
   label, unit, color, query, step, startTime, endTime, chartType = 'area', refreshTick,
 }) => {
-  const { theme } = useTheme();
   const { queryMetrics } = useObservabilityData();
   const [data, setData] = useState<Record<string, number>[]>([]);
   const [seriesKeys, setSeriesKeys] = useState<string[]>([]);
@@ -197,13 +195,12 @@ const MetricPanel: React.FC<MetricPanelProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, startTime, endTime, step, refreshTick]);
 
-  const dark = theme === 'dark';
-  const cardCls = clsx('rounded-2xl border p-4 shadow-sm', dark ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200');
+  const cardCls = 'rounded-xl border border-[rgba(0,0,0,0.12)] p-4 shadow-sm bg-white';
   const chartHeight = 80;
 
   function renderChart() {
     if (data.length === 0) return (
-      <div className={clsx('flex items-center justify-center text-xs', dark ? 'text-slate-500' : 'text-gray-400')} style={{ height: chartHeight }}>
+      <div className="flex items-center justify-center text-xs text-[rgba(0,0,0,0.4)]" style={{ height: chartHeight }}>
         No data
       </div>
     );
@@ -214,7 +211,7 @@ const MetricPanel: React.FC<MetricPanelProps> = ({
     };
     const tooltip = (
       <Tooltip
-        contentStyle={{ background: dark ? '#1e293b' : '#fff', border: `1px solid ${color}`, borderRadius: 8, fontSize: 11 }}
+        contentStyle={{ background: '#fff', border: `1px solid ${color}`, borderRadius: 8, fontSize: 11 }}
         formatter={(v: any) => [formatVal(Number(v), unit), '']}
         labelFormatter={(ts: any) => new Date(ts * 1000).toLocaleTimeString()}
       />
@@ -277,8 +274,8 @@ const MetricPanel: React.FC<MetricPanelProps> = ({
     <div className={cardCls}>
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1 min-w-0 mr-2">
-          <p className={clsx('text-xs font-semibold uppercase tracking-wide', dark ? 'text-slate-400' : 'text-gray-500')}>{label}</p>
-          <p className={clsx('text-xl font-bold mt-0.5', dark ? 'text-white' : 'text-gray-900')}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.5)]">{label}</p>
+          <p className="text-xl font-bold mt-0.5 text-[rgba(0,0,0,0.88)]">
             {loading ? <span className="text-sm animate-pulse">Loading...</span> : currentVal}
           </p>
           {!loading && seriesKeys.length > 0 && (
@@ -323,7 +320,6 @@ const PROMQL_TEMPLATES = [
 ];
 
 function PromQLEditor({ timeRange, refreshTick: _refreshTick }: { timeRange: typeof TIME_RANGES[0]; refreshTick: number }) {
-  const { theme } = useTheme();
   const { queryMetrics } = useObservabilityData();
   const [promql, setPromql] = useState('');
   const [results, setResults] = useState<MetricResult[]>([]);
@@ -352,25 +348,23 @@ function PromQLEditor({ timeRange, refreshTick: _refreshTick }: { timeRange: typ
     }
   };
 
-  const dark = theme === 'dark';
-  const inputCls = clsx('text-sm rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500',
-    dark ? 'bg-slate-700 border-slate-600 text-white placeholder-slate-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400');
+  const inputCls = 'text-sm rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.04)] px-3 py-2 focus:outline-none focus:border-[rgba(0,0,0,0.2)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)]';
 
   return (
-    <div className={clsx('rounded-2xl border shadow-sm p-5 space-y-4', dark ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200')}>
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 space-y-4">
       <div className="flex items-center gap-2">
-        <i className="fas fa-chart-line text-violet-500 text-sm" />
-        <span className={clsx('text-sm font-semibold', dark ? 'text-white' : 'text-gray-800')}>PromQL Query Editor</span>
-        <span className={clsx('text-xs px-2 py-0.5 rounded-full', dark ? 'bg-slate-700 text-slate-400' : 'bg-gray-100 text-gray-500')}>Prometheus-compatible</span>
+        <Icon icon="mdi:chart-line" className="text-violet-500 text-sm" />
+        <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">PromQL Query Editor</span>
+        <span className="text-xs px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)]">Prometheus-compatible</span>
       </div>
 
       <form onSubmit={handleRun} className="flex gap-2">
         <input type="text" value={promql} onChange={e => setPromql(e.target.value)}
           placeholder='e.g. (1 - avg(system_cpu_utilization{state="idle"})) * 100'
-          className={clsx(inputCls, 'flex-1 font-mono')} />
+          className={`${inputCls} flex-1 font-mono`} />
         <button type="submit" disabled={loading || !promql.trim()}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-60 transition-colors whitespace-nowrap">
-          <i className="fas fa-play text-xs" />
+          <Icon icon="mdi:play" className="text-xs" />
           {loading ? 'Running...' : 'Run'}
         </button>
       </form>
@@ -378,15 +372,13 @@ function PromQLEditor({ timeRange, refreshTick: _refreshTick }: { timeRange: typ
       <div className="flex flex-wrap gap-2">
         {PROMQL_TEMPLATES.map(t => (
           <button key={t.label} onClick={() => setPromql(t.query)}
-            className={clsx('text-xs px-2.5 py-1 rounded-full border transition-colors',
-              dark ? 'border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
-                   : 'border-gray-200 text-gray-500 hover:bg-violet-50 hover:border-violet-300 hover:text-violet-700')}>
+            className="text-xs px-2.5 py-1 rounded-full border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] hover:bg-violet-50 hover:border-violet-300 hover:text-violet-700 transition-colors">
             {t.label}
           </button>
         ))}
       </div>
 
-      {error && <p className={clsx('text-xs px-3 py-2 rounded-lg', dark ? 'bg-red-900/20 text-red-400' : 'bg-red-50 text-red-600')}>{error}</p>}
+      {error && <p className="text-xs px-3 py-2 rounded-lg bg-red-50 text-red-600">{error}</p>}
 
       {chartData.length > 0 && (
         <div>
@@ -400,14 +392,14 @@ function PromQLEditor({ timeRange, refreshTick: _refreshTick }: { timeRange: typ
                   </linearGradient>
                 ))}
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#334155' : '#e5e7eb'} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="ts"
                 tickFormatter={(ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                tick={{ fontSize: 11 }} stroke={dark ? '#64748b' : '#9ca3af'} />
-              <YAxis tick={{ fontSize: 11 }} stroke={dark ? '#64748b' : '#9ca3af'} width={45}
+                tick={{ fontSize: 11 }} stroke="#9ca3af" />
+              <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" width={45}
                 tickFormatter={(v: number) => Number(v).toFixed(1)} />
               <Tooltip
-                contentStyle={{ background: dark ? '#1e293b' : '#fff', border: '1px solid #7c3aed', borderRadius: 8, fontSize: 12 }}
+                contentStyle={{ background: '#fff', border: '1px solid #7c3aed', borderRadius: 8, fontSize: 12 }}
                 formatter={(v: any) => [Number(v).toFixed(3), '']}
                 labelFormatter={(ts: any) => new Date(ts * 1000).toLocaleTimeString()} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -420,22 +412,21 @@ function PromQLEditor({ timeRange, refreshTick: _refreshTick }: { timeRange: typ
           </ResponsiveContainer>
 
           {results.length > 0 && (
-            <div className={clsx('mt-3 rounded-xl overflow-hidden border text-xs', dark ? 'border-slate-700' : 'border-gray-200')}>
-              <div className={clsx('px-4 py-2 font-semibold border-b', dark ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-gray-50 border-gray-200 text-gray-700')}>
+            <div className="mt-3 rounded-xl overflow-hidden border border-[rgba(0,0,0,0.12)] text-xs">
+              <div className="px-4 py-2 font-semibold border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] text-[rgba(0,0,0,0.7)]">
                 {results.length} series
               </div>
               {results.slice(0, 8).map((r, i) => {
                 const last = r.values[r.values.length - 1];
                 return (
-                  <div key={i} className={clsx('flex items-center justify-between px-4 py-2 border-b last:border-b-0',
-                    dark ? 'border-slate-700/50' : 'border-gray-100')}>
+                  <div key={i} className="flex items-center justify-between px-4 py-2 border-b border-[rgba(0,0,0,0.06)] last:border-b-0 hover:bg-[rgba(0,0,0,0.025)]">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                      <span className={clsx('font-mono truncate max-w-sm', dark ? 'text-slate-300' : 'text-gray-700')}>
+                      <span className="font-mono truncate max-w-sm text-[rgba(0,0,0,0.7)]">
                         {Object.entries(r.metric).filter(([k]) => k !== '__name__').map(([k, v]) => `${k}="${v}"`).join(', ') || 'value'}
                       </span>
                     </div>
-                    <span className={clsx('font-semibold ml-4 flex-shrink-0', dark ? 'text-white' : 'text-gray-900')}>
+                    <span className="font-semibold ml-4 flex-shrink-0 text-[rgba(0,0,0,0.88)]">
                       {last ? Number(last[1]).toFixed(3) : '—'}
                     </span>
                   </div>
@@ -451,13 +442,13 @@ function PromQLEditor({ timeRange, refreshTick: _refreshTick }: { timeRange: typ
 
 // ── Section header ────────────────────────────────────────────────────────────
 
-function SectionHeader({ icon, title, subtitle, dark }: { icon: string; title: string; subtitle: string; dark: boolean }) {
+function SectionHeader({ icon, title, subtitle }: { icon: string; title: string; subtitle: string }) {
   return (
-    <div className={clsx('rounded-2xl border px-5 py-3', dark ? 'bg-slate-800/40 border-slate-700' : 'bg-gray-50 border-gray-200')}>
+    <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-xl px-5 py-3">
       <div className="flex items-center gap-2">
-        <i className={clsx(icon, 'text-violet-500 text-sm')} />
-        <p className={clsx('text-sm font-semibold', dark ? 'text-white' : 'text-gray-800')}>{title}</p>
-        <span className={clsx('text-xs', dark ? 'text-slate-500' : 'text-gray-400')}>{subtitle}</span>
+        <Icon icon={icon} className="text-violet-500 text-sm" />
+        <p className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">{title}</p>
+        <span className="text-xs text-[rgba(0,0,0,0.4)]">{subtitle}</span>
       </div>
     </div>
   );
@@ -468,9 +459,6 @@ function SectionHeader({ icon, title, subtitle, dark }: { icon: string; title: s
 const REFRESH_INTERVAL_MS = 30_000;
 
 const MetricsDashboard: React.FC = () => {
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
-
   const [timeRange, setTimeRange] = useState(TIME_RANGES[1]); // default 1h
   const [refreshTick, setRefreshTick] = useState(0);
   const [lastRefresh, setLastRefresh] = useState(new Date());
@@ -498,13 +486,14 @@ const MetricsDashboard: React.FC = () => {
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <span className={clsx('text-xs font-medium', dark ? 'text-slate-400' : 'text-gray-500')}>Range:</span>
+          <span className="text-xs font-medium text-[rgba(0,0,0,0.5)]">Range:</span>
           {TIME_RANGES.map(t => (
             <button key={t.label} onClick={() => setTimeRange(t)}
-              className={clsx('text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors',
+              className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${
                 timeRange.label === t.label
-                  ? 'bg-violet-600 border-violet-600 text-white'
-                  : dark ? 'border-slate-600 text-slate-300 hover:bg-slate-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+                  ? 'bg-[rgba(0,0,0,0.88)] border-[rgba(0,0,0,0.88)] text-white'
+                  : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.06)]'
+              }`}>
               {t.label}
             </button>
           ))}
@@ -513,21 +502,21 @@ const MetricsDashboard: React.FC = () => {
         <div className="flex items-center gap-3">
           {/* Live indicator */}
           <button onClick={() => setLiveEnabled(v => !v)}
-            className={clsx('flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors',
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${
               liveEnabled
-                ? dark ? 'bg-emerald-900/30 border-emerald-700 text-emerald-400' : 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                : dark ? 'border-slate-600 text-slate-400' : 'border-gray-200 text-gray-500')}>
-            <span className={clsx('w-2 h-2 rounded-full', liveEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400')} />
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)]'
+            }`}>
+            <span className={`w-2 h-2 rounded-full ${liveEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-[rgba(0,0,0,0.2)]'}`} />
             {liveEnabled ? 'Live' : 'Paused'}
           </button>
 
-          <span className={clsx('text-xs', dark ? 'text-slate-500' : 'text-gray-400')}>
+          <span className="text-xs text-[rgba(0,0,0,0.4)]">
             Updated {lastRefresh.toLocaleTimeString()}
           </span>
 
           <button onClick={doRefresh}
-            className={clsx('text-xs px-3 py-1.5 rounded-lg border transition-colors',
-              dark ? 'border-slate-600 text-slate-300 hover:bg-slate-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+            className="text-xs px-3 py-1.5 rounded-lg border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.06)] transition-colors">
             ↻ Refresh
           </button>
         </div>
@@ -537,7 +526,7 @@ const MetricsDashboard: React.FC = () => {
       <PromQLEditor timeRange={timeRange} refreshTick={refreshTick} />
 
       {/* Host / EC2 metrics */}
-      <SectionHeader icon="fas fa-server" title="Host Metrics" subtitle="EC2 / Linux VM — OTel hostmetrics" dark={dark} />
+      <SectionHeader icon="mdi:server-outline" title="Host Metrics" subtitle="EC2 / Linux VM — OTel hostmetrics" />
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {HOST_PANELS.map(panel => (
           <MetricPanel key={panel.id} {...panel} step={timeRange.step} startTime={startTime} endTime={endTime} refreshTick={refreshTick} />
@@ -545,7 +534,7 @@ const MetricsDashboard: React.FC = () => {
       </div>
 
       {/* Kubernetes metrics */}
-      <SectionHeader icon="fas fa-dharmachakra" title="Kubernetes Metrics" subtitle="Nodes · Pods · Containers — kubeletstats" dark={dark} />
+      <SectionHeader icon="mdi:kubernetes" title="Kubernetes Metrics" subtitle="Nodes · Pods · Containers — kubeletstats" />
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {K8S_PANELS.map(panel => (
           <MetricPanel key={panel.id} {...panel} step={timeRange.step} startTime={startTime} endTime={endTime} refreshTick={refreshTick} />

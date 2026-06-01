@@ -21,6 +21,7 @@ import React, { useState, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpFinOpsData } from '../hooks/useGcpFinOpsData';
 import type { DateFilter, GcpNewBudget, GcpNewSchedule } from '../types/gcpFinops';
+import { Icon } from '@iconify/react';
 
 // Component imports
 import GcpFinOpsHeader from '../components/GcpFinOps/GcpFinOpsHeader';
@@ -224,16 +225,16 @@ export const GcpFinOpsPage: React.FC = () => {
   // Show error state
   if (error) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
-        <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
-          <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
-            <i className="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
+      <div className="flex-1 px-6 pt-4 pb-6 flex items-center justify-center">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-8 max-w-md w-full text-center">
+          <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:alert-circle-outline" width={24} color="#dc2626" />
           </div>
-          <h2 className="text-2xl font-bold text-center mb-4 text-gray-800">Error</h2>
-          <p className="text-center text-gray-600 mb-6">{error.message}</p>
+          <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">Failed to Load Report</h2>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-6">{error.message}</p>
           <button
             onClick={() => window.location.reload()}
-            className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
+            className="px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
           >
             Try Again
           </button>
@@ -243,7 +244,7 @@ export const GcpFinOpsPage: React.FC = () => {
   }
 
   return (
-    <main className="flex-1 flex flex-col min-h-screen bg-transparent">
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
       <GcpFinOpsHeader
         dateFilter={dateFilter}
         isRefreshing={isRefreshing}
@@ -253,74 +254,65 @@ export const GcpFinOpsPage: React.FC = () => {
         onRefresh={() => loadReport(true)}
       />
 
-      <div className="flex-1 p-8 space-y-8">
-        {/* No Account State */}
-        {!selectedAccountId && !isLoading && (
-          <div className="text-center py-12 rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50/50">
-            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-              <i className="fas fa-chart-pie text-gray-400 text-2xl"></i>
-            </div>
-            <h4 className="text-lg font-bold text-gray-800 mb-2">No Account Selected</h4>
-            <p className="text-gray-600">Please select a GCP account from the sidebar to view FinOps report.</p>
+      {/* No Account State */}
+      {!selectedAccountId && !isLoading && (
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-12 text-center">
+          <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icon icon="mdi:chart-pie-outline" width={24} color="rgba(0,0,0,0.3)" />
           </div>
-        )}
+          <h4 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Account Selected</h4>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Please select a GCP account from the sidebar to view FinOps report.</p>
+        </div>
+      )}
 
-        {/* Loading State */}
-        {selectedAccountId && isLoading && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="animate-pulse bg-gray-200 h-32 w-full rounded-xl"></div>
-              ))}
-            </div>
-            <div className="animate-pulse bg-gray-200 h-64 w-full rounded-xl"></div>
+      {/* Loading State */}
+      {selectedAccountId && isLoading && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="animate-pulse bg-[rgba(0,0,0,0.04)] h-[110px] w-full rounded-xl"></div>
+            ))}
           </div>
-        )}
+          <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-64 w-full rounded-xl"></div>
+        </>
+      )}
 
-        {/* Report Content */}
-        {selectedAccountId && !isLoading && reportData && (
-          <>
-            {/* KPI Grid */}
-            <GcpFinOpsKPISection kpis={reportData.kpis} />
+      {/* Report Content */}
+      {selectedAccountId && !isLoading && reportData && (
+        <>
+          <GcpFinOpsKPISection kpis={reportData.kpis} />
 
-            {/* Budgets Section */}
-            {/* Enrich budgets with MTD spend — GCP Budget API doesn't expose per-budget actual spend,
-                so we use the total project MTD spend (same as how AWS shows it). */}
-            <GcpFinOpsBudgets
-              budgets={(reportData.budgets || []).map((b) => ({
-                ...b,
-                actualSpend: b.actualSpend || reportData.kpis?.monthToDateSpend || 0,
-                forecastedSpend: b.forecastedSpend || reportData.kpis?.forecastedSpend || 0,
-              }))}
-              onCreateBudget={() => setIsBudgetModalOpen(true)}
-              onScheduleReport={() => setIsScheduleModalOpen(true)}
-              onDeleteBudget={handleDeleteBudget}
+          <GcpFinOpsBudgets
+            budgets={(reportData.budgets || []).map((b) => ({
+              ...b,
+              actualSpend: b.actualSpend || reportData.kpis?.monthToDateSpend || 0,
+              forecastedSpend: b.forecastedSpend || reportData.kpis?.forecastedSpend || 0,
+            }))}
+            onCreateBudget={() => setIsBudgetModalOpen(true)}
+            onScheduleReport={() => setIsScheduleModalOpen(true)}
+            onDeleteBudget={handleDeleteBudget}
+          />
+
+          {reportSchedules.length > 0 && (
+            <GcpFinOpsScheduledReports
+              schedules={reportSchedules}
+              onDeleteSchedule={handleDeleteSchedule}
             />
+          )}
 
-            {/* Scheduled Reports */}
-            {reportSchedules.length > 0 && (
-              <GcpFinOpsScheduledReports
-                schedules={reportSchedules}
-                onDeleteSchedule={handleDeleteSchedule}
+          <GcpFinOpsCharts costBreakdown={reportData.costBreakdown} />
+
+          {(reportData.rightsizingRecommendations.length > 0 ||
+            reportData.wastedResources.length > 0 ||
+            reportData.costAnomalies.length > 0) && (
+              <GcpFinOpsInsights
+                costAnomalies={reportData.costAnomalies}
+                rightsizingRecommendations={reportData.rightsizingRecommendations}
+                wastedResources={reportData.wastedResources}
               />
             )}
-
-            {/* Charts Grid */}
-            <GcpFinOpsCharts costBreakdown={reportData.costBreakdown} />
-
-            {/* Insights & Opportunities */}
-            {(reportData.rightsizingRecommendations.length > 0 ||
-              reportData.wastedResources.length > 0 ||
-              reportData.costAnomalies.length > 0) && (
-                <GcpFinOpsInsights
-                  costAnomalies={reportData.costAnomalies}
-                  rightsizingRecommendations={reportData.rightsizingRecommendations}
-                  wastedResources={reportData.wastedResources}
-                />
-              )}
-          </>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Modals */}
       <GcpBudgetModal
