@@ -63,21 +63,6 @@ public class MultiTenantDataSourceConfig {
     private String connectionTestQuery;
 
     /**
-     * Helper method to create a HikariCP-pooled DataSource for master DB access.
-     * Used in PROD/PREPROD for querying tenant_config and global_users tables.
-     * Uses connection pooling to prevent connection exhaustion on PostgreSQL.
-     */
-    private HikariDataSource createMasterDataSourceForLookup() {
-        HikariDataSource ds = new HikariDataSource();
-        ds.setJdbcUrl("jdbc:postgresql://3.110.102.128:5432/production_db");
-        ds.setUsername("app_user");
-        ds.setPassword("AppPassword123");
-        ds.setDriverClassName("org.postgresql.Driver");
-        applyMasterHikariSettings(ds, "MasterPool-Lookup");
-        return ds;
-    }
-
-    /**
      * Hikari settings for master datasource (smaller pool - only used for global_users/tenant_config lookups)
      */
     private void applyMasterHikariSettings(HikariDataSource ds, String poolName) {
@@ -243,76 +228,6 @@ public class MultiTenantDataSourceConfig {
         ds.setDriverClassName(dataSourceDriver);
         applyHikariSettings(ds, "PreprodPool-main");
         return ds;
-    }
-
-    private DataSource createRoutingDataSource(String profileName) {
-        logger.info("========================================");
-        logger.info("PROFILE: {} - Multi-Tenant Routing Mode", profileName);
-        logger.info("========================================");
-        logger.info("Master DB URL: {}", dataSourceUrl);
-
-        // Create a datasource to query tenant_config table
-        DataSource masterDs = createMasterDataSourceForLookup();
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(masterDs);
-
-        // Load ALL active tenants (no filtering - master DB is clean now)
-        logger.info("Loading tenant configurations from master DB...");
-        List<Map<String, Object>> tenantRows = jdbcTemplate
-                .queryForList("SELECT * FROM tenant_config WHERE active = true");
-
-        if (tenantRows.isEmpty()) {
-            logger.warn("WARNING: No active tenants found in tenant_config table!");
-            logger.warn("Please ensure master DB has entries for system and customer tenants");
-        }
-
-        Map<Object, Object> targetDataSources = new HashMap<>();
-        String defaultTenantId = null;
-
-        for (Map<String, Object> row : tenantRows) {
-            String tenantId = (String) row.get("tenant_id");
-            String url = (String) row.get("db_url");
-            String username = (String) row.get("db_username");
-            String password = (String) row.get("db_password");
-            String driver = (String) row.get("driver_class_name");
-
-            logger.info("Initializing datasource for tenant: {} ({})", tenantId, url);
-
-            HikariDataSource tenantDs = new HikariDataSource();
-            tenantDs.setJdbcUrl(url);
-            tenantDs.setUsername(username);
-            tenantDs.setPassword(password);
-            tenantDs.setDriverClassName(driver);
-
-            applyHikariSettings(tenantDs, "TenantPool-" + tenantId);
-
-            targetDataSources.put(tenantId, tenantDs);
-
-            // Set default tenant (prefer "system", fallback to "default", or first entry)
-            if (defaultTenantId == null || "system".equalsIgnoreCase(tenantId) ||
-                    "default".equalsIgnoreCase(tenantId)) {
-                defaultTenantId = tenantId;
-            }
-        }
-
-        logger.info("Initialized {} tenant datasources", targetDataSources.size());
-        logger.info("Tenant IDs: {}", targetDataSources.keySet());
-        logger.info("Default tenant: {}", defaultTenantId);
-
-        TenantRoutingDataSource routingDataSource = new TenantRoutingDataSource();
-        routingDataSource.setTargetDataSources(targetDataSources);
-
-        if (defaultTenantId != null && targetDataSources.containsKey(defaultTenantId)) {
-            routingDataSource.setDefaultTargetDataSource(targetDataSources.get(defaultTenantId));
-            logger.info("Default datasource set to tenant: {}", defaultTenantId);
-        } else {
-            logger.error("ERROR: Could not set default datasource - no tenants found!");
-        }
-
-        routingDataSource.afterPropertiesSet();
-        logger.info("Multi-tenant routing datasource initialized successfully");
-        logger.info("========================================");
-
-        return routingDataSource;
     }
 
     /**
