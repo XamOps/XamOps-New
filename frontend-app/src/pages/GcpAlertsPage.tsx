@@ -236,13 +236,12 @@ const GcpAlertsPage: React.FC = () => {
 
                                                 {/* Alert Type */}
                                                 <td className="px-4 py-3">
-                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${
-                                                        alert.type === 'QUOTA'
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${alert.type === 'QUOTA'
                                                             ? 'bg-blue-50 text-blue-700 border-blue-200'
                                                             : alert.type === 'ANOMALY'
-                                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                                            : 'bg-red-50 text-red-700 border-red-200'
-                                                    }`}>
+                                                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                : 'bg-red-50 text-red-700 border-red-200'
+                                                        }`}>
                                                         {alert.type}
                                                     </span>
                                                 </td>
@@ -258,8 +257,14 @@ const GcpAlertsPage: React.FC = () => {
                                                 {/* Details / Usage */}
                                                 <td className="px-4 py-3">
                                                     {alert.type === 'QUOTA' && (
-                                                        <div className="space-y-1.5">
-                                                            <div className="w-full h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                                                        <div className="space-y-2">
+                                                            {alert.region && (
+                                                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                                                    <i className="fas fa-map-marker-alt"></i>
+                                                                    {alert.region}
+                                                                </div>
+                                                            )}
+                                                            <div className="progress-bar">
                                                                 <div
                                                                     className={`h-full rounded-full ${getUsageColor(alert)}`}
                                                                     style={{ width: `${Math.min(getUsagePercentage(alert), 100)}%` }}

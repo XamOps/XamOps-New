@@ -51,6 +51,7 @@ public class GcpCostService {
     private static final String COST_BREAKDOWN_CACHE_PREFIX = "gcp:cost-breakdown:";
     // --- NEW CACHE KEY ---
     private static final String COST_BY_SERVICE_REGION_CACHE_PREFIX = "gcp:cost-by-service-region:";
+    private static final String CURRENCY_CACHE_PREFIX = "gcp:currency:";
 
     // DB snapshot key prefixes for section-level cache (permanent, survives Redis restarts)
     private static final String GCP_FINOPS_BILLING_SVC_DB  = "GCP_FINOPS_BILLING_SVC::";
@@ -802,6 +803,38 @@ public class GcpCostService {
                 Thread.currentThread().interrupt();
             return Collections.emptyList();
         }
+    }
+
+    public String getProjectCurrencyCode(String gcpProjectId) {
+        String cacheKey = CURRENCY_CACHE_PREFIX + gcpProjectId;
+        Optional<String> cached = redisCacheService.get(cacheKey, new TypeReference<String>() {});
+        if (cached.isPresent()) return cached.get();
+
+        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
+        if (bqOpt.isEmpty()) return "USD";
+
+        BigQuery bigquery = bqOpt.get();
+        Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
+        if (tableNameOpt.isEmpty()) return "USD";
+
+        try {
+            String query = String.format(
+                    "SELECT MAX(currency) as currency FROM `%s` WHERE project.id = '%s' LIMIT 1",
+                    tableNameOpt.get(), gcpProjectId);
+            TableResult r = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            Iterator<FieldValueList> it = r.getValues().iterator();
+            if (it.hasNext()) {
+                FieldValue fv = it.next().get("currency");
+                if (!fv.isNull()) {
+                    String code = fv.getStringValue();
+                    redisCacheService.put(cacheKey, code, 60 * 24 * 7);
+                    return code;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch currency code for project {}: {}", gcpProjectId, e.getMessage());
+        }
+        return "USD";
     }
 
     private Optional<String> getBillingTableName(BigQuery bigquery, String gcpProjectId) {

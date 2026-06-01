@@ -57,7 +57,7 @@ public class AlertEmailBuilder {
         // ── Outer card ────────────────────────────────────────────────────────
         sb.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>");
 
-        sb.append(digestHeader(accountName, date, alerts.size(), critical, warning));
+        sb.append(digestHeader(accountName, accountId, date, alerts.size(), critical, warning));
         sb.append(summaryStrip(alerts));
         sb.append(alertSections(byType));
         sb.append(footer(date));
@@ -91,7 +91,7 @@ public class AlertEmailBuilder {
     // Digest sections
     // ─────────────────────────────────────────────────────────────────────────
 
-    private String digestHeader(String accountName, String date, int total, long critical, long warning) {
+    private String digestHeader(String accountName, String accountId, String date, int total, long critical, long warning) {
         return "<tr><td style='background:" + BRAND_GRADIENT + ";padding:40px 40px 32px;'>" +
                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td>" +
                // Logo pill
@@ -100,7 +100,8 @@ public class AlertEmailBuilder {
                "</div>" +
                // Title
                "<h1 style='margin:0 0 6px;color:#fff;font-size:26px;font-weight:700;letter-spacing:-0.5px;'>Alert Digest</h1>" +
-               "<p style='margin:0 0 20px;color:rgba(255,255,255,0.8);font-size:15px;'>" + esc(accountName) + "</p>" +
+               "<p style='margin:0 0 4px;color:rgba(255,255,255,0.8);font-size:15px;'>" + esc(accountName) + "</p>" +
+               "<p style='margin:0 0 20px;color:rgba(255,255,255,0.55);font-size:12px;font-family:monospace;'>" + esc(accountId) + "</p>" +
                // Inline stat row
                "<table role='presentation' cellpadding='0' cellspacing='0'><tr>" +
                statPill(String.valueOf(total),    "Total",    "rgba(255,255,255,0.25)", "#fff") +

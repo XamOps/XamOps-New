@@ -100,7 +100,7 @@ axios.defaults.adapter = async (config) => {
 // zero-value entries persist and override corrected mocks. Bump DEMO_CACHE_VERSION
 // whenever mock data is updated to force a clean slate on next startup.
 if (isDemoMode()) {
-  const DEMO_CACHE_VERSION = '2026-05-04-v4';
+  const DEMO_CACHE_VERSION = '2026-05-29-v1';
   if (sessionStorage.getItem('demoCacheVersion') !== DEMO_CACHE_VERSION) {
     // Preserve impersonation keys before clearing — they are needed to
     // re-authenticate the impersonation session on reload.

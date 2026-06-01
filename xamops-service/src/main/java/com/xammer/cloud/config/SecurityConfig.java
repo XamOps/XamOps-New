@@ -70,7 +70,9 @@ public class SecurityConfig {
                         .requestMatcher(request -> {
                             String path = request.getRequestURI();
                             String auth = request.getHeader("Authorization");
-                            return auth != null && !path.startsWith("/api/llm-proxy/");
+                            return auth != null
+                                    && !path.startsWith("/api/llm-proxy/")
+                                    && !path.startsWith("/api/v1/agent/");
                         })
                         .cors(withDefaults())
                         .csrf(csrf -> csrf.disable())

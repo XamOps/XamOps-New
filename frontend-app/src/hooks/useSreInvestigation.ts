@@ -102,8 +102,7 @@ export interface DetectionEvent {
 }
 
 export const listDetectionEvents = async (): Promise<DetectionEvent[]> => {
-  const res = await apiClient.get('/api/sre/detection/events');
-  return res.data;
+  return apiClient.get<DetectionEvent[]>('/api/sre/detection/events');
 };
 
 export const verifyDetectionStream = async (

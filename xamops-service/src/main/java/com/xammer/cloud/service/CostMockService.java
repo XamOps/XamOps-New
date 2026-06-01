@@ -692,7 +692,8 @@ public class CostMockService {
                     AWS_REGIONS.get(random.nextInt(AWS_REGIONS.size())),
                     String.format("%.2f", commitment),
                     String.format("%.2f", upfront),
-                    "USD"));
+                    "USD",
+                    null, null, null, null));
         }
 
         return savingsPlans;

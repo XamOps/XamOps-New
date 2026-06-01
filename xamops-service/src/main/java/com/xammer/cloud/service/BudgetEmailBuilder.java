@@ -85,9 +85,10 @@ public class BudgetEmailBuilder {
                     : "Your actual spend has reached <strong>50%</strong> of your budget limit.";
         }
 
+        String sym = currencySymbol(budget.getBudgetUnit());
         String spendLine = isForecasted
-                ? "Forecasted: <strong>$" + fmt(budget.getForecastedSpend()) + "</strong> / Limit: <strong>$" + fmt(budget.getBudgetLimit()) + "</strong>"
-                : "Spent: <strong>$" + fmt(budget.getActualSpend()) + "</strong> / Limit: <strong>$" + fmt(budget.getBudgetLimit()) + "</strong>";
+                ? "Forecasted: <strong>" + sym + fmt(budget.getForecastedSpend()) + "</strong> / Limit: <strong>" + sym + fmt(budget.getBudgetLimit()) + "</strong>"
+                : "Spent: <strong>" + sym + fmt(budget.getActualSpend()) + "</strong> / Limit: <strong>" + sym + fmt(budget.getBudgetLimit()) + "</strong>";
 
         double pct = isForecasted ? computePct(budget.getForecastedSpend(), budget.getBudgetLimit())
                                   : computePct(budget.getActualSpend(),     budget.getBudgetLimit());
@@ -102,6 +103,43 @@ public class BudgetEmailBuilder {
                                 ? "Review recent deployments and resource changes. Consider cleaning up unused resources or adjusting your budget limit."
                                 : "Monitor your spend closely. Review the FinOps dashboard for cost breakdown and optimization opportunities."),
                 ctaButton("Review in XamOps FinOps"),
+                footer(date));
+    }
+
+    /**
+     * Email sent when a GCP budget is created. Takes raw request params since
+     * GCP budget creation does not return a full BudgetDetails object.
+     */
+    public String buildGcpBudgetCreatedEmail(String budgetName, double limit, String currency, String projectId) {
+        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
+        String title = "GCP Budget Created";
+        return buildWrapper(title,
+                headerSection("linear-gradient(135deg,#4285f4 0%,#1a73e8 100%)", "&#127975;", title,
+                        "Your new GCP budget is active and monitoring has started."),
+                simpleDetailSection(budgetName, currency + " " + String.format("%.2f", limit), projectId, "GCP Project"),
+                infoBox(INFO_COLOR, INFO_BG,
+                        "What happens next?",
+                        "XamOps will monitor your GCP spend against this budget and alert you at "
+                        + "<strong>50%</strong>, <strong>80%</strong>, <strong>90%</strong>, and <strong>100%</strong> of the limit."),
+                ctaButton("View Budget in XamOps"),
+                footer(date));
+    }
+
+    /**
+     * Email sent when an Azure budget is created.
+     */
+    public String buildAzureBudgetCreatedEmail(String budgetName, double limit, String currency, String subscriptionId) {
+        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
+        String title = "Azure Budget Created";
+        return buildWrapper(title,
+                headerSection("linear-gradient(135deg,#0078d4 0%,#005a9e 100%)", "&#128176;", title,
+                        "Your new Azure budget is active and monitoring has started."),
+                simpleDetailSection(budgetName, currency + " " + String.format("%.2f", limit), subscriptionId, "Subscription"),
+                infoBox(INFO_COLOR, INFO_BG,
+                        "What happens next?",
+                        "XamOps will monitor your Azure spend against this budget and alert you at "
+                        + "<strong>50%</strong>, <strong>80%</strong>, and <strong>100%</strong> of the limit."),
+                ctaButton("View Budget in XamOps"),
                 footer(date));
     }
 
@@ -135,15 +173,27 @@ public class BudgetEmailBuilder {
     }
 
     private String summarySection(BudgetDetails budget, String accountName, String accountId) {
+        String sym = currencySymbol(budget.getBudgetUnit());
         return "<tr><td style='padding:30px 40px 0 40px;'>"
                 + "<h2 style='margin:0 0 16px 0;color:#1f2937;font-size:17px;font-weight:600;'>Budget Details</h2>"
                 + "<table role='presentation' style='width:100%;border-collapse:collapse;'>"
                 + detailRow("Budget Name",   esc(budget.getBudgetName()))
                 + detailRow("Account",       esc(accountName) + " <span style='color:#9ca3af;font-size:12px;'>(" + esc(accountId) + ")</span>")
-                + detailRow("Limit",         "<strong>$" + fmt(budget.getBudgetLimit()) + " " + esc(budget.getBudgetUnit()) + "</strong>")
-                + detailRow("Actual Spend",  "$" + fmt(budget.getActualSpend()))
-                + detailRow("Forecasted",    "$" + fmt(budget.getForecastedSpend()))
+                + detailRow("Limit",         "<strong>" + sym + fmt(budget.getBudgetLimit()) + " " + esc(budget.getBudgetUnit()) + "</strong>")
+                + detailRow("Actual Spend",  sym + fmt(budget.getActualSpend()))
+                + detailRow("Forecasted",    sym + fmt(budget.getForecastedSpend()))
                 + detailRow("Period",        "Monthly (resets on the 1st)")
+                + "</table></td></tr>";
+    }
+
+    private String simpleDetailSection(String budgetName, String limit, String accountRef, String accountLabel) {
+        return "<tr><td style='padding:30px 40px 0 40px;'>"
+                + "<h2 style='margin:0 0 16px 0;color:#1f2937;font-size:17px;font-weight:600;'>Budget Details</h2>"
+                + "<table role='presentation' style='width:100%;border-collapse:collapse;'>"
+                + detailRow("Budget Name", esc(budgetName))
+                + detailRow("Limit",       "<strong>" + esc(limit) + "</strong>")
+                + detailRow(esc(accountLabel), esc(accountRef))
+                + detailRow("Period", "Monthly (resets on the 1st)")
                 + "</table></td></tr>";
     }
 
@@ -191,6 +241,21 @@ public class BudgetEmailBuilder {
                 + "<td style='padding:10px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;width:38%;'>" + esc(label) + "</td>"
                 + "<td style='padding:10px 0;border-bottom:1px solid #e5e7eb;color:#1f2937;font-size:14px;font-weight:500;'>" + value + "</td>"
                 + "</tr>";
+    }
+
+    private String currencySymbol(String currencyCode) {
+        if (currencyCode == null) return "$";
+        return switch (currencyCode.toUpperCase()) {
+            case "USD" -> "$";
+            case "INR" -> "&#8377;";
+            case "EUR" -> "&euro;";
+            case "GBP" -> "&pound;";
+            case "JPY" -> "&yen;";
+            case "CAD" -> "CA$";
+            case "AUD" -> "A$";
+            case "SGD" -> "S$";
+            default -> currencyCode + " ";
+        };
     }
 
     private String fmt(BigDecimal val) {

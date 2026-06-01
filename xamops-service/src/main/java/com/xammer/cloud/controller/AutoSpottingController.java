@@ -51,10 +51,11 @@ public class AutoSpottingController {
      * GET /api/autospotting/costs/{accountId}
      */
     @GetMapping("/costs/{accountId}")
-    public ResponseEntity<?> getCostData(@PathVariable Long accountId) {
-        log.info("getCostData called: accountId={}", accountId);
+    public ResponseEntity<?> getCostData(@PathVariable Long accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        log.info("getCostData called: accountId={}, forceRefresh={}", accountId, forceRefresh);
         try {
-            CostResponse costData = autoSpottingService.getCostData(accountId);
+            CostResponse costData = autoSpottingService.getCostData(accountId, forceRefresh);
             log.info("Cost data retrieved: {} ASGs, ${}/hr",
                     costData.getAsgs() != null ? costData.getAsgs().size() : 0,
                     costData.getSummary() != null ? costData.getSummary().getTotalCurrentHourlyCost() : 0.0);

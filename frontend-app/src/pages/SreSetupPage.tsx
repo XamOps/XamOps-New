@@ -2,15 +2,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { verifyDetectionStream } from '../hooks/useSreInvestigation';
+import { DatadogIcon, GrafanaIcon, NewRelicIcon, NothingYetIcon, OpenObserveIcon } from '../components/SRE/SreStackIcons';
 
 type Stack = 'prometheus' | 'datadog' | 'newrelic' | 'openobserve' | 'none';
 
-const stackConfig: Record<Stack, { label: string; icon: string; description: string; effort: string }> = {
-  prometheus:   { label: 'Prometheus / Grafana', icon: '📊', description: 'Add OTel Collector alongside existing stack', effort: '~1 hour' },
-  datadog:      { label: 'Datadog',              icon: '🐶', description: 'Fan-out to XamOps via OTel Collector',      effort: '~30 min' },
-  newrelic:     { label: 'New Relic',            icon: '🔵', description: 'Fan-out to XamOps via OTel Collector',      effort: '~30 min' },
-  openobserve:  { label: 'OpenObserve',          icon: '🔭', description: 'Already connected — just configure',         effort: '~5 min' },
-  none:         { label: 'Nothing yet',          icon: '📦', description: 'Deploy full stack with one Helm command',   effort: '~2 hours' },
+const stackConfig: Record<Stack, { label: string; icon: React.ReactNode; description: string; effort: string }> = {
+  prometheus:   { label: 'Prometheus / Grafana', icon: <GrafanaIcon size={26} />,     description: 'Add OTel Collector alongside existing stack', effort: '~1 hour' },
+  datadog:      { label: 'Datadog',              icon: <DatadogIcon size={26} />,     description: 'Fan-out to XamOps via OTel Collector',      effort: '~30 min' },
+  newrelic:     { label: 'New Relic',            icon: <NewRelicIcon size={26} />,    description: 'Fan-out to XamOps via OTel Collector',      effort: '~30 min' },
+  openobserve:  { label: 'OpenObserve',          icon: <OpenObserveIcon size={26} />, description: 'Already connected — just configure',         effort: '~5 min' },
+  none:         { label: 'Nothing yet',          icon: <NothingYetIcon size={26} />,  description: 'Deploy full stack with one Helm command',   effort: '~2 hours' },
 };
 
 const SreSetupPage: React.FC = () => {
@@ -83,7 +84,7 @@ const SreSetupPage: React.FC = () => {
                       : 'border-gray-200 bg-white hover:border-gray-300'
                   }`}
                 >
-                  <span className="text-2xl">{cfg.icon}</span>
+                  <span className="flex items-center justify-center w-8 h-8 shrink-0">{cfg.icon}</span>
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-900">{cfg.label}</p>
                     <p className="text-xs text-gray-500 mt-0.5">{cfg.description}</p>

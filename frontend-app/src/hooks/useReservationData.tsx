@@ -17,6 +17,8 @@ import type {
   ReservationData,
   PurchaseRecommendation,
   RecommendationFilters,
+  SavingsPlanRecommendation,
+  SpRecommendationFilters,
 } from '../types/reservation';
 
 // Cache configuration
@@ -82,7 +84,7 @@ const clearReservationCache = (): void => {
   try {
     const keys = Object.keys(sessionStorage);
     keys.forEach((key) => {
-      if (key.startsWith('reservationData-') || key.startsWith('reservationRecs-')) {
+      if (key.startsWith('reservationData-') || key.startsWith('reservationRecs-') || key.startsWith('spRecs-')) {
         sessionStorage.removeItem(key);
       }
     });
@@ -100,11 +102,15 @@ interface UseReservationDataReturn {
   data: ReservationData;
   isLoading: boolean;
   isRecsLoading: boolean;
+  isSpRecsLoading: boolean;
   error: Error | null;
   recFilters: RecommendationFilters;
   setRecFilters: React.Dispatch<React.SetStateAction<RecommendationFilters>>;
+  spRecFilters: SpRecommendationFilters;
+  setSpRecFilters: React.Dispatch<React.SetStateAction<SpRecommendationFilters>>;
   fetchReservationData: (forceRefresh: boolean) => Promise<void>;
   fetchPurchaseRecommendations: (forceRefresh: boolean) => Promise<void>;
+  fetchSpRecommendations: (forceRefresh: boolean) => Promise<void>;
 }
 
 export const useReservationData = ({
@@ -117,10 +123,12 @@ export const useReservationData = ({
     inventory: [],
     savingsPlans: [],
     purchaseRecommendations: [],
+    savingsPlanRecommendations: [],
   });
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRecsLoading, setIsRecsLoading] = useState(false);
+  const [isSpRecsLoading, setIsSpRecsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -129,6 +137,13 @@ export const useReservationData = ({
     paymentOption: 'NO_UPFRONT',
     lookback: 'THIRTY_DAYS',
     offeringClass: 'STANDARD',
+  });
+
+  const [spRecFilters, setSpRecFilters] = useState<SpRecommendationFilters>({
+    spType: 'COMPUTE_SP',
+    term: 'ONE_YEAR',
+    paymentOption: 'NO_UPFRONT',
+    lookback: 'THIRTY_DAYS',
   });
 
   /**
@@ -186,6 +201,7 @@ export const useReservationData = ({
         console.log('[Reservation] Data fetched successfully:', responseData);
 
         if (!responseData.savingsPlans) responseData.savingsPlans = [];
+        if (!responseData.savingsPlanRecommendations) responseData.savingsPlanRecommendations = [];
         setData(responseData);
         setCachedData(cacheKey, responseData);
       } catch (err) {
@@ -269,6 +285,45 @@ export const useReservationData = ({
     [selectedAccountId, recFilters]
   );
 
+  const spRecsAbortControllerRef = useRef<AbortController | null>(null);
+
+  const fetchSpRecommendations = useCallback(
+    async (forceRefresh = false) => {
+      if (!selectedAccountId) return;
+
+      spRecsAbortControllerRef.current?.abort();
+      spRecsAbortControllerRef.current = new AbortController();
+      const { signal } = spRecsAbortControllerRef.current;
+
+      const { spType, term, paymentOption, lookback } = spRecFilters;
+      const cacheKey = `spRecs-${selectedAccountId}-${spType}-${term}-${paymentOption}-${lookback}`;
+
+      if (!forceRefresh) {
+        const cached = getCachedData<SavingsPlanRecommendation[]>(cacheKey);
+        if (cached) {
+          setData((prev) => ({ ...prev, savingsPlanRecommendations: cached }));
+          return;
+        }
+      }
+
+      setIsSpRecsLoading(true);
+      try {
+        const url = `/api/xamops/reservations/sp-recommendations?accountId=${selectedAccountId}&spType=${spType}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&forceRefresh=${forceRefresh}`;
+        const response = await fetch(url, { credentials: 'include', signal, headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const recs: SavingsPlanRecommendation[] = await response.json();
+        setData((prev) => ({ ...prev, savingsPlanRecommendations: recs }));
+        setCachedData(cacheKey, recs);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setData((prev) => ({ ...prev, savingsPlanRecommendations: [] }));
+      } finally {
+        setIsSpRecsLoading(false);
+      }
+    },
+    [selectedAccountId, spRecFilters]
+  );
+
   // Initial data fetch when account changes
   useEffect(() => {
     if (selectedAccountId) {
@@ -280,10 +335,14 @@ export const useReservationData = ({
     data,
     isLoading,
     isRecsLoading,
+    isSpRecsLoading,
     error,
     recFilters,
     setRecFilters,
+    spRecFilters,
+    setSpRecFilters,
     fetchReservationData,
     fetchPurchaseRecommendations,
+    fetchSpRecommendations,
   };
 };

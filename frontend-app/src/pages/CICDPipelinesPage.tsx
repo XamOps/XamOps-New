@@ -4,6 +4,13 @@ import { useCICDPipelines } from '../hooks/useCICDPipelines';
 import { RunHistory } from '../types/cicdPipelines';
 import { useTopbar } from '../contexts/TopbarContext';
 import { DialogRoot, DialogPanel } from '../components/ui';
+import { useCicdMetrics } from '../hooks/useCicdMetrics';
+import { CicdTimeRangeSelector } from '../components/CICDPipelines/CicdTimeRangeSelector';
+import { CicdKpiCards } from '../components/CICDPipelines/CicdKpiCards';
+import { CicdTrendCharts } from '../components/CICDPipelines/CicdTrendCharts';
+import { CicdDoraRow } from '../components/CICDPipelines/CicdDoraRow';
+import { CicdFailureAnalysis } from '../components/CICDPipelines/CicdFailureAnalysis';
+import { CicdLogViewer } from '../components/CICDPipelines/CicdLogViewer';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,13 +47,19 @@ const CICDPipelinesPage: React.FC = () => {
     selectedWorkflow, workflowHistory, isLoadingHistory, viewWorkflowHistory, closeWorkflow,
     selectedRun, selectedRunNumber, selectedRunUrl, pipelineStages, isStagesLoading, selectRunFromHistory,
     refreshData,
+
+    autoOpenLog,
+    viewError,
   } = useCICDPipelines();
 
-  const formatTime = useCallback((v: string | number | undefined): string => {
-    if (!v) return '—';
+  const githubMetrics = useCicdMetrics('github');
+  const jenkinsMetrics = useCicdMetrics('jenkins');
+
+  const formatTime = useCallback((timeValue: string | number | undefined): string => {
+    if (!timeValue) return 'N/A';
     try {
-      return new Date(v).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    } catch { return String(v); }
+      return new Date(timeValue).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return String(timeValue); }
   }, []);
 
   const getRunId = useCallback((run: RunHistory): string | number =>
@@ -118,7 +131,22 @@ const CICDPipelinesPage: React.FC = () => {
 
         {/* GitHub Tab */}
         {activeTab === 'github' && (
-          <div className="p-5">
+          <div>
+            {/* GitHub Metrics */}
+            <div className="mb-6">
+              {githubMetrics.error && (
+                <div className="mb-3 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+                  Metrics unavailable: {githubMetrics.error}
+                </div>
+              )}
+              <div className="flex justify-end mb-3">
+                <CicdTimeRangeSelector days={githubMetrics.days} onChange={githubMetrics.setDays} />
+              </div>
+              <CicdKpiCards metrics={githubMetrics.metrics ?? { successRate: 0, totalRuns: 0, failureCount: 0, avgDurationSeconds: 0, prevSuccessRate: 0, prevTotalRuns: 0, prevFailureCount: 0, prevAvgDurationSeconds: 0, dora: null, dailyStats: [], topFailingStages: [], topFailingWorkflows: [] }} isLoading={githubMetrics.isLoading} />
+              <CicdTrendCharts dailyStats={githubMetrics.metrics?.dailyStats ?? []} isLoading={githubMetrics.isLoading} />
+              <CicdDoraRow dora={githubMetrics.metrics?.dora ?? null} isLoading={githubMetrics.isLoading} />
+              <CicdFailureAnalysis topFailingStages={githubMetrics.metrics?.topFailingStages ?? []} topFailingWorkflows={githubMetrics.metrics?.topFailingWorkflows ?? []} isLoading={githubMetrics.isLoading} />
+            </div>
             {isLoadingGithub && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[...Array(6)].map((_, i) => (
@@ -170,7 +198,21 @@ const CICDPipelinesPage: React.FC = () => {
 
         {/* Jenkins Tab */}
         {activeTab === 'jenkins' && (
-          <div className="p-5">
+          <div>
+            {/* Jenkins Metrics */}
+            <div className="mb-6">
+              {jenkinsMetrics.error && (
+                <div className="mb-3 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+                  Metrics unavailable: {jenkinsMetrics.error}
+                </div>
+              )}
+              <div className="flex justify-end mb-3">
+                <CicdTimeRangeSelector days={jenkinsMetrics.days} onChange={jenkinsMetrics.setDays} />
+              </div>
+              <CicdKpiCards metrics={jenkinsMetrics.metrics ?? { successRate: 0, totalRuns: 0, failureCount: 0, avgDurationSeconds: 0, prevSuccessRate: 0, prevTotalRuns: 0, prevFailureCount: 0, prevAvgDurationSeconds: 0, dora: null, dailyStats: [], topFailingStages: [], topFailingWorkflows: [] }} isLoading={jenkinsMetrics.isLoading} />
+              <CicdTrendCharts dailyStats={jenkinsMetrics.metrics?.dailyStats ?? []} isLoading={jenkinsMetrics.isLoading} />
+              <CicdFailureAnalysis topFailingStages={jenkinsMetrics.metrics?.topFailingStages ?? []} topFailingWorkflows={jenkinsMetrics.metrics?.topFailingWorkflows ?? []} isLoading={jenkinsMetrics.isLoading} />
+            </div>
             {isLoadingJenkins && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[...Array(6)].map((_, i) => (
@@ -335,6 +377,34 @@ const CICDPipelinesPage: React.FC = () => {
                       );
                     })}
                   </div>
+                )}
+
+                {/* Log Viewer */}
+                {selectedRun && (
+                  <>
+                    {selectedWorkflow && 'repository' in selectedWorkflow && selectedWorkflow.repository ? (
+                      (() => {
+                        const [owner, repo] = (selectedWorkflow.repository as any).full_name.split('/');
+                        const jobId = 'id' in selectedRun ? (selectedRun as any).id : undefined;
+                        return (
+                          <CicdLogViewer
+                            provider="github"
+                            owner={owner}
+                            repo={repo}
+                            jobId={jobId}
+                            autoOpen={autoOpenLog || (selectedRun.displayStatus || '').toLowerCase().includes('fail')}
+                          />
+                        );
+                      })()
+                    ) : (
+                      <CicdLogViewer
+                        provider="jenkins"
+                        jobName={selectedWorkflow?.name}
+                        buildNumber={selectedRunNumber ? Number(selectedRunNumber) : undefined}
+                        autoOpen={autoOpenLog || (selectedRun.displayStatus || '').toLowerCase().includes('fail')}
+                      />
+                    )}
+                  </>
                 )}
               </div>
             </div>

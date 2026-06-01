@@ -112,15 +112,27 @@ public class LoginOtpController {
         redisCacheService.saveLoginOtp(email, otp);
         redisCacheService.savePreAuthFlag(email);
 
-        String htmlBody = "<div style='font-family:sans-serif;max-width:480px;margin:auto'>"
-                + "<h2 style='color:#1a73e8'>XamOps Login Verification</h2>"
-                + "<p>Use the following code to complete your sign-in:</p>"
-                + "<div style='font-size:2rem;font-weight:bold;letter-spacing:0.3em;"
-                + "background:#f1f3f4;padding:16px 24px;border-radius:8px;text-align:center'>"
-                + otp + "</div>"
-                + "<p style='color:#666;font-size:0.9rem'>This code expires in <strong>5 minutes</strong>. "
-                + "Do not share it with anyone.</p>"
-                + "</div>";
+        String htmlBody = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>Verification Code</title></head>"
+                + "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>"
+                + "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>"
+                + "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>"
+                + "<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;'>"
+                + "<div style='margin-bottom:16px;'><span style='display:inline-block;background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>"
+                + "<div style='font-size:40px;margin-bottom:14px;'>&#128274;</div>"
+                + "<h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>Verification Code</h1>"
+                + "<p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Complete your XamOps sign-in</p>"
+                + "</td></tr>"
+                + "<tr><td style='padding:32px 40px;'>"
+                + "<p style='margin:0 0 20px;color:#374151;font-size:15px;'>Use the code below to complete your sign-in. It expires in <strong>5 minutes</strong>.</p>"
+                + "<div style='background:#f1f5f9;border-radius:12px;padding:24px;text-align:center;margin-bottom:20px;letter-spacing:0.4em;font-size:36px;font-weight:700;color:#1e293b;font-family:monospace;'>" + otp + "</div>"
+                + "<p style='margin:0;color:#64748b;font-size:13px;'>Do not share this code with anyone. XamOps will never ask for your verification code.</p>"
+                + "</td></tr>"
+                + "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>"
+                + "<span style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>"
+                + "<p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>"
+                + "<p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>"
+                + "</td></tr>"
+                + "</table></td></tr></table></body></html>";
 
         try {
             emailService.sendHtmlEmail(email, "XamOps Login Verification Code", htmlBody);

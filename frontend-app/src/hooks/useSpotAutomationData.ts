@@ -164,7 +164,7 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
     try {
       console.log('[SpotAutomation] Fetching cost data for account:', selectedAccountId);
 
-      const data = await apiClient.get(`/api/autospotting/costs/${selectedAccountId}`);
+      const data = await apiClient.get(`/api/autospotting/costs/${selectedAccountId}${refresh ? '?forceRefresh=true' : ''}`);
 
       console.log('[SpotAutomation] Cost data received:', data);
 

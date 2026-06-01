@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom';
 import { Icon } from '@iconify/react';
 import apiClient from '../../utils/apiClient';
 import { useAccounts } from '../../contexts/AccountContext';
+import { QueryPlanViewer } from './QueryPlanViewer';
+import { useExplainQuery } from '../../hooks/useExplainQuery';
+import { useMongoData } from '../../hooks/useMongoData';
+import { useRedisData } from '../../hooks/useRedisData';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceDot,
@@ -13,6 +17,7 @@ import {
   DbIdleInstance, DbRightsizing, DbSecurityCheck, DbSnapshot,
   AgentTimeseries, AgentTableSize, AgentVacuumStat, AgentUserActivity,
   AgentIndexUsage, AgentTableActivity,
+  fetchHealthHistory, DbHealthSnapshotDto,
 } from '../../hooks/useDbOpsData';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -45,7 +50,7 @@ function fmtBytes(b: number) {
 
 // ── Instant tooltip — portal-based so it escapes overflow:hidden/auto parents ──
 function Tip({ text, children, wide }: { text: string; children: React.ReactNode; wide?: boolean }) {
-  const ref    = useRef<HTMLSpanElement>(null);
+  const ref = useRef<HTMLSpanElement>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
 
   const show = () => {
@@ -190,10 +195,10 @@ function PerfChart({
   // Generate evenly-spaced ticks from the domain so the X-axis labels are
   // always uniformly distributed regardless of snapshot collection irregularity
   const domainStart = domain ? domain[0] : (data[0]?.ts ?? 0);
-  const domainEnd   = domain ? domain[1] : (data[data.length - 1]?.ts ?? 0);
-  const TICK_COUNT  = 7;
-  const tickStep    = (domainEnd - domainStart) / (TICK_COUNT - 1);
-  const axisTicks   = Array.from({ length: TICK_COUNT }, (_, i) =>
+  const domainEnd = domain ? domain[1] : (data[data.length - 1]?.ts ?? 0);
+  const TICK_COUNT = 7;
+  const tickStep = (domainEnd - domainStart) / (TICK_COUNT - 1);
+  const axisTicks = Array.from({ length: TICK_COUNT }, (_, i) =>
     Math.round(domainStart + i * tickStep)
   );
 
@@ -303,7 +308,7 @@ function PerfChart({
 // ── Agent Setup Wizard ────────────────────────────────────────────────────────
 
 interface DsnEntry {
-  engine: 'mysql' | 'postgres';
+  engine: 'mysql' | 'postgres' | 'mongodb' | 'redis';
   host: string;
   port: string;
   dbName: string;
@@ -317,6 +322,12 @@ function buildDsn(d: DsnEntry) {
     const ssl = d.sslMode !== 'prefer' ? `?sslmode=${d.sslMode}` : '';
     return `postgres://${d.user}:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || '<db>'}${ssl}`;
   }
+  if (d.engine === 'mongodb') {
+    return `mongodb://${d.user}:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || 'admin'}`;
+  }
+  if (d.engine === 'redis') {
+    return `redis://:${d.pass || '<password>'}@${d.host || '<host>'}:${d.port}/${d.dbName || '0'}`;
+  }
   return `${d.user}:${d.pass || '<password>'}@tcp(${d.host || '<host>'}:${d.port})/${d.dbName || '<db>'}`;
 }
 
@@ -326,16 +337,23 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
   const [copied, setCopied] = useState('');
 
   const detectedPostgres = /postgres|aurora-postgresql/i.test(engine);
-  const [sqlEngine, setSqlEngine] = useState<'mysql' | 'postgres'>(detectedPostgres ? 'postgres' : 'mysql');
+  const detectedMongo = /mongo/i.test(engine);
+  const detectedRedis = /redis/i.test(engine);
+  const detectedEngine: 'mysql' | 'postgres' | 'mongodb' | 'redis' =
+    detectedPostgres ? 'postgres' : detectedMongo ? 'mongodb' : detectedRedis ? 'redis' : 'mysql';
+  const [sqlEngine, setSqlEngine] = useState<'mysql' | 'postgres' | 'mongodb' | 'redis'>(detectedEngine);
   const isPostgres = sqlEngine === 'postgres';
+  const isMongoDB = sqlEngine === 'mongodb';
+  const isRedisDB = sqlEngine === 'redis';
 
   const isRds = !!endpoint;
+  const defaultPort = detectedPostgres ? '5432' : detectedMongo ? '27017' : detectedRedis ? '6379' : '3306';
   const [dsns, setDsns] = useState<DsnEntry[]>([{
-    engine: detectedPostgres ? 'postgres' : 'mysql',
+    engine: detectedEngine,
     host: endpoint?.split(':')[0] ?? '',
-    port: detectedPostgres ? '5432' : '3306',
-    dbName: '',
-    user: 'xamops_reader',
+    port: defaultPort,
+    dbName: detectedMongo ? 'admin' : detectedRedis ? '0' : '',
+    user: detectedRedis ? '' : 'xamops_reader',
     pass: '',
     sslMode: isRds ? 'prefer' : 'disable',
   }]);
@@ -391,14 +409,14 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
 
     const applyConfig = (res: { found: boolean; dbEngine?: string; dbHost?: string; dbPort?: string; dbName?: string; dbUser?: string; dbPassword?: string; serverUrl?: string }) => {
       if (!res.found) return false;
-      if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres');
+      if (res.dbEngine) setSqlEngine(res.dbEngine as 'mysql' | 'postgres' | 'mongodb' | 'redis');
       setDsns(prev => {
         const first: DsnEntry = { ...prev[0] };
-        if (res.dbEngine) first.engine = res.dbEngine as 'mysql' | 'postgres';
-        if (res.dbHost)   first.host = res.dbHost!;
-        if (res.dbPort)   first.port = res.dbPort!;
-        if (res.dbName)   first.dbName = res.dbName!;
-        if (res.dbUser)   first.user = res.dbUser!;
+        if (res.dbEngine) first.engine = res.dbEngine as 'mysql' | 'postgres' | 'mongodb' | 'redis';
+        if (res.dbHost) first.host = res.dbHost!;
+        if (res.dbPort) first.port = res.dbPort!;
+        if (res.dbName) first.dbName = res.dbName!;
+        if (res.dbUser) first.user = res.dbUser!;
         if (res.dbPassword) first.pass = res.dbPassword!;
         return [first, ...prev.slice(1)];
       });
@@ -489,6 +507,28 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO xamops_reader;
 -- Optional: enable slow query analysis
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
 
+  const mongoSql = `// Create a read-only monitoring user in admin DB
+use admin
+db.createUser({
+  user: "xamops_reader",
+  pwd: "<strong_password>",
+  roles: []
+})
+// Grant required roles for monitoring
+db.grantRolesToUser("xamops_reader", [
+  { role: "readAnyDatabase",   db: "admin" },
+  { role: "clusterMonitor",    db: "admin" }
+])`;
+
+  const redisSql = `# Redis does not require a dedicated user for monitoring.
+# If your Redis instance uses a password (requirepass), just supply it below.
+# For Redis 6+ ACL users, create a read-only user:
+# ACL SETUSER xamops_reader on ><strong_password> ~* &* +@read +info +slowlog +config|get +latency|history +latency|latest
+#
+# No further configuration is needed — the agent uses INFO, SLOWLOG, and CONFIG GET.`;
+
+  const currentSql = isMongoDB ? mongoSql : isRedisDB ? redisSql : isPostgres ? postgresSql : mysqlSql;
+
   const stopCmd = 'docker stop xamops-agent 2>/dev/null; docker rm xamops-agent 2>/dev/null';
 
   const runCmd = [
@@ -562,31 +602,31 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             <p className="text-[11px] text-[rgba(0,0,0,0.4)]">connections, QPS, buffer pool</p>
           </div>
         </div>
-      {onConnected && dsns.filter(d => d.host).length > 0 ? (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider">Connected Databases</p>
-          {dsns.filter(d => d.host).map((d, i) => (
-            <button
-              key={i}
-              onClick={() => onConnected({ instanceId: `${d.host}:${d.port}`, source: 'agent', agentHost: `${d.host}:${d.port}`, engine: d.engine })}
-              className="w-full flex items-center gap-3 p-3 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-left"
-            >
-              <Icon icon="mdi:database-outline" width={16} className="text-indigo-500" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[rgba(0,0,0,0.88)] truncate">
-                  {d.host}:{d.port}{d.dbName ? `/${d.dbName}` : ''}
-                </p>
-                <p className="text-xs text-[rgba(0,0,0,0.5)]">{d.engine === 'postgres' ? 'PostgreSQL' : 'MySQL'} · {queryCount} queries tracked</p>
-              </div>
-              <Icon icon="mdi:arrow-right" width={14} className="text-[rgba(0,0,0,0.4)]" />
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-[rgba(0,0,0,0.5)] text-center">
-          Data is available in the <strong>Query Stats</strong> and <strong>Performance</strong> tabs above.
-        </p>
-      )}
+        {onConnected && dsns.filter(d => d.host).length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider">Connected Databases</p>
+            {dsns.filter(d => d.host).map((d, i) => (
+              <button
+                key={i}
+                onClick={() => onConnected({ instanceId: `${d.host}:${d.port}`, source: 'agent', agentHost: `${d.host}:${d.port}`, engine: d.engine })}
+                className="w-full flex items-center gap-3 p-3 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-left"
+              >
+                <Icon icon="mdi:database-outline" width={16} className="text-indigo-500" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[rgba(0,0,0,0.88)] truncate">
+                    {d.host}:{d.port}{d.dbName ? `/${d.dbName}` : ''}
+                  </p>
+                  <p className="text-xs text-gray-500">{d.engine === 'postgres' ? 'PostgreSQL' : d.engine === 'mongodb' ? 'MongoDB' : d.engine === 'redis' ? 'Redis' : 'MySQL'} · {queryCount} queries tracked</p>
+                </div>
+                <Icon icon="mdi:arrow-right" width={14} className="text-[rgba(0,0,0,0.4)]" />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-[rgba(0,0,0,0.5)] text-center">
+            Data is available in the <strong>Query Stats</strong> and <strong>Performance</strong> tabs above.
+          </p>
+        )}
       </div>
     );
   }
@@ -676,354 +716,384 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`;
             <p className="text-xs font-semibold text-purple-800 mb-1 flex items-center gap-2">
               <Icon icon="mdi:account-outline" width={14} /> Step 1 — Create a read-only monitoring user
             </p>
-            <p className="text-xs text-purple-600">Run this SQL on your {sqlEngine === 'postgres' ? 'PostgreSQL' : 'MySQL/MariaDB'} instance:</p>
+            <p className="text-xs text-purple-600 dark:text-purple-400">
+              {isMongoDB ? 'Run these commands in mongosh on your MongoDB instance:' :
+                isRedisDB ? 'No user setup required — see notes below:' :
+                  `Run this SQL on your ${sqlEngine === 'postgres' ? 'PostgreSQL' : 'MySQL/MariaDB'} instance:`}
+            </p>
           </div>
           {/* Engine toggle */}
-          <div className="flex gap-2">
-            {(['mysql', 'postgres'] as const).map(e => (
+          <div className="flex gap-2 flex-wrap">
+            {([
+              { key: 'mysql', label: 'MySQL / MariaDB' },
+              { key: 'postgres', label: 'PostgreSQL' },
+              { key: 'mongodb', label: 'MongoDB' },
+              { key: 'redis', label: 'Redis' },
+            ] as const).map(e => (
               <button
-                key={e}
-                onClick={() => setSqlEngine(e)}
+                key={e.key}
+                onClick={() => setSqlEngine(e.key)}
                 className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
-                  sqlEngine === e
+                  sqlEngine === e.key
                     ? 'bg-[rgba(0,0,0,0.88)] text-white'
                     : 'bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.06)]'
-                  }`}
+                }`}
               >
-                {e === 'mysql' ? 'MySQL / MariaDB' : 'PostgreSQL'}
-              </button>
+            {e.label}
+          </button>
             ))}
-          </div>
+        </div>
 
           {/* Permissions explanation */}
-          <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-[rgba(0,0,0,0.7)] flex items-center gap-2">
-              <Icon icon="mdi:shield-outline" width={14} className="text-[rgba(0,0,0,0.4)]" /> What access does this user get?
+      <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-xl p-4 space-y-2">
+        <p className="text-xs font-semibold text-[rgba(0,0,0,0.7)] flex items-center gap-2">
+          <Icon icon="mdi:shield-outline" width={14} className="text-[rgba(0,0,0,0.4)]" /> What access does this user get?
+        </p>
+        {isMongoDB ? (
+          <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">readAnyDatabase</span><span>Allows the agent to read collection stats, index stats, and server status. We <strong>never</strong> read your document data.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">clusterMonitor</span><span>Exposes <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">db.currentOp()</code> (active slow ops) and <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">serverStatus</code> metrics. Read-only cluster metadata — no data access.</span></li>
+          </ul>
+        ) : isRedisDB ? (
+          <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">INFO</span><span>Returns server stats: memory, keyspace, hit/miss ratio, connected clients. No key data is read.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SLOWLOG GET</span><span>Reads the Redis slow log (commands exceeding slowlog-log-slower-than threshold). Command names only — no values.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">CONFIG GET</span><span>Reads config params (maxmemory, slowlog-log-slower-than). Read-only — no writes.</span></li>
+          </ul>
+        ) : isPostgres ? (
+          <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">CONNECT</span><span>Allows the agent to open a connection to the database. No data access on its own.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">USAGE ON SCHEMA public</span><span>Lets the agent see the list of schema objects (tables, views). Does <strong>not</strong> grant access to row data.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">SELECT ON ALL TABLES</span><span>Reads system catalog views like <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stat_user_tables</code> and <code className="bg-slate-200 dark:bg-slate-700 px-0.5 rounded">pg_stats</code> for table sizes, index usage, and row counts. We <strong>never</strong> read your business data rows.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded shrink-0">pg_stat_statements</span><span>Extension that exposes aggregated query statistics (call counts, avg/max time, rows). Query text is normalized — literals and parameter values are <strong>stripped out</strong>.</span></li>
+          </ul>
+        ) : (
+          <ul className="space-y-1.5 text-xs text-[rgba(0,0,0,0.6)]">
+            <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">PROCESS</span><span>Allows the agent to see active query threads via <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">SHOW PROCESSLIST</code>. Does <strong>not</strong> access table data.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">REPLICATION CLIENT</span><span>Allows reading binary log position via <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">SHOW MASTER/REPLICA STATUS</code>. Used to detect replication lag. Read-only metadata only.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">SELECT ON performance_schema</span><span>Reads query digest statistics (<code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">events_statements_summary_by_digest</code>) — call counts, avg/max time, rows examined. Literals are normalized; <strong>no actual query values</strong> are captured.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">SELECT ON sys</span><span>Reads I/O and table usage summaries from the sys schema helper views (e.g., <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">sys.schema_table_statistics</code>). No row data.</span></li>
+            <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">SELECT ON &lt;your_database&gt;</span><span>Reads table and column metadata from <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">information_schema</code> for schema analysis (table names, column types, index definitions). We <strong>never</strong> select from your application tables.</span></li>
+          </ul>
+        )}
+        <p className="text-[11px] text-[rgba(0,0,0,0.4)] pt-1 border-t border-[rgba(0,0,0,0.06)] flex items-center gap-1">
+          <Icon icon="mdi:lock-outline" width={12} /> This user is read-only. XamOps cannot modify, insert, or delete any data in your database.
+        </p>
+      </div>
+
+      {/* Parameter requirements — RDS vs self-hosted (MySQL / PostgreSQL only) */}
+      {!isMongoDB && !isRedisDB && <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-4 space-y-2">
+        {endpoint ? (
+          /* ── RDS: use Parameter Group ── */
+          <>
+            <p className="text-xs font-semibold text-amber-800 flex items-center gap-2">
+              <Icon icon="mdi:cog-outline" width={14} /> AWS RDS — Required Parameter Group Settings
             </p>
             {isPostgres ? (
-              <ul className="space-y-1.5 text-xs text-[rgba(0,0,0,0.6)]">
-                <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">CONNECT</span><span>Allows the agent to open a connection to the database. No data access on its own.</span></li>
-                <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">USAGE ON SCHEMA public</span><span>Lets the agent see the list of schema objects (tables, views). Does <strong>not</strong> grant access to row data.</span></li>
-                <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">SELECT ON ALL TABLES</span><span>Reads system catalog views like <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">pg_stat_user_tables</code> and <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">pg_stats</code> for table sizes, index usage, and row counts. We <strong>never</strong> read your business data rows.</span></li>
-                <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">pg_stat_statements</span><span>Extension that exposes aggregated query statistics (call counts, avg/max time, rows). Query text is normalized — literals and parameter values are <strong>stripped out</strong>.</span></li>
-              </ul>
-            ) : (
-              <ul className="space-y-1.5 text-xs text-[rgba(0,0,0,0.6)]">
-                <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">PROCESS</span><span>Allows the agent to see active query threads via <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">SHOW PROCESSLIST</code>. Does <strong>not</strong> access table data.</span></li>
-                <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">REPLICATION CLIENT</span><span>Allows reading binary log position via <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">SHOW MASTER/REPLICA STATUS</code>. Used to detect replication lag. Read-only metadata only.</span></li>
-                <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">SELECT ON performance_schema</span><span>Reads query digest statistics (<code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">events_statements_summary_by_digest</code>) — call counts, avg/max time, rows examined. Literals are normalized; <strong>no actual query values</strong> are captured.</span></li>
-                <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">SELECT ON sys</span><span>Reads I/O and table usage summaries from the sys schema helper views (e.g., <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">sys.schema_table_statistics</code>). No row data.</span></li>
-                <li className="flex gap-2"><span className="font-mono bg-[rgba(0,0,0,0.06)] px-1 rounded shrink-0">SELECT ON &lt;your_database&gt;</span><span>Reads table and column metadata from <code className="bg-[rgba(0,0,0,0.06)] px-0.5 rounded">information_schema</code> for schema analysis (table names, column types, index definitions). We <strong>never</strong> select from your application tables.</span></li>
-              </ul>
-            )}
-            <p className="text-[11px] text-[rgba(0,0,0,0.4)] pt-1 border-t border-[rgba(0,0,0,0.06)] flex items-center gap-1">
-              <Icon icon="mdi:lock-outline" width={12} /> This user is read-only. XamOps cannot modify, insert, or delete any data in your database.
-            </p>
-          </div>
-
-          {/* Parameter requirements — RDS vs self-hosted */}
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
-            {endpoint ? (
-              /* ── RDS: use Parameter Group ── */
-              <>
-                <p className="text-xs font-semibold text-amber-800 flex items-center gap-2">
-                  <Icon icon="mdi:cog-outline" width={14} /> AWS RDS — Required Parameter Group Settings
+              <div className="space-y-2">
+                <p className="text-xs text-amber-700">
+                  To enable slow query analysis, add <code className="bg-amber-100 px-1 rounded font-mono">pg_stat_statements</code> to your RDS parameter group:
                 </p>
-                {isPostgres ? (
-                  <div className="space-y-2">
-                    <p className="text-xs text-amber-700">
-                      To enable slow query analysis, add <code className="bg-amber-100 px-1 rounded font-mono">pg_stat_statements</code> to your RDS parameter group:
-                    </p>
-                    <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
-                      <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
-                      <li>Set <code className="bg-amber-100 px-1 rounded font-mono">shared_preload_libraries</code> = <code className="bg-amber-100 px-1 rounded font-mono">pg_stat_statements</code></li>
-                      <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
-                      <li>Run once on your DB: <code className="bg-amber-100 px-1 rounded font-mono">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</code></li>
-                    </ol>
-                    <p className="text-[11px] text-amber-600">
-                      Without this, instance metrics (connections, table sizes, deadlocks) still work — only slow query analysis is disabled.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs text-amber-700">
-                      Enable <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> in your RDS parameter group:
-                    </p>
-                    <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
-                      <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
-                      <li>Set <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> = <code className="bg-amber-100 px-1 rounded font-mono">1</code></li>
-                      <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
-                    </ol>
-                    <p className="text-[11px] text-amber-600">
-                      Without this, instance metrics (connections, table sizes, lock waits) still work — only slow query analysis is disabled.
-                    </p>
-                  </div>
-                )}
-              </>
-            ) : (
-              /* ── Self-hosted (EC2 / on-prem): edit postgresql.conf or my.cnf ── */
-              <>
-                <p className="text-xs font-semibold text-amber-800 flex items-center gap-2">
-                  <Icon icon="mdi:server-outline" width={14} /> Self-hosted — Required Config Changes
+                <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
+                  <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
+                  <li>Set <code className="bg-amber-100 px-1 rounded font-mono">shared_preload_libraries</code> = <code className="bg-amber-100 px-1 rounded font-mono">pg_stat_statements</code></li>
+                  <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
+                  <li>Run once on your DB: <code className="bg-amber-100 px-1 rounded font-mono">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</code></li>
+                </ol>
+                <p className="text-[11px] text-amber-600">
+                  Without this, instance metrics (connections, table sizes, deadlocks) still work — only slow query analysis is disabled.
                 </p>
-                {isPostgres ? (
-                  <div className="space-y-2">
-                    <p className="text-xs text-amber-700">
-                      To enable slow query analysis, add <code className="bg-amber-100 px-1 rounded font-mono">pg_stat_statements</code> to <code className="bg-amber-100 px-1 rounded font-mono">postgresql.conf</code>:
-                    </p>
-                    <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
-                      <li>Edit <code className="bg-amber-100 px-1 rounded font-mono">/etc/postgresql/*/main/postgresql.conf</code></li>
-                      <li>Add: <code className="bg-amber-100 px-1 rounded font-mono">shared_preload_libraries = 'pg_stat_statements'</code></li>
-                      <li>Restart: <code className="bg-amber-100 px-1 rounded font-mono">sudo systemctl restart postgresql</code></li>
-                      <li>Run once in psql: <code className="bg-amber-100 px-1 rounded font-mono">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</code></li>
-                    </ol>
-                    <p className="text-[11px] text-amber-600">
-                      Without this, instance metrics (connections, table sizes, deadlocks) still work — only slow query analysis is disabled.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs text-amber-700">
-                      Enable <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> in <code className="bg-amber-100 px-1 rounded font-mono">my.cnf</code>:
-                    </p>
-                    <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
-                      <li>Edit <code className="bg-amber-100 px-1 rounded font-mono">/etc/mysql/my.cnf</code> (or <code className="bg-amber-100 px-1 rounded font-mono">my.ini</code> on Windows)</li>
-                      <li>Under <code className="bg-amber-100 px-1 rounded font-mono">[mysqld]</code> add: <code className="bg-amber-100 px-1 rounded font-mono">performance_schema=ON</code></li>
-                      <li>Restart: <code className="bg-amber-100 px-1 rounded font-mono">sudo systemctl restart mysql</code></li>
-                    </ol>
-                    <p className="text-[11px] text-amber-600">
-                      Without this, instance metrics (connections, table sizes, lock waits) still work — only slow query analysis is disabled.
-                    </p>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="relative">
-            <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed">
-              {isPostgres ? postgresSql : mysqlSql}
-            </pre>
-            <button
-              onClick={() => copy(isPostgres ? postgresSql : mysqlSql, 'sql')}
-              className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors flex items-center gap-1"
-            >
-              {copied === 'sql' ? <><Icon icon="mdi:check" width={12} />Copied</> : <><Icon icon="mdi:content-copy" width={12} />Copy</>}
-            </button>
-          </div>
-          <button onClick={() => setStep(2)} className="w-full py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-md text-xs font-medium transition-colors flex items-center justify-center gap-1">
-            Next: Configure Connection <Icon icon="mdi:arrow-right" width={14} />
-          </button>
-        </div>
-      )}
-
-      {/* Step 2: Configure connections */}
-      {step === 2 && (
-        <div className="space-y-3">
-          <div className="bg-sky-50 border border-sky-100 rounded-xl p-4">
-            <p className="text-xs font-semibold text-sky-800 mb-1 flex items-center gap-2">
-              <Icon icon="mdi:plug-outline" width={14} /> Step 2 — Configure database connections
-            </p>
-            <p className="text-xs text-sky-600">One agent can monitor multiple databases. Add each one below.</p>
-          </div>
-
-          {/* Per-DSN cards */}
-          {dsns.map((d, idx) => (
-            <div key={idx} className="border border-[rgba(0,0,0,0.12)] rounded-xl p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-[rgba(0,0,0,0.7)]">
-                  Database {idx + 1} <span className="ml-1 text-[rgba(0,0,0,0.4)] font-mono">DB_DSN_{idx}</span>
-                </span>
-                {idx > 0 && (
-                  <button onClick={() => removeDsn(idx)} className="text-xs text-red-400 hover:text-red-600 transition-colors flex items-center gap-1">
-                    <Icon icon="mdi:trash-can-outline" width={12} />Remove
-                  </button>
-                )}
               </div>
-              {/* Engine toggle + SSL mode */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {(['mysql', 'postgres'] as const).map(e => (
-                  <button key={e}
-                    onClick={() => updateDsn(idx, 'engine', e)}
-                    className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${d.engine === e ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.06)]'}`}>
-                    {e === 'mysql' ? 'MySQL' : 'PostgreSQL'}
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-amber-700">
+                  Enable <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> in your RDS parameter group:
+                </p>
+                <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
+                  <li>AWS Console → RDS → Parameter Groups → create or edit a group</li>
+                  <li>Set <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> = <code className="bg-amber-100 px-1 rounded font-mono">1</code></li>
+                  <li>Assign the parameter group to your instance → <strong>Reboot</strong></li>
+                </ol>
+                <p className="text-[11px] text-amber-600">
+                  Without this, instance metrics (connections, table sizes, lock waits) still work — only slow query analysis is disabled.
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          /* ── Self-hosted (EC2 / on-prem): edit postgresql.conf or my.cnf ── */
+          <>
+            <p className="text-xs font-semibold text-amber-800 flex items-center gap-2">
+              <Icon icon="mdi:server-outline" width={14} /> Self-hosted — Required Config Changes
+            </p>
+            {isPostgres ? (
+              <div className="space-y-2">
+                <p className="text-xs text-amber-700">
+                  To enable slow query analysis, add <code className="bg-amber-100 px-1 rounded font-mono">pg_stat_statements</code> to <code className="bg-amber-100 px-1 rounded font-mono">postgresql.conf</code>:
+                </p>
+                <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
+                  <li>Edit <code className="bg-amber-100 px-1 rounded font-mono">/etc/postgresql/*/main/postgresql.conf</code></li>
+                  <li>Add: <code className="bg-amber-100 px-1 rounded font-mono">shared_preload_libraries = 'pg_stat_statements'</code></li>
+                  <li>Restart: <code className="bg-amber-100 px-1 rounded font-mono">sudo systemctl restart postgresql</code></li>
+                  <li>Run once in psql: <code className="bg-amber-100 px-1 rounded font-mono">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</code></li>
+                </ol>
+                <p className="text-[11px] text-amber-600">
+                  Without this, instance metrics (connections, table sizes, deadlocks) still work — only slow query analysis is disabled.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-amber-700">
+                  Enable <code className="bg-amber-100 px-1 rounded font-mono">performance_schema</code> in <code className="bg-amber-100 px-1 rounded font-mono">my.cnf</code>:
+                </p>
+                <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
+                  <li>Edit <code className="bg-amber-100 px-1 rounded font-mono">/etc/mysql/my.cnf</code> (or <code className="bg-amber-100 px-1 rounded font-mono">my.ini</code> on Windows)</li>
+                  <li>Under <code className="bg-amber-100 px-1 rounded font-mono">[mysqld]</code> add: <code className="bg-amber-100 px-1 rounded font-mono">performance_schema=ON</code></li>
+                  <li>Restart: <code className="bg-amber-100 px-1 rounded font-mono">sudo systemctl restart mysql</code></li>
+                </ol>
+                <p className="text-[11px] text-amber-600">
+                  Without this, instance metrics (connections, table sizes, lock waits) still work — only slow query analysis is disabled.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>}
+
+      <div className="relative">
+        <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed">
+          {currentSql}
+        </pre>
+        <button
+          onClick={() => copy(currentSql, 'sql')}
+          className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors"
+        >
+          {copied === 'sql' ? <><Icon icon="mdi:check" width={12} />Copied</> : <><Icon icon="mdi:content-copy" width={12} />Copy</>}
+        </button>
+      </div>
+      <button onClick={() => setStep(2)} className="w-full py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-md text-xs font-medium transition-colors flex items-center justify-center gap-1">
+        Next: Configure Connection <Icon icon="mdi:arrow-right" width={14} />
+      </button>
+    </div>
+  )
+}
+
+{/* Step 2: Configure connections */ }
+{
+  step === 2 && (
+    <div className="space-y-3">
+      <div className="bg-sky-50 border border-sky-100 rounded-xl p-4">
+        <p className="text-xs font-semibold text-sky-800 mb-1 flex items-center gap-2">
+          <Icon icon="mdi:plug-outline" width={14} /> Step 2 — Configure database connections
+        </p>
+        <p className="text-xs text-sky-600">One agent can monitor multiple databases. Add each one below.</p>
+      </div>
+
+      {/* Per-DSN cards */}
+      {dsns.map((d, idx) => (
+        <div key={idx} className="border border-[rgba(0,0,0,0.12)] rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[rgba(0,0,0,0.7)]">
+              Database {idx + 1} <span className="ml-1 text-[rgba(0,0,0,0.4)] font-mono">DB_DSN_{idx}</span>
+            </span>
+            {idx > 0 && (
+              <button onClick={() => removeDsn(idx)} className="text-xs text-red-400 hover:text-red-600 transition-colors flex items-center gap-1">
+                <Icon icon="mdi:trash-can-outline" width={12} />Remove
+              </button>
+            )}
+          </div>
+          {/* Engine toggle + SSL mode */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {([
+              { key: 'mysql', label: 'MySQL' },
+              { key: 'postgres', label: 'PostgreSQL' },
+              { key: 'mongodb', label: 'MongoDB' },
+              { key: 'redis', label: 'Redis' },
+            ] as const).map(e => (
+              <button key={e.key}
+                onClick={() => updateDsn(idx, 'engine', e.key)}
+                className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${d.engine === e.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                {e.label}
+              </button>
+            ))}
+            {d.engine === 'postgres' && (
+              <div className="flex items-center gap-1 ml-2 border-l border-[rgba(0,0,0,0.12)] pl-2">
+                <span className="text-[10px] text-[rgba(0,0,0,0.4)] mr-1">SSL:</span>
+                {(['disable', 'require', 'prefer'] as const).map(m => (
+                  <button key={m} onClick={() => updateDsn(idx, 'sslMode', m)}
+                    className={`px-1.5 py-0.5 text-[10px] rounded font-mono transition-colors ${d.sslMode === m ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.06)]'}`}>
+                    {m}
                   </button>
                 ))}
-                {d.engine === 'postgres' && (
-                  <div className="flex items-center gap-1 ml-2 border-l border-[rgba(0,0,0,0.12)] pl-2">
-                    <span className="text-[10px] text-[rgba(0,0,0,0.4)] mr-1">SSL:</span>
-                    {(['disable', 'require', 'prefer'] as const).map(m => (
-                      <button key={m} onClick={() => updateDsn(idx, 'sslMode', m)}
-                        className={`px-1.5 py-0.5 text-[10px] rounded font-mono transition-colors ${d.sslMode === m ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.06)]'}`}>
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                {([
-                  { label: 'Host / Endpoint', field: 'host' as const, placeholder: 'mydb.abc.rds.amazonaws.com' },
-                  { label: 'Port',            field: 'port' as const, placeholder: d.engine === 'postgres' ? '5432' : '3306' },
-                  { label: 'Database Name',   field: 'dbName' as const, placeholder: 'mydb' },
-                  { label: 'Username',        field: 'user' as const, placeholder: 'xamops_reader' },
-                ]).map(f => (
-                  <div key={f.field}>
-                    <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-0.5">{f.label}</label>
-                    <input type="text" value={d[f.field]} onChange={e => updateDsn(idx, f.field, e.target.value)}
-                      placeholder={f.placeholder}
-                      className="w-full px-2 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
-                  </div>
-                ))}
-                <div>
-                  <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-0.5">Password</label>
-                  <div className="relative">
-                    <input type={showPass[idx] ? 'text' : 'password'} value={d.pass}
-                      onChange={e => updateDsn(idx, 'pass', e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full px-2 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)] pr-7" />
-                    <button type="button" onClick={() => setShowPass(p => ({ ...p, [idx]: !p[idx] }))}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.6)]">
-                      <Icon icon={showPass[idx] ? 'mdi:eye-off-outline' : 'mdi:eye-outline'} width={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-[rgba(0,0,0,0.02)] rounded-lg px-2 py-1.5">
-                <code className="text-[11px] text-indigo-700 break-all">{buildDsn(d)}</code>
-              </div>
-            </div>
-          ))}
-
-          <button onClick={addDsn}
-            className="w-full py-2 border border-dashed border-[rgba(0,0,0,0.15)] rounded-xl text-xs text-[rgba(0,0,0,0.5)] hover:border-[rgba(0,0,0,0.3)] transition-colors flex items-center justify-center gap-1">
-            <Icon icon="mdi:plus" width={14} /> Add another database
-          </button>
-
-          <p className="text-[10px] font-bold text-[rgba(0,0,0,0.5)] uppercase tracking-wider pt-1">XamOps Server Config</p>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: 'XamOps Server URL', val: serverUrl, setter: setServerUrl, placeholder: 'https://your-tunnel-or-public-url' },
-              { label: 'Cloud Account ID', val: cloudAccountId, setter: setCloudAccountId, placeholder: '015764906357' },
-              { label: 'Cluster / Agent Name', val: clusterName, setter: setClusterName, placeholder: instanceId },
-            ].map(f => (
-              <div key={f.label}>
-                <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-1">{f.label}</label>
-                <input type="text" value={f.val} onChange={e => f.setter(e.target.value)} placeholder={f.placeholder}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { label: 'Host / Endpoint', field: 'host' as const, placeholder: 'mydb.abc.rds.amazonaws.com' },
+              { label: 'Port', field: 'port' as const, placeholder: d.engine === 'postgres' ? '5432' : d.engine === 'mongodb' ? '27017' : d.engine === 'redis' ? '6379' : '3306' },
+              { label: 'Database Name', field: 'dbName' as const, placeholder: 'mydb' },
+              { label: 'Username', field: 'user' as const, placeholder: 'xamops_reader' },
+            ]).map(f => (
+              <div key={f.field}>
+                <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-0.5">{f.label}</label>
+                <input type="text" value={d[f.field]} onChange={e => updateDsn(idx, f.field, e.target.value)}
+                  placeholder={f.placeholder}
+                  className="w-full px-2 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
               </div>
             ))}
             <div>
-              <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-1">
-                Query Limit
-                <span className="text-[10px] text-[rgba(0,0,0,0.4)] ml-1">top N queries by total time</span>
-              </label>
-              <select value={queryLimit} onChange={e => setQueryLimit(Number(e.target.value))}
-                className="w-full px-3 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]">
-                <option value={50}>50 queries</option>
-                <option value={100}>100 queries</option>
-                <option value={200}>200 queries</option>
-                <option value={500}>500 queries</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-1">
-                API Key <span className="text-[10px] text-emerald-600 ml-1">auto-filled</span>
-              </label>
-              <input type="password" value={apiKey} readOnly disabled
-                className="w-full px-3 py-1.5 text-xs rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.5)] cursor-not-allowed" />
+              <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-0.5">Password</label>
+              <div className="relative">
+                <input type={showPass[idx] ? 'text' : 'password'} value={d.pass}
+                  onChange={e => updateDsn(idx, 'pass', e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-2 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)] pr-7" />
+                <button type="button" onClick={() => setShowPass(p => ({ ...p, [idx]: !p[idx] }))}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.6)]">
+                  <Icon icon={showPass[idx] ? 'mdi:eye-off-outline' : 'mdi:eye-outline'} width={14} />
+                </button>
+              </div>
             </div>
           </div>
+          <div className="bg-[rgba(0,0,0,0.02)] rounded-lg px-2 py-1.5">
+            <code className="text-[11px] text-indigo-700 break-all">{buildDsn(d)}</code>
+          </div>
+        </div >
+      ))
+      }
 
-          <div className="flex gap-2">
-            <button onClick={() => setStep(1)} className="flex-none px-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] rounded-md text-xs font-medium hover:bg-[rgba(0,0,0,0.06)] transition-colors flex items-center gap-1">
-              <Icon icon="mdi:arrow-left" width={14} />Back
-            </button>
-            <button
-              onClick={() => {
-                setSaveStatus('saving');
-                const d0 = dsns[0];
-                apiClient.post('/api/v1/agent/db/config', {
-                  agentName: clusterName, cloudAccountId,
-                  dbEngine: d0.engine, dbHost: d0.host, dbPort: d0.port,
-                  dbName: d0.dbName, dbUser: d0.user, dbPassword: d0.pass, serverUrl,
-                })
-                  .then(() => { setSaveStatus('saved'); setTimeout(() => setSaveStatus('idle'), 2000); })
-                  .catch(() => { setSaveStatus('error'); setTimeout(() => setSaveStatus('idle'), 2000); });
-              }}
-              className="flex-none px-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] rounded-md text-xs font-medium hover:bg-[rgba(0,0,0,0.06)] transition-colors flex items-center gap-1"
-            >
-              {saveStatus === 'saving' && <><Icon icon="mdi:loading" width={12} className="animate-spin" />Saving…</>}
-              {saveStatus === 'saved' && <><Icon icon="mdi:check" width={12} className="text-emerald-500" />Saved</>}
-              {saveStatus === 'error' && <><Icon icon="mdi:close" width={12} className="text-red-500" />Error</>}
-              {saveStatus === 'idle' && <><Icon icon="mdi:content-save-outline" width={12} />Save Config</>}
-            </button>
-            <button onClick={() => setStep(3)} className="flex-1 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-md text-xs font-medium transition-colors flex items-center justify-center gap-1">
-              Next: Run Agent <Icon icon="mdi:arrow-right" width={14} />
-            </button>
+      <button onClick={addDsn}
+        className="w-full py-2 border border-dashed border-[rgba(0,0,0,0.15)] rounded-xl text-xs text-[rgba(0,0,0,0.5)] hover:border-[rgba(0,0,0,0.3)] transition-colors flex items-center justify-center gap-1">
+        <Icon icon="mdi:plus" width={14} /> Add another database
+      </button>
+
+      <p className="text-[10px] font-bold text-[rgba(0,0,0,0.5)] uppercase tracking-wider pt-1">XamOps Server Config</p>
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { label: 'XamOps Server URL', val: serverUrl, setter: setServerUrl, placeholder: 'https://your-tunnel-or-public-url' },
+          { label: 'Cloud Account ID', val: cloudAccountId, setter: setCloudAccountId, placeholder: '015764906357' },
+          { label: 'Cluster / Agent Name', val: clusterName, setter: setClusterName, placeholder: instanceId },
+        ].map(f => (
+          <div key={f.label}>
+            <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-1">{f.label}</label>
+            <input type="text" value={f.val} onChange={e => f.setter(e.target.value)} placeholder={f.placeholder}
+              className="w-full px-3 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]" />
           </div>
+        ))}
+        <div>
+          <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-1">
+            Query Limit
+            <span className="text-[10px] text-[rgba(0,0,0,0.4)] ml-1">top N queries by total time</span>
+          </label>
+          <select value={queryLimit} onChange={e => setQueryLimit(Number(e.target.value))}
+            className="w-full px-3 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]">
+            <option value={50}>50 queries</option>
+            <option value={100}>100 queries</option>
+            <option value={200}>200 queries</option>
+            <option value={500}>500 queries</option>
+          </select>
         </div>
-      )}
+        <div>
+          <label className="block text-xs font-medium text-[rgba(0,0,0,0.7)] mb-1">
+            API Key <span className="text-[10px] text-emerald-600 ml-1">auto-filled</span>
+          </label>
+          <input type="password" value={apiKey} readOnly disabled
+            className="w-full px-3 py-1.5 text-xs rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.5)] cursor-not-allowed" />
+        </div>
+      </div>
 
-      {/* Step 3: Run agent */}
-      {step === 3 && (
-        <div className="space-y-3">
-          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-            <p className="text-xs font-semibold text-emerald-800 mb-1 flex items-center gap-2">
-              <Icon icon="mdi:rocket-launch-outline" width={14} /> Step 3 — Deploy the XamOps DB agent
-            </p>
-            <p className="text-xs text-emerald-600">Run this command in the same VPC as your database (e.g. on an EC2 instance or container):</p>
-          </div>
-          {/* Stop existing container first */}
-          <div>
-            <p className="text-[10px] font-bold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1">
-              1. Remove existing container (if any)
-            </p>
-            <div className="relative">
-              <pre className="bg-gray-900 text-gray-100 rounded-xl p-3 text-xs overflow-x-auto">
-                {stopCmd}
-              </pre>
-              <button
-                onClick={() => copy(stopCmd, 'stop')}
-                className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors flex items-center gap-1"
-              >
-                {copied === 'stop' ? <><Icon icon="mdi:check" width={12} />Copied</> : <><Icon icon="mdi:content-copy" width={12} />Copy</>}
-              </button>
-            </div>
-          </div>
-          {/* Run command */}
-          <div>
-            <p className="text-[10px] font-bold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1">
-              2. Start the agent
-            </p>
-            <div className="relative">
-              <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed whitespace-pre-wrap break-all">
-                {runCmd}
-              </pre>
-              <button
-                onClick={() => copy(runCmd.replace(/\\\n\s*/g, ' '), 'cmd')}
-                className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors flex items-center gap-1"
-              >
-                {copied === 'cmd' ? <><Icon icon="mdi:check" width={12} />Copied</> : <><Icon icon="mdi:content-copy" width={12} />Copy</>}
-              </button>
-            </div>
-          </div>
-          {/* Live agent connection status */}
-          <div className="flex items-center gap-3 bg-amber-50 border border-amber-100 rounded-lg p-3">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-400" />
-            </span>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-amber-700">Waiting for agent to connect…</p>
-              <p className="text-[11px] text-amber-600">Run the command above on your EC2 instance. Status updates automatically.</p>
-            </div>
-          </div>
-          <button onClick={() => setStep(2)} className="px-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] rounded-md text-xs font-medium hover:bg-[rgba(0,0,0,0.06)] transition-colors flex items-center gap-1">
-            <Icon icon="mdi:arrow-left" width={14} />Back
+      <div className="flex gap-2">
+        <button onClick={() => setStep(1)} className="flex-none px-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] rounded-md text-xs font-medium hover:bg-[rgba(0,0,0,0.06)] transition-colors flex items-center gap-1">
+          <Icon icon="mdi:arrow-left" width={14} />Back
+        </button>
+        <button
+          onClick={() => {
+            setSaveStatus('saving');
+            const d0 = dsns[0];
+            apiClient.post('/api/v1/agent/db/config', {
+              agentName: clusterName, cloudAccountId,
+              dbEngine: d0.engine, dbHost: d0.host, dbPort: d0.port,
+              dbName: d0.dbName, dbUser: d0.user, dbPassword: d0.pass, serverUrl,
+            })
+              .then(() => { setSaveStatus('saved'); setTimeout(() => setSaveStatus('idle'), 2000); })
+              .catch(() => { setSaveStatus('error'); setTimeout(() => setSaveStatus('idle'), 2000); });
+          }}
+          className="flex-none px-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] rounded-md text-xs font-medium hover:bg-[rgba(0,0,0,0.06)] transition-colors flex items-center gap-1"
+        >
+          {saveStatus === 'saving' && <><Icon icon="mdi:loading" width={12} className="animate-spin" />Saving…</>}
+          {saveStatus === 'saved' && <><Icon icon="mdi:check" width={12} className="text-emerald-500" />Saved</>}
+          {saveStatus === 'error' && <><Icon icon="mdi:close" width={12} className="text-red-500" />Error</>}
+          {saveStatus === 'idle' && <><Icon icon="mdi:content-save-outline" width={12} />Save Config</>}
+        </button>
+        <button onClick={() => setStep(3)} className="flex-1 py-2 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-md text-xs font-medium transition-colors flex items-center justify-center gap-1">
+          Next: Run Agent <Icon icon="mdi:arrow-right" width={14} />
+        </button>
+      </div>
+    </div >
+  )
+}
+
+{/* Step 3: Run agent */ }
+{
+  step === 3 && (
+    <div className="space-y-3">
+      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+        <p className="text-xs font-semibold text-emerald-800 mb-1 flex items-center gap-2">
+          <Icon icon="mdi:rocket-launch-outline" width={14} /> Step 3 — Deploy the XamOps DB agent
+        </p>
+        <p className="text-xs text-emerald-600">Run this command in the same VPC as your database (e.g. on an EC2 instance or container):</p>
+      </div>
+      {/* Stop existing container first */}
+      <div>
+        <p className="text-[10px] font-bold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1">
+          1. Remove existing container (if any)
+        </p>
+        <div className="relative">
+          <pre className="bg-gray-900 text-gray-100 rounded-xl p-3 text-xs overflow-x-auto">
+            {stopCmd}
+          </pre>
+          <button
+            onClick={() => copy(stopCmd, 'stop')}
+            className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors flex items-center gap-1"
+          >
+            {copied === 'stop' ? <><Icon icon="mdi:check" width={12} />Copied</> : <><Icon icon="mdi:content-copy" width={12} />Copy</>}
           </button>
         </div>
-      )}
+      </div>
+      {/* Run command */}
+      <div>
+        <p className="text-[10px] font-bold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1">
+          2. Start the agent
+        </p>
+        <div className="relative">
+          <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed whitespace-pre-wrap break-all">
+            {runCmd}
+          </pre>
+          <button
+            onClick={() => copy(runCmd.replace(/\\\n\s*/g, ' '), 'cmd')}
+            className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-[10px] transition-colors flex items-center gap-1"
+          >
+            {copied === 'cmd' ? <><Icon icon="mdi:check" width={12} />Copied</> : <><Icon icon="mdi:content-copy" width={12} />Copy</>}
+          </button>
+        </div>
+      </div>
+      {/* Live agent connection status */}
+      <div className="flex items-center gap-3 bg-amber-50 border border-amber-100 rounded-lg p-3">
+        <span className="relative flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-400" />
+        </span>
+        <div className="flex-1">
+          <p className="text-xs font-semibold text-amber-700">Waiting for agent to connect…</p>
+          <p className="text-[11px] text-amber-600">Run the command above on your EC2 instance. Status updates automatically.</p>
+        </div>
+      </div>
+      <button onClick={() => setStep(2)} className="px-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] rounded-md text-xs font-medium hover:bg-[rgba(0,0,0,0.06)] transition-colors flex items-center gap-1">
+        <Icon icon="mdi:arrow-left" width={14} />Back
+      </button>
+    </div>
+  )}
     </div>
   );
 }
@@ -1067,6 +1137,26 @@ export function computeHealthScore(
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
+interface AgentWaitEventDto {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  waitCategory: 'IO' | 'Lock' | 'CPU' | 'Network' | 'Other';
+  waitEventName: string;
+  sessionCount: number;
+  collectedAt: string;
+}
+
+interface AgentDiagnosticDto {
+  dsnAlias: string;
+  dbEngine: string;
+  dbHost: string;
+  reachable: boolean;
+  errorType: string;
+  errorMessage: string;
+  collectedAt: string;
+}
+
 export interface DrawerInstance {
   instanceId: string;
   source: 'rds' | 'agent';
@@ -1098,7 +1188,8 @@ interface Props {
   onHealthChange?: (health: { score: number; status: 'healthy' | 'warning' | 'critical'; issues: string[] }) => void;
 }
 
-type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'maintenance' | 'users' | 'cost' | 'security' | 'snapshots';
+type DetailTab = 'overview' | 'performance' | 'slowqueries' | 'queries' | 'maintenance' | 'users' | 'cost' | 'security' | 'snapshots'
+  | 'mongo-ops' | 'mongo-index' | 'redis-keyspace' | 'redis-slowlog';
 
 // ── SQL syntax highlight ──────────────────────────────────────────────────────
 const SQL_KW_RE = /\b(SELECT|DISTINCT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|AND|OR|NOT|IN|LIKE|ILIKE|BETWEEN|IS|NULL|AS|BY|ASC|DESC|GROUP|ORDER|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|DROP|ALTER|TABLE|INDEX|UNION|ALL|WITH|CASE|WHEN|THEN|ELSE|END|EXISTS|COUNT|SUM|AVG|MAX|MIN|COALESCE|CAST|IF|CONCAT|TRIM|LENGTH|NOW|DATE|INTERVAL|EXTRACT|TO_CHAR|RETURNING)\b/gi;
@@ -1122,9 +1213,9 @@ function SqlHighlight({ sql, truncate }: { sql: string; truncate?: number }) {
 
 // Severity level helper
 function sqSeverity(avgMs: number) {
-  if (avgMs >= 500) return { label: 'Critical', bg: 'bg-red-100',   text: 'text-red-700',   border: 'border-red-200/70',   dot: 'bg-red-500',  left: '#ef4444' };
-  if (avgMs >= 100) return { label: 'Warning',  bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200/70', dot: 'bg-amber-400', left: '#f59e0b' };
-  return               { label: 'Info',     bg: 'bg-sky-100',   text: 'text-sky-700',   border: 'border-sky-200/70',   dot: 'bg-sky-400',  left: '#0ea5e9' };
+  if (avgMs >= 500) return { label: 'Critical', bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200/70', dot: 'bg-red-500', left: '#ef4444' };
+  if (avgMs >= 100) return { label: 'Warning', bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200/70', dot: 'bg-amber-400', left: '#f59e0b' };
+  return { label: 'Info', bg: 'bg-sky-100', text: 'text-sky-700', border: 'border-sky-200/70', dot: 'bg-sky-400', left: '#0ea5e9' };
 }
 
 // Normalised shape shared by both CloudWatch and agent slow-query sources
@@ -1141,16 +1232,16 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
   agentQueries: AgentQueryStat[];
   isPostgres: boolean;
 }) {
-  const [search,          setSearch]          = useState('');
-  const [sevFilter,       setSevFilter]       = useState<'all'|'critical'|'warning'|'info'>('all');
-  const [minAvgMs,        setMinAvgMs]        = useState('');
-  const [sortKey,         setSortKey]         = useState<'avg'|'max'|'calls'|'lock'|'rows'>('avg');
-  const [sortDir,         setSortDir]         = useState<'desc'|'asc'>('desc');
-  const [page,            setPage]            = useState(0);
-  const [expanded,        setExpanded]        = useState<Set<number>>(new Set());
-  const [copied,          setCopied]          = useState<number|null>(null);
-  const [explainQuery,    setExplainQuery]    = useState<string|null>(null);
-  const [dismissCallout,  setDismissCallout]  = useState(false);
+  const [search, setSearch] = useState('');
+  const [sevFilter, setSevFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
+  const [minAvgMs, setMinAvgMs] = useState('');
+  const [sortKey, setSortKey] = useState<'avg' | 'max' | 'calls' | 'lock' | 'rows'>('avg');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  const [page, setPage] = useState(0);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState<number | null>(null);
+  const [explainQuery, setExplainQuery] = useState<string | null>(null);
+  const [dismissCallout, setDismissCallout] = useState(false);
 
   const PAGE_SIZE = 8;
   const isAgent = cloudwatchQueries.length === 0 && agentQueries.length > 0;
@@ -1158,26 +1249,26 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
   // Normalise both sources into a unified shape
   const allQueries: NormSQ[] = cloudwatchQueries.length > 0
     ? cloudwatchQueries.map(q => ({
-        query: q.query, avgMs: q.queryTimeSeconds * 1000, maxMs: q.queryTimeSeconds * 1000,
-        calls: null, lockMs: q.lockTimeSeconds * 1000,
-        rowsExamined: q.rowsExamined, rowsSent: q.rowsSent,
-        timestamp: q.queryTimestamp, source: 'cloudwatch' as const,
-      }))
+      query: q.query, avgMs: q.queryTimeSeconds * 1000, maxMs: q.queryTimeSeconds * 1000,
+      calls: null, lockMs: q.lockTimeSeconds * 1000,
+      rowsExamined: q.rowsExamined, rowsSent: q.rowsSent,
+      timestamp: q.queryTimestamp, source: 'cloudwatch' as const,
+    }))
     : agentQueries
-        .filter(s => s.avgTimeSeconds > 0.01)
-        .sort((a, b) => b.avgTimeSeconds - a.avgTimeSeconds)
-        .slice(0, 50)
-        .map(s => {
-          const hits = s.sharedBlksHit + s.sharedBlksRead;
-          return {
-            query: s.queryDigest, avgMs: s.avgTimeSeconds * 1000, maxMs: s.maxTimeSeconds * 1000,
-            calls: s.callCount, lockMs: s.lockTimeSeconds * 1000,
-            rowsExamined: s.rowsExamined, rowsSent: s.rowsSent,
-            noIndexUsed: s.noIndexUsed,
-            cacheHitPct: hits > 0 ? Math.round((s.sharedBlksHit / hits) * 100) : undefined,
-            source: 'agent' as const,
-          };
-        });
+      .filter(s => s.avgTimeSeconds > 0.01)
+      .sort((a, b) => b.avgTimeSeconds - a.avgTimeSeconds)
+      .slice(0, 50)
+      .map(s => {
+        const hits = s.sharedBlksHit + s.sharedBlksRead;
+        return {
+          query: s.queryDigest, avgMs: s.avgTimeSeconds * 1000, maxMs: s.maxTimeSeconds * 1000,
+          calls: s.callCount, lockMs: s.lockTimeSeconds * 1000,
+          rowsExamined: s.rowsExamined, rowsSent: s.rowsSent,
+          noIndexUsed: s.noIndexUsed,
+          cacheHitPct: hits > 0 ? Math.round((s.sharedBlksHit / hits) * 100) : undefined,
+          source: 'agent' as const,
+        };
+      });
 
   const critCount = allQueries.filter(q => q.avgMs >= 500).length;
   const warnCount = allQueries.filter(q => q.avgMs >= 100 && q.avgMs < 500).length;
@@ -1185,7 +1276,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
 
   // Filter → sort inline (≤50 items, no memoisation needed)
   let filtered = allQueries;
-  if (search)         filtered = filtered.filter(q => q.query.toLowerCase().includes(search.toLowerCase()));
+  if (search) filtered = filtered.filter(q => q.query.toLowerCase().includes(search.toLowerCase()));
   if (sevFilter !== 'all') filtered = filtered.filter(q => {
     const s = q.avgMs >= 500 ? 'critical' : q.avgMs >= 100 ? 'warning' : 'info';
     return s === sevFilter;
@@ -1195,18 +1286,18 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
   const dir = sortDir === 'desc' ? -1 : 1;
   filtered = [...filtered].sort((a, b) => {
     switch (sortKey) {
-      case 'avg':   return dir * (b.avgMs   - a.avgMs);
-      case 'max':   return dir * (b.maxMs   - a.maxMs);
+      case 'avg': return dir * (b.avgMs - a.avgMs);
+      case 'max': return dir * (b.maxMs - a.maxMs);
       case 'calls': return dir * ((b.calls ?? 0) - (a.calls ?? 0));
-      case 'lock':  return dir * (b.lockMs  - a.lockMs);
-      case 'rows':  return dir * (b.rowsSent - a.rowsSent);
+      case 'lock': return dir * (b.lockMs - a.lockMs);
+      case 'rows': return dir * (b.rowsSent - a.rowsSent);
       default: return 0;
     }
   });
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const safePage   = Math.min(page, Math.max(0, totalPages - 1));
-  const pageItems  = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const safePage = Math.min(page, Math.max(0, totalPages - 1));
+  const pageItems = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   // Reset page on any filter/sort change
   useEffect(() => { setPage(0); }, [search, sevFilter, minAvgMs, sortKey, sortDir]);
@@ -1320,9 +1411,9 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
             : allQueries.length}{' '}{allQueries.length === 1 ? 'query' : 'queries'}
         </span>
         {([
-          { key: 'critical' as const, count: critCount, dot: 'bg-red-500',  on: 'bg-red-600 text-white border-red-600',    off: 'bg-red-50 text-red-700 border-red-200/70 hover:bg-red-100' },
-          { key: 'warning'  as const, count: warnCount, dot: 'bg-amber-400', on: 'bg-amber-500 text-white border-amber-500', off: 'bg-amber-50 text-amber-700 border-amber-200/70 hover:bg-amber-100' },
-          { key: 'info'     as const, count: infoCount, dot: 'bg-sky-400',   on: 'bg-sky-500 text-white border-sky-500',     off: 'bg-sky-50 text-sky-700 border-sky-200/70 hover:bg-sky-100' },
+          { key: 'critical' as const, count: critCount, dot: 'bg-red-500', on: 'bg-red-600 text-white border-red-600', off: 'bg-red-50 text-red-700 border-red-200/70 hover:bg-red-100' },
+          { key: 'warning' as const, count: warnCount, dot: 'bg-amber-400', on: 'bg-amber-500 text-white border-amber-500', off: 'bg-amber-50 text-amber-700 border-amber-200/70 hover:bg-amber-100' },
+          { key: 'info' as const, count: infoCount, dot: 'bg-sky-400', on: 'bg-sky-500 text-white border-sky-500', off: 'bg-sky-50 text-sky-700 border-sky-200/70 hover:bg-sky-100' },
         ].filter(b => b.count > 0).map(b => (
           <button
             key={b.key}
@@ -1388,11 +1479,10 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
           <span className="text-[9px] text-[rgba(0,0,0,0.4)] px-1.5 font-medium shrink-0">Sort:</span>
           {(['avg', 'max', 'calls', 'lock', 'rows'] as const).map(k => (
             <button key={k} onClick={() => handleSort(k)}
-              className={`px-2 py-1 text-[10px] font-medium rounded transition-all duration-150 flex items-center gap-0.5 ${
-                sortKey === k
-                  ? 'bg-[rgba(0,0,0,0.88)] text-white shadow-sm'
-                  : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'
-              }`}>
+              className={`px-2 py-1 text-[10px] font-medium rounded transition-all duration-150 flex items-center gap-0.5 ${sortKey === k
+                ? 'bg-[rgba(0,0,0,0.88)] text-white shadow-sm'
+                : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'
+                }`}>
               {k === 'avg' ? 'Avg' : k === 'max' ? 'Max' : k === 'calls' ? 'Calls' : k === 'lock' ? 'Lock' : 'Rows'}
               {sortKey === k && <Icon icon={sortDir === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up'} width={11} className="ml-0.5 inline" />}
             </button>
@@ -1406,7 +1496,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
       ) : (
         <div className="space-y-2.5">
           {pageItems.map((q, i) => {
-            const gi  = safePage * PAGE_SIZE + i;           // global index for expand / copy state
+            const gi = safePage * PAGE_SIZE + i;           // global index for expand / copy state
             const sev = sqSeverity(q.avgMs);
             const isExpanded = expanded.has(gi);
             const TRUNC = 160;
@@ -1447,11 +1537,10 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
                     {/* Copy SQL */}
                     <button
                       onClick={() => handleCopy(q, gi)}
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border transition-all duration-200 ${
-                        copied === gi
-                          ? 'bg-emerald-100 text-emerald-700 border-emerald-300/60'
-                          : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.06)]'
-                      }`}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border transition-all duration-200 ${copied === gi
+                        ? 'bg-emerald-100 text-emerald-700 border-emerald-300/60'
+                        : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.06)]'
+                        }`}
                     >
                       {copied === gi ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:content-copy" width={11} />}
                       {copied === gi ? 'Copied!' : 'Copy SQL'}
@@ -1486,12 +1575,12 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
                   {/* Stats grid: Avg | Max | Calls | Lock | Examined | Rows Sent */}
                   <div className="grid grid-cols-6 gap-1.5">
                     {[
-                      { label: 'Avg',      tip: 'Average execution time across all recorded calls of this query pattern.',                                                                    val: `${Math.round(q.avgMs)}ms`,           color: q.avgMs >= 500 ? 'text-red-600' : q.avgMs >= 100 ? 'text-amber-600' : 'text-emerald-600' },
-                      { label: 'Max',      tip: 'Slowest single execution of this query pattern — worst-case latency seen.',                                                                  val: `${Math.round(q.maxMs)}ms`,           color: q.maxMs >= 1000 ? 'text-red-600' : q.maxMs >= 500 ? 'text-orange-600' : 'text-[rgba(0,0,0,0.7)]' },
-                      { label: 'Calls',    tip: 'Total number of times this query pattern was executed.',                                                                                     val: q.calls != null ? q.calls.toLocaleString() : '—', color: 'text-[rgba(0,0,0,0.88)]' },
-                      { label: 'Lock',     tip: 'Time spent waiting to acquire a database lock. High lock wait often means contention with concurrent writes or long transactions.',           val: q.lockMs > 0 ? `${Math.round(q.lockMs)}ms` : '—', color: q.lockMs > 100 ? 'text-red-500' : q.lockMs > 10 ? 'text-orange-500' : 'text-[rgba(0,0,0,0.5)]' },
-                      { label: 'Examined', tip: 'Rows scanned by the DB engine to produce the result. A much higher value than Rows Sent indicates an inefficient query or missing index.',   val: q.rowsExamined.toLocaleString(),       color: 'text-[rgba(0,0,0,0.7)]' },
-                      { label: 'Rows Sent',tip: 'Rows actually returned to the client. Compare with Examined — a large gap means the DB is doing unnecessary work.',                          val: q.rowsSent.toLocaleString(),           color: 'text-[rgba(0,0,0,0.88)]' },
+                      { label: 'Avg', tip: 'Average execution time across all recorded calls of this query pattern.', val: `${Math.round(q.avgMs)}ms`, color: q.avgMs >= 500 ? 'text-red-600' : q.avgMs >= 100 ? 'text-amber-600' : 'text-emerald-600' },
+                      { label: 'Max', tip: 'Slowest single execution of this query pattern — worst-case latency seen.', val: `${Math.round(q.maxMs)}ms`, color: q.maxMs >= 1000 ? 'text-red-600' : q.maxMs >= 500 ? 'text-orange-600' : 'text-[rgba(0,0,0,0.7)]' },
+                      { label: 'Calls', tip: 'Total number of times this query pattern was executed.', val: q.calls != null ? q.calls.toLocaleString() : '—', color: 'text-[rgba(0,0,0,0.88)]' },
+                      { label: 'Lock', tip: 'Time spent waiting to acquire a database lock. High lock wait often means contention with concurrent writes or long transactions.', val: q.lockMs > 0 ? `${Math.round(q.lockMs)}ms` : '—', color: q.lockMs > 100 ? 'text-red-500' : q.lockMs > 10 ? 'text-orange-500' : 'text-[rgba(0,0,0,0.5)]' },
+                      { label: 'Examined', tip: 'Rows scanned by the DB engine to produce the result. A much higher value than Rows Sent indicates an inefficient query or missing index.', val: q.rowsExamined.toLocaleString(), color: 'text-[rgba(0,0,0,0.7)]' },
+                      { label: 'Rows Sent', tip: 'Rows actually returned to the client. Compare with Examined — a large gap means the DB is doing unnecessary work.', val: q.rowsSent.toLocaleString(), color: 'text-[rgba(0,0,0,0.88)]' },
                     ].map(stat => (
                       <div key={stat.label} className="bg-[rgba(0,0,0,0.02)] rounded-lg py-1.5 px-1 text-center">
                         <Tip text={stat.tip} wide>
@@ -1550,13 +1639,12 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
             {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
               const pg = totalPages <= 5 ? i
                 : safePage < 3 ? i
-                : safePage > totalPages - 3 ? totalPages - 5 + i
-                : safePage - 2 + i;
+                  : safePage > totalPages - 3 ? totalPages - 5 + i
+                    : safePage - 2 + i;
               return (
                 <button key={pg} onClick={() => setPage(pg)}
-                  className={`w-7 h-7 flex items-center justify-center rounded-lg text-[11px] font-medium border transition-colors ${
-                    pg === safePage ? 'bg-[rgba(0,0,0,0.88)] text-white border-[rgba(0,0,0,0.88)]' : 'border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.025)]'
-                  }`}
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg text-[11px] font-medium border transition-colors ${pg === safePage ? 'bg-[rgba(0,0,0,0.88)] text-white border-[rgba(0,0,0,0.88)]' : 'border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.025)]'
+                    }`}
                 >
                   {pg + 1}
                 </button>
@@ -1576,30 +1664,31 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
 }
 
 // ── Query Stats Tab ───────────────────────────────────────────────────────────
-function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
+function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
   stats: AgentQueryStat[];
   engine: string;
   instanceId: string;
   endpoint?: string;
+  onExplain?: (q: AgentQueryStat) => void;
 }) {
-  const [search,       setSearch]       = useState('');
-  const [cacheFilter,  setCacheFilter]  = useState<'all'|'imperfect'|'low'>('all');
-  const [sortKey,      setSortKey]      = useState<'calls'|'avg'|'max'|'total'|'lock'|'rows'|'cache'>('total');
-  const [sortDir,      setSortDir]      = useState<'desc'|'asc'>('desc');
-  const [page,         setPage]         = useState(0);
-  const [expanded,     setExpanded]     = useState<Set<number>>(new Set());
-  const [dismissInfo,  setDismissInfo]  = useState(false);
+  const [search, setSearch] = useState('');
+  const [cacheFilter, setCacheFilter] = useState<'all' | 'imperfect' | 'low'>('all');
+  const [sortKey, setSortKey] = useState<'calls' | 'avg' | 'max' | 'total' | 'lock' | 'rows' | 'cache'>('total');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  const [page, setPage] = useState(0);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [dismissInfo, setDismissInfo] = useState(false);
 
-  const PAGE_SIZE  = 20;
+  const PAGE_SIZE = 20;
   const isPostgres = engine.toLowerCase().includes('postgres');
   const collectedAt = stats[0]?.collectedAt;
 
   // ── Aggregate KPIs (over all stats, unaffected by filters) ──
-  const totalCalls      = stats.reduce((s, q) => s + q.callCount, 0);
-  const overallAvgMs    = stats.length > 0 ? stats.reduce((s, q) => s + q.avgTimeSeconds * 1000, 0) / stats.length : 0;
-  const overallMaxMs    = stats.length > 0 ? Math.max(...stats.map(q => q.maxTimeSeconds * 1000)) : 0;
-  const noIndexCount    = stats.filter(q => q.noIndexUsed).length;
-  const totalTimeS      = stats.reduce((s, q) => s + q.totalTimeSeconds, 0);
+  const totalCalls = stats.reduce((s, q) => s + q.callCount, 0);
+  const overallAvgMs = stats.length > 0 ? stats.reduce((s, q) => s + q.avgTimeSeconds * 1000, 0) / stats.length : 0;
+  const overallMaxMs = stats.length > 0 ? Math.max(...stats.map(q => q.maxTimeSeconds * 1000)) : 0;
+  const noIndexCount = stats.filter(q => q.noIndexUsed).length;
+  const totalTimeS = stats.reduce((s, q) => s + q.totalTimeSeconds, 0);
 
   // ── Filter + sort ──
   let filtered = stats;
@@ -1613,12 +1702,12 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
   const dir = sortDir === 'desc' ? -1 : 1;
   filtered = [...filtered].sort((a, b) => {
     switch (sortKey) {
-      case 'calls': return dir * (b.callCount        - a.callCount);
-      case 'avg':   return dir * (b.avgTimeSeconds   - a.avgTimeSeconds);
-      case 'max':   return dir * (b.maxTimeSeconds   - a.maxTimeSeconds);
+      case 'calls': return dir * (b.callCount - a.callCount);
+      case 'avg': return dir * (b.avgTimeSeconds - a.avgTimeSeconds);
+      case 'max': return dir * (b.maxTimeSeconds - a.maxTimeSeconds);
       case 'total': return dir * (b.totalTimeSeconds - a.totalTimeSeconds);
-      case 'lock':  return dir * (b.lockTimeSeconds  - a.lockTimeSeconds);
-      case 'rows':  return dir * (b.rowsSent         - a.rowsSent);
+      case 'lock': return dir * (b.lockTimeSeconds - a.lockTimeSeconds);
+      case 'rows': return dir * (b.rowsSent - a.rowsSent);
       case 'cache': {
         const ra = (a.sharedBlksHit + a.sharedBlksRead) > 0 ? a.sharedBlksHit / (a.sharedBlksHit + a.sharedBlksRead) : 1;
         const rb = (b.sharedBlksHit + b.sharedBlksRead) > 0 ? b.sharedBlksHit / (b.sharedBlksHit + b.sharedBlksRead) : 1;
@@ -1629,8 +1718,8 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
   });
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const safePage   = Math.min(page, Math.max(0, totalPages - 1));
-  const pageItems  = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const safePage = Math.min(page, Math.max(0, totalPages - 1));
+  const pageItems = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   useEffect(() => { setPage(0); }, [search, cacheFilter, sortKey, sortDir]);
 
@@ -1643,7 +1732,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
     const header = ['Query Digest', 'Calls', 'Avg (ms)', 'Max (ms)', 'Total (s)', 'Lock (ms)', 'Rows Examined', 'Rows Sent', 'Cache Hit %', 'No Index'];
     const rows = filtered.map(s => {
       const hits = s.sharedBlksHit + s.sharedBlksRead;
-      const ch   = hits > 0 ? Math.round((s.sharedBlksHit / hits) * 100) : 100;
+      const ch = hits > 0 ? Math.round((s.sharedBlksHit / hits) * 100) : 100;
       return [
         `"${(s.queryDigest ?? '').replace(/"/g, '""')}"`,
         s.callCount, round2(s.avgTimeSeconds * 1000), round2(s.maxTimeSeconds * 1000),
@@ -1652,14 +1741,28 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
       ].join(',');
     });
     const blob = new Blob([[header.join(','), ...rows].join('\n')], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
     a.href = url; a.download = `query_stats_${Date.now()}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
-  // ── No-data: show agent setup wizard ──
+  // ── No-data state ──
   if (stats.length === 0) {
+    // RDS instances: no wizard here — the Connect button lives in the Overview tab.
+    if (endpoint) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center">
+            <i className="fas fa-chart-bar text-indigo-400 text-lg" />
+          </div>
+          <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">No agent query stats yet</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs">
+            Use the <strong>Connect</strong> button on the Overview tab to set up the XamOps agent for this instance.
+          </p>
+        </div>
+      );
+    }
     return <AgentSetupWizard engine={engine} instanceId={instanceId} endpoint={endpoint} />;
   }
 
@@ -1685,10 +1788,10 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
       {/* ── Summary KPI strip ── */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
-          { icon: 'mdi:layers-outline',       label: 'Total Calls',   val: totalCalls.toLocaleString(),    sub: `${stats.length} digests`,          color: 'text-indigo-600',  tip: 'Sum of all query executions across every pattern since stats were last reset.' },
-          { icon: 'mdi:speedometer',          label: 'Avg Latency',   val: `${round2(overallAvgMs)}ms`,    sub: 'mean across all queries',          color: overallAvgMs >= 500 ? 'text-red-600' : overallAvgMs >= 100 ? 'text-amber-600' : 'text-emerald-600', tip: 'Weighted average execution time across all query patterns. Red ≥ 500 ms, amber ≥ 100 ms.' },
-          { icon: 'mdi:trending-up',          label: 'Peak Latency',  val: `${round2(overallMaxMs)}ms`,    sub: 'single-query maximum',             color: overallMaxMs >= 1000 ? 'text-red-600' : overallMaxMs >= 500 ? 'text-orange-600' : 'text-[rgba(0,0,0,0.88)]', tip: 'Slowest single query execution recorded across all patterns — the absolute worst-case latency.' },
-          { icon: 'mdi:alert-outline',        label: 'No Index',      val: noIndexCount.toString(),        sub: `${round2(totalTimeS)}s total exec`, color: noIndexCount > 0 ? 'text-red-600' : 'text-emerald-600', tip: 'Number of query patterns running full table scans with no index. The sub-value shows total CPU time wasted on these scans.' },
+          { icon: 'mdi:layers-outline', label: 'Total Calls', val: totalCalls.toLocaleString(), sub: `${stats.length} digests`, color: 'text-indigo-600', tip: 'Sum of all query executions across every pattern since stats were last reset.' },
+          { icon: 'mdi:speedometer', label: 'Avg Latency', val: `${round2(overallAvgMs)}ms`, sub: 'mean across all queries', color: overallAvgMs >= 500 ? 'text-red-600' : overallAvgMs >= 100 ? 'text-amber-600' : 'text-emerald-600', tip: 'Weighted average execution time across all query patterns. Red ≥ 500 ms, amber ≥ 100 ms.' },
+          { icon: 'mdi:trending-up', label: 'Peak Latency', val: `${round2(overallMaxMs)}ms`, sub: 'single-query maximum', color: overallMaxMs >= 1000 ? 'text-red-600' : overallMaxMs >= 500 ? 'text-orange-600' : 'text-[rgba(0,0,0,0.88)]', tip: 'Slowest single query execution recorded across all patterns — the absolute worst-case latency.' },
+          { icon: 'mdi:alert-outline', label: 'No Index', val: noIndexCount.toString(), sub: `${round2(totalTimeS)}s total exec`, color: noIndexCount > 0 ? 'text-red-600' : 'text-emerald-600', tip: 'Number of query patterns running full table scans with no index. The sub-value shows total CPU time wasted on these scans.' },
         ].map(k => (
           <div key={k.label} className="bg-white rounded-xl p-3 border border-[rgba(0,0,0,0.12)] shadow-sm">
             <div className="flex items-center gap-1.5 mb-1">
@@ -1744,17 +1847,16 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
         {isPostgres && (
           <div className="flex items-center gap-0.5 bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5">
             {([
-              { k: 'all'       as const, l: 'All',           tip: 'Show all query patterns regardless of cache performance.' },
-              { k: 'imperfect' as const, l: 'Cache < 100%',  tip: 'Show queries with any cache misses — at least some reads hit disk.' },
-              { k: 'low'       as const, l: 'Cache < 90%',   tip: 'Show queries with poor cache hit rate (< 90%). These are frequently reading from disk and are good candidates for index or memory tuning.' },
+              { k: 'all' as const, l: 'All', tip: 'Show all query patterns regardless of cache performance.' },
+              { k: 'imperfect' as const, l: 'Cache < 100%', tip: 'Show queries with any cache misses — at least some reads hit disk.' },
+              { k: 'low' as const, l: 'Cache < 90%', tip: 'Show queries with poor cache hit rate (< 90%). These are frequently reading from disk and are good candidates for index or memory tuning.' },
             ]).map(f => (
               <Tip key={f.k} text={f.tip} wide>
                 <button onClick={() => setCacheFilter(f.k)}
-                  className={`px-2 py-1 text-[10px] font-medium rounded transition-all duration-150 ${
-                    cacheFilter === f.k
-                      ? 'bg-[rgba(0,0,0,0.88)] text-white shadow-sm'
-                      : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'
-                  }`}>
+                  className={`px-2 py-1 text-[10px] font-medium rounded transition-all duration-150 ${cacheFilter === f.k
+                    ? 'bg-[rgba(0,0,0,0.88)] text-white shadow-sm'
+                    : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'
+                    }`}>
                   {f.l}
                 </button>
               </Tip>
@@ -1788,12 +1890,13 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
                 Query
               </th>
               {th('calls', 'Calls', 'Total executions of this query pattern since last stats reset.')}
-              {th('avg',   'Avg',   'Mean execution time per call. Red ≥ 500 ms, amber ≥ 100 ms.')}
-              {th('max',   'Max',   'Worst single execution time — useful for spotting outliers.')}
+              {th('avg', 'Avg', 'Mean execution time per call. Red ≥ 500 ms, amber ≥ 100 ms.')}
+              {th('max', 'Max', 'Worst single execution time — useful for spotting outliers.')}
               {th('total', 'Total', 'Cumulative CPU + I/O time across all calls. Highest-impact queries top this list.')}
-              {th('lock',  'Lock',  'Cumulative time spent waiting for database locks. Spikes here indicate write contention or long-running transactions.')}
-              {th('rows',  'Rows',  'Average rows returned to the client per execution.')}
+              {th('lock', 'Lock', 'Cumulative time spent waiting for database locks. Spikes here indicate write contention or long-running transactions.')}
+              {th('rows', 'Rows', 'Average rows returned to the client per execution.')}
               {isPostgres && th('cache', 'Cache', '% of block reads served from shared buffer cache (memory). Below 90% means the query is hitting disk frequently.')}
+              <th className="px-3 py-2.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap w-20"></th>
             </tr>
           </thead>
 
@@ -1805,15 +1908,15 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
                 </td>
               </tr>
             ) : pageItems.map((s, i) => {
-              const gi      = safePage * PAGE_SIZE + i;
-              const isExp   = expanded.has(gi);
-              const TRUNC   = 72;
-              const hits    = s.sharedBlksHit + s.sharedBlksRead;
+              const gi = safePage * PAGE_SIZE + i;
+              const isExp = expanded.has(gi);
+              const TRUNC = 72;
+              const hits = s.sharedBlksHit + s.sharedBlksRead;
               const cacheHit = hits > 0 ? Math.round((s.sharedBlksHit / hits) * 100) : null;
-              const avgMs   = round2(s.avgTimeSeconds  * 1000);
-              const maxMs2  = round2(s.maxTimeSeconds  * 1000);
-              const lockMs  = round2(s.lockTimeSeconds * 1000);
-              const colSpan = isPostgres ? 8 : 7;
+              const avgMs = round2(s.avgTimeSeconds * 1000);
+              const maxMs2 = round2(s.maxTimeSeconds * 1000);
+              const lockMs = round2(s.lockTimeSeconds * 1000);
+              const colSpan = isPostgres ? 9 : 8;
 
               return (
                 <>
@@ -1882,19 +1985,26 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
                     {isPostgres && (
                       <td className="px-3 py-2 text-right">
                         {cacheHit !== null ? (
-                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border ${
-                            cacheHit >= 99
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
-                              : cacheHit >= 80
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border ${cacheHit >= 99
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                            : cacheHit >= 80
                               ? 'bg-amber-50 text-amber-700 border-amber-200/60'
                               : 'bg-red-50 text-red-700 border-red-200/60'
-                          }`}>
+                            }`}>
                             {cacheHit >= 99 ? <Icon icon="mdi:check" width={11} className="inline" /> : <Icon icon="mdi:exclamation" width={11} className="inline" />}
                             {cacheHit}%
                           </span>
                         ) : <span className="text-[rgba(0,0,0,0.4)] text-[10px]">—</span>}
                       </td>
                     )}
+                    <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => onExplain?.(s)}
+                        className="px-2 py-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors whitespace-nowrap"
+                      >
+                        <i className="fas fa-magnifying-glass-chart mr-1 text-[9px]" /> Explain
+                      </button>
+                    </td>
                   </tr>
 
                   {/* Expandable detail row: full highlighted SQL */}
@@ -1940,13 +2050,12 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               const pg = totalPages <= 7 ? i
                 : safePage < 4 ? i
-                : safePage > totalPages - 4 ? totalPages - 7 + i
-                : safePage - 3 + i;
+                  : safePage > totalPages - 4 ? totalPages - 7 + i
+                    : safePage - 3 + i;
               return (
                 <button key={pg} onClick={() => setPage(pg)}
-                  className={`w-7 h-7 flex items-center justify-center rounded-lg text-[11px] font-medium border transition-colors ${
-                    pg === safePage ? 'bg-[rgba(0,0,0,0.88)] text-white border-[rgba(0,0,0,0.88)]' : 'border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.025)]'
-                  }`}
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg text-[11px] font-medium border transition-colors ${pg === safePage ? 'bg-[rgba(0,0,0,0.88)] text-white border-[rgba(0,0,0,0.88)]' : 'border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.025)]'
+                    }`}
                 >
                   {pg + 1}
                 </button>
@@ -1967,20 +2076,20 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint }: {
 
 // ── Maintenance Tab ───────────────────────────────────────────────────────────
 function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rdsEndpoint }: {
-  vacuumStats:   AgentVacuumStat[];
-  indexUsage:    AgentIndexUsage[];
+  vacuumStats: AgentVacuumStat[];
+  indexUsage: AgentIndexUsage[];
   tableActivity: AgentTableActivity[];
-  agentHost:     string | undefined;
-  rdsEndpoint?:  string;
+  agentHost: string | undefined;
+  rdsEndpoint?: string;
 }) {
-  const [sevFilter,    setSevFilter]    = useState<'all'|'critical'|'warning'|'healthy'>('all');
-  const [sortKey,      setSortKey]      = useState<'bloat'|'live'|'dead'|'vacuum'|'analyze'>('bloat');
-  const [sortDir,      setSortDir]      = useState<'desc'|'asc'>('desc');
-  const [copied,       setCopied]       = useState<number|null>(null);
-  const [infoOpen,     setInfoOpen]     = useState(false);
-  const [vacPage,      setVacPage]      = useState(0);
-  const [idxPage,      setIdxPage]      = useState(0);
-  const [actPage,      setActPage]      = useState(0);
+  const [sevFilter, setSevFilter] = useState<'all' | 'critical' | 'warning' | 'healthy'>('all');
+  const [sortKey, setSortKey] = useState<'bloat' | 'live' | 'dead' | 'vacuum' | 'analyze'>('bloat');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  const [copied, setCopied] = useState<number | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [vacPage, setVacPage] = useState(0);
+  const [idxPage, setIdxPage] = useState(0);
+  const [actPage, setActPage] = useState(0);
 
   const matchHost = (dbHost: string | undefined) => {
     if (!dbHost) return false;
@@ -1995,8 +2104,8 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
   // Severity thresholds: critical >50%, warning 20–50%, healthy <20%
   const sev = (ratio: number) => ratio > 0.50 ? 'critical' : ratio >= 0.20 ? 'warning' : 'healthy';
 
-  const critCount    = stats.filter(v => sev(v.deadTupRatio ?? 0) === 'critical').length;
-  const warnCount    = stats.filter(v => sev(v.deadTupRatio ?? 0) === 'warning').length;
+  const critCount = stats.filter(v => sev(v.deadTupRatio ?? 0) === 'critical').length;
+  const warnCount = stats.filter(v => sev(v.deadTupRatio ?? 0) === 'warning').length;
   const healthyCount = stats.filter(v => sev(v.deadTupRatio ?? 0) === 'healthy').length;
 
   // Filter + sort
@@ -2005,10 +2114,10 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
   const ds = (s?: string) => s ? new Date(s).getTime() : 0;
   filtered = [...filtered].sort((a, b) => {
     switch (sortKey) {
-      case 'bloat':   return d * ((b.deadTupRatio ?? 0) - (a.deadTupRatio ?? 0));
-      case 'live':    return d * ((b.nLiveTup ?? 0) - (a.nLiveTup ?? 0));
-      case 'dead':    return d * ((b.nDeadTup ?? 0) - (a.nDeadTup ?? 0));
-      case 'vacuum':  return d * (ds(b.lastAutoVacuum || b.lastVacuum) - ds(a.lastAutoVacuum || a.lastVacuum));
+      case 'bloat': return d * ((b.deadTupRatio ?? 0) - (a.deadTupRatio ?? 0));
+      case 'live': return d * ((b.nLiveTup ?? 0) - (a.nLiveTup ?? 0));
+      case 'dead': return d * ((b.nDeadTup ?? 0) - (a.nDeadTup ?? 0));
+      case 'vacuum': return d * (ds(b.lastAutoVacuum || b.lastVacuum) - ds(a.lastAutoVacuum || a.lastVacuum));
       case 'analyze': return d * (ds(b.lastAutoAnalyze || b.lastAnalyze) - ds(a.lastAutoAnalyze || a.lastAnalyze));
       default: return 0;
     }
@@ -2030,7 +2139,7 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
     const days = Math.floor((Date.now() - new Date(s).getTime()) / 86400000);
     if (days === 0) return 'Today';
     if (days === 1) return '1d ago';
-    if (days < 60)  return `${days}d ago`;
+    if (days < 60) return `${days}d ago`;
     return new Date(s).toLocaleDateString();
   };
 
@@ -2054,24 +2163,24 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
   const ACT_PAGE_SIZE = 15;
 
   const vacTotalPages = Math.max(1, Math.ceil(filtered.length / VAC_PAGE_SIZE));
-  const vacPg         = Math.min(vacPage, vacTotalPages - 1);
-  const vacRows       = filtered.slice(vacPg * VAC_PAGE_SIZE, (vacPg + 1) * VAC_PAGE_SIZE);
+  const vacPg = Math.min(vacPage, vacTotalPages - 1);
+  const vacRows = filtered.slice(vacPg * VAC_PAGE_SIZE, (vacPg + 1) * VAC_PAGE_SIZE);
 
-  const filteredIdx   = indexUsage.filter(x => matchHost(x.dbHost));
+  const filteredIdx = indexUsage.filter(x => matchHost(x.dbHost));
   const idxTotalPages = Math.max(1, Math.ceil(filteredIdx.length / IDX_PAGE_SIZE));
-  const idxPg         = Math.min(idxPage, idxTotalPages - 1);
-  const idxRows       = filteredIdx.slice(idxPg * IDX_PAGE_SIZE, (idxPg + 1) * IDX_PAGE_SIZE);
+  const idxPg = Math.min(idxPage, idxTotalPages - 1);
+  const idxRows = filteredIdx.slice(idxPg * IDX_PAGE_SIZE, (idxPg + 1) * IDX_PAGE_SIZE);
 
-  const filteredAct   = tableActivity.filter(t => matchHost(t.dbHost));
+  const filteredAct = tableActivity.filter(t => matchHost(t.dbHost));
   const actTotalPages = Math.max(1, Math.ceil(filteredAct.length / ACT_PAGE_SIZE));
-  const actPg         = Math.min(actPage, actTotalPages - 1);
-  const actRows       = filteredAct.slice(actPg * ACT_PAGE_SIZE, (actPg + 1) * ACT_PAGE_SIZE);
+  const actPg = Math.min(actPage, actTotalPages - 1);
+  const actRows = filteredAct.slice(actPg * ACT_PAGE_SIZE, (actPg + 1) * ACT_PAGE_SIZE);
 
   const paginator = (pg: number, total: number, pageSize: number, onPage: (p: number) => void) => {
     const pages = Math.max(1, Math.ceil(total / pageSize));
     if (pages <= 1) return null;
     const start = pg * pageSize + 1;
-    const end   = Math.min((pg + 1) * pageSize, total);
+    const end = Math.min((pg + 1) * pageSize, total);
     return (
       <div className="flex items-center justify-between pt-2.5 px-1 border-t border-[rgba(0,0,0,0.06)] mt-1">
         <span className="text-[10px] text-[rgba(0,0,0,0.4)] tabular-nums">{start}–{end} of {total}</span>
@@ -2133,9 +2242,9 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
       <div className="flex items-start gap-2 flex-wrap">
         {/* Clickable severity filter chips */}
         {([
-          { key: 'critical' as const, count: critCount,    dot: 'bg-red-500',    on: 'bg-red-600 text-white border-red-600',       off: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100',         icon: 'mdi:circle-medium',      tip: 'Dead tuple ratio > 50% — table is severely bloated. Autovacuum cannot keep up. Run VACUUM ANALYZE immediately.' },
-          { key: 'warning'  as const, count: warnCount,    dot: 'bg-amber-400',  on: 'bg-amber-500 text-white border-amber-500',   off: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100',   icon: 'mdi:alert-outline',      tip: 'Dead tuple ratio 20–50% — vacuum is falling behind. Consider tuning autovacuum_vacuum_cost_limit or running manual VACUUM.' },
-          { key: 'healthy'  as const, count: healthyCount, dot: 'bg-emerald-400', on: 'bg-emerald-600 text-white border-emerald-600', off: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100', icon: 'mdi:check-circle-outline', tip: 'Dead tuple ratio < 20% — table bloat is under control. Autovacuum is keeping up.' },
+          { key: 'critical' as const, count: critCount, dot: 'bg-red-500', on: 'bg-red-600 text-white border-red-600', off: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100', icon: 'mdi:circle-medium', tip: 'Dead tuple ratio > 50% — table is severely bloated. Autovacuum cannot keep up. Run VACUUM ANALYZE immediately.' },
+          { key: 'warning' as const, count: warnCount, dot: 'bg-amber-400', on: 'bg-amber-500 text-white border-amber-500', off: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100', icon: 'mdi:alert-outline', tip: 'Dead tuple ratio 20–50% — vacuum is falling behind. Consider tuning autovacuum_vacuum_cost_limit or running manual VACUUM.' },
+          { key: 'healthy' as const, count: healthyCount, dot: 'bg-emerald-400', on: 'bg-emerald-600 text-white border-emerald-600', off: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100', icon: 'mdi:check-circle-outline', tip: 'Dead tuple ratio < 20% — table bloat is under control. Autovacuum is keeping up.' },
         ].filter(b => b.count > 0).map(b => (
           <Tip key={b.key} text={b.tip} wide>
             <button
@@ -2183,18 +2292,17 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
         <div className="flex items-center gap-0.5 bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5">
           <span className="text-[9px] text-[rgba(0,0,0,0.4)] px-1.5 font-medium shrink-0">Sort:</span>
           {([
-            { k: 'bloat'   as const, l: '% Dead'  },
-            { k: 'dead'    as const, l: 'Dead Rows' },
-            { k: 'live'    as const, l: 'Live Rows' },
-            { k: 'vacuum'  as const, l: 'Vacuum'   },
-            { k: 'analyze' as const, l: 'Analyze'  },
+            { k: 'bloat' as const, l: '% Dead' },
+            { k: 'dead' as const, l: 'Dead Rows' },
+            { k: 'live' as const, l: 'Live Rows' },
+            { k: 'vacuum' as const, l: 'Vacuum' },
+            { k: 'analyze' as const, l: 'Analyze' },
           ]).map(s => (
             <button key={s.k} onClick={() => handleSort(s.k)}
-              className={`px-2 py-1 text-[10px] font-medium rounded transition-all duration-150 flex items-center gap-0.5 ${
-                sortKey === s.k
-                  ? 'bg-[rgba(0,0,0,0.88)] text-white shadow-sm'
-                  : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'
-              }`}
+              className={`px-2 py-1 text-[10px] font-medium rounded transition-all duration-150 flex items-center gap-0.5 ${sortKey === s.k
+                ? 'bg-[rgba(0,0,0,0.88)] text-white shadow-sm'
+                : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'
+                }`}
             >
               {s.l}
               {sortKey === s.k && <Icon icon={sortDir === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up'} width={11} className="ml-0.5 inline" />}
@@ -2211,10 +2319,10 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
               <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-[rgba(0,0,0,0.4)] min-w-[160px]">
                 Table
               </th>
-              {th('bloat',   '% Dead',       'Percentage of dead (deleted/updated) rows still taking space. Above 20% = warning, above 50% = critical. Run VACUUM ANALYZE to reclaim.')}
-              {th('live',    'Live Rows',    'Count of valid, readable rows currently in the table.')}
-              {th('dead',    'Dead Rows',    'Rows marked deleted but not yet reclaimed by vacuum. High dead rows inflate table size and slow down sequential scans.')}
-              {th('vacuum',  'Last Vacuum',  'When VACUUM last ran on this table. Stale vacuum (>7 days) can lead to table bloat and transaction ID wraparound risk.')}
+              {th('bloat', '% Dead', 'Percentage of dead (deleted/updated) rows still taking space. Above 20% = warning, above 50% = critical. Run VACUUM ANALYZE to reclaim.')}
+              {th('live', 'Live Rows', 'Count of valid, readable rows currently in the table.')}
+              {th('dead', 'Dead Rows', 'Rows marked deleted but not yet reclaimed by vacuum. High dead rows inflate table size and slow down sequential scans.')}
+              {th('vacuum', 'Last Vacuum', 'When VACUUM last ran on this table. Stale vacuum (>7 days) can lead to table bloat and transaction ID wraparound risk.')}
               {th('analyze', 'Last Analyze', 'When ANALYZE last ran. Stale stats cause the query planner to make poor index/join decisions.')}
               <th className="px-3 py-2.5 text-center text-[11px] font-semibold text-[rgba(0,0,0,0.4)] whitespace-nowrap">
                 Action
@@ -2230,20 +2338,20 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
               </tr>
             ) : vacRows.map((v, i) => {
               const bloatPct = Math.round((v.deadTupRatio ?? 0) * 100);
-              const level    = sev(v.deadTupRatio ?? 0);
-              const lastVac  = v.lastAutoVacuum || v.lastVacuum;
-              const lastAnz  = v.lastAutoAnalyze || v.lastAnalyze;
+              const level = sev(v.deadTupRatio ?? 0);
+              const lastVac = v.lastAutoVacuum || v.lastVacuum;
+              const lastAnz = v.lastAutoAnalyze || v.lastAnalyze;
 
               // Severity colors
-              const sevIcon  = level === 'critical' ? { icon: 'mdi:circle-medium',     cls: 'text-red-500' }
-                             : level === 'warning'  ? { icon: 'mdi:alert-outline',      cls: 'text-amber-500' }
-                             :                        { icon: 'mdi:check-circle-outline', cls: 'text-emerald-500' };
+              const sevIcon = level === 'critical' ? { icon: 'mdi:circle-medium', cls: 'text-red-500' }
+                : level === 'warning' ? { icon: 'mdi:alert-outline', cls: 'text-amber-500' }
+                  : { icon: 'mdi:check-circle-outline', cls: 'text-emerald-500' };
               const barColor = level === 'critical' ? 'bg-red-500'
-                             : level === 'warning'  ? 'bg-amber-400'
-                             :                        'bg-emerald-500';
+                : level === 'warning' ? 'bg-amber-400'
+                  : 'bg-emerald-500';
               const pctColor = level === 'critical' ? 'text-red-600'
-                             : level === 'warning'  ? 'text-amber-600'
-                             :                        'text-emerald-600';
+                : level === 'warning' ? 'text-amber-600'
+                  : 'text-emerald-600';
 
               // Stale vacuum warning (>7 days or never)
               const vacStale = !lastVac || (Date.now() - new Date(lastVac).getTime()) > 7 * 86400000;
@@ -2315,13 +2423,12 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
                     <Tip text={`Copies: VACUUM ANALYZE "${v.schemaName}"."${v.tableName}"; — run in psql or your DB client to reclaim dead rows immediately.`} wide>
                       <button
                         onClick={() => handleCopyVacuum(v, i)}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border transition-all duration-200 ${
-                          copied === i
-                            ? 'bg-emerald-100 text-emerald-700 border-emerald-300/60'
-                            : level === 'critical'
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border transition-all duration-200 ${copied === i
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-300/60'
+                          : level === 'critical'
                             ? 'bg-red-50 text-red-600 border-red-200/60 hover:bg-red-100'
                             : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.06)]'
-                        }`}
+                          }`}
                       >
                         {copied === i ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:broom" width={11} />}
                         {copied === i ? 'Copied' : 'VACUUM'}
@@ -2427,7 +2534,7 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
               </thead>
               <tbody className="divide-y divide-[rgba(0,0,0,0.06)]">
                 {actRows.map((t, i) => {
-                  const total  = (t.seqScan ?? 0) + (t.idxScan ?? 0);
+                  const total = (t.seqScan ?? 0) + (t.idxScan ?? 0);
                   const seqPct = total > 0 ? Math.round(((t.seqScan ?? 0) / total) * 100) : 0;
                   const writes = (t.nTupIns ?? 0) + (t.nTupUpd ?? 0) + (t.nTupDel ?? 0);
                   return (
@@ -2452,11 +2559,10 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
                         {writes.toLocaleString()}
                       </td>
                       <td className="px-3 py-2.5 text-right">
-                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border ${
-                          seqPct > 80 ? 'bg-red-50 text-red-600 border-red-200/60'
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border ${seqPct > 80 ? 'bg-red-50 text-red-600 border-red-200/60'
                           : seqPct > 50 ? 'bg-amber-50 text-amber-700 border-amber-200/60'
-                          : 'bg-[rgba(0,0,0,0.02)] text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.08)]'
-                        }`}>
+                            : 'bg-[rgba(0,0,0,0.02)] text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.08)]'
+                          }`}>
                           {seqPct > 50 && <Icon icon="mdi:exclamation" width={10} className="inline" />}
                           {seqPct}%
                         </span>
@@ -2476,17 +2582,17 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
 
 // ── Snapshots Tab ─────────────────────────────────────────────────────────────
 function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
-  snapshots:      DbSnapshot[];
-  rd:             DbInstance | undefined;
-  instanceId:     string;
+  snapshots: DbSnapshot[];
+  rd: DbInstance | undefined;
+  instanceId: string;
   cloudProvider?: 'aws' | 'gcp' | 'azure';
 }) {
-  const [sortKey,     setSortKey]     = useState<'age'|'size'|'cost'>('age');
-  const [sortDir,     setSortDir]     = useState<'desc'|'asc'>('desc');
+  const [sortKey, setSortKey] = useState<'age' | 'size' | 'cost'>('age');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
   const [compareMode, setCompareMode] = useState(false);
-  const [selected,    setSelected]    = useState<Set<string>>(new Set());
-  const [copied,      setCopied]      = useState<string|null>(null);
-  const [page,        setPage]        = useState(0);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [copied, setCopied] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -2494,9 +2600,9 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
     id.startsWith('rds:') || id.startsWith('awsbackup:') || id.toLowerCase().includes('auto');
 
   const ageTier = (d: number) =>
-    d > 90  ? { cls: 'text-red-600',    bar: 'bg-red-500',    border: 'border-l-red-400',    dot: 'bg-red-500 shadow-[0_0_4px_#ef4444]' }
-    : d > 30 ? { cls: 'text-amber-600', bar: 'bg-amber-400',  border: 'border-l-amber-400',  dot: 'bg-amber-400' }
-    :           { cls: 'text-emerald-600', bar: 'bg-emerald-500', border: 'border-l-emerald-400', dot: 'bg-emerald-500' };
+    d > 90 ? { cls: 'text-red-600', bar: 'bg-red-500', border: 'border-l-red-400', dot: 'bg-red-500 shadow-[0_0_4px_#ef4444]' }
+      : d > 30 ? { cls: 'text-amber-600', bar: 'bg-amber-400', border: 'border-l-amber-400', dot: 'bg-amber-400' }
+        : { cls: 'text-emerald-600', bar: 'bg-emerald-500', border: 'border-l-emerald-400', dot: 'bg-emerald-500' };
 
   const approxDate = (ageDays: number) =>
     new Date(Date.now() - ageDays * 86400000).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
@@ -2519,17 +2625,17 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
   // ── Sort ──────────────────────────────────────────────────────────────────
   const d = sortDir === 'desc' ? -1 : 1;
   const sorted = [...snapshots].sort((a, b) => {
-    if (sortKey === 'age')  return d * (b.ageDays - a.ageDays);
+    if (sortKey === 'age') return d * (b.ageDays - a.ageDays);
     if (sortKey === 'size') return d * (b.sizeGb - a.sizeGb);
     return d * (b.estimatedMonthlyCost - a.estimatedMonthlyCost);
   });
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
-  const pg   = Math.min(page, totalPages - 1);
+  const pg = Math.min(page, totalPages - 1);
   const rows = sorted.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE);
 
   // ── Derived totals ────────────────────────────────────────────────────────
-  const totalCost  = snapshots.reduce((s, n) => s + n.estimatedMonthlyCost, 0);
+  const totalCost = snapshots.reduce((s, n) => s + n.estimatedMonthlyCost, 0);
   const totalSizeGb = snapshots.reduce((s, n) => s + n.sizeGb, 0);
   const oldestDays = snapshots.length ? Math.max(...snapshots.map(s => s.ageDays)) : 0;
 
@@ -2580,11 +2686,10 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => copyCmd(takeSnapshotCmd, 'take')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm ${
-                    copied === 'take'
-                      ? 'bg-emerald-600 text-white shadow-emerald-200'
-                      : 'bg-[rgba(0,0,0,0.88)] text-white hover:bg-black shadow-sm'
-                  }`}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm ${copied === 'take'
+                    ? 'bg-emerald-600 text-white shadow-emerald-200'
+                    : 'bg-[rgba(0,0,0,0.88)] text-white hover:bg-black shadow-sm'
+                    }`}
                 >
                   {copied === 'take' ? <Icon icon="mdi:check" width={12} /> : <Icon icon="mdi:camera-outline" width={12} />}
                   {copied === 'take' ? 'CLI copied!' : 'Copy Take-Snapshot CLI'}
@@ -2599,10 +2704,10 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
         {/* What snapshots capture */}
         <div className="grid grid-cols-2 gap-2.5">
           {[
-            { icon: 'mdi:database-outline',    color: 'text-indigo-500',  bg: 'bg-indigo-50',  title: 'Full DB state',       desc: 'All tables, indexes, stored procedures, and data at the moment of capture.' },
-            { icon: 'mdi:history',             color: 'text-sky-500',     bg: 'bg-sky-50',     title: 'Point-in-time restore',desc: 'Restore to any second within your retention window (5 min granularity).' },
-            { icon: 'mdi:content-copy',        color: 'text-violet-500',  bg: 'bg-violet-50',  title: 'Cross-region copy',    desc: cloudProvider === 'gcp' ? 'Copy a snapshot to another region for DR. Share with another GCP project.' : 'Copy a snapshot to another region for DR. Share with another AWS account.' },
-            { icon: 'mdi:shield-half-full',    color: 'text-emerald-500', bg: 'bg-emerald-50', title: 'Encrypted by default',  desc: 'Snapshots inherit the instance encryption key. Cannot be disabled after creation.' },
+            { icon: 'mdi:database-outline', color: 'text-indigo-500', bg: 'bg-indigo-50', title: 'Full DB state', desc: 'All tables, indexes, stored procedures, and data at the moment of capture.' },
+            { icon: 'mdi:history', color: 'text-sky-500', bg: 'bg-sky-50', title: 'Point-in-time restore', desc: 'Restore to any second within your retention window (5 min granularity).' },
+            { icon: 'mdi:content-copy', color: 'text-violet-500', bg: 'bg-violet-50', title: 'Cross-region copy', desc: cloudProvider === 'gcp' ? 'Copy a snapshot to another region for DR. Share with another GCP project.' : 'Copy a snapshot to another region for DR. Share with another AWS account.' },
+            { icon: 'mdi:shield-half-full', color: 'text-emerald-500', bg: 'bg-emerald-50', title: 'Encrypted by default', desc: 'Snapshots inherit the instance encryption key. Cannot be disabled after creation.' },
           ].map(c => (
             <div key={c.title} className={`flex items-start gap-2.5 p-3 rounded-xl border border-[rgba(0,0,0,0.06)] ${c.bg}`}>
               <Icon icon={c.icon} width={14} className={`${c.color} mt-0.5 shrink-0`} />
@@ -2624,8 +2729,8 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
             <div className="grid grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)]">
               {[
                 { label: 'Automated Backups', value: rd.backupEnabled ? 'Enabled' : 'Disabled', ok: rd.backupEnabled },
-                { label: 'Retention',         value: rd.backupRetentionDays ? `${rd.backupRetentionDays} days` : '—', ok: Number(rd.backupRetentionDays) >= 7 },
-                { label: 'Multi-AZ',          value: rd.multiAz === 'true' || rd.multiAz === 'Yes' ? 'Yes' : 'No', ok: rd.multiAz === 'true' || rd.multiAz === 'Yes' },
+                { label: 'Retention', value: rd.backupRetentionDays ? `${rd.backupRetentionDays} days` : '—', ok: Number(rd.backupRetentionDays) >= 7 },
+                { label: 'Multi-AZ', value: rd.multiAz === 'true' || rd.multiAz === 'Yes' ? 'Yes' : 'No', ok: rd.multiAz === 'true' || rd.multiAz === 'Yes' },
               ].map(r => (
                 <div key={r.label} className="px-4 py-3 text-center">
                   <div className="text-[9px] text-[rgba(0,0,0,0.4)] uppercase tracking-wider mb-1">{r.label}</div>
@@ -2664,10 +2769,10 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
       {/* ── KPI strip ── */}
       <div className="grid grid-cols-4 gap-2">
         {[
-          { icon: 'mdi:camera-outline',    label: 'Snapshots',    value: snapshots.length.toString(),      color: 'text-violet-600',  tip: 'Total number of DB snapshots for this instance (automated + manual).' },
-          { icon: 'mdi:harddisk',          label: 'Total Size',   value: `${round2(totalSizeGb)} GB`,      color: 'text-sky-600',     tip: 'Combined storage used by all snapshots. AWS charges ~$0.095/GB/month for snapshot storage.' },
-          { icon: 'mdi:currency-usd',      label: 'Cost / mo',    value: fmt$(totalCost),                  color: 'text-amber-600',   tip: 'Estimated monthly cost for all snapshot storage. Delete old manual snapshots to reduce this.' },
-          { icon: 'mdi:clock-outline',     label: 'Oldest',       value: `${oldestDays}d`,                 color: oldestDays > 90 ? 'text-red-600' : 'text-[rgba(0,0,0,0.7)]', tip: 'Age of the oldest snapshot in days. Snapshots older than 90 days are likely no longer needed.' },
+          { icon: 'mdi:camera-outline', label: 'Snapshots', value: snapshots.length.toString(), color: 'text-violet-600', tip: 'Total number of DB snapshots for this instance (automated + manual).' },
+          { icon: 'mdi:harddisk', label: 'Total Size', value: `${round2(totalSizeGb)} GB`, color: 'text-sky-600', tip: 'Combined storage used by all snapshots. AWS charges ~$0.095/GB/month for snapshot storage.' },
+          { icon: 'mdi:currency-usd', label: 'Cost / mo', value: fmt$(totalCost), color: 'text-amber-600', tip: 'Estimated monthly cost for all snapshot storage. Delete old manual snapshots to reduce this.' },
+          { icon: 'mdi:clock-outline', label: 'Oldest', value: `${oldestDays}d`, color: oldestDays > 90 ? 'text-red-600' : 'text-[rgba(0,0,0,0.7)]', tip: 'Age of the oldest snapshot in days. Snapshots older than 90 days are likely no longer needed.' },
         ].map(k => (
           <div key={k.label} className="bg-white rounded-xl border border-[rgba(0,0,0,0.06)] px-3 py-2.5 shadow-sm">
             <div className="flex items-center gap-1.5 mb-1">
@@ -2710,13 +2815,13 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
           {/* Delta row */}
           <div className="grid grid-cols-3 gap-2 pt-1">
             {(() => {
-              const ageDelta  = snapA.ageDays - snapB.ageDays;
+              const ageDelta = snapA.ageDays - snapB.ageDays;
               const sizeDelta = snapA.sizeGb - snapB.sizeGb;
               const costDelta = snapA.estimatedMonthlyCost - snapB.estimatedMonthlyCost;
               return [
-                { label: 'Age diff',  val: `${Math.abs(ageDelta)}d`,            dir: ageDelta,  fmt: (v: number) => `${Math.abs(v)}d` },
-                { label: 'Size diff', val: `${Math.abs(round2(sizeDelta))} GB`,  dir: sizeDelta, fmt: (v: number) => `${Math.abs(round2(v))} GB` },
-                { label: 'Cost diff', val: fmt$(Math.abs(costDelta)),             dir: costDelta, fmt: (v: number) => fmt$(Math.abs(v)) },
+                { label: 'Age diff', val: `${Math.abs(ageDelta)}d`, dir: ageDelta, fmt: (v: number) => `${Math.abs(v)}d` },
+                { label: 'Size diff', val: `${Math.abs(round2(sizeDelta))} GB`, dir: sizeDelta, fmt: (v: number) => `${Math.abs(round2(v))} GB` },
+                { label: 'Cost diff', val: fmt$(Math.abs(costDelta)), dir: costDelta, fmt: (v: number) => fmt$(Math.abs(v)) },
               ].map(r => (
                 <div key={r.label} className="text-center bg-white rounded-lg px-2 py-2">
                   <div className="text-[9px] text-[rgba(0,0,0,0.4)] uppercase tracking-wider mb-0.5">{r.label}</div>
@@ -2745,11 +2850,10 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
         {/* Take snapshot CTA */}
         <button
           onClick={() => copyCmd(takeSnapshotCmd, 'take-main')}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border transition-all duration-200 ${
-            copied === 'take-main'
-              ? 'bg-emerald-100 text-emerald-700 border-emerald-300/60'
-              : 'bg-indigo-50 text-indigo-600 border-indigo-200/60 hover:bg-indigo-100'
-          }`}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border transition-all duration-200 ${copied === 'take-main'
+            ? 'bg-emerald-100 text-emerald-700 border-emerald-300/60'
+            : 'bg-indigo-50 text-indigo-600 border-indigo-200/60 hover:bg-indigo-100'
+            }`}
         >
           {copied === 'take-main' ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:camera-outline" width={11} />}
           {copied === 'take-main' ? 'CLI Copied!' : 'Take Snapshot CLI'}
@@ -2758,11 +2862,10 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
         {/* Compare toggle */}
         <button
           onClick={() => { setCompareMode(v => !v); setSelected(new Set()); }}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border transition-all duration-200 ${
-            compareMode
-              ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
-              : 'text-violet-600 border-violet-200/60 hover:bg-violet-50'
-          }`}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border transition-all duration-200 ${compareMode
+            ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+            : 'text-violet-600 border-violet-200/60 hover:bg-violet-50'
+            }`}
         >
           <Icon icon="mdi:compare" width={11} />
           {compareMode ? `Compare (${selected.size}/2)` : 'Compare'}
@@ -2774,7 +2877,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
         <div className="flex items-center gap-0.5 bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5">
           <span className="text-[9px] text-[rgba(0,0,0,0.4)] px-1.5 font-medium">Sort:</span>
           {([
-            { k: 'age'  as const, l: 'Age'  },
+            { k: 'age' as const, l: 'Age' },
             { k: 'size' as const, l: 'Size' },
             { k: 'cost' as const, l: 'Cost' },
           ]).map(s => (
@@ -2792,10 +2895,10 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
       {/* ── Snapshot timeline table ── */}
       <div className="space-y-2">
         {rows.map((s, i) => {
-          const t       = ageTier(s.ageDays);
-          const auto    = isAuto(s.snapshotId);
-          const absIdx  = pg * PAGE_SIZE + i;
-          const isSel   = selected.has(s.snapshotId);
+          const t = ageTier(s.ageDays);
+          const auto = isAuto(s.snapshotId);
+          const absIdx = pg * PAGE_SIZE + i;
+          const isSel = selected.has(s.snapshotId);
           const copyKey = (cmd: string) => `${cmd}-${absIdx}`;
 
           return (
@@ -2903,7 +3006,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
       {/* ── Pagination ── */}
       {totalPages > 1 && (() => {
         const start = pg * PAGE_SIZE + 1;
-        const end   = Math.min((pg + 1) * PAGE_SIZE, sorted.length);
+        const end = Math.min((pg + 1) * PAGE_SIZE, sorted.length);
         return (
           <div className="flex items-center justify-between pt-2.5 px-1 border-t border-[rgba(0,0,0,0.06)]">
             <span className="text-[10px] text-[rgba(0,0,0,0.4)] tabular-nums">{start}–{end} of {sorted.length}</span>
@@ -2934,8 +3037,8 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
             <div className="grid grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)]">
               {[
                 { label: 'Automated Backups', value: rd.backupEnabled ? 'Enabled' : 'Disabled', ok: rd.backupEnabled, icon: 'mdi:check-circle-outline', tip: 'RDS automated backups create daily snapshots during the backup window. Required for point-in-time recovery.' },
-                { label: 'Retention Period',  value: rd.backupRetentionDays ? `${rd.backupRetentionDays} days` : '—', ok: Number(rd.backupRetentionDays) >= 7, icon: 'mdi:clock-outline', tip: 'How long automated backups are kept before deletion. AWS recommends at least 7 days. 0 = backups disabled.' },
-                { label: 'Multi-AZ',          value: rd.multiAz === 'true' || rd.multiAz === 'Yes' ? 'Yes' : 'No', ok: rd.multiAz === 'true' || rd.multiAz === 'Yes', icon: 'mdi:layers-outline', tip: 'Multi-AZ keeps a synchronous standby replica in another Availability Zone. Provides automatic failover — highly recommended for production.' },
+                { label: 'Retention Period', value: rd.backupRetentionDays ? `${rd.backupRetentionDays} days` : '—', ok: Number(rd.backupRetentionDays) >= 7, icon: 'mdi:clock-outline', tip: 'How long automated backups are kept before deletion. AWS recommends at least 7 days. 0 = backups disabled.' },
+                { label: 'Multi-AZ', value: rd.multiAz === 'true' || rd.multiAz === 'Yes' ? 'Yes' : 'No', ok: rd.multiAz === 'true' || rd.multiAz === 'Yes', icon: 'mdi:layers-outline', tip: 'Multi-AZ keeps a synchronous standby replica in another Availability Zone. Provides automatic failover — highly recommended for production.' },
               ].map(r => (
                 <div key={r.label} className="px-4 py-3 text-center bg-[rgba(0,0,0,0.02)]">
                   <Icon icon={r.icon} width={13} className={`${r.ok ? 'text-emerald-500' : 'text-amber-400'} mb-1 inline-block`} />
@@ -2961,9 +3064,9 @@ const SECURITY_CATALOGUE_AWS = [
     color: 'text-rose-500',
     bg: 'bg-rose-50',
     checks: [
-      { name: 'Public Accessibility',         desc: 'DB reachable from the public internet.' },
-      { name: 'IAM Database Authentication',  desc: 'Password-free login via AWS IAM tokens.' },
-      { name: 'Default Port Usage',            desc: 'Using default port increases attack surface.' },
+      { name: 'Public Accessibility', desc: 'DB reachable from the public internet.' },
+      { name: 'IAM Database Authentication', desc: 'Password-free login via AWS IAM tokens.' },
+      { name: 'Default Port Usage', desc: 'Using default port increases attack surface.' },
     ],
   },
   {
@@ -2972,8 +3075,8 @@ const SECURITY_CATALOGUE_AWS = [
     color: 'text-violet-500',
     bg: 'bg-violet-50',
     checks: [
-      { name: 'Encryption at Rest',   desc: 'Storage encrypted with AWS KMS.' },
-      { name: 'SSL/TLS in Transit',   desc: 'Connections require SSL/TLS.' },
+      { name: 'Encryption at Rest', desc: 'Storage encrypted with AWS KMS.' },
+      { name: 'SSL/TLS in Transit', desc: 'Connections require SSL/TLS.' },
       { name: 'Certificate Rotation', desc: 'SSL certificate is current and unexpired.' },
     ],
   },
@@ -2983,9 +3086,9 @@ const SECURITY_CATALOGUE_AWS = [
     color: 'text-sky-500',
     bg: 'bg-sky-50',
     checks: [
-      { name: 'Automated Backups',    desc: 'Daily snapshots retained ≥7 days.' },
-      { name: 'Multi-AZ Deployment',  desc: 'Standby replica for failover.' },
-      { name: 'Deletion Protection',  desc: 'Guards against accidental instance deletion.' },
+      { name: 'Automated Backups', desc: 'Daily snapshots retained ≥7 days.' },
+      { name: 'Multi-AZ Deployment', desc: 'Standby replica for failover.' },
+      { name: 'Deletion Protection', desc: 'Guards against accidental instance deletion.' },
     ],
   },
   {
@@ -2994,9 +3097,9 @@ const SECURITY_CATALOGUE_AWS = [
     color: 'text-emerald-500',
     bg: 'bg-emerald-50',
     checks: [
-      { name: 'Enhanced Monitoring',    desc: 'OS-level metrics at 60 s intervals.' },
-      { name: 'Performance Insights',   desc: 'Query-level performance profiling.' },
-      { name: 'CloudWatch Alarms',      desc: 'Alerts on CPU, connections, and storage.' },
+      { name: 'Enhanced Monitoring', desc: 'OS-level metrics at 60 s intervals.' },
+      { name: 'Performance Insights', desc: 'Query-level performance profiling.' },
+      { name: 'CloudWatch Alarms', desc: 'Alerts on CPU, connections, and storage.' },
     ],
   },
 ];
@@ -3008,9 +3111,9 @@ const SECURITY_CATALOGUE_GCP = [
     color: 'text-rose-500',
     bg: 'bg-rose-50',
     checks: [
-      { name: 'Public Accessibility',           desc: 'DB reachable from the public internet.' },
-      { name: 'Cloud IAM Authentication',        desc: 'Password-free login via GCP Cloud IAM.' },
-      { name: 'Default Port Usage',              desc: 'Using default port increases attack surface.' },
+      { name: 'Public Accessibility', desc: 'DB reachable from the public internet.' },
+      { name: 'Cloud IAM Authentication', desc: 'Password-free login via GCP Cloud IAM.' },
+      { name: 'Default Port Usage', desc: 'Using default port increases attack surface.' },
     ],
   },
   {
@@ -3019,8 +3122,8 @@ const SECURITY_CATALOGUE_GCP = [
     color: 'text-violet-500',
     bg: 'bg-violet-50',
     checks: [
-      { name: 'Encryption at Rest',   desc: 'Storage encrypted with Google-managed keys (CMEK optional).' },
-      { name: 'SSL/TLS in Transit',   desc: 'Connections require SSL/TLS.' },
+      { name: 'Encryption at Rest', desc: 'Storage encrypted with Google-managed keys (CMEK optional).' },
+      { name: 'SSL/TLS in Transit', desc: 'Connections require SSL/TLS.' },
       { name: 'Certificate Rotation', desc: 'SSL certificate is current and unexpired.' },
     ],
   },
@@ -3030,9 +3133,9 @@ const SECURITY_CATALOGUE_GCP = [
     color: 'text-sky-500',
     bg: 'bg-sky-50',
     checks: [
-      { name: 'Automated Backups',      desc: 'Daily snapshots retained ≥7 days.' },
+      { name: 'Automated Backups', desc: 'Daily snapshots retained ≥7 days.' },
       { name: 'High Availability (HA)', desc: 'Standby replica in another zone for failover.' },
-      { name: 'Deletion Protection',    desc: 'Guards against accidental instance deletion.' },
+      { name: 'Deletion Protection', desc: 'Guards against accidental instance deletion.' },
     ],
   },
   {
@@ -3041,25 +3144,25 @@ const SECURITY_CATALOGUE_GCP = [
     color: 'text-emerald-500',
     bg: 'bg-emerald-50',
     checks: [
-      { name: 'Cloud Monitoring',         desc: 'OS-level metrics via GCP Cloud Monitoring.' },
-      { name: 'Query Insights',           desc: 'Query-level performance profiling.' },
-      { name: 'Cloud Monitoring Alerts',  desc: 'Alerts on CPU, connections, and storage.' },
+      { name: 'Cloud Monitoring', desc: 'OS-level metrics via GCP Cloud Monitoring.' },
+      { name: 'Query Insights', desc: 'Query-level performance profiling.' },
+      { name: 'Cloud Monitoring Alerts', desc: 'Alerts on CPU, connections, and storage.' },
     ],
   },
 ];
 
 // Remediation hints keyed by lowercase keyword patterns in checkName
 const REMEDIATION: { pattern: RegExp; fix: string }[] = [
-  { pattern: /public/i,       fix: 'In the RDS console → Connectivity & security → set "Publicly accessible" to No. Ensure your app can still reach the DB via VPC/private subnet.' },
-  { pattern: /iam/i,          fix: 'Enable IAM DB authentication in RDS settings, create an IAM policy with rds-db:connect, and update your app to use IAM token-based auth instead of a static password.' },
-  { pattern: /ssl|tls/i,      fix: 'Set the DB parameter `rds.force_ssl=1` (PostgreSQL) or `require_secure_transport=ON` (MySQL). Update connection strings to include `sslmode=require`.' },
-  { pattern: /encrypt/i,      fix: 'RDS encryption must be enabled at creation. Migrate by taking an unencrypted snapshot, copying it with encryption enabled, then restoring from the encrypted copy.' },
-  { pattern: /backup/i,       fix: 'In RDS settings, set "Backup retention period" to 7 days or more and enable automated backups. Verify the backup window does not overlap peak traffic.' },
-  { pattern: /multi.?az/i,    fix: 'Enable Multi-AZ in RDS Modify. AWS will provision a synchronous standby replica in a different AZ for automatic failover with minimal downtime.' },
-  { pattern: /deletion/i,     fix: 'Enable Deletion Protection in RDS Modify → Additional configuration. This prevents the instance from being deleted without first disabling protection.' },
-  { pattern: /monitor/i,      fix: 'Enable Enhanced Monitoring (60 s granularity) in RDS Modify → Monitoring. Assign an IAM role with the AmazonRDSEnhancedMonitoringRole policy.' },
+  { pattern: /public/i, fix: 'In the RDS console → Connectivity & security → set "Publicly accessible" to No. Ensure your app can still reach the DB via VPC/private subnet.' },
+  { pattern: /iam/i, fix: 'Enable IAM DB authentication in RDS settings, create an IAM policy with rds-db:connect, and update your app to use IAM token-based auth instead of a static password.' },
+  { pattern: /ssl|tls/i, fix: 'Set the DB parameter `rds.force_ssl=1` (PostgreSQL) or `require_secure_transport=ON` (MySQL). Update connection strings to include `sslmode=require`.' },
+  { pattern: /encrypt/i, fix: 'RDS encryption must be enabled at creation. Migrate by taking an unencrypted snapshot, copying it with encryption enabled, then restoring from the encrypted copy.' },
+  { pattern: /backup/i, fix: 'In RDS settings, set "Backup retention period" to 7 days or more and enable automated backups. Verify the backup window does not overlap peak traffic.' },
+  { pattern: /multi.?az/i, fix: 'Enable Multi-AZ in RDS Modify. AWS will provision a synchronous standby replica in a different AZ for automatic failover with minimal downtime.' },
+  { pattern: /deletion/i, fix: 'Enable Deletion Protection in RDS Modify → Additional configuration. This prevents the instance from being deleted without first disabling protection.' },
+  { pattern: /monitor/i, fix: 'Enable Enhanced Monitoring (60 s granularity) in RDS Modify → Monitoring. Assign an IAM role with the AmazonRDSEnhancedMonitoringRole policy.' },
   { pattern: /insight|performance/i, fix: 'Enable Performance Insights in RDS Modify → Performance Insights. It provides query-level profiling and database load analysis with no performance overhead.' },
-  { pattern: /cert/i,         fix: 'Rotate the RDS SSL certificate via the AWS console: Actions → "Rotate SSL certificate". Update your app trust store to include the new CA bundle.' },
+  { pattern: /cert/i, fix: 'Rotate the RDS SSL certificate via the AWS console: Actions → "Rotate SSL certificate". Update your app trust store to include the new CA bundle.' },
   { pattern: /port|default/i, fix: 'Change the DB port in RDS Modify → Connectivity. Choose a non-default port (not 3306 or 5432) and update security group rules and connection strings accordingly.' },
   { pattern: /password|credential/i, fix: 'Rotate credentials and store them in AWS Secrets Manager. Enable automatic rotation with the built-in RDS rotation Lambda function.' },
 ];
@@ -3070,13 +3173,13 @@ function getRemediation(checkName: string): string | null {
 }
 
 function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
-  checks:          DbSecurityCheck[];
-  instanceSource:  'rds' | 'agent';
-  cloudProvider?:  'aws' | 'gcp' | 'azure';
+  checks: DbSecurityCheck[];
+  instanceSource: 'rds' | 'agent';
+  cloudProvider?: 'aws' | 'gcp' | 'azure';
 }) {
   const SECURITY_CATALOGUE = cloudProvider === 'gcp' ? SECURITY_CATALOGUE_GCP : SECURITY_CATALOGUE_AWS;
-  const [statusFilter, setStatusFilter] = useState<'ALL'|'FAIL'|'WARN'|'PASS'>('ALL');
-  const [expandedIdx,  setExpandedIdx]  = useState<Set<number>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'FAIL' | 'WARN' | 'PASS'>('ALL');
+  const [expandedIdx, setExpandedIdx] = useState<Set<number>>(new Set());
 
   const failCount = checks.filter(c => c.status === 'FAIL').length;
   const warnCount = checks.filter(c => c.status === 'WARN').length;
@@ -3089,8 +3192,8 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
     : Math.round(((passCount + warnCount * 0.5) / total) * 100);
   const scoreColor = score === null ? ''
     : score >= 80 ? 'text-emerald-600'
-    : score >= 50 ? 'text-amber-600'
-    :               'text-red-600';
+      : score >= 50 ? 'text-amber-600'
+        : 'text-red-600';
   const scoreLabel = score === null ? '' : score >= 80 ? 'Strong' : score >= 50 ? 'Fair' : 'At Risk';
 
   const filtered = statusFilter === 'ALL' ? checks
@@ -3216,11 +3319,10 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
             <div className="flex items-center gap-2 mb-1">
               <p className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Security Posture</p>
               {score !== null && (
-                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
-                  score >= 80 ? 'bg-emerald-100 text-emerald-700'
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${score >= 80 ? 'bg-emerald-100 text-emerald-700'
                   : score >= 50 ? 'bg-amber-100 text-amber-700'
-                  : 'bg-red-100 text-red-700'
-                }`}>{scoreLabel}</span>
+                    : 'bg-red-100 text-red-700'
+                  }`}>{scoreLabel}</span>
               )}
             </div>
             <div className="flex items-center gap-3 text-xs">
@@ -3252,9 +3354,9 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
       {/* ── Status filter pills ── */}
       <div className="flex items-center gap-2 flex-wrap">
         {([
-          { k: 'ALL'  as const, label: `All (${total})`,        cls: 'text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.15)]', active: 'bg-[rgba(0,0,0,0.88)] text-white border-[rgba(0,0,0,0.88)]',   tip: 'Show all security checks regardless of status.' },
-          { k: 'FAIL' as const, label: `Failed (${failCount})`, cls: 'text-red-600 border-red-200/60 bg-red-50/60', active: 'bg-red-600 text-white border-red-600',   tip: 'Check failed — the issue was detected and immediate remediation is recommended.' },
-          { k: 'WARN' as const, label: `Warn (${warnCount})`,   cls: 'text-amber-600 border-amber-200/60 bg-amber-50/60', active: 'bg-amber-500 text-white border-amber-500', tip: 'Warning — the check raised a concern that should be reviewed. Not immediately critical but worth addressing.' },
+          { k: 'ALL' as const, label: `All (${total})`, cls: 'text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.15)]', active: 'bg-[rgba(0,0,0,0.88)] text-white border-[rgba(0,0,0,0.88)]', tip: 'Show all security checks regardless of status.' },
+          { k: 'FAIL' as const, label: `Failed (${failCount})`, cls: 'text-red-600 border-red-200/60 bg-red-50/60', active: 'bg-red-600 text-white border-red-600', tip: 'Check failed — the issue was detected and immediate remediation is recommended.' },
+          { k: 'WARN' as const, label: `Warn (${warnCount})`, cls: 'text-amber-600 border-amber-200/60 bg-amber-50/60', active: 'bg-amber-500 text-white border-amber-500', tip: 'Warning — the check raised a concern that should be reviewed. Not immediately critical but worth addressing.' },
           { k: 'PASS' as const, label: `Passed (${passCount})`, cls: 'text-emerald-600 border-emerald-200/60 bg-emerald-50/60', active: 'bg-emerald-600 text-white border-emerald-600', tip: 'Check passed — no issue detected. No action required.' },
         ]).map(f => (
           <Tip key={f.k} text={f.tip} wide>
@@ -3276,14 +3378,14 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
           const remediation = getRemediation(c.checkName);
 
           const statusCfg =
-            c.status === 'FAIL' ? { icon: 'mdi:close-circle-outline',  iconCls: 'text-red-500',    rowCls: 'border-red-200 bg-red-50',     badge: 'bg-red-100 text-red-700 border-red-200',     glow: 'shadow-[0_0_6px_#ef444430]' }
-            : c.status === 'WARN' ? { icon: 'mdi:alert-outline',        iconCls: 'text-amber-500',  rowCls: 'border-amber-200 bg-amber-50', badge: 'bg-amber-100 text-amber-700 border-amber-200', glow: '' }
-            :                       { icon: 'mdi:check-circle-outline',  iconCls: 'text-emerald-500', rowCls: 'border-[rgba(0,0,0,0.08)] bg-white',    badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', glow: '' };
+            c.status === 'FAIL' ? { icon: 'mdi:close-circle-outline', iconCls: 'text-red-500', rowCls: 'border-red-200 bg-red-50', badge: 'bg-red-100 text-red-700 border-red-200', glow: 'shadow-[0_0_6px_#ef444430]' }
+              : c.status === 'WARN' ? { icon: 'mdi:alert-outline', iconCls: 'text-amber-500', rowCls: 'border-amber-200 bg-amber-50', badge: 'bg-amber-100 text-amber-700 border-amber-200', glow: '' }
+                : { icon: 'mdi:check-circle-outline', iconCls: 'text-emerald-500', rowCls: 'border-[rgba(0,0,0,0.08)] bg-white', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', glow: '' };
 
           const sevCfg =
-            c.severity === 'HIGH'   ? { cls: 'bg-red-100 text-red-700 border-red-200',       icon: 'mdi:lightning-bolt' }
-            : c.severity === 'MEDIUM' ? { cls: 'bg-orange-100 text-orange-700 border-orange-200', icon: 'mdi:fire' }
-            :                           { cls: 'bg-blue-100 text-blue-600 border-blue-200',       icon: 'mdi:information-outline' };
+            c.severity === 'HIGH' ? { cls: 'bg-red-100 text-red-700 border-red-200', icon: 'mdi:lightning-bolt' }
+              : c.severity === 'MEDIUM' ? { cls: 'bg-orange-100 text-orange-700 border-orange-200', icon: 'mdi:fire' }
+                : { cls: 'bg-blue-100 text-blue-600 border-blue-200', icon: 'mdi:information-outline' };
 
           return (
             <div
@@ -3387,38 +3489,38 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
 
 // ── Cost Tab ──────────────────────────────────────────────────────────────────
 function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, instanceSource, cloudProvider = 'aws' }: {
-  rd:                  DbInstance | undefined;
-  instanceIdle:        DbIdleInstance | undefined;
+  rd: DbInstance | undefined;
+  instanceIdle: DbIdleInstance | undefined;
   instanceRightsizing: DbRightsizing | undefined;
-  costs:               DbCost[];
-  agentMetrics:        AgentInstanceMetrics | undefined;
-  instanceSource:      'rds' | 'agent';
-  cloudProvider?:      'aws' | 'gcp' | 'azure';
+  costs: DbCost[];
+  agentMetrics: AgentInstanceMetrics | undefined;
+  instanceSource: 'rds' | 'agent';
+  cloudProvider?: 'aws' | 'gcp' | 'azure';
 }) {
-  const [riYears, setRiYears] = useState<1|3>(1);
+  const [riYears, setRiYears] = useState<1 | 3>(1);
 
   // ── Cost figures ──────────────────────────────────────────────────────────
-  const monthlyRds     = rd?.estimatedMonthlyCost ?? 0;
-  const hourlyRds      = monthlyRds / 730;
-  const ec2Hourly      = agentMetrics?.ec2HourlyPrice ?? 0;
-  const ec2Monthly     = ec2Hourly * 730;
+  const monthlyRds = rd?.estimatedMonthlyCost ?? 0;
+  const hourlyRds = monthlyRds / 730;
+  const ec2Hourly = agentMetrics?.ec2HourlyPrice ?? 0;
+  const ec2Monthly = ec2Hourly * 730;
 
   // Use RDS cost if available, else EC2 agent cost
-  const hasRealCost    = monthlyRds > 0;
-  const hasEc2Cost     = ec2Hourly > 0 && !hasRealCost;
-  const monthlyCost    = hasRealCost ? monthlyRds : ec2Monthly;
-  const hourlyCost     = hasRealCost ? hourlyRds  : ec2Hourly;
-  const dailyCost      = hourlyCost * 24;
+  const hasRealCost = monthlyRds > 0;
+  const hasEc2Cost = ec2Hourly > 0 && !hasRealCost;
+  const monthlyCost = hasRealCost ? monthlyRds : ec2Monthly;
+  const hourlyCost = hasRealCost ? hourlyRds : ec2Hourly;
+  const dailyCost = hourlyCost * 24;
 
   // Reserved instance estimated savings
-  const riDiscount     = riYears === 1 ? 0.30 : 0.45;
-  const riSavings      = monthlyCost * riDiscount;
-  const riMonthlyCost  = monthlyCost * (1 - riDiscount);
+  const riDiscount = riYears === 1 ? 0.30 : 0.45;
+  const riSavings = monthlyCost * riDiscount;
+  const riMonthlyCost = monthlyCost * (1 - riDiscount);
 
   // Savings opportunities total
-  const idleSavings    = instanceIdle?.potentialSavings ?? 0;
-  const rsSavings      = instanceRightsizing?.estimatedSavings ?? 0;
-  const totalSavings   = idleSavings + rsSavings;
+  const idleSavings = instanceIdle?.potentialSavings ?? 0;
+  const rsSavings = instanceRightsizing?.estimatedSavings ?? 0;
+  const totalSavings = idleSavings + rsSavings;
 
   // Cost breakdown bar colours
   const barGradients = [
@@ -3488,9 +3590,9 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
           {/* Hourly / Daily / Monthly cost bars — proportional */}
           <div className="space-y-2">
             {[
-              { label: 'Hourly',  val: hourlyCost,       max: hourlyCost,      pct: 100 / 24 },
-              { label: 'Daily',   val: dailyCost,         max: dailyCost,       pct: 100 / 31 },
-              { label: 'Monthly', val: monthlyCost,       max: monthlyCost,     pct: 100 },
+              { label: 'Hourly', val: hourlyCost, max: hourlyCost, pct: 100 / 24 },
+              { label: 'Daily', val: dailyCost, max: dailyCost, pct: 100 / 31 },
+              { label: 'Monthly', val: monthlyCost, max: monthlyCost, pct: 100 },
             ].map(r => (
               <div key={r.label} className="flex items-center gap-2">
                 <span className="text-[10px] text-indigo-400 w-12 shrink-0">{r.label}</span>
@@ -3529,11 +3631,11 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
           </div>
           <div className="grid grid-cols-2 gap-2">
             {(cloudProvider === 'gcp' ? [
-              { icon: 'mdi:cloud-outline',    label: 'Connect GCP Billing', desc: 'Link a GCP project with Billing Export enabled to pull Compute Engine pricing automatically.' },
-              { icon: 'mdi:tag-outline',      label: 'Tag your resources',  desc: 'Add GCP labels to your VM instances so XamOps can attribute costs per service.' },
+              { icon: 'mdi:cloud-outline', label: 'Connect GCP Billing', desc: 'Link a GCP project with Billing Export enabled to pull Compute Engine pricing automatically.' },
+              { icon: 'mdi:tag-outline', label: 'Tag your resources', desc: 'Add GCP labels to your VM instances so XamOps can attribute costs per service.' },
             ] : [
-              { icon: 'mdi:cloud-outline',    label: 'Connect AWS account', desc: 'Link an AWS account with Cost Explorer enabled to pull RDS pricing automatically.' },
-              { icon: 'mdi:tag-outline',      label: 'Tag your resources',  desc: 'Add aws:cost-center tags to your instances so XamOps can attribute costs per service.' },
+              { icon: 'mdi:cloud-outline', label: 'Connect AWS account', desc: 'Link an AWS account with Cost Explorer enabled to pull RDS pricing automatically.' },
+              { icon: 'mdi:tag-outline', label: 'Tag your resources', desc: 'Add aws:cost-center tags to your instances so XamOps can attribute costs per service.' },
             ]).map(c => (
               <div key={c.label} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white border border-[rgba(0,0,0,0.06)]">
                 <Icon icon={c.icon} width={14} className="text-indigo-400 mt-0.5 shrink-0" />
@@ -3586,11 +3688,10 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                 {([1, 3] as const).map(y => (
                   <Tip key={y} text={y === 1 ? '1-year Reserved Instance: ~30% discount vs On-Demand. Lower commitment, lower savings.' : '3-year Reserved Instance: ~45% discount vs On-Demand. Best savings if the instance will run long-term.'} wide>
                     <button onClick={() => setRiYears(y)}
-                      className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all duration-150 ${
-                        riYears === y
-                          ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
-                          : 'text-violet-600 border-violet-200 hover:bg-violet-50'
-                      }`}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all duration-150 ${riYears === y
+                        ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                        : 'text-violet-600 border-violet-200 hover:bg-violet-50'
+                        }`}
                     >
                       {y}yr {y === 1 ? '(~30%)' : '(~45%)'}
                     </button>
@@ -3599,9 +3700,9 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
                 {[
-                  { label: 'Current',            val: fmt$(monthlyCost),              sub: '/mo',    cls: 'text-[rgba(0,0,0,0.88)]',     tip: 'Current On-Demand monthly cost — you pay this rate with no commitment.' },
-                  { label: 'With RI',             val: fmt$(riMonthlyCost),            sub: '/mo',    cls: 'text-violet-700 font-bold',   tip: `Estimated monthly cost after applying the ${Math.round(riDiscount * 100)}% Reserved Instance discount.` },
-                  { label: `Save (${riYears}yr)`, val: fmt$(riSavings * 12 * riYears), sub: ' total', cls: 'text-emerald-700 font-bold',  tip: `Total savings over the full ${riYears}-year RI term compared to staying On-Demand.` },
+                  { label: 'Current', val: fmt$(monthlyCost), sub: '/mo', cls: 'text-[rgba(0,0,0,0.88)]', tip: 'Current On-Demand monthly cost — you pay this rate with no commitment.' },
+                  { label: 'With RI', val: fmt$(riMonthlyCost), sub: '/mo', cls: 'text-violet-700 font-bold', tip: `Estimated monthly cost after applying the ${Math.round(riDiscount * 100)}% Reserved Instance discount.` },
+                  { label: `Save (${riYears}yr)`, val: fmt$(riSavings * 12 * riYears), sub: ' total', cls: 'text-emerald-700 font-bold', tip: `Total savings over the full ${riYears}-year RI term compared to staying On-Demand.` },
                 ].map(c => (
                   <div key={c.label} className="bg-white rounded-lg px-2 py-2">
                     <Tip text={c.tip} wide>
@@ -3804,15 +3905,15 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
 
 // ── Users Tab ─────────────────────────────────────────────────────────────────
 function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
-  userActivity:   AgentUserActivity[];
-  agentHost:      string | undefined;
-  rdsEndpoint?:  string;
+  userActivity: AgentUserActivity[];
+  agentHost: string | undefined;
+  rdsEndpoint?: string;
 }) {
-  const [search,   setSearch]   = useState('');
-  const [sortKey,  setSortKey]  = useState<'username'|'total'|'active'|'idle'|'share'|'queries'|'time'>('total');
-  const [sortDir,  setSortDir]  = useState<'desc'|'asc'>('desc');
-  const [page,     setPage]     = useState(0);
-  const [copied,   setCopied]   = useState<number|null>(null);
+  const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<'username' | 'total' | 'active' | 'idle' | 'share' | 'queries' | 'time'>('total');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  const [page, setPage] = useState(0);
+  const [copied, setCopied] = useState<number | null>(null);
 
   const PAGE_SIZE = 15;
 
@@ -3828,7 +3929,7 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
 
   // Total connections across all users (for share %)
   const totalConnsAll = all.reduce((s, u) => s + u.totalConnections, 0);
-  const maxConns      = Math.max(...all.map(u => u.totalConnections), 1);
+  const maxConns = Math.max(...all.map(u => u.totalConnections), 1);
 
   // Search
   const searched = search.trim()
@@ -3840,19 +3941,19 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
   const sorted = [...searched].sort((a, b) => {
     switch (sortKey) {
       case 'username': return d * a.username.localeCompare(b.username);
-      case 'total':    return d * (b.totalConnections - a.totalConnections);
-      case 'active':   return d * (b.activeConnections - a.activeConnections);
-      case 'idle':     return d * (b.idleConnections - a.idleConnections);
-      case 'share':    return d * (b.totalConnections - a.totalConnections);
-      case 'queries':  return d * ((b.callCount ?? 0) - (a.callCount ?? 0));
-      case 'time':     return d * (b.totalTimeSeconds - a.totalTimeSeconds);
+      case 'total': return d * (b.totalConnections - a.totalConnections);
+      case 'active': return d * (b.activeConnections - a.activeConnections);
+      case 'idle': return d * (b.idleConnections - a.idleConnections);
+      case 'share': return d * (b.totalConnections - a.totalConnections);
+      case 'queries': return d * ((b.callCount ?? 0) - (a.callCount ?? 0));
+      case 'time': return d * (b.totalTimeSeconds - a.totalTimeSeconds);
       default: return 0;
     }
   });
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
-  const pg         = Math.min(page, totalPages - 1);
-  const rows       = sorted.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE);
+  const pg = Math.min(page, totalPages - 1);
+  const rows = sorted.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE);
 
   const handleSort = (k: typeof sortKey) => {
     if (k === sortKey) setSortDir(p => p === 'desc' ? 'asc' : 'desc');
@@ -3862,14 +3963,14 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
   // Format cumulative time
   const fmtTime = (s: number) =>
     s >= 3600 ? `${round2(s / 3600)}h`
-    : s >= 60  ? `${round2(s / 60)}m`
-    : `${round2(s)}s`;
+      : s >= 60 ? `${round2(s / 60)}m`
+        : `${round2(s)}s`;
 
   // Status
   const status = (u: AgentUserActivity) =>
-    u.activeConnections > 0           ? { label: 'Active',  cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500 shadow-[0_0_4px_#10b981]' }
-    : u.idleConnections > 0           ? { label: 'Idle',    cls: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.08)]', dot: 'bg-[rgba(0,0,0,0.4)]' }
-    :                                   { label: 'Dormant', cls: 'bg-slate-50 text-slate-400 border-slate-200',        dot: 'bg-slate-300' };
+    u.activeConnections > 0 ? { label: 'Active', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500 shadow-[0_0_4px_#10b981]' }
+      : u.idleConnections > 0 ? { label: 'Idle', cls: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.08)]', dot: 'bg-[rgba(0,0,0,0.4)]' }
+        : { label: 'Dormant', cls: 'bg-slate-50 text-slate-400 border-slate-200', dot: 'bg-slate-300' };
 
   // Kill SQL
   const killSql = (u: AgentUserActivity) =>
@@ -3894,9 +3995,9 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
   );
 
   // KPI summary values
-  const totalActive   = all.reduce((s, u) => s + u.activeConnections, 0);
-  const totalIdle     = all.reduce((s, u) => s + u.idleConnections, 0);
-  const topUser       = [...all].sort((a, b) => b.totalConnections - a.totalConnections)[0];
+  const totalActive = all.reduce((s, u) => s + u.activeConnections, 0);
+  const totalIdle = all.reduce((s, u) => s + u.idleConnections, 0);
+  const topUser = [...all].sort((a, b) => b.totalConnections - a.totalConnections)[0];
 
   // ── Empty state ───────────────────────────────────────────────────────────────
   if (all.length === 0) {
@@ -3904,9 +4005,9 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-2">
           {[
-            { icon: 'mdi:database-outline', label: 'Source',  detail: 'pg_stat_activity' },
+            { icon: 'mdi:database-outline', label: 'Source', detail: 'pg_stat_activity' },
             { icon: 'mdi:power-plug-outline', label: 'Engine', detail: 'PostgreSQL / MySQL' },
-            { icon: 'mdi:clock-outline',    label: 'Mode',    detail: 'Snapshot at collection' },
+            { icon: 'mdi:clock-outline', label: 'Mode', detail: 'Snapshot at collection' },
           ].map(b => (
             <div key={b.label} className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)]">
               <Icon icon={b.icon} width={14} className="text-sky-400 shrink-0" />
@@ -3939,9 +4040,9 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
       {/* ── Source info chips ── */}
       <div className="grid grid-cols-3 gap-2">
         {[
-          { icon: 'mdi:database-outline', label: 'PG source',   detail: 'pg_stat_activity + pg_stat_statements' },
+          { icon: 'mdi:database-outline', label: 'PG source', detail: 'pg_stat_activity + pg_stat_statements' },
           { icon: 'mdi:power-plug-outline', label: 'MySQL source', detail: 'PROCESSLIST + perf_schema.accounts' },
-          { icon: 'mdi:clock-outline',    label: 'Mode',         detail: 'Snapshot — not real-time' },
+          { icon: 'mdi:clock-outline', label: 'Mode', detail: 'Snapshot — not real-time' },
         ].map(b => (
           <div key={b.label} className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-sky-50 border border-sky-200">
             <Icon icon={b.icon} width={13} className="text-sky-400 shrink-0" />
@@ -3956,10 +4057,10 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
       {/* ── KPI strip ── */}
       <div className="grid grid-cols-4 gap-2">
         {[
-          { icon: 'mdi:account-group-outline', label: 'Users',          value: all.length,                   color: 'text-indigo-600',   glow: 'shadow-indigo-100' },
-          { icon: 'mdi:power-plug-outline',    label: 'Total Conn',     value: totalConnsAll.toLocaleString(), color: 'text-sky-600',     glow: 'shadow-sky-100' },
-          { icon: 'mdi:circle-medium',         label: 'Active Sessions',value: totalActive.toLocaleString(),  color: 'text-emerald-600', glow: 'shadow-emerald-100' },
-          { icon: 'mdi:weather-night',         label: 'Idle Conn',      value: totalIdle.toLocaleString(),    color: 'text-[rgba(0,0,0,0.5)]', glow: '' },
+          { icon: 'mdi:account-group-outline', label: 'Users', value: all.length, color: 'text-indigo-600', glow: 'shadow-indigo-100' },
+          { icon: 'mdi:power-plug-outline', label: 'Total Conn', value: totalConnsAll.toLocaleString(), color: 'text-sky-600', glow: 'shadow-sky-100' },
+          { icon: 'mdi:circle-medium', label: 'Active Sessions', value: totalActive.toLocaleString(), color: 'text-emerald-600', glow: 'shadow-emerald-100' },
+          { icon: 'mdi:weather-night', label: 'Idle Conn', value: totalIdle.toLocaleString(), color: 'text-[rgba(0,0,0,0.5)]', glow: '' },
         ].map(k => (
           <div key={k.label} className={`bg-white rounded-xl border border-[rgba(0,0,0,0.06)] px-3 py-2.5 shadow-sm ${k.glow}`}>
             <div className="flex items-center gap-1.5 mb-1">
@@ -4007,12 +4108,12 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
               <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-[rgba(0,0,0,0.4)] whitespace-nowrap">
                 <Tip text="Active = executing a query now. Idle = connected but waiting for commands. Dormant = no open connections." wide>Status</Tip>
               </th>
-              {th('total',   'Total Conn', true, 'Total open connections (active + idle). Each PostgreSQL connection consumes ~5–10 MB RAM.')}
-              {th('active',  'Active',     true, 'Connections currently executing a query. Many concurrent active connections can saturate CPU and I/O.')}
-              {th('idle',    'Idle',       true, 'Open but inactive connections. High idle count wastes memory — consider PgBouncer or connection pooling.')}
-              {th('share',   'Share %',    true, 'This user\'s share of the total connection pool. A single user holding >50% may starve other applications.')}
-              {th('queries', 'Queries',    true, 'Cumulative query count since pg_stat_statements reset (PostgreSQL) or server start (MySQL).')}
-              {th('time',    'Cumul. Time',true, 'Total CPU + I/O time spent executing all queries for this user. Highest value = heaviest workload.')}
+              {th('total', 'Total Conn', true, 'Total open connections (active + idle). Each PostgreSQL connection consumes ~5–10 MB RAM.')}
+              {th('active', 'Active', true, 'Connections currently executing a query. Many concurrent active connections can saturate CPU and I/O.')}
+              {th('idle', 'Idle', true, 'Open but inactive connections. High idle count wastes memory — consider PgBouncer or connection pooling.')}
+              {th('share', 'Share %', true, 'This user\'s share of the total connection pool. A single user holding >50% may starve other applications.')}
+              {th('queries', 'Queries', true, 'Cumulative query count since pg_stat_statements reset (PostgreSQL) or server start (MySQL).')}
+              {th('time', 'Cumul. Time', true, 'Total CPU + I/O time spent executing all queries for this user. Highest value = heaviest workload.')}
               <th className="px-3 py-2.5 text-center text-[11px] font-semibold text-[rgba(0,0,0,0.4)] whitespace-nowrap">Action</th>
             </tr>
           </thead>
@@ -4120,11 +4221,10 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
                           navigator.clipboard.writeText(killSql(u))
                             .then(() => { setCopied(absIdx); setTimeout(() => setCopied(null), 2000); });
                         }}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border transition-all duration-200 ${
-                          copied === absIdx
-                            ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                            : 'bg-red-50 text-red-500 border-red-200 hover:bg-red-100'
-                        }`}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border transition-all duration-200 ${copied === absIdx
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                          : 'bg-red-50 text-red-500 border-red-200 hover:bg-red-100'
+                          }`}
                       >
                         {copied === absIdx ? <Icon icon="mdi:check" width={11} className="inline" /> : <Icon icon="mdi:skull-crossbones-outline" width={11} className="inline" />}
                         {copied === absIdx ? 'Copied' : 'Kill SQL'}
@@ -4141,7 +4241,7 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
       {/* ── Pagination ── */}
       {totalPages > 1 && (() => {
         const start = pg * PAGE_SIZE + 1;
-        const end   = Math.min((pg + 1) * PAGE_SIZE, sorted.length);
+        const end = Math.min((pg + 1) * PAGE_SIZE, sorted.length);
         return (
           <div className="flex items-center justify-between pt-2.5 px-1 border-t border-[rgba(0,0,0,0.06)]">
             <span className="text-[10px] text-[rgba(0,0,0,0.4)] tabular-nums">{start}–{end} of {sorted.length}</span>
@@ -4174,7 +4274,11 @@ export default function DbInstanceDetailDrawer({
   fetchAgentIndexUsage, fetchAgentTableActivity, onConnected, onHealthChange,
 }: Props) {
   const [tab, setTab] = useState<DetailTab>('overview');
+  const [showAgentWizard, setShowAgentWizard] = useState(false);
   const [timeseries, setTimeseries] = useState<DbInstanceTimeseries | null>(null);
+  const [waitEvents, setWaitEvents] = useState<AgentWaitEventDto[]>([]);
+  const [agentDiagnostics, setAgentDiagnostics] = useState<AgentDiagnosticDto[]>([]);
+  const [explainTarget, setExplainTarget] = useState<AgentQueryStat | null>(null);
   const [agentTs, setAgentTs] = useState<AgentTimeseries[]>([]);
   const [tableSizes, setTableSizes] = useState<AgentTableSize[]>([]);
   const [vacuumStats, setVacuumStats] = useState<AgentVacuumStat[]>([]);
@@ -4183,10 +4287,21 @@ export default function DbInstanceDetailDrawer({
   const [tableActivity, setTableActivity] = useState<AgentTableActivity[]>([]);
   const [tsLoading, setTsLoading] = useState(false);
   const [tsHours, setTsHours] = useState(24);
-const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds } = useAccounts();
+  const accountId = selectedAccountIds[0] ?? '';
+  const { explain, isLoading: explainLoading, result: explainResult, error: explainError, reset: resetExplain } = useExplainQuery(accountId);
+
+  // Engine-specific: Mongo / Redis detection + hooks (called unconditionally at top level)
+  const isMongo = /mongo/i.test(instance?.engine ?? '');
+  const isRedis = /redis/i.test(instance?.engine ?? '');
+  const mongoHost = isMongo ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
+  const redisHost = isRedis ? (instance?.agentHost ?? instance?.rdsData?.endpoint) : undefined;
+  const { metrics: mongoMetrics, slowOps: mongoSlowOps, indexStats: mongoIndexStats } = useMongoData(accountId, mongoHost);
+  const { metrics: redisMetrics, slowLog: redisSlowLog, keyspace: redisKeyspace } = useRedisData(accountId, redisHost);
   const [agentDisconnecting, setAgentDisconnecting] = useState(false);
   const [agentMgmtOpen, setAgentMgmtOpen] = useState(false);
   const [copiedTopQuery, setCopiedTopQuery] = useState(false);
+  const [healthHistory, setHealthHistory] = useState<DbHealthSnapshotDto[]>([]);
 
   useEffect(() => {
     if (!instance || instance.source !== 'rds') return;
@@ -4217,10 +4332,24 @@ const { selectedAccountIds } = useAccounts();
 
   useEffect(() => {
     setTab('overview');
+    setShowAgentWizard(false);
     setTimeseries(null);
     setAgentTs([]);
     setTableSizes([]);
-  }, [instance?.instanceId]);
+    if (accountId) {
+      apiClient.get<AgentWaitEventDto[]>(`/api/dbops/aws/${accountId}/agent-wait-events`)
+        .then(data => setWaitEvents(data ?? []))
+        .catch(() => setWaitEvents([]));
+      apiClient.get<AgentDiagnosticDto[]>(`/api/dbops/aws/${accountId}/agent-diagnostics`)
+        .then(data => setAgentDiagnostics(data ?? []))
+        .catch(() => setAgentDiagnostics([]));
+    }
+    if (accountId && instance?.instanceId) {
+      fetchHealthHistory(accountId, instance.instanceId, 24)
+        .then(data => setHealthHistory(data ?? []))
+        .catch(() => setHealthHistory([]));
+    }
+  }, [instance?.instanceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!instance) return null;
 
@@ -4250,7 +4379,6 @@ const { selectedAccountIds } = useAccounts();
   const rd = instance.rdsData;
 
   const disconnectAgent = (agentName: string) => {
-    const accountId = selectedAccountIds[0] ?? '';
     if (!agentName || !accountId) return;
     if (!window.confirm(`Remove agent "${agentName}" and all its cached data?\n\nThe Docker container will keep running until you stop it manually on the EC2.`)) return;
     setAgentDisconnecting(true);
@@ -4294,19 +4422,27 @@ const { selectedAccountIds } = useAccounts();
   const agentSlowQueriesCount = instanceAgentStats.filter(s => s.avgTimeSeconds > 0.01).length;
   const slowQueriesTabCount = instanceSlowQueries.length || agentSlowQueriesCount;
 
-  const healthScore = computeHealthScore(
-    metrics,
-    agentMetrics,
-    slowQueriesTabCount,
-    instanceSecurity.filter(c => c.status === 'FAIL').length,
-    vacuumStats
-  );
+  const serverScore = healthHistory.length > 0 ? healthHistory[healthHistory.length - 1] : null;
+  const healthScore = serverScore
+    ? { score: serverScore.score, status: serverScore.status as 'healthy' | 'warning' | 'critical', issues: serverScore.issues }
+    : computeHealthScore(metrics, agentMetrics, slowQueriesTabCount,
+      instanceSecurity.filter(s => s.status === 'FAIL').length, vacuumStats);
 
   // Notify parent (topbar) whenever health score changes
   useEffect(() => {
     onHealthChange?.(healthScore);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [healthScore.score, healthScore.status, healthScore.issues.join(',')]);
+
+  useEffect(() => {
+    if (!explainTarget || !agentMetrics) return;
+    explain({
+      agentName: agentMetrics.agentName,
+      dsnAlias: explainTarget.dsnAlias ?? 'db-0',
+      queryText: explainTarget.queryDigest,
+      dbEngine: explainTarget.dbEngine ?? 'postgres',
+    });
+  }, [explainTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const securityFailCount = instanceSecurity.filter(c => c.status === 'FAIL').length;
   const instanceMatchesHost = (dbHost: string | undefined) => {
@@ -4318,38 +4454,46 @@ const { selectedAccountIds } = useAccounts();
   const maintenanceAlertCount = vacuumStats.filter(v => instanceMatchesHost(v.dbHost) && (v.deadTupRatio ?? 0) > 0.10).length;
 
   const tabs: { id: DetailTab; label: string; icon: string; badgeCount?: number; badgeColor?: string; dot?: string }[] = [
-    { id: 'overview',    label: 'Overview',      icon: 'mdi:gauge' },
-    { id: 'performance', label: 'Performance',   icon: 'mdi:chart-line' },
+    { id: 'overview', label: 'Overview', icon: 'mdi:gauge' },
+    { id: 'performance', label: 'Performance', icon: 'mdi:chart-line' },
     {
-      id: 'slowqueries', label: 'Slow Queries',  icon: 'mdi:timer-sand',
+      id: 'slowqueries', label: 'Slow Queries', icon: 'mdi:timer-sand',
       badgeCount: slowQueriesTabCount > 0 ? slowQueriesTabCount : undefined,
       badgeColor: 'bg-red-100 text-red-700',
       dot: slowQueriesTabCount > 0 ? 'bg-red-500' : undefined,
     },
     {
-      id: 'queries',     label: 'Query Stats',   icon: 'mdi:magnify-scan',
+      id: 'queries', label: 'Query Stats', icon: 'mdi:magnify-scan',
       badgeCount: instanceAgentStats.length > 0 ? instanceAgentStats.length : undefined,
       badgeColor: 'bg-blue-100 text-blue-700',
     },
     {
-      id: 'maintenance', label: 'Maintenance',   icon: 'mdi:wrench-outline',
+      id: 'maintenance', label: 'Maintenance', icon: 'mdi:wrench-outline',
       dot: maintenanceAlertCount > 0 ? 'bg-yellow-400' : undefined,
       badgeCount: maintenanceAlertCount > 0 ? maintenanceAlertCount : undefined,
       badgeColor: 'bg-yellow-100 text-yellow-700',
     },
-    { id: 'users',       label: 'Users',         icon: 'mdi:account-group-outline' },
-    { id: 'cost',        label: 'Cost & Savings', icon: 'mdi:currency-usd' },
+    { id: 'users', label: 'Users', icon: 'mdi:account-group-outline' },
+    { id: 'cost', label: 'Cost & Savings', icon: 'mdi:currency-usd' },
     {
-      id: 'security',    label: 'Security',      icon: 'mdi:shield-half-full',
+      id: 'security', label: 'Security', icon: 'mdi:shield-half-full',
       badgeCount: securityFailCount > 0 ? securityFailCount : undefined,
       badgeColor: 'bg-red-100 text-red-700',
       dot: securityFailCount > 0 ? 'bg-red-500' : undefined,
     },
     {
-      id: 'snapshots',   label: 'Snapshots',     icon: 'mdi:camera-outline',
+      id: 'snapshots', label: 'Snapshots', icon: 'mdi:camera-outline',
       badgeCount: instanceSnapshots.length > 0 ? instanceSnapshots.length : undefined,
       badgeColor: 'bg-violet-100 text-violet-700',
     },
+    ...(isMongo ? [
+      { id: 'mongo-ops' as const, label: 'Slow Ops', icon: 'fa-bolt' },
+      { id: 'mongo-index' as const, label: 'Indexes', icon: 'fa-list-tree' },
+    ] : []),
+    ...(isRedis ? [
+      { id: 'redis-keyspace' as const, label: 'Keyspace', icon: 'fa-database' },
+      { id: 'redis-slowlog' as const, label: 'Slow Log', icon: 'fa-stopwatch' },
+    ] : []),
   ];
 
   return (
@@ -4361,11 +4505,10 @@ const { selectedAccountIds } = useAccounts();
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-all whitespace-nowrap border-b-2 ${
-              tab === t.id
-                ? 'text-indigo-600 border-indigo-500'
-                : 'text-[rgba(0,0,0,0.5)] border-transparent hover:text-[rgba(0,0,0,0.7)] hover:border-[rgba(0,0,0,0.12)]'
-            }`}
+            className={`relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-all whitespace-nowrap border-b-2 ${tab === t.id
+              ? 'text-indigo-600 border-indigo-500'
+              : 'text-[rgba(0,0,0,0.5)] border-transparent hover:text-[rgba(0,0,0,0.7)] hover:border-[rgba(0,0,0,0.12)]'
+              }`}
           >
             {/* Alert dot (shown when not active) */}
             {t.dot && tab !== t.id && (
@@ -4398,13 +4541,117 @@ const { selectedAccountIds } = useAccounts();
               />
             )}
 
+            {/* RDS — Connect Agent wizard (inline, shown on demand) */}
+            {instance.source === 'rds' && showAgentWizard && (
+              <div className="space-y-3">
+                <button
+                  onClick={() => setShowAgentWizard(false)}
+                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                >
+                  <i className="fas fa-arrow-left text-[10px]" /> Back to overview
+                </button>
+                <AgentSetupWizard
+                  engine={instance.engine ?? 'postgres'}
+                  instanceId={instance.instanceId}
+                  endpoint={instance.rdsData?.endpoint}
+                />
+              </div>
+            )}
+
+            {/* RDS — Connect Agent CTA when no agent is connected and wizard is hidden */}
+            {instance.source === 'rds' && !agentMetrics && instanceAgentStats.length === 0 && !showAgentWizard && (
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-indigo-100 dark:border-indigo-800/40 bg-indigo-50/60 dark:bg-indigo-900/10 px-4 py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="shrink-0 w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-800/40 flex items-center justify-center">
+                    <i className="fas fa-plug text-indigo-500 text-sm" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Connect XamOps Agent</p>
+                    <p className="text-[11px] text-indigo-500/80 dark:text-indigo-400/70 truncate">Get per-query stats, wait events, table insights and more</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAgentWizard(true)}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+                >
+                  <i className="fas fa-plug text-[10px]" /> Connect
+                </button>
+              </div>
+            )}
+
+            {/* ── Wait Events ── */}
+            {agentMetrics && (() => {
+              const instanceWaits = waitEvents.filter(w =>
+                w.dbHost === instance.agentHost ||
+                (instance.rdsData?.endpoint && instance.rdsData.endpoint.includes(w.dbHost?.split(':')[0] ?? ''))
+              );
+              const categories = ['IO', 'Lock', 'CPU', 'Network', 'Other'] as const;
+              const colors: Record<string, string> = {
+                IO: 'bg-blue-500', Lock: 'bg-red-500', CPU: 'bg-amber-500',
+                Network: 'bg-violet-500', Other: 'bg-gray-400',
+              };
+              const totals: Record<string, number> = {};
+              instanceWaits.forEach(w => { totals[w.waitCategory] = (totals[w.waitCategory] ?? 0) + w.sessionCount; });
+              const total = Object.values(totals).reduce((s, v) => s + v, 0);
+              if (total === 0) return null;
+              return (
+                <div className="rounded-xl border border-gray-100 dark:border-gray-700/50 bg-white dark:bg-gray-800/60 p-4">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+                    <i className="fas fa-hourglass-half mr-1.5" />Wait Events
+                  </p>
+                  <div className="flex h-3 rounded-full overflow-hidden gap-px mb-3">
+                    {categories.filter(c => totals[c] > 0).map(c => (
+                      <div key={c} className={`${colors[c]} transition-all`}
+                        style={{ width: `${(totals[c] / total) * 100}%` }}
+                        title={`${c}: ${totals[c]} sessions`} />
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {categories.filter(c => totals[c] > 0).map(c => (
+                      <span key={c} className="flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-300">
+                        <span className={`w-2 h-2 rounded-full ${colors[c]}`} />
+                        {c} <span className="font-semibold">{Math.round((totals[c] / total) * 100)}%</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Agent diagnostics banner ── */}
+            {agentMetrics && (() => {
+              const diag = agentDiagnostics.find(d =>
+                d.dbHost === instance.agentHost ||
+                (instance.rdsData?.endpoint && instance.rdsData.endpoint.includes(d.dbHost?.split(':')[0] ?? ''))
+              );
+              if (!diag || !diag.errorType) return null;
+              const icons: Record<string, string> = {
+                privilege: 'fa-lock',
+                extension_missing: 'fa-puzzle-piece',
+                connection: 'fa-plug-circle-xmark',
+              };
+              const colors: Record<string, string> = {
+                privilege: 'border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-300',
+                extension_missing: 'border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-900/10 text-blue-700 dark:text-blue-300',
+                connection: 'border-red-200 dark:border-red-800/40 bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-300',
+              };
+              return (
+                <div className={`rounded-xl border px-4 py-3 flex gap-3 items-start ${colors[diag.errorType] ?? colors.connection}`}>
+                  <i className={`fas ${icons[diag.errorType] ?? 'fa-triangle-exclamation'} mt-0.5 shrink-0`} />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold capitalize">{diag.errorType.replace('_', ' ')} issue</p>
+                    <p className="text-[11px] mt-0.5 opacity-80 break-words">{diag.errorMessage}</p>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ── Health Score Widget ── */}
             {(metrics || agentMetrics) && (
-              <div className={`rounded-xl p-4 border flex items-center gap-4 ${
-                healthScore.status === 'healthy' ? 'bg-emerald-50 border-emerald-100' :
-                healthScore.status === 'warning'  ? 'bg-amber-50 border-amber-100' :
-                'bg-red-50 border-red-100'
-              }`}>
+              <div className={`rounded-xl p-4 border flex items-center gap-4 ${healthScore.status === 'healthy' ? 'bg-emerald-50 border-emerald-100' :
+                healthScore.status === 'warning' ? 'bg-amber-50 border-amber-100' :
+                  'bg-red-50 border-red-100'
+                }`}>
                 {/* SVG ring */}
                 <div className="shrink-0 relative w-16 h-16">
                   <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
@@ -4416,27 +4663,25 @@ const { selectedAccountIds } = useAccounts();
                       strokeLinecap="round"
                       className={
                         healthScore.status === 'healthy' ? 'text-emerald-500' :
-                        healthScore.status === 'warning'  ? 'text-amber-500' : 'text-red-500'
+                          healthScore.status === 'warning' ? 'text-amber-500' : 'text-red-500'
                       }
                       style={{ transition: 'stroke-dashoffset 0.6s ease' }}
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className={`text-lg font-bold leading-none ${
-                      healthScore.status === 'healthy' ? 'text-emerald-600' :
-                      healthScore.status === 'warning'  ? 'text-amber-600' :
-                      'text-red-600'
-                    }`}>{healthScore.score}</span>
+                    <span className={`text-lg font-bold leading-none ${healthScore.status === 'healthy' ? 'text-emerald-600' :
+                      healthScore.status === 'warning' ? 'text-amber-600' :
+                        'text-red-600'
+                      }`}>{healthScore.score}</span>
                   </div>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold ${
-                    healthScore.status === 'healthy' ? 'text-emerald-800' :
-                    healthScore.status === 'warning'  ? 'text-amber-800' :
-                    'text-red-800'
-                  }`}>
+                  <p className={`text-sm font-semibold ${healthScore.status === 'healthy' ? 'text-emerald-800' :
+                    healthScore.status === 'warning' ? 'text-amber-800' :
+                      'text-red-800'
+                    }`}>
                     {healthScore.status === 'healthy' ? 'All Systems Healthy' :
-                     healthScore.status === 'warning'  ? 'Attention Needed' : 'Critical Issues Detected'}
+                      healthScore.status === 'warning' ? 'Attention Needed' : 'Critical Issues Detected'}
                   </p>
                   {healthScore.issues.length > 0 ? (
                     <ul className="mt-1.5 space-y-0.5">
@@ -4453,6 +4698,28 @@ const { selectedAccountIds } = useAccounts();
                   ) : (
                     <p className="text-xs text-emerald-600 mt-1">No issues detected</p>
                   )}
+                  {healthHistory.length > 1 && (() => {
+                    const W = 160, H = 32, pad = 4;
+                    const scores = healthHistory.map(s => s.score);
+                    const min = Math.min(...scores), max = Math.max(...scores);
+                    const range = max - min || 1;
+                    const pts = scores.map((s, i) => {
+                      const x = pad + (i / (scores.length - 1)) * (W - pad * 2);
+                      const y = H - pad - ((s - min) / range) * (H - pad * 2);
+                      return `${x},${y}`;
+                    }).join(' ');
+                    const latest = scores[scores.length - 1];
+                    const color = latest >= 80 ? '#10b981' : latest >= 50 ? '#f59e0b' : '#ef4444';
+                    return (
+                      <div className="mt-2 flex flex-col items-center">
+                        <svg width={W} height={H} className="overflow-visible">
+                          <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5"
+                            strokeLinejoin="round" strokeLinecap="round" />
+                        </svg>
+                        <p className="text-[10px] text-gray-400 mt-0.5">24h trend</p>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="text-right shrink-0 text-xs text-[rgba(0,0,0,0.4)]">
                   <div className="font-semibold text-lg text-[rgba(0,0,0,0.7)]">{healthScore.score}/100</div>
@@ -4580,11 +4847,10 @@ const { selectedAccountIds } = useAccounts();
                       {(() => {
                         const pct = Math.round(agentMetrics.currentConnections / agentMetrics.maxConnections * 100);
                         return (
-                          <span className={`font-semibold px-2 py-0.5 rounded-full text-[10px] ${
-                            pct > 80 ? 'bg-red-100 text-red-700' :
+                          <span className={`font-semibold px-2 py-0.5 rounded-full text-[10px] ${pct > 80 ? 'bg-red-100 text-red-700' :
                             pct > 60 ? 'bg-orange-100 text-orange-700' :
-                            'bg-emerald-100 text-emerald-700'
-                          }`}>
+                              'bg-emerald-100 text-emerald-700'
+                            }`}>
                             {agentMetrics.currentConnections} / {agentMetrics.maxConnections} ({pct}%)
                           </span>
                         );
@@ -4624,10 +4890,10 @@ const { selectedAccountIds } = useAccounts();
                     {(() => {
                       const total = agentMetrics.comSelect + agentMetrics.comInsert + agentMetrics.comUpdate + agentMetrics.comDelete;
                       const items = [
-                        { label: 'SELECT', val: agentMetrics.comSelect, barColor: 'bg-blue-500',   textColor: 'text-blue-600',   dotColor: 'bg-blue-500' },
+                        { label: 'SELECT', val: agentMetrics.comSelect, barColor: 'bg-blue-500', textColor: 'text-blue-600', dotColor: 'bg-blue-500' },
                         { label: 'INSERT', val: agentMetrics.comInsert, barColor: 'bg-emerald-500', textColor: 'text-emerald-600', dotColor: 'bg-emerald-500' },
-                        { label: 'UPDATE', val: agentMetrics.comUpdate, barColor: 'bg-amber-500',  textColor: 'text-amber-600',  dotColor: 'bg-amber-500' },
-                        { label: 'DELETE', val: agentMetrics.comDelete, barColor: 'bg-red-500',    textColor: 'text-red-600',    dotColor: 'bg-red-500' },
+                        { label: 'UPDATE', val: agentMetrics.comUpdate, barColor: 'bg-amber-500', textColor: 'text-amber-600', dotColor: 'bg-amber-500' },
+                        { label: 'DELETE', val: agentMetrics.comDelete, barColor: 'bg-red-500', textColor: 'text-red-600', dotColor: 'bg-red-500' },
                       ];
                       return (
                         <div className="space-y-2">
@@ -4749,6 +5015,80 @@ const { selectedAccountIds } = useAccounts();
               </div>
             )}
 
+            {/* MongoDB overview */}
+            {isMongo && mongoMetrics[0] && (() => {
+              const m = mongoMetrics[0];
+              const totalOps = m.opsInsert + m.opsQuery + m.opsUpdate + m.opsDelete + m.opsCommand;
+              return (
+                <div className="rounded-xl border border-gray-100 dark:border-gray-700/50 bg-white dark:bg-gray-800/60 p-4 space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <i className="fas fa-leaf mr-1.5 text-green-500" />MongoDB
+                    <span className="ml-2 text-gray-400 font-normal normal-case">{m.version}</span>
+                  </p>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div>
+                      <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{m.currentConnections}</p>
+                      <p className="text-[10px] text-gray-400">Connections</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{m.residentMemMb}MB</p>
+                      <p className="text-[10px] text-gray-400">Resident Mem</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{totalOps.toLocaleString()}</p>
+                      <p className="text-[10px] text-gray-400">Total Ops</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 flex-wrap text-[11px] text-gray-500">
+                    {[['Q', m.opsQuery, 'bg-blue-400'], ['I', m.opsInsert, 'bg-emerald-400'], ['U', m.opsUpdate, 'bg-amber-400'], ['D', m.opsDelete, 'bg-red-400']].map(([l, v, c]) => (
+                      <span key={String(l)} className="flex items-center gap-1">
+                        <span className={`w-2 h-2 rounded-full ${c}`} />{l}: {Number(v).toLocaleString()}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Redis overview */}
+            {isRedis && redisMetrics[0] && (() => {
+              const m = redisMetrics[0];
+              const hitColor = m.hitRatioPct >= 95 ? 'text-emerald-600 dark:text-emerald-400'
+                : m.hitRatioPct >= 80 ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-red-600 dark:text-red-400';
+              return (
+                <div className="rounded-xl border border-gray-100 dark:border-gray-700/50 bg-white dark:bg-gray-800/60 p-4 space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <i className="fas fa-bolt mr-1.5 text-red-500" />Redis
+                    <span className="ml-2 text-gray-400 font-normal normal-case">{m.version} · {m.role}</span>
+                  </p>
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <p className={`text-3xl font-bold ${hitColor}`}>{m.hitRatioPct.toFixed(1)}%</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Cache Hit Ratio</p>
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      {m.maxMemoryBytes > 0 && (
+                        <div>
+                          <div className="flex justify-between text-[10px] text-gray-400 mb-0.5">
+                            <span>Memory</span><span>{Math.round(m.memUsagePct)}%</span>
+                          </div>
+                          <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${m.memUsagePct > 90 ? 'bg-red-500' : m.memUsagePct > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                              style={{ width: `${Math.min(m.memUsagePct, 100)}%` }} />
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex gap-4 text-[11px] text-gray-500">
+                        <span><i className="fas fa-users text-[9px] mr-1" />{m.connectedClients} clients</span>
+                        {m.evictedKeys > 0 && <span className="text-amber-500"><i className="fas fa-trash text-[9px] mr-1" />{m.evictedKeys} evicted</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Agent management — collapsible disconnect */}
             {instance.source === 'agent' && (agentMetrics || instanceAgentStats.length > 0) && (
               <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
@@ -4800,11 +5140,10 @@ const { selectedAccountIds } = useAccounts();
               <div className="flex items-center gap-1 bg-[rgba(0,0,0,0.04)] rounded-xl p-0.5 shrink-0">
                 {([6, 24, 48, 168] as const).map(h => (
                   <button key={h} onClick={() => setTsHours(h)}
-                    className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all duration-200 ${
-                      tsHours === h
-                        ? 'bg-[rgba(0,0,0,0.88)] text-white shadow-sm'
-                        : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'
-                    }`}>
+                    className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all duration-200 ${tsHours === h
+                      ? 'bg-[rgba(0,0,0,0.88)] text-white shadow-sm'
+                      : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'
+                      }`}>
                     {h < 24 ? `${h}h` : h === 168 ? '7d' : `${h / 24}d`}
                   </button>
                 ))}
@@ -4814,20 +5153,20 @@ const { selectedAccountIds } = useAccounts();
 
             {/* ── CloudWatch charts (RDS only, when CloudWatch data is actually available) ── */}
             {instance.source === 'rds' && timeseries !== null && (() => {
-              const cpuData   = toChartData(timeseries?.cpu);
-              const connData  = toChartData(timeseries?.connections);
+              const cpuData = toChartData(timeseries?.cpu);
+              const connData = toChartData(timeseries?.connections);
               const rIopsData = toChartData(timeseries?.readIops);
               const wIopsData = toChartData(timeseries?.writeIops);
-              const rLatData  = toChartData(timeseries?.readLatencyMs);
-              const wLatData  = toChartData(timeseries?.writeLatencyMs);
-              const storData  = toChartData(timeseries?.freeStorageGb);
-              const memData   = toChartData(timeseries?.freeableMemoryMb);
+              const rLatData = toChartData(timeseries?.readLatencyMs);
+              const wLatData = toChartData(timeseries?.writeLatencyMs);
+              const storData = toChartData(timeseries?.freeStorageGb);
+              const memData = toChartData(timeseries?.freeableMemoryMb);
               const netInData = toChartData(timeseries?.networkReceiveMbps);
-              const netOutData= toChartData(timeseries?.networkTransmitMbps);
-              const repData   = toChartData(timeseries?.replicaLagSeconds);
+              const netOutData = toChartData(timeseries?.networkTransmitMbps);
+              const repData = toChartData(timeseries?.replicaLagSeconds);
 
               // Summary bar: find the peaks
-              const peakCpu  = cpuData.length  ? cpuData.reduce((a, b)  => a.v > b.v ? a : b) : null;
+              const peakCpu = cpuData.length ? cpuData.reduce((a, b) => a.v > b.v ? a : b) : null;
               const peakConn = connData.length ? connData.reduce((a, b) => a.v > b.v ? a : b) : null;
               const peakRLat = rLatData.length ? rLatData.reduce((a, b) => a.v > b.v ? a : b) : null;
 
@@ -4861,18 +5200,18 @@ const { selectedAccountIds } = useAccounts();
                   )}
 
                   <div className="grid grid-cols-2 gap-3">
-                    <PerfChart title="CPU Utilization"   data={cpuData}   color="#6366f1" unit="%"    syncId="rds_perf" />
-                    <PerfChart title="Connections"        data={connData}  color="#0ea5e9"             syncId="rds_perf" />
-                    <PerfChart title="Read IOPS"          data={rIopsData} color="#10b981" unit="IOPS" syncId="rds_perf" />
-                    <PerfChart title="Write IOPS"         data={wIopsData} color="#f59e0b" unit="IOPS" syncId="rds_perf" />
-                    <PerfChart title="Read Latency"       data={rLatData}  color="#8b5cf6" unit="ms"   syncId="rds_perf" />
-                    <PerfChart title="Write Latency"      data={wLatData}  color="#ef4444" unit="ms"   syncId="rds_perf" />
-                    <PerfChart title="Free Storage"       data={storData}  color="#14b8a6" unit="GB"   syncId="rds_perf" />
-                    <PerfChart title="Freeable Memory"    data={memData}   color="#f97316" unit="MB"   syncId="rds_perf" />
-                    <PerfChart title="Network In"         data={netInData} color="#06b6d4" unit="Mbps" syncId="rds_perf" />
-                    <PerfChart title="Network Out"        data={netOutData}color="#a78bfa" unit="Mbps" syncId="rds_perf" />
+                    <PerfChart title="CPU Utilization" data={cpuData} color="#6366f1" unit="%" syncId="rds_perf" />
+                    <PerfChart title="Connections" data={connData} color="#0ea5e9" syncId="rds_perf" />
+                    <PerfChart title="Read IOPS" data={rIopsData} color="#10b981" unit="IOPS" syncId="rds_perf" />
+                    <PerfChart title="Write IOPS" data={wIopsData} color="#f59e0b" unit="IOPS" syncId="rds_perf" />
+                    <PerfChart title="Read Latency" data={rLatData} color="#8b5cf6" unit="ms" syncId="rds_perf" />
+                    <PerfChart title="Write Latency" data={wLatData} color="#ef4444" unit="ms" syncId="rds_perf" />
+                    <PerfChart title="Free Storage" data={storData} color="#14b8a6" unit="GB" syncId="rds_perf" />
+                    <PerfChart title="Freeable Memory" data={memData} color="#f97316" unit="MB" syncId="rds_perf" />
+                    <PerfChart title="Network In" data={netInData} color="#06b6d4" unit="Mbps" syncId="rds_perf" />
+                    <PerfChart title="Network Out" data={netOutData} color="#a78bfa" unit="Mbps" syncId="rds_perf" />
                     {repData.length > 0 && (
-                      <PerfChart title="Replication Lag" data={repData}   color="#a855f7" unit="s"    syncId="rds_perf" />
+                      <PerfChart title="Replication Lag" data={repData} color="#a855f7" unit="s" syncId="rds_perf" />
                     )}
                   </div>
                 </div>
@@ -4882,16 +5221,16 @@ const { selectedAccountIds } = useAccounts();
             {/* ── IOPS Analysis (RDS) ── */}
             {instance.source === 'rds' && rd && metrics && (() => {
               const storType = (rd.storageType ?? '').toLowerCase();
-              const allocGb  = rd.allocatedStorage ?? 0;
-              const isGp2    = storType === 'gp2';
-              const isGp3    = storType === 'gp3';
+              const allocGb = rd.allocatedStorage ?? 0;
+              const isGp2 = storType === 'gp2';
+              const isGp3 = storType === 'gp3';
 
               // Baseline IOPS quota (sustained, guaranteed)
               const baselineIops = isGp2
                 ? Math.max(100, Math.min(allocGb * 3, 3000))
                 : isGp3 ? 3000 : 0;
 
-              const totalIops    = (metrics.avgReadIops ?? 0) + (metrics.avgWriteIops ?? 0);
+              const totalIops = (metrics.avgReadIops ?? 0) + (metrics.avgWriteIops ?? 0);
               const iopsUsagePct = baselineIops > 0 ? Math.min(Math.round(totalIops / baselineIops * 100), 200) : 0;
 
               const storBadgeClass = isGp2
@@ -4992,10 +5331,10 @@ const { selectedAccountIds } = useAccounts();
               const domainMax = new Date(snaps[snaps.length - 1].ts).getTime();
               const sharedDomain: [number, number] = [domainMin, domainMax];
 
-              const qpsData  = agentChartRate(snaps, 'totalQueries');
+              const qpsData = agentChartRate(snaps, 'totalQueries');
               const connData = agentChartDirect(snaps, 'connections');
 
-              const peakQps  = qpsData.length  ? qpsData.reduce((a, b)  => a.v > b.v ? a : b) : null;
+              const peakQps = qpsData.length ? qpsData.reduce((a, b) => a.v > b.v ? a : b) : null;
               const peakConn = connData.length ? connData.reduce((a, b) => a.v > b.v ? a : b) : null;
 
               return (
@@ -5032,26 +5371,26 @@ const { selectedAccountIds } = useAccounts();
                   )}
 
                   <div className="grid grid-cols-2 gap-3">
-                    <PerfChart title="Active Connections"      data={connData}                                  color="#0ea5e9"             domain={sharedDomain} syncId="agent_perf" />
-                    <PerfChart title="Connection Utilization"  data={agentChartConnUtilPct(snaps)}              color="#f43f5e" unit="%"    domain={sharedDomain} syncId="agent_perf" />
+                    <PerfChart title="Active Connections" data={connData} color="#0ea5e9" domain={sharedDomain} syncId="agent_perf" />
+                    <PerfChart title="Connection Utilization" data={agentChartConnUtilPct(snaps)} color="#f43f5e" unit="%" domain={sharedDomain} syncId="agent_perf" />
                     {!isPostgres && (
-                      <PerfChart title="Buffer Pool Hit %"     data={agentChartDirect(snaps, 'bufferPoolHitPct')} color="#10b981" unit="%" domain={sharedDomain} syncId="agent_perf" />
+                      <PerfChart title="Buffer Pool Hit %" data={agentChartDirect(snaps, 'bufferPoolHitPct')} color="#10b981" unit="%" domain={sharedDomain} syncId="agent_perf" />
                     )}
-                    <PerfChart title="Query Throughput (QPS)"  data={qpsData}                                   color="#6366f1" unit="/s"   domain={sharedDomain} syncId="agent_perf" />
+                    <PerfChart title="Query Throughput (QPS)" data={qpsData} color="#6366f1" unit="/s" domain={sharedDomain} syncId="agent_perf" />
                     {isPostgres ? (
-                      <PerfChart title="Slow Query Patterns"   data={agentChartDirect(snaps, 'totalSlowQueries')} color="#ef4444" unit=" patterns" domain={sharedDomain} syncId="agent_perf" />
+                      <PerfChart title="Slow Query Patterns" data={agentChartDirect(snaps, 'totalSlowQueries')} color="#ef4444" unit=" patterns" domain={sharedDomain} syncId="agent_perf" />
                     ) : (
-                      <PerfChart title="Slow Query Rate"       data={agentChartRate(snaps, 'totalSlowQueries')} color="#ef4444" unit="/s"   domain={sharedDomain} syncId="agent_perf" />
+                      <PerfChart title="Slow Query Rate" data={agentChartRate(snaps, 'totalSlowQueries')} color="#ef4444" unit="/s" domain={sharedDomain} syncId="agent_perf" />
                     )}
-                    <PerfChart title="SELECT/s"               data={agentChartRate(snaps, 'comSelect')}        color="#3b82f6" unit="/s"   domain={sharedDomain} syncId="agent_perf" />
-                    <PerfChart title="INSERT/s"               data={agentChartRate(snaps, 'comInsert')}        color="#22c55e" unit="/s"   domain={sharedDomain} syncId="agent_perf" />
-                    <PerfChart title="UPDATE/s"               data={agentChartRate(snaps, 'comUpdate')}        color="#f59e0b" unit="/s"   domain={sharedDomain} syncId="agent_perf" />
-                    <PerfChart title="DELETE/s"               data={agentChartRate(snaps, 'comDelete')}        color="#f43f5e" unit="/s"   domain={sharedDomain} syncId="agent_perf" />
-                    <PerfChart title="Active Threads"         data={agentChartDirect(snaps, 'threadsRunning')} color="#a78bfa"             domain={sharedDomain} syncId="agent_perf" />
+                    <PerfChart title="SELECT/s" data={agentChartRate(snaps, 'comSelect')} color="#3b82f6" unit="/s" domain={sharedDomain} syncId="agent_perf" />
+                    <PerfChart title="INSERT/s" data={agentChartRate(snaps, 'comInsert')} color="#22c55e" unit="/s" domain={sharedDomain} syncId="agent_perf" />
+                    <PerfChart title="UPDATE/s" data={agentChartRate(snaps, 'comUpdate')} color="#f59e0b" unit="/s" domain={sharedDomain} syncId="agent_perf" />
+                    <PerfChart title="DELETE/s" data={agentChartRate(snaps, 'comDelete')} color="#f43f5e" unit="/s" domain={sharedDomain} syncId="agent_perf" />
+                    <PerfChart title="Active Threads" data={agentChartDirect(snaps, 'threadsRunning')} color="#a78bfa" domain={sharedDomain} syncId="agent_perf" />
                     {!isPostgres && (
-                      <PerfChart title="Row Lock Waits/s"     data={agentChartRate(snaps, 'innodbRowLockWaits')} color="#fb923c" unit="/s" domain={sharedDomain} syncId="agent_perf" />
+                      <PerfChart title="Row Lock Waits/s" data={agentChartRate(snaps, 'innodbRowLockWaits')} color="#fb923c" unit="/s" domain={sharedDomain} syncId="agent_perf" />
                     )}
-                    <PerfChart title="Deadlocks/s"            data={agentChartRate(snaps, 'innodbDeadlocks')}  color="#ef4444" unit="/s"   domain={sharedDomain} syncId="agent_perf" />
+                    <PerfChart title="Deadlocks/s" data={agentChartRate(snaps, 'innodbDeadlocks')} color="#ef4444" unit="/s" domain={sharedDomain} syncId="agent_perf" />
                   </div>
                 </div>
               );
@@ -5138,6 +5477,7 @@ const { selectedAccountIds } = useAccounts();
             engine={instance.engine ?? 'mysql'}
             instanceId={instance.instanceId}
             endpoint={instance.rdsData?.endpoint}
+            onExplain={setExplainTarget}
           />
         )}
 
@@ -5193,7 +5533,147 @@ const { selectedAccountIds } = useAccounts();
           />
         )}
 
+        {/* ── MONGO SLOW OPS ── */}
+        {tab === 'mongo-ops' && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active Slow Operations (≥ 1s)</p>
+            {mongoSlowOps.length === 0 ? (
+              <div className="text-center py-12">
+                <i className="fas fa-circle-check text-emerald-400 text-2xl mb-2 block" />
+                <p className="text-sm text-gray-400">No slow operations</p>
+              </div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['Namespace', 'Op', 'Duration', 'Query Shape'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>{mongoSlowOps.map((op, i) => (
+                  <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
+                    <td className="px-3 py-2 font-mono text-indigo-600 dark:text-indigo-400 text-[11px]">{op.namespace}</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{op.op}</td>
+                    <td className="px-3 py-2 font-semibold text-amber-600">{op.millis}ms</td>
+                    <td className="px-3 py-2 text-gray-500 truncate max-w-[160px]">{op.queryDigest}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* ── MONGO INDEX STATS ── */}
+        {tab === 'mongo-index' && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Index Usage Stats</p>
+            {mongoIndexStats.length === 0 ? (
+              <div className="text-center py-12 text-sm text-gray-400">No index data available</div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['Collection', 'Index', 'Accesses', 'Status'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>{mongoIndexStats.map((s, i) => (
+                  <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
+                    <td className="px-3 py-2 font-mono text-[11px] text-gray-600 dark:text-gray-300">{s.database}.{s.collection}</td>
+                    <td className="px-3 py-2 text-indigo-600 dark:text-indigo-400">{s.indexName}</td>
+                    <td className="px-3 py-2 tabular-nums">{s.accessOps.toLocaleString()}</td>
+                    <td className="px-3 py-2">
+                      {s.accessOps === 0
+                        ? <span className="text-amber-500 text-[10px] font-medium">Unused</span>
+                        : <span className="text-emerald-500 text-[10px] font-medium">Active</span>}
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* ── REDIS KEYSPACE ── */}
+        {tab === 'redis-keyspace' && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Keyspace</p>
+            {redisKeyspace.length === 0 ? (
+              <div className="text-center py-12 text-sm text-gray-400">No keyspace data available</div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['Database', 'Keys', 'With TTL', 'Avg TTL'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>{redisKeyspace.map((ks, i) => (
+                  <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
+                    <td className="px-3 py-2 font-mono text-indigo-600 dark:text-indigo-400">{ks.database}</td>
+                    <td className="px-3 py-2 tabular-nums font-semibold">{ks.keys.toLocaleString()}</td>
+                    <td className="px-3 py-2 tabular-nums text-gray-500">{ks.expires.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-gray-500">{ks.avgTtlMs > 0 ? `${Math.round(ks.avgTtlMs / 1000)}s` : '—'}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* ── REDIS SLOW LOG ── */}
+        {tab === 'redis-slowlog' && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last 10 Slow Commands</p>
+            {redisSlowLog.length === 0 ? (
+              <div className="text-center py-12">
+                <i className="fas fa-circle-check text-emerald-400 text-2xl mb-2 block" />
+                <p className="text-sm text-gray-400">No slow commands</p>
+              </div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                  {['Command', 'Duration', 'Time'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>{redisSlowLog.map((s, i) => (
+                  <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
+                    <td className="px-3 py-2 font-mono text-indigo-600 dark:text-indigo-400">{s.command}</td>
+                    <td className="px-3 py-2 font-semibold text-amber-600">{(s.durationUs / 1000).toFixed(2)}ms</td>
+                    <td className="px-3 py-2 text-gray-400 text-[10px]">{new Date(s.timestamp).toLocaleTimeString()}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )}
+
       </div>
+
+      {/* ── Explain loading overlay ── */}
+      {explainLoading && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl px-8 py-6 flex flex-col items-center gap-3">
+            <i className="fas fa-spinner fa-spin text-indigo-500 text-2xl" />
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Running EXPLAIN…</p>
+            <p className="text-xs text-gray-400">Agent is computing the plan — usually under 30 s</p>
+          </div>
+        </div>
+      )}
+      {explainError && !explainLoading && (
+        <div className="fixed bottom-6 right-6 z-50 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center gap-3 shadow-lg">
+          <i className="fas fa-circle-exclamation text-red-500" />
+          <p className="text-sm text-red-700 dark:text-red-300">{explainError}</p>
+          <button onClick={resetExplain} className="ml-2 text-red-400 hover:text-red-600">
+            <i className="fas fa-times" />
+          </button>
+        </div>
+      )}
+      {explainResult?.status === 'COMPLETED' && explainResult.planJson && (
+        <QueryPlanViewer
+          planJson={explainResult.planJson}
+          engine={instance.engine ?? 'postgres'}
+          onClose={() => { resetExplain(); setExplainTarget(null); }}
+        />
+      )}
     </div>
   );
 }

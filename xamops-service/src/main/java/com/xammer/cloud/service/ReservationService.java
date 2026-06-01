@@ -116,7 +116,7 @@ public class ReservationService {
         return cloudListService.getAllOptedInRegions(account).thenCompose(activeRegions -> {
 
             if (activeRegions == null) {
-                return CompletableFuture.completedFuture(new ReservationDto(null, null, null, null, null, null));
+                return CompletableFuture.completedFuture(new ReservationDto(null, null, null, null, null, null, null));
             }
 
             logger.info("--- LAUNCHING RESERVATION & SP SCAN for account {} (Scanning {} regions) ---",
@@ -136,8 +136,12 @@ public class ReservationService {
             CompletableFuture<List<SavingsPlanDto>> savingsPlansFuture = getSavingsPlans(account, activeRegions,
                     forceRefresh);
 
+            CompletableFuture<List<SavingsPlanRecommendationDto>> spRecsFuture =
+                    getSavingsPlanRecommendations(account, "COMPUTE_SP", "ONE_YEAR", "NO_UPFRONT", "THIRTY_DAYS",
+                            forceRefresh);
+
             return CompletableFuture.allOf(analysisFuture, purchaseRecsFuture, inventoryFuture, historicalDataFuture,
-                    modificationRecsFuture, savingsPlansFuture).thenApply(v -> {
+                    modificationRecsFuture, savingsPlansFuture, spRecsFuture).thenApply(v -> {
                         logger.info("--- RESERVATION PAGE DATA FETCH COMPLETE ---");
                         ReservationDto result = new ReservationDto(
                                 analysisFuture.join(),
@@ -145,7 +149,8 @@ public class ReservationService {
                                 inventoryFuture.join(),
                                 historicalDataFuture.join(),
                                 modificationRecsFuture.join(),
-                                savingsPlansFuture.join());
+                                savingsPlansFuture.join(),
+                                spRecsFuture.join());
                         try {
                             cachedDataRepository.save(new CachedData(dbKey,
                                     objectMapper.writeValueAsString(result), java.time.LocalDateTime.now()));
@@ -173,22 +178,221 @@ public class ReservationService {
                 DescribeSavingsPlansResponse response = client
                         .describeSavingsPlans(DescribeSavingsPlansRequest.builder().build());
 
-                return response.savingsPlans().stream().map(sp -> new SavingsPlanDto(
-                        sp.savingsPlanId(),
-                        sp.savingsPlanArn(),
-                        sp.description(),
-                        sp.stateAsString(),
-                        sp.savingsPlanTypeAsString(),
-                        sp.paymentOptionAsString(),
-                        sp.start(),
-                        sp.end(),
-                        sp.region(),
-                        sp.commitment() + "/hr",
-                        sp.upfrontPaymentAmount() != null ? sp.upfrontPaymentAmount() : "0.0",
-                        sp.currencyAsString())).collect(Collectors.toList());
+                List<SavingsPlanDto> plans = response.savingsPlans().stream().map(sp -> {
+                    SavingsPlanDto dto = new SavingsPlanDto(
+                            sp.savingsPlanId(),
+                            sp.savingsPlanArn(),
+                            sp.description(),
+                            sp.stateAsString(),
+                            sp.savingsPlanTypeAsString(),
+                            sp.paymentOptionAsString(),
+                            sp.start(),
+                            sp.end(),
+                            sp.region(),
+                            sp.commitment() + "/hr",
+                            sp.upfrontPaymentAmount() != null ? sp.upfrontPaymentAmount() : "0.0",
+                            sp.currencyAsString(),
+                            null, null, null, null);
+                    return dto;
+                }).collect(Collectors.toList());
+
+                // Enrich active plans with aggregated utilization data (Redis→DB→live CE)
+                try {
+                    String utilCacheKey = "spUtilization-" + account.getAwsAccountId();
+                    String utilDbKey = "SP_UTILIZATION::" + account.getAwsAccountId();
+                    SpUtilizationSnapshot util = null;
+
+                    if (!forceRefresh) {
+                        Optional<SpUtilizationSnapshot> cachedUtil = redisCache.get(utilCacheKey,
+                                SpUtilizationSnapshot.class);
+                        if (cachedUtil.isPresent()) {
+                            util = cachedUtil.get();
+                            logger.info("✅ SP utilization Redis hit for account {}", account.getAwsAccountId());
+                        }
+                        if (util == null) {
+                            try {
+                                Optional<CachedData> dbCached = cachedDataRepository.findById(utilDbKey);
+                                if (dbCached.isPresent()) {
+                                    util = objectMapper.readValue(dbCached.get().getJsonData(),
+                                            SpUtilizationSnapshot.class);
+                                    if (util != null) {
+                                        redisCache.put(utilCacheKey, util, 60 * 24);
+                                        logger.info("✅ SP utilization DB hit — re-warmed Redis for account {}",
+                                                account.getAwsAccountId());
+                                    }
+                                }
+                            } catch (Exception dbEx) {
+                                logger.warn("DB cache miss for {}: {}", utilDbKey, dbEx.getMessage());
+                            }
+                        }
+                    }
+
+                    if (util == null) {
+                        CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+                        String today = LocalDate.now().toString();
+                        String thirtyDaysAgo = LocalDate.now().minusDays(30).toString();
+                        GetSavingsPlansUtilizationRequest utilReq = GetSavingsPlansUtilizationRequest.builder()
+                                .timePeriod(DateInterval.builder().start(thirtyDaysAgo).end(today).build())
+                                .build();
+                        GetSavingsPlansUtilizationResponse utilResp = ce.getSavingsPlansUtilization(utilReq);
+                        if (utilResp.total() != null) {
+                            util = new SpUtilizationSnapshot(
+                                    utilResp.total().utilization() != null
+                                            ? parseDoubleOrNull(utilResp.total().utilization().utilizationPercentage())
+                                            : null,
+                                    utilResp.total().utilization() != null
+                                            ? utilResp.total().utilization().usedCommitment() : null,
+                                    utilResp.total().utilization() != null
+                                            ? utilResp.total().utilization().unusedCommitment() : null,
+                                    utilResp.total().savings() != null
+                                            ? utilResp.total().savings().netSavings() : null);
+                            redisCache.put(utilCacheKey, util, 60 * 24);
+                            try {
+                                CachedData snapshot = cachedDataRepository.findById(utilDbKey)
+                                        .orElse(new CachedData());
+                                snapshot.setCacheKey(utilDbKey);
+                                snapshot.setJsonData(objectMapper.writeValueAsString(util));
+                                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                cachedDataRepository.save(snapshot);
+                            } catch (Exception dbEx) {
+                                logger.warn("Failed to save SP utilization DB snapshot {}: {}", utilDbKey,
+                                        dbEx.getMessage());
+                            }
+                        }
+                    }
+
+                    if (util != null) {
+                        final SpUtilizationSnapshot finalUtil = util;
+                        plans.stream()
+                                .filter(p -> "active".equalsIgnoreCase(p.getState()))
+                                .forEach(p -> {
+                                    p.setUtilizationPercentage(finalUtil.utilizationPercentage);
+                                    p.setUsedCommitment(finalUtil.usedCommitment);
+                                    p.setUnusedCommitment(finalUtil.unusedCommitment);
+                                    p.setNetSavings(finalUtil.netSavings);
+                                });
+                    }
+                } catch (Exception utilEx) {
+                    logger.warn("SP utilization enrichment failed for account {}: {}", account.getAwsAccountId(),
+                            utilEx.getMessage());
+                }
+
+                return plans;
             } catch (Exception e) {
                 logger.error("Failed to fetch Savings Plans for account {}: {}", account.getAwsAccountId(),
                         e.getMessage());
+                return new ArrayList<>();
+            }
+        });
+    }
+
+    private Double parseDoubleOrNull(String val) {
+        if (val == null || val.isBlank()) return null;
+        try {
+            return Double.parseDouble(val);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<SavingsPlanRecommendationDto>> getSavingsPlanRecommendations(
+            CloudAccount account, String spType, String term, String paymentOption,
+            String lookback, boolean forceRefresh) {
+
+        if (useMockData) {
+            return CompletableFuture.completedFuture(new ArrayList<>());
+        }
+
+        String cacheKey = String.format("spPurchaseRecs-%s-%s-%s-%s-%s",
+                account.getAwsAccountId(), spType, term, paymentOption, lookback);
+        String dbKey = String.format("SP_PURCHASE_RECS::%s::%s::%s::%s::%s",
+                account.getAwsAccountId(), spType, term, paymentOption, lookback);
+
+        if (!forceRefresh) {
+            Optional<List<SavingsPlanRecommendationDto>> cachedData = redisCache.get(cacheKey,
+                    new TypeReference<>() {});
+            if (cachedData.isPresent()) {
+                return CompletableFuture.completedFuture(cachedData.get());
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+                if (dbCached.isPresent()) {
+                    List<SavingsPlanRecommendationDto> dbData = objectMapper.readValue(
+                            dbCached.get().getJsonData(), new TypeReference<>() {});
+                    if (dbData != null) {
+                        redisCache.put(cacheKey, dbData, 60 * 24);
+                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                        return CompletableFuture.completedFuture(dbData);
+                    }
+                }
+            } catch (Exception dbEx) {
+                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
+            }
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+
+                SupportedSavingsPlansType spTypeEnum;
+                if ("EC2_INSTANCE_SP".equals(spType)) {
+                    spTypeEnum = SupportedSavingsPlansType.EC2_INSTANCE_SP;
+                } else if ("SAGEMAKER_SP".equals(spType)) {
+                    spTypeEnum = SupportedSavingsPlansType.SAGEMAKER_SP;
+                } else {
+                    spTypeEnum = SupportedSavingsPlansType.COMPUTE_SP;
+                }
+
+                GetSavingsPlansPurchaseRecommendationRequest request =
+                        GetSavingsPlansPurchaseRecommendationRequest.builder()
+                                .savingsPlansType(spTypeEnum)
+                                .termInYears(TermInYears.fromValue(term))
+                                .paymentOption(PaymentOption.fromValue(paymentOption))
+                                .lookbackPeriodInDays(LookbackPeriodInDays.fromValue(lookback))
+                                .build();
+
+                GetSavingsPlansPurchaseRecommendationResponse response =
+                        ce.getSavingsPlansPurchaseRecommendation(request);
+
+                List<SavingsPlanRecommendationDto> result = new ArrayList<>();
+                if (response.savingsPlansPurchaseRecommendation() != null
+                        && response.savingsPlansPurchaseRecommendation()
+                                .savingsPlansPurchaseRecommendationDetails() != null) {
+                    for (SavingsPlansPurchaseRecommendationDetail detail :
+                            response.savingsPlansPurchaseRecommendation()
+                                    .savingsPlansPurchaseRecommendationDetails()) {
+                        try {
+                            SavingsPlansDetails details = detail.savingsPlansDetails();
+                            result.add(new SavingsPlanRecommendationDto(
+                                    spType,
+                                    details != null ? details.region() : null,
+                                    details != null ? details.instanceFamily() : null,
+                                    detail.hourlyCommitmentToPurchase(),
+                                    detail.upfrontCost(),
+                                    detail.estimatedSPCost(),
+                                    detail.estimatedMonthlySavingsAmount(),
+                                    detail.estimatedSavingsPercentage(),
+                                    detail.currentAverageHourlyOnDemandSpend()));
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+
+                redisCache.put(cacheKey, result, 60 * 24);
+                try {
+                    CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                    snapshot.setCacheKey(dbKey);
+                    snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                    snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                    cachedDataRepository.save(snapshot);
+                } catch (Exception dbEx) {
+                    logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                }
+                return result;
+            } catch (Exception e) {
+                logger.error("Error fetching SP recommendations for account {}: {}",
+                        account.getAwsAccountId(), e.getMessage());
                 return new ArrayList<>();
             }
         });
@@ -905,6 +1109,23 @@ public class ReservationService {
             return family + "." + this.instanceSizeOrder.get(currentIndex - 1);
         }
         return null;
+    }
+
+    private static class SpUtilizationSnapshot {
+        Double utilizationPercentage;
+        String usedCommitment;
+        String unusedCommitment;
+        String netSavings;
+
+        SpUtilizationSnapshot() {}
+
+        SpUtilizationSnapshot(Double utilizationPercentage, String usedCommitment,
+                String unusedCommitment, String netSavings) {
+            this.utilizationPercentage = utilizationPercentage;
+            this.usedCommitment = usedCommitment;
+            this.unusedCommitment = unusedCommitment;
+            this.netSavings = netSavings;
+        }
     }
 
     private <T> CompletableFuture<List<T>> fetchAllRegionalResources(CloudAccount account,

@@ -250,11 +250,11 @@ export const demoCostForecast = {
 // ─── /api/xamops/waste ────────────────────────────────────────────────────────
 // WastedResource[] — matches the type in src/types/waste.ts
 export const demoWasteData = [
-  { resourceId: 'i-0abc1003', resourceName: 'prod-idle-01',  resourceType: 'EC2',      region: 'us-east-1', reason: 'Low CPU utilisation (<5%)',    monthlySavings: 420  },
-  { resourceId: 'snap-0def4001',                             resourceType: 'Snapshot',  region: 'us-east-1', reason: 'Orphaned snapshot',             monthlySavings: 18   },
-  { resourceId: 'vol-0ghi7001',                              resourceType: 'EBS',       region: 'eu-west-1', reason: 'Unattached EBS volume',         monthlySavings: 65   },
-  { resourceId: 'eip-0jkl0001',                              resourceType: 'EIP',       region: 'us-west-2', reason: 'Unassociated Elastic IP',       monthlySavings: 3.6  },
-  { resourceId: 'i-0abc1004', resourceName: 'staging-web-02',resourceType: 'EC2',      region: 'ap-south-1',reason: 'Idle load balancer',            monthlySavings: 280  },
+  { resourceId: 'i-0abc1003', resourceName: 'prod-idle-01',   resourceType: 'EC2 Instance', region: 'us-east-1',  reason: 'Low CPU utilisation (<5%)',      monthlySavings: 420  },
+  { resourceId: 'snap-0def4001', resourceName: 'db-backup-jan', resourceType: 'Snapshot',    region: 'us-east-1',  reason: 'Orphaned snapshot',               monthlySavings: 18   },
+  { resourceId: 'vol-0ghi7001', resourceName: 'data-volume-01', resourceType: 'EBS Volume',  region: 'eu-west-1',  reason: 'Unattached EBS volume',           monthlySavings: 65   },
+  { resourceId: 'eip-0jkl0001', resourceName: '52.23.145.67',  resourceType: 'Elastic IP',  region: 'us-west-2',  reason: 'Unassociated Elastic IP',         monthlySavings: 3.6  },
+  { resourceId: 'i-0abc1004', resourceName: 'staging-web-02',  resourceType: 'EC2 Instance', region: 'ap-south-1', reason: 'Stopped instance (30+ days)',     monthlySavings: 280  },
 ];
 
 // /api/xamops/security/findings — hook does Array.isArray(data) ? data : (data.findings || data)
@@ -466,7 +466,12 @@ export const demoReservationInventory = {
     { reservationId: 'ri-0abc0003', instanceType: 'r5.xlarge', instanceCount: 2, scope: 'Region', utilizationPercentage: 71.0, state: 'active', start: '2023-12-01', end: '2024-12-01' },
   ],
   savingsPlans: [
-    { savingsPlanId: 'sp-0abc0001', type: 'ComputeSavingsPlans', region: 'us-east-1', commitment: 500, paymentOption: 'NoUpfront', state: 'active', start: '2024-01-01', end: '2025-01-01' },
+    { savingsPlanId: 'sp-0abc0001', type: 'ComputeSavingsPlans', region: 'us-east-1', commitment: '0.50/hr', paymentOption: 'NoUpfront', state: 'active', start: '2024-01-01', end: '2026-01-01', utilizationPercentage: 84.6, usedCommitment: '0.42', unusedCommitment: '0.08', netSavings: '184.20' },
+    { savingsPlanId: 'sp-0abc0002', type: 'EC2InstanceSavingsPlans', region: 'eu-west-1', commitment: '0.20/hr', paymentOption: 'PartialUpfront', state: 'active', start: '2025-01-01', end: '2026-01-01', utilizationPercentage: 97.1, usedCommitment: '0.19', unusedCommitment: '0.01', netSavings: '68.40' },
+  ],
+  savingsPlanRecommendations: [
+    { savingsPlanType: 'COMPUTE_SP', region: null, instanceFamily: null, recommendedCommitment: '1.20', upfrontCost: '0.00', estimatedMonthlyCost: '876.00', estimatedMonthlySavings: '412.50', estimatedSavingsPercentage: '32.0', currentAverageHourlyOnDemandSpend: '1.77' },
+    { savingsPlanType: 'EC2_INSTANCE_SP', region: 'us-east-1', instanceFamily: 'm5', recommendedCommitment: '0.35', upfrontCost: '0.00', estimatedMonthlyCost: '255.50', estimatedMonthlySavings: '98.20', estimatedSavingsPercentage: '27.8', currentAverageHourlyOnDemandSpend: '0.48' },
   ],
   historicalData: {
     labels: ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
@@ -480,6 +485,12 @@ export const demoReservationRecommendations = [
   { instanceFamily: 'm5', region: 'us-east-1', platform: 'Linux', recommendedInstances: 3, onDemandCost: 420, estimatedMonthlyCost: 280, monthlySavings: 140 },
   { instanceFamily: 'r5', region: 'eu-west-1', platform: 'Linux', recommendedInstances: 2, onDemandCost: 680, estimatedMonthlyCost: 460, monthlySavings: 220 },
   { instanceFamily: 't3', region: 'us-east-1', platform: 'Linux', recommendedInstances: 5, onDemandCost: 240, estimatedMonthlyCost: 165, monthlySavings: 75  },
+];
+
+// /api/xamops/reservations/sp-recommendations
+export const demoSpRecommendations = [
+  { savingsPlanType: 'COMPUTE_SP',      region: null,        instanceFamily: null, recommendedCommitment: '1.20', upfrontCost: '0.00', estimatedMonthlyCost: '876.00', estimatedMonthlySavings: '412.50', estimatedSavingsPercentage: '32.0', currentAverageHourlyOnDemandSpend: '1.77' },
+  { savingsPlanType: 'EC2_INSTANCE_SP', region: 'us-east-1', instanceFamily: 'm5', recommendedCommitment: '0.35', upfrontCost: '0.00', estimatedMonthlyCost: '255.50', estimatedMonthlySavings: '98.20',  estimatedSavingsPercentage: '27.8', currentAverageHourlyOnDemandSpend: '0.48' },
 ];
 
 // ─── /api/autospotting/* ──────────────────────────────────────────────────────
@@ -517,6 +528,29 @@ export const demoEbsVolumes = [
   { volumeId: 'vol-0ghi7003', region: 'eu-west-1', volumeType: 'gp2', sizeGb: 200, state: 'in-use',    attached: true,  instanceId: 'i-0abc1002', device: '/dev/sdb',  isRootVolume: false, encrypted: false, monthlyCost: 20.0, usedPercent: 78, usedGb: 156, freeGb: 44,  recommendation: 'UPGRADE_TYPE',  recommendationReason: 'Upgrade to gp3 for 20% cost savings',  recommendedType: 'gp3',            estimatedSavings: 4.0  },
   { volumeId: 'vol-0ghi7004', region: 'us-east-1', volumeType: 'gp3', sizeGb: 50,  state: 'in-use',    attached: true,  instanceId: 'i-0abc1003', device: '/dev/sda1', isRootVolume: true,  encrypted: true,  monthlyCost: 4.0,  recommendation: 'NONE',          recommendationReason: 'Optimally configured' },
 ];
+
+// ─── /api/ebs/monitoring/{accountId}/{volumeId} ───────────────────────────────
+const _ebsPts = (fn: (i: number) => number) =>
+  Array.from({ length: 60 }, (_, i) => ({
+    ts: 1748174400000 - (59 - i) * 60_000,
+    v: fn(i),
+  }));
+
+export const demoEbsMonitoringData = {
+  volumeId: 'vol-0ghi7001',
+  region: 'us-east-1',
+  period: 60,
+  metrics: {
+    writeBytes:     _ebsPts(i => 90_000 + 40_000 * Math.sin(i * 0.3)),
+    readBytes:      _ebsPts(i =>  8_000 +  3_000 * Math.sin(i * 0.25)),
+    writeOps:       _ebsPts(i => 22 + 10  * Math.sin(i * 0.3)),
+    readOps:        _ebsPts(i =>  3 +  1.5 * Math.sin(i * 0.25)),
+    totalWriteTime: _ebsPts(i => (22 + 10  * Math.sin(i * 0.3))  * 0.002),
+    totalReadTime:  _ebsPts(i => ( 3 +  1.5 * Math.sin(i * 0.25)) * 0.003),
+    queueLength:    _ebsPts(i => 0.3 + 0.15 * Math.sin(i * 0.5)),
+    idleTime:       _ebsPts(i => 52  +  5   * Math.sin(i * 0.4)),
+  },
+};
 
 // ─── /api/autospotting/analytics/launches/{accountId} ────────────────────────
 export const demoAutoSpottingLaunchAnalytics = {
@@ -898,6 +932,67 @@ export const demoGithubRuns = [
   { id: 11003, name: 'Security Scan',          status: 'completed', conclusion: 'failure', displayStatus: 'Failed',  html_url: '', updated_at: '2026-04-29T16:00:00Z', run_number: 140, workflow_id: 1003, repository: { full_name: 'xammer/cloud-app' } },
   { id: 11004, name: 'Infrastructure Preview', status: 'completed', conclusion: 'success', displayStatus: 'Success', html_url: '', updated_at: '2026-04-29T14:30:00Z', run_number: 139, workflow_id: 1004, repository: { full_name: 'xammer/infra'      } },
 ];
+
+// ─── /api/cicd/*/metrics ─────────────────────────────────────────────────────
+export const demoCicdGithubMetrics = {
+  successRate: 87.5,
+  totalRuns: 48,
+  failureCount: 6,
+  avgDurationSeconds: 342,
+  prevSuccessRate: 82.0,
+  prevTotalRuns: 44,
+  prevFailureCount: 8,
+  prevAvgDurationSeconds: 378,
+  dora: { deploymentFrequency: 1.4, mttr: 5400, changeFailureRate: 12.5 },
+  dailyStats: [
+    { date: '2026-05-22', successCount: 5, failureCount: 1, avgDuration: 320 },
+    { date: '2026-05-23', successCount: 7, failureCount: 0, avgDuration: 298 },
+    { date: '2026-05-24', successCount: 6, failureCount: 2, avgDuration: 361 },
+    { date: '2026-05-25', successCount: 8, failureCount: 1, avgDuration: 344 },
+    { date: '2026-05-26', successCount: 4, failureCount: 1, avgDuration: 390 },
+    { date: '2026-05-27', successCount: 9, failureCount: 1, avgDuration: 312 },
+    { date: '2026-05-28', successCount: 3, failureCount: 0, avgDuration: 330 },
+  ],
+  topFailingStages: [
+    { name: 'Build', failureCount: 3 },
+    { name: 'Security Scan', failureCount: 2 },
+    { name: 'Deploy', failureCount: 1 },
+  ],
+  topFailingWorkflows: [
+    { name: 'Security Scan', failureCount: 2, successRate: 50.0 },
+    { name: 'Deploy to Production', failureCount: 2, successRate: 60.0 },
+    { name: 'Build & Test', failureCount: 2, successRate: 80.0 },
+  ],
+};
+
+export const demoCicdJenkinsMetrics = {
+  successRate: 75.0,
+  totalRuns: 20,
+  failureCount: 5,
+  avgDurationSeconds: 480,
+  prevSuccessRate: 70.0,
+  prevTotalRuns: 18,
+  prevFailureCount: 6,
+  prevAvgDurationSeconds: 520,
+  dora: null,
+  dailyStats: [
+    { date: '2026-05-22', successCount: 2, failureCount: 1, avgDuration: 460 },
+    { date: '2026-05-23', successCount: 3, failureCount: 1, avgDuration: 500 },
+    { date: '2026-05-24', successCount: 2, failureCount: 0, avgDuration: 440 },
+    { date: '2026-05-25', successCount: 4, failureCount: 2, avgDuration: 520 },
+    { date: '2026-05-26', successCount: 2, failureCount: 1, avgDuration: 480 },
+    { date: '2026-05-27', successCount: 2, failureCount: 0, avgDuration: 490 },
+    { date: '2026-05-28', successCount: 0, failureCount: 0, avgDuration: 0 },
+  ],
+  topFailingStages: [
+    { name: 'Test', failureCount: 3 },
+    { name: 'Package', failureCount: 2 },
+  ],
+  topFailingWorkflows: [
+    { name: 'nightly-build', failureCount: 3, successRate: 40.0 },
+    { name: 'integration-tests', failureCount: 2, successRate: 60.0 },
+  ],
+};
 
 // ─── /api/dev_ops_script ──────────────────────────────────────────────────────
 export const demoDevOpsScripts = [
@@ -1486,6 +1581,18 @@ export const demoAgentUserActivity = [
   { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', username: 'read_only',   activeConnections: 6,  idleConnections: 12, totalConnections: 18, callCount: 28600, totalTimeSeconds: 420.8,  collectedAt: new Date().toISOString() },
   { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', username: 'migrations',  activeConnections: 0,  idleConnections: 2,  totalConnections: 2,  callCount: 84,    totalTimeSeconds: 12.4,   collectedAt: new Date().toISOString() },
   { dsnAlias: 'rds-prod-002', dbEngine: 'mysql',    dbHost: 'rds-prod-002.us-east-1.rds.amazonaws.com', username: 'app_backend', activeConnections: 8,  idleConnections: 4,  totalConnections: 12, callCount: 18400, totalTimeSeconds: 680.6,  collectedAt: new Date().toISOString() },
+];
+
+// ─── DbOps Agent Query Stats (/api/dbops/aws/*/agent-query-stats) ────────────
+export const demoAgentQueryStats = [
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', queryDigest: 'SELECT u.*, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.status = $1 AND u.created_at > $2 ORDER BY u.created_at DESC LIMIT $3', callCount: 48420, totalTimeSeconds: 1840.2, avgTimeSeconds: 0.03799, maxTimeSeconds: 12.84, rowsExamined: 284200, rowsSent: 14200, sharedBlksHit: 982400, sharedBlksRead: 14200, noIndexUsed: false, lockTimeSeconds: 0.042, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', queryDigest: 'UPDATE orders SET status = $1, updated_at = NOW() WHERE tenant_id = $2 AND status IN ($3, $4) AND created_at < $5', callCount: 28600, totalTimeSeconds: 960.4, avgTimeSeconds: 0.03358, maxTimeSeconds: 8.21, rowsExamined: 142600, rowsSent: 0, sharedBlksHit: 284000, sharedBlksRead: 28600, noIndexUsed: false, lockTimeSeconds: 0.128, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', queryDigest: 'SELECT a.*, b.cost FROM aws_resources a JOIN billing_entries b ON a.resource_id = b.resource_id WHERE a.account_id = $1 AND b.month = $2', callCount: 12840, totalTimeSeconds: 720.6, avgTimeSeconds: 0.05612, maxTimeSeconds: 5.96, rowsExamined: 98400, rowsSent: 12840, sharedBlksHit: 196800, sharedBlksRead: 2400, noIndexUsed: false, lockTimeSeconds: 0.008, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', queryDigest: 'DELETE FROM audit_logs WHERE created_at < $1 AND tenant_id = $2', callCount: 84, totalTimeSeconds: 48.2, avgTimeSeconds: 0.57381, maxTimeSeconds: 4.13, rowsExamined: 64800, rowsSent: 0, sharedBlksHit: 8400, sharedBlksRead: 64800, noIndexUsed: true, lockTimeSeconds: 0.220, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', queryDigest: 'SELECT COUNT(*), SUM(cost), AVG(cost) FROM billing_entries WHERE account_id = $1 AND month BETWEEN $2 AND $3 GROUP BY service_name', callCount: 6420, totalTimeSeconds: 284.8, avgTimeSeconds: 0.04436, maxTimeSeconds: 2.84, rowsExamined: 864000, rowsSent: 6420, sharedBlksHit: 1728000, sharedBlksRead: 0, noIndexUsed: false, lockTimeSeconds: 0.000, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', queryDigest: 'INSERT INTO api_request_logs (tenant_id, user_id, endpoint, method, status_code, duration_ms, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW())', callCount: 184000, totalTimeSeconds: 184.0, avgTimeSeconds: 0.00100, maxTimeSeconds: 0.48, rowsExamined: 0, rowsSent: 184000, sharedBlksHit: 184000, sharedBlksRead: 0, noIndexUsed: false, lockTimeSeconds: 0.000, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', queryDigest: 'SELECT r.*, t.name AS tag_name FROM cloud_resources r LEFT JOIN resource_tags t ON r.id = t.resource_id WHERE r.account_id = $1 AND r.status = $2', callCount: 3280, totalTimeSeconds: 196.8, avgTimeSeconds: 0.06000, maxTimeSeconds: 1.92, rowsExamined: 432000, rowsSent: 3280, sharedBlksHit: 42000, sharedBlksRead: 8400, noIndexUsed: true, lockTimeSeconds: 0.000, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-002', dbEngine: 'mysql',    dbHost: 'rds-prod-002.us-east-1.rds.amazonaws.com', queryDigest: 'SELECT * FROM sessions WHERE user_id = ? AND expires_at > NOW() AND revoked = ?', callCount: 18400, totalTimeSeconds: 68.0, avgTimeSeconds: 0.00370, maxTimeSeconds: 0.62, rowsExamined: 18400, rowsSent: 18400, sharedBlksHit: 36800, sharedBlksRead: 0, noIndexUsed: false, lockTimeSeconds: 0.000, collectedAt: new Date().toISOString() },
 ];
 
 // ─── BillOps User Tickets (/api/billops/tickets/category/Account%20and%20Billing) ──

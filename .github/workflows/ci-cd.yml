@@ -216,15 +216,15 @@ jobs:
 
             docker network inspect xamops-network >/dev/null 2>&1 || docker network create xamops-network
 
-            docker stop billops 2>/dev/null || true
-            docker rm   billops 2>/dev/null || true
+            docker stop billops-service 2>/dev/null || true
+            docker rm   billops-service 2>/dev/null || true
 
             docker run -d \
-              --name billops \
+              --name billops-service \
               --restart unless-stopped \
               --network xamops-network \
               --memory=2g --memory-swap=2g \
-              -p 9091:9091 \
+              -p 8082:8082 \
               -e SPRING_PROFILES_ACTIVE=uat \
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
               -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
@@ -235,12 +235,12 @@ jobs:
               ghcr.io/xamops/billops:latest
 
             sleep 20
-            if docker ps --filter "name=billops" --filter "status=running" | grep -q billops; then
-              echo "✅ billops is running"
-              docker ps --filter "name=billops"
+            if docker ps --filter "name=billops-service" --filter "status=running" | grep -q billops-service; then
+              echo "✅ billops-service is running"
+              docker ps --filter "name=billops-service"
             else
-              echo "❌ billops failed to start"
-              docker logs --tail=50 billops
+              echo "❌ billops-service failed to start"
+              docker logs --tail=50 billops-service
               exit 1
             fi
 
@@ -410,12 +410,12 @@ jobs:
               --restart unless-stopped \
               --network xamops-network \
               --memory=2g --memory-swap=2g \
-              -p 9090:9090 \
+              -p 8080:8080 \
               -e SPRING_PROFILES_ACTIVE=uat \
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
               -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
               -e SPRING_FLYWAY_OUT_OF_ORDER=true \
-              -e MANAGEMENT_SERVER_PORT=9090 \
+              -e MANAGEMENT_SERVER_PORT=8080 \
               -e MANAGEMENT_HEALTH_DB_ENABLED=false \
               -e MANAGEMENT_HEALTH_REDIS_ENABLED=false \
               -e "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info" \
@@ -570,14 +570,6 @@ jobs:
               --restart unless-stopped \
               --network xamops-network \
               --memory=2g --memory-swap=2g \
-              -p 8080:8080 \
-              -e SPRING_PROFILES_ACTIVE=uat \
-              -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
-              -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
-              -e SPRING_FLYWAY_OUT_OF_ORDER=true \
-              -e MANAGEMENT_HEALTH_DB_ENABLED=false \
-              -e MANAGEMENT_HEALTH_REDIS_ENABLED=false \
-              -e "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info" \
               ghcr.io/xamops/frontend-app:latest
 
             sleep 20

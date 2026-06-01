@@ -1,7 +1,29 @@
 package com.xammer.cloud.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.xammer.cloud.domain.DbAgentConfig;
+import com.xammer.cloud.domain.DbAgentDataCache;
+import com.xammer.cloud.domain.ExplainRequest;
 import com.xammer.cloud.dto.dbops.*;
 import com.xammer.cloud.dto.dbops.AgentTimeseriesDto;
+import com.xammer.cloud.dto.dbops.MongoInstanceMetricsDto;
+import com.xammer.cloud.dto.dbops.MongoSlowOpDto;
+import com.xammer.cloud.dto.dbops.MongoIndexStatDto;
+import com.xammer.cloud.dto.dbops.RedisInstanceMetricsDto;
+import com.xammer.cloud.dto.dbops.RedisSlowLogDto;
+import com.xammer.cloud.dto.dbops.RedisKeyspaceDto;
+import com.xammer.cloud.domain.DbHealthAlert;
+import com.xammer.cloud.domain.DbHealthSnapshot;
+import com.xammer.cloud.dto.dbops.DbHealthAlertDto;
+import com.xammer.cloud.dto.dbops.DbHealthSnapshotDto;
+import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.DbAgentConfigRepository;
+import com.xammer.cloud.repository.DbAgentDataCacheRepository;
+import com.xammer.cloud.repository.DbHealthAlertRepository;
+import com.xammer.cloud.repository.DbHealthSnapshotRepository;
+import com.xammer.cloud.repository.ExplainRequestRepository;
 import com.xammer.cloud.service.DbOpsCostService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,8 +31,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -28,9 +55,31 @@ public class DbOpsController {
     private static final Logger logger = LoggerFactory.getLogger(DbOpsController.class);
 
     private final DbOpsCostService dbOpsCostService;
+    private final CloudAccountRepository cloudAccountRepository;
+    private final DbAgentConfigRepository dbAgentConfigRepository;
+    private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
+    private final ExplainRequestRepository explainRequestRepository;
+    private final DbHealthSnapshotRepository dbHealthSnapshotRepository;
+    private final DbHealthAlertRepository dbHealthAlertRepository;
+    private final ObjectMapper objectMapper;
 
-    public DbOpsController(DbOpsCostService dbOpsCostService) {
+    public DbOpsController(
+            DbOpsCostService dbOpsCostService,
+            CloudAccountRepository cloudAccountRepository,
+            DbAgentConfigRepository dbAgentConfigRepository,
+            DbAgentDataCacheRepository dbAgentDataCacheRepository,
+            ExplainRequestRepository explainRequestRepository,
+            DbHealthSnapshotRepository dbHealthSnapshotRepository,
+            DbHealthAlertRepository dbHealthAlertRepository) {
         this.dbOpsCostService = dbOpsCostService;
+        this.cloudAccountRepository = cloudAccountRepository;
+        this.dbAgentConfigRepository = dbAgentConfigRepository;
+        this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
+        this.explainRequestRepository = explainRequestRepository;
+        this.dbHealthSnapshotRepository = dbHealthSnapshotRepository;
+        this.dbHealthAlertRepository = dbHealthAlertRepository;
+        this.objectMapper = new ObjectMapper();
+        this.objectMapper.registerModule(new JavaTimeModule());
     }
 
     // ── Inventory ─────────────────────────────────────────────────────────────
@@ -396,5 +445,299 @@ public class DbOpsController {
                     logger.error("❌ [DbOps] Timeseries error for {}: {}", instanceId, ex.getMessage());
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
                 });
+    }
+
+    // ── Agent Wait Events ─────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-wait-events
+     *
+     * Returns latest db-wait-events batches pushed by the DB agent, grouped by DSN alias.
+     * Returns [] if no agent has pushed data yet.
+     */
+    @GetMapping("/{accountId}/agent-wait-events")
+    public ResponseEntity<List<AgentWaitEventDto>> getAgentWaitEvents(
+            @PathVariable String accountId) {
+
+        return cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .map(account -> {
+                    List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(account.getId());
+                    List<AgentWaitEventDto> result = new ArrayList<>();
+                    for (DbAgentConfig agent : agents) {
+                        // wait-events are stored with per-DSN cache keys: "db-wait-events:{accountId}:{dsnAlias}"
+                        // fetch all cache rows for this agent whose dataType starts with the prefix
+                        List<DbAgentDataCache> rows = dbAgentDataCacheRepository.findByDbAgentId(agent.getId());
+                        for (DbAgentDataCache row : rows) {
+                            if (!row.getDataType().startsWith("db-wait-events:")) continue;
+                            try {
+                                List<AgentWaitEventDto> events = objectMapper.readValue(
+                                        row.getDataJson(), new TypeReference<List<AgentWaitEventDto>>() {});
+                                if (events != null) result.addAll(events);
+                            } catch (Exception e) {
+                                logger.warn("[DbOps] agent-wait-events parse failed for agent {}: {}",
+                                        agent.getAgentName(), e.getMessage());
+                            }
+                        }
+                    }
+                    return ResponseEntity.ok(result);
+                })
+                .orElse(ResponseEntity.ok(List.of()));
+    }
+
+    // ── Agent Diagnostics ─────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/agent-diagnostics
+     *
+     * Returns latest db-diagnostics batch pushed by the DB agent (connectivity checks per DSN).
+     * Returns [] if no agent has pushed data yet.
+     */
+    @GetMapping("/{accountId}/agent-diagnostics")
+    public ResponseEntity<List<AgentDiagnosticDto>> getAgentDiagnostics(
+            @PathVariable String accountId) {
+
+        return cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .map(account -> {
+                    List<DbAgentConfig> agents = dbAgentConfigRepository.findByCloudAccountId(account.getId());
+                    List<AgentDiagnosticDto> result = new ArrayList<>();
+                    for (DbAgentConfig agent : agents) {
+                        String cacheKey = "db-diagnostics:" + account.getId();
+                        Optional<DbAgentDataCache> cacheOpt =
+                                dbAgentDataCacheRepository.findByDbAgentIdAndDataType(agent.getId(), cacheKey);
+                        if (cacheOpt.isEmpty()) continue;
+                        try {
+                            List<AgentDiagnosticDto> diags = objectMapper.readValue(
+                                    cacheOpt.get().getDataJson(), new TypeReference<List<AgentDiagnosticDto>>() {});
+                            if (diags != null) result.addAll(diags);
+                        } catch (Exception e) {
+                            logger.warn("[DbOps] agent-diagnostics parse failed for agent {}: {}",
+                                    agent.getAgentName(), e.getMessage());
+                        }
+                    }
+                    return ResponseEntity.ok(result);
+                })
+                .orElse(ResponseEntity.ok(List.of()));
+    }
+
+    // ── Explain Query ─────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/dbops/aws/{accountId}/explain-query
+     *
+     * Enqueues an EXPLAIN request for the DB agent to execute.
+     * Body: { agentName, dsnAlias, queryText, dbEngine }
+     * Returns the new requestId so the UI can poll for the result.
+     */
+    @PostMapping("/{accountId}/explain-query")
+    public ResponseEntity<Map<String, Object>> enqueueExplain(
+            @PathVariable String accountId,
+            @RequestBody ExplainQueryRequest body) {
+
+        return cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .map(account -> {
+                    if (body.getAgentName() == null || body.getQueryText() == null
+                            || body.getDsnAlias() == null || body.getDbEngine() == null) {
+                        return ResponseEntity.badRequest()
+                                .<Map<String, Object>>body(Map.of("error",
+                                        "agentName, dsnAlias, queryText and dbEngine are required"));
+                    }
+                    ExplainRequest req = new ExplainRequest();
+                    req.setId(UUID.randomUUID().toString());
+                    req.setCloudAccountId(account.getId());
+                    req.setAgentName(body.getAgentName());
+                    req.setDsnAlias(body.getDsnAlias());
+                    req.setQueryText(body.getQueryText());
+                    req.setDbEngine(body.getDbEngine());
+                    req.setStatus("PENDING");
+                    req.setCreatedAt(LocalDateTime.now());
+                    explainRequestRepository.save(req);
+                    logger.info("[DbOps] explain-query enqueued: id={} agent={}", req.getId(), req.getAgentName());
+                    return ResponseEntity.ok(Map.<String, Object>of(
+                            "requestId", req.getId(),
+                            "status", req.getStatus()
+                    ));
+                })
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Cloud account not found")));
+    }
+
+    // ── Explain Result ────────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/explain-result/{requestId}
+     *
+     * Polls for the result of a previously enqueued EXPLAIN request.
+     * Returns status PENDING / IN_FLIGHT / COMPLETED / FAILED / EXPIRED.
+     */
+    @GetMapping("/{accountId}/explain-result/{requestId}")
+    public ResponseEntity<ExplainResultDto> getExplainResult(
+            @PathVariable String accountId,
+            @PathVariable String requestId) {
+
+        Optional<ExplainRequest> reqOpt = explainRequestRepository.findById(requestId);
+        if (reqOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        ExplainRequest req = reqOpt.get();
+        return ResponseEntity.ok(new ExplainResultDto(
+                req.getId(),
+                req.getStatus(),
+                req.getResultJson(),
+                req.getErrorMessage()
+        ));
+    }
+
+    // ── DB Health Alerting ────────────────────────────────────────────────────
+
+    /**
+     * GET /api/dbops/aws/{accountId}/health-history
+     * Returns health snapshots for one instance over the last N hours (default 24).
+     */
+    @GetMapping("/{accountId}/health-history")
+    public ResponseEntity<List<DbHealthSnapshotDto>> getHealthHistory(
+            @PathVariable String accountId,
+            @RequestParam String instanceId,
+            @RequestParam(defaultValue = "24") int hours) {
+        try {
+            com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
+            java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(hours);
+            List<DbHealthSnapshot> snaps = dbHealthSnapshotRepository
+                .findByAccountIdAndInstanceIdAndComputedAtAfterOrderByComputedAtAsc(
+                    account.getId(), instanceId, since);
+            List<DbHealthSnapshotDto> result = snaps.stream().map(s -> {
+                List<String> issues = java.util.List.of();
+                try { issues = objectMapper.readValue(
+                    s.getIssuesJson() != null ? s.getIssuesJson() : "[]",
+                    new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}); }
+                catch (Exception ignored) {}
+                return DbHealthSnapshotDto.from(s, issues);
+            }).collect(java.util.stream.Collectors.toList());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.warn("health-history error for {}: {}", accountId, e.getMessage());
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/health-snapshots
+     * Returns the latest health snapshot for every DB instance under this account.
+     */
+    @GetMapping("/{accountId}/health-snapshots")
+    public ResponseEntity<List<DbHealthSnapshotDto>> getHealthSnapshots(@PathVariable String accountId) {
+        try {
+            com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
+            List<DbHealthSnapshot> snaps = dbHealthSnapshotRepository.findLatestPerInstance(account.getId());
+            List<DbHealthSnapshotDto> result = snaps.stream().map(s -> {
+                List<String> issues = java.util.List.of();
+                try { issues = objectMapper.readValue(
+                    s.getIssuesJson() != null ? s.getIssuesJson() : "[]",
+                    new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}); }
+                catch (Exception ignored) {}
+                return DbHealthSnapshotDto.from(s, issues);
+            }).collect(java.util.stream.Collectors.toList());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.warn("health-snapshots error for {}: {}", accountId, e.getMessage());
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+    }
+
+    /**
+     * GET /api/dbops/aws/{accountId}/db-alerts
+     * Returns active alerts + alerts resolved in the last 24h for the in-app feed.
+     */
+    @GetMapping("/{accountId}/db-alerts")
+    public ResponseEntity<List<DbHealthAlertDto>> getDbAlerts(@PathVariable String accountId) {
+        try {
+            com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
+            java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(24);
+            List<DbHealthAlert> alerts = dbHealthAlertRepository.findForFeed(account.getId(), since);
+            return ResponseEntity.ok(alerts.stream()
+                .map(DbHealthAlertDto::from)
+                .collect(java.util.stream.Collectors.toList()));
+        } catch (Exception e) {
+            logger.warn("db-alerts error for {}: {}", accountId, e.getMessage());
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+    }
+
+    // ── MongoDB agent endpoints ───────────────────────────────────────────────
+
+    @GetMapping("/{accountId}/agent-mongo-metrics")
+    public ResponseEntity<List<MongoInstanceMetricsDto>> getMongoMetrics(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-instance-metrics:",
+                new TypeReference<List<MongoInstanceMetricsDto>>() {}));
+    }
+
+    @GetMapping("/{accountId}/agent-mongo-slow-ops")
+    public ResponseEntity<List<MongoSlowOpDto>> getMongoSlowOps(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-slow-ops:",
+                new TypeReference<List<MongoSlowOpDto>>() {}));
+    }
+
+    @GetMapping("/{accountId}/agent-mongo-index-stats")
+    public ResponseEntity<List<MongoIndexStatDto>> getMongoIndexStats(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "mongo-index-stats:",
+                new TypeReference<List<MongoIndexStatDto>>() {}));
+    }
+
+    // ── Redis agent endpoints ─────────────────────────────────────────────────
+
+    @GetMapping("/{accountId}/agent-redis-metrics")
+    public ResponseEntity<List<RedisInstanceMetricsDto>> getRedisMetrics(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-instance-metrics:",
+                new TypeReference<List<RedisInstanceMetricsDto>>() {}));
+    }
+
+    @GetMapping("/{accountId}/agent-redis-slow-log")
+    public ResponseEntity<List<RedisSlowLogDto>> getRedisSlowLog(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-slow-log:",
+                new TypeReference<List<RedisSlowLogDto>>() {}));
+    }
+
+    @GetMapping("/{accountId}/agent-redis-keyspace")
+    public ResponseEntity<List<RedisKeyspaceDto>> getRedisKeyspace(@PathVariable String accountId) {
+        return ResponseEntity.ok(readAgentCacheByPrefix(accountId, "redis-keyspace:",
+                new TypeReference<List<RedisKeyspaceDto>>() {}));
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Generic helper: read all agent cache rows for an account whose dataType starts with prefix,
+     * parse each as List<T>, and flatten into a single result list.
+     */
+    private <T> List<T> readAgentCacheByPrefix(String accountId, String prefix,
+            TypeReference<List<T>> typeRef) {
+        try {
+            com.xammer.cloud.domain.CloudAccount account = getAccount(accountId);
+            List<T> result = new ArrayList<>();
+            for (DbAgentConfig agent : dbAgentConfigRepository.findByCloudAccountId(account.getId())) {
+                for (DbAgentDataCache cache : dbAgentDataCacheRepository.findByDbAgentId(agent.getId())) {
+                    if (cache.getDataType() == null || !cache.getDataType().startsWith(prefix)) continue;
+                    if (cache.getDataJson() == null) continue;
+                    try {
+                        List<T> items = objectMapper.readValue(cache.getDataJson(), typeRef);
+                        if (items != null) result.addAll(items);
+                    } catch (Exception e) {
+                        logger.warn("readAgentCacheByPrefix [{}] parse: {}", prefix, e.getMessage());
+                    }
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            logger.warn("readAgentCacheByPrefix [{}]: {}", prefix, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private com.xammer.cloud.domain.CloudAccount getAccount(String accountId) {
+        return cloudAccountRepository
+                .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
+                .orElseThrow(() -> new IllegalArgumentException("Cloud account not found: " + accountId));
     }
 }

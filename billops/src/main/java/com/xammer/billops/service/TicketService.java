@@ -46,9 +46,6 @@ public class TicketService {
         logger.info("✅ TicketService initialized");
     }
 
-    private static final String ADMIN_TECHNICAL_EMAIL = "sahil@xammer.in";
-    private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
-
     // Cache Keys
     private static final String TICKETS_ALL_CACHE_KEY = "tickets:all";
     private static final String TICKETS_CATEGORY_PREFIX = "tickets:category:";
@@ -113,15 +110,12 @@ public class TicketService {
 
         // 4. Send Email
         try {
-            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory()) ? ADMIN_BILLING_EMAIL
-                    : ADMIN_TECHNICAL_EMAIL;
-
             String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
-
-            // Create HTML email template matching UI design
             String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
-
-            emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+            List<String> adminEmails = getAdminEmailList();
+            if (!adminEmails.isEmpty()) {
+                emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+            }
         } catch (Exception e) {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
         }
@@ -168,11 +162,12 @@ public class TicketService {
         Ticket savedTicket = ticketRepository.save(ticket);
 
         try {
-            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory())
-                    ? ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
             String subject = String.format("[Admin] New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
             String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
-            emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+            List<String> adminEmails = getAdminEmailList();
+            if (!adminEmails.isEmpty()) {
+                emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+            }
         } catch (Exception e) {
             logger.error("Failed to send email for admin-created ticket {}", savedTicket.getId(), e);
         }
@@ -452,13 +447,35 @@ public class TicketService {
                 String htmlBody = buildReplyNotificationEmailTemplate(ticket, author, reply);
 
                 if (isAdminReply) {
-                    if (ticketCreator != null && ticketCreator.getEmail() != null) {
+                    if (ticketCreator != null && ticketCreator.getEmail() != null && !ticketCreator.getEmail().isBlank()) {
                         emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, htmlBody);
                     }
                 } else {
-                    String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory()) ? ADMIN_BILLING_EMAIL
-                            : ADMIN_TECHNICAL_EMAIL;
-                    emailService.sendHtmlEmail(adminEmail, subject, htmlBody);
+                    if (ticket.getAssignedToId() != null) {
+                        userRepository.findById(ticket.getAssignedToId()).ifPresentOrElse(
+                            assignee -> {
+                                if (assignee.getEmail() != null && !assignee.getEmail().isBlank()) {
+                                    emailService.sendHtmlEmail(assignee.getEmail(), subject, htmlBody);
+                                } else {
+                                    List<String> adminEmails = getAdminEmailList();
+                                    if (!adminEmails.isEmpty()) {
+                                        emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                                    }
+                                }
+                            },
+                            () -> {
+                                List<String> adminEmails = getAdminEmailList();
+                                if (!adminEmails.isEmpty()) {
+                                    emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                                }
+                            }
+                        );
+                    } else {
+                        List<String> adminEmails = getAdminEmailList();
+                        if (!adminEmails.isEmpty()) {
+                            emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+                        }
+                    }
                 }
             } catch (Exception e) {
                 logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
@@ -516,12 +533,33 @@ public class TicketService {
         ticketRepository.save(ticket);
 
         evictTicketCaches(ticket.getCategory());
+
+        try {
+            User assignee = userRepository.findById(adminId).orElse(null);
+            if (assignee == null || assignee.getEmail() == null || assignee.getEmail().isBlank()) {
+                logger.warn("Cannot send assignment email: no email for adminId={}", adminId);
+            } else {
+                String subject = String.format("You've been assigned Ticket #%d: %s",
+                        ticket.getId(), ticket.getSubject());
+                emailService.sendHtmlEmail(assignee.getEmail(), subject,
+                        buildAssignmentEmailHtml(ticket));
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to send assignment notification email for ticket {}", ticketId, e);
+        }
     }
 
     public List<User> getAdminUsers() {
         return userRepository.findAll().stream()
                 .filter(u -> u.getRole() != null &&
                         (u.getRole().contains("ROLE_BILLOPS_ADMIN") || u.getRole().equals("ROLE_BILLOPS_ADMIN_SUB")))
+                .collect(Collectors.toList());
+    }
+
+    private List<String> getAdminEmailList() {
+        return getAdminUsers().stream()
+                .map(User::getEmail)
+                .filter(e -> e != null && !e.isBlank())
                 .collect(Collectors.toList());
     }
 
@@ -823,6 +861,63 @@ public class TicketService {
         } else {
             logger.info("Evicted ticket cache: {}", allTicketsKey);
         }
+    }
+
+    private String buildAssignmentEmailHtml(Ticket ticket) {
+        String severityColor = getSeverityColor(ticket.getSeverity());
+        String clientName  = (ticket.getClient()   != null) ? escapeHtml(ticket.getClient().getName()) : "N/A";
+        String categoryStr = (ticket.getCategory() != null) ? escapeHtml(ticket.getCategory())         : "N/A";
+        String severityStr = (ticket.getSeverity() != null) ? escapeHtml(ticket.getSeverity())         : "N/A";
+
+        return "<!DOCTYPE html>" +
+                "<html lang=\"en\">" +
+                "<head>" +
+                "    <meta charset=\"UTF-8\">" +
+                "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">" +
+                "    <title>Ticket Assigned</title>" +
+                "</head>" +
+                "<body style=\"margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);\">" +
+                "    <div style=\"max-width: 600px; margin: 40px auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);\">" +
+                "        <!-- Header -->" +
+                "        <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 32px 24px; text-align: center;\">" +
+                "            <h1 style=\"margin: 0; color: white; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;\">Ticket Assigned to You</h1>" +
+                "            <p style=\"margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.9); font-size: 14px;\">Ticket ID: #" + ticket.getId() + "</p>" +
+                "        </div>" +
+                "        <!-- Content -->" +
+                "        <div style=\"padding: 32px 24px;\">" +
+                "            <!-- Ticket Subject Card -->" +
+                "            <div style=\"background: #f9fafb; border-radius: 12px; padding: 20px; margin-bottom: 24px; border-left: 4px solid #667eea;\">" +
+                "                <h2 style=\"margin: 0; color: #1a202c; font-size: 18px; font-weight: 700;\">" + escapeHtml(ticket.getSubject()) + "</h2>" +
+                "            </div>" +
+                "            <!-- Details Grid -->" +
+                "            <div style=\"background: white; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;\">" +
+                "                <!-- Client -->" +
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\"><span style=\"margin-right: 8px;\">🏢</span> Client</div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" + clientName + "</div>" +
+                "                </div>" +
+                "                <!-- Category -->" +
+                "                <div style=\"display: table; width: 100%; border-bottom: 1px solid #e5e7eb;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\"><span style=\"margin-right: 8px;\">📁</span> Category</div>" +
+                "                    <div style=\"display: table-cell; padding: 16px; color: #1a202c; font-size: 14px;\">" + categoryStr + "</div>" +
+                "                </div>" +
+                "                <!-- Severity -->" +
+                "                <div style=\"display: table; width: 100%;\">" +
+                "                    <div style=\"display: table-cell; padding: 16px; background: #f9fafb; width: 35%; font-weight: 600; color: #374151; font-size: 13px;\"><span style=\"margin-right: 8px;\">⚡</span> Severity</div>" +
+                "                    <div style=\"display: table-cell; padding: 16px;\"><span style=\"color: " + severityColor + "; font-weight: 700; font-size: 14px;\">" + severityStr + "</span></div>" +
+                "                </div>" +
+                "            </div>" +
+                "        </div>" +
+                "        <!-- Footer -->" +
+                "        <div style=\"background: #f9fafb; padding: 20px 24px; border-top: 1px solid #e5e7eb; text-align: center;\">" +
+                "            <p style=\"margin: 0; color: #6b7280; font-size: 12px; line-height: 1.6;\">" +
+                "                This notification was sent by <strong style=\"color: #667eea;\">XamOps Support System</strong><br>" +
+                "                Please review and respond to this ticket promptly." +
+                "            </p>" +
+                "        </div>" +
+                "    </div>" +
+                "</body>" +
+                "</html>";
     }
 
     /**

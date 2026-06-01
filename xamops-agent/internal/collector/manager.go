@@ -93,8 +93,12 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 
 	// ── DB collectors (run even without k8s — just need TCP access to DB) ──
 	if m.cfg.CollectorDB && len(m.cfg.DBDSNs) > 0 {
+		sqlDSNs   := filterByEngine(m.cfg.DBDSNs, "mysql", "postgres")
+		mongoDSNs := filterByEngine(m.cfg.DBDSNs, "mongodb")
+		redisDSNs := filterByEngine(m.cfg.DBDSNs, "redis")
+
 		// Query digests from performance_schema / pg_stat_statements
-		if batch, err := collectDBQueryStats(ctx, m.cfg.DBDSNs, m.cfg.DBQueryLimit); err == nil {
+		if batch, err := collectDBQueryStats(ctx, sqlDSNs, m.cfg.DBQueryLimit); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -102,7 +106,7 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-query-stats: %v", err)
 		}
 		// Server-level status metrics (connections, QPS, buffer pool, lock waits, etc.)
-		if batch, err := collectDBInstanceMetrics(ctx, m.cfg.DBDSNs); err == nil {
+		if batch, err := collectDBInstanceMetrics(ctx, sqlDSNs); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -110,7 +114,7 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-instance-metrics: %v", err)
 		}
 		// Table storage sizes (top 50 tables by size per DSN)
-		if batch, err := collectDBTableSizes(ctx, m.cfg.DBDSNs); err == nil {
+		if batch, err := collectDBTableSizes(ctx, sqlDSNs); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -118,7 +122,7 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-table-sizes: %v", err)
 		}
 		// Vacuum/analyze history and dead tuple ratios (PostgreSQL only)
-		if batch, err := collectDBVacuumStats(ctx, m.cfg.DBDSNs); err == nil {
+		if batch, err := collectDBVacuumStats(ctx, sqlDSNs); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -126,7 +130,7 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-vacuum-stats: %v", err)
 		}
 		// Per-user connection and query activity
-		if batch, err := collectDBUserActivity(ctx, m.cfg.DBDSNs); err == nil {
+		if batch, err := collectDBUserActivity(ctx, sqlDSNs); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -134,7 +138,7 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-user-activity: %v", err)
 		}
 		// Per-index scan stats (unused index detection)
-		if batch, err := collectDBIndexUsage(ctx, m.cfg.DBDSNs); err == nil {
+		if batch, err := collectDBIndexUsage(ctx, sqlDSNs); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
@@ -142,12 +146,36 @@ func (m *Manager) CollectAll() (*AgentPayload, error) {
 			log.Printf("WARN: db-index-usage: %v", err)
 		}
 		// Per-table read/write activity counters
-		if batch, err := collectDBTableActivity(ctx, m.cfg.DBDSNs); err == nil {
+		if batch, err := collectDBTableActivity(ctx, sqlDSNs); err == nil {
 			if batch.Count > 0 {
 				payload.Batches = append(payload.Batches, batch)
 			}
 		} else {
 			log.Printf("WARN: db-table-activity: %v", err)
+		}
+		// Wait event snapshot (pg_stat_activity / events_waits_summary)
+		if batch, err := collectDBWaitEvents(ctx, sqlDSNs); err == nil {
+			payload.Batches = append(payload.Batches, batch)
+		} else {
+			log.Printf("WARN: db-wait-events: %v", err)
+		}
+		// Per-DSN connection and privilege health — always push (even 0 items signals healthy)
+		if batch, err := collectDBDiagnostics(ctx, m.cfg.DBDSNs); err == nil {
+			payload.Batches = append(payload.Batches, batch)
+		} else {
+			log.Printf("WARN: db-diagnostics: %v", err)
+		}
+		// MongoDB collectors
+		if len(mongoDSNs) > 0 {
+			for _, batch := range collectMongoAll(ctx, mongoDSNs) {
+				payload.Batches = append(payload.Batches, batch)
+			}
+		}
+		// Redis collectors
+		if len(redisDSNs) > 0 {
+			for _, batch := range collectRedisAll(ctx, redisDSNs) {
+				payload.Batches = append(payload.Batches, batch)
+			}
 		}
 	}
 
@@ -432,4 +460,22 @@ func containsAny(s string, subs ...string) bool {
 		}
 	}
 	return false
+}
+
+// filterByEngine returns only DSNs whose parsed engine matches one of the given engines.
+func filterByEngine(dsns []string, engines ...string) []string {
+	var out []string
+	for _, d := range dsns {
+		eng, _, err := parseDSN(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range engines {
+			if eng == e {
+				out = append(out, d)
+				break
+			}
+		}
+	}
+	return out
 }

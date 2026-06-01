@@ -66,6 +66,9 @@ type Config struct {
 
 	// Logging
 	LogLevel string
+
+	// Health server
+	HealthPort string // default: 8080
 }
 
 // Load reads configuration from environment variables
@@ -125,6 +128,9 @@ func Load() (*Config, error) {
 
 		// Cloud provider
 		CloudProvider: getEnv("CLOUD_PROVIDER", ""),
+
+		// Health server
+		HealthPort: getEnv("HEALTH_PORT", "8080"),
 	}
 
 	// Validate required fields

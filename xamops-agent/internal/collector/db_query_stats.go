@@ -374,6 +374,24 @@ LIMIT $1`
 func parseDSN(dsn string) (engine, host string, err error) {
 	lower := strings.ToLower(dsn)
 
+	// MongoDB
+	if strings.HasPrefix(lower, "mongodb://") || strings.HasPrefix(lower, "mongodb+srv://") {
+		u, e := url.Parse(dsn)
+		if e != nil {
+			return "", "", fmt.Errorf("parse mongodb url: %w", e)
+		}
+		return "mongodb", u.Host, nil
+	}
+
+	// Redis (plain + TLS)
+	if strings.HasPrefix(lower, "redis://") || strings.HasPrefix(lower, "rediss://") {
+		u, e := url.Parse(dsn)
+		if e != nil {
+			return "", "", fmt.Errorf("parse redis url: %w", e)
+		}
+		return "redis", u.Host, nil
+	}
+
 	// URL-style postgres
 	if strings.HasPrefix(lower, "postgres://") || strings.HasPrefix(lower, "postgresql://") {
 		u, e := url.Parse(dsn)

@@ -20,4 +20,8 @@ public class SavingsPlanDto {
     private String commitment; // e.g., "$0.10/hour"
     private String upfrontCost;
     private String currency;
+    private Double utilizationPercentage;
+    private String usedCommitment;
+    private String unusedCommitment;
+    private String netSavings;
 }

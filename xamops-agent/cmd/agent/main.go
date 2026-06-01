@@ -27,15 +27,13 @@ func main() {
 	log.Printf("Server: %s", cfg.ServerURL)
 	log.Printf("Collect interval: %ds, Push interval: %ds", cfg.CollectInterval, cfg.PushInterval)
 
-	// Create collectors
-	collectors := collector.NewCollectorManager(cfg)
-
-	// Create pusher
+	// Create pusher and fetch remote config FIRST so OpenObserve credentials are
+	// available before NewCollectorManager decides whether to create the log watcher.
 	dataPusher := pusher.NewPusher(cfg)
-
-	// Auto-fetch OpenObserve credentials from the backend so operators don't
-	// need to set OPENOBSERVE_* env vars manually — the server already has them.
 	dataPusher.FetchConfig()
+
+	// Create collectors (log watcher is only created when OpenObserve password is set)
+	collectors := collector.NewCollectorManager(cfg)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -113,8 +111,10 @@ func runHeartbeatLoop(ctx context.Context, cfg *config.Config, dataPusher *pushe
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			err := dataPusher.Heartbeat()
-			if err != nil {
+			// Poll for pending EXPLAIN commands before heartbeat
+			dataPusher.PollAndExecCommands()
+
+			if err := dataPusher.Heartbeat(); err != nil {
 				log.Printf("Heartbeat failed: %v", err)
 			}
 		}
@@ -134,8 +134,9 @@ func startHealthServer(cfg *config.Config) {
 		w.Write([]byte(`{"status":"ready"}`))
 	})
 
-	log.Println("Health server listening on :8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	addr := ":" + cfg.HealthPort
+	log.Printf("Health server listening on %s", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Printf("Health server error: %v", err)
 	}
 }

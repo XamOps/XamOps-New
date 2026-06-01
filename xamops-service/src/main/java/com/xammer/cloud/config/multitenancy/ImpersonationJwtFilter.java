@@ -48,7 +48,9 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return path.startsWith("/api/llm-proxy/") || path.equals("/api/llm-proxy");
+        return path.startsWith("/api/llm-proxy/")
+                || path.equals("/api/llm-proxy")
+                || path.startsWith("/api/v1/agent/");
     }
 
     @Override

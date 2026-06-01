@@ -202,6 +202,9 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                 <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Region</th>
                 <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Commitment</th>
                 <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">State</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Utilization</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Used / Unused</th>
+                <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Net Savings</th>
                 <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Term</th>
                 <th className="px-6 py-3 text-[rgba(0,0,0,0.4)]">Expiry</th>
               </tr>
@@ -233,6 +236,48 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                       </span>
                     </td>
                     <td className="px-6 py-4">
+                      {sp.utilizationPercentage != null ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-20 bg-[rgba(0,0,0,0.06)] rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-2 rounded-full transition-all duration-500 ${
+                                sp.utilizationPercentage >= 90
+                                  ? 'bg-emerald-500'
+                                  : sp.utilizationPercentage < 70
+                                  ? 'bg-red-500'
+                                  : 'bg-amber-500'
+                              }`}
+                              style={{ width: `${sp.utilizationPercentage}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-xs font-bold text-[rgba(0,0,0,0.7)]">
+                            {sp.utilizationPercentage.toFixed(0)}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-[rgba(0,0,0,0.3)]">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {sp.usedCommitment != null ? (
+                        <div className="text-xs font-medium">
+                          <div className="text-green-700">${sp.usedCommitment}/hr used</div>
+                          <div className="text-red-500 mt-0.5">${sp.unusedCommitment ?? '0'}/hr unused</div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-[rgba(0,0,0,0.3)]">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {sp.netSavings != null ? (
+                        <div className="font-semibold text-green-600 text-sm">
+                          ${parseFloat(sp.netSavings).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-[rgba(0,0,0,0.3)]">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
                       <div className="text-xs text-[rgba(0,0,0,0.6)] font-medium">
                         <span>{formatDate(sp.start)}</span> → <span>{formatDate(sp.end)}</span>
                       </div>
@@ -256,7 +301,7 @@ const ReservationInventory: React.FC<ReservationInventoryProps> = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="text-center py-16">
+                  <td colSpan={9} className="text-center py-16">
                     <div className="flex flex-col items-center">
                       <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mb-4">
                         <Icon icon="mdi:piggy-bank-outline" className="text-[rgba(0,0,0,0.4)]" width={24} />

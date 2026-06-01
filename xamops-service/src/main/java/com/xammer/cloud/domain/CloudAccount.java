@@ -56,6 +56,13 @@ public class CloudAccount {
     @Column
     private String billingExportTable;
 
+    @Column(name = "csp_managed", nullable = false)
+    private boolean cspManaged = false;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "csp_billing_config_id")
+    private CspBillingConfig cspBillingConfig;
+
     @Column(name = "gcp_billing_account_id")
     private String gcpBillingAccountId;
 

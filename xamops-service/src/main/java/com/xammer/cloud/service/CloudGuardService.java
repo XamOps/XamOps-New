@@ -163,8 +163,8 @@ public class CloudGuardService {
                                             serviceQuota.quotaName(),
                                             serviceQuota.value(),
                                             usage,
-                                            region.getRegionId(),
-                                            "Active"));
+                                            "Active",
+                                            region.getRegionId()));
                                 }
                             }
                         } catch (Exception e) {
@@ -306,8 +306,8 @@ public class CloudGuardService {
                             quotaName,
                             limit,
                             currentUsage,
-                            regionId,
-                            "Active"));
+                            "Active",
+                            regionId));
                 }
             });
         } catch (Exception e) {

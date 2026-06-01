@@ -352,8 +352,14 @@ export const useObservabilityData = () => {
     try {
       const now = Date.now();
       const start = now - 6 * 3600_000;
+      // Filter by cloud_account_id so hosts from other accounts don't bleed in.
+      // The ec2/gce resource detector attaches cloud.account.id which OpenObserve
+      // stores as the label cloud_account_id on every metric.
+      const accountFilter = activeAccountId
+        ? `{cloud_account_id="${activeAccountId}"}`
+        : '';
       const params = new URLSearchParams({
-        query: 'group by (host_name) (system_cpu_utilization)',
+        query: `group by (host_name) (system_cpu_utilization${accountFilter})`,
         startTime: String(start),
         endTime: String(now),
         step: '10m',

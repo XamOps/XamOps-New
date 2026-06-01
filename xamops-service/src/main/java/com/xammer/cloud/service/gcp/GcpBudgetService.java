@@ -8,6 +8,7 @@ import com.xammer.cloud.dto.gcp.GcpBudgetCreateRequestDto;
 import com.xammer.cloud.dto.gcp.GcpBudgetDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.BudgetEmailBuilder;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ public class GcpBudgetService {
     private final UserRepository userRepository;
     private final RedisCacheService redisCacheService;
     private final EmailService emailService;
+    private final BudgetEmailBuilder budgetEmailBuilder;
 
     @Value("${gcp.budget.mock:false}")
     private boolean useMockData;
@@ -38,12 +40,14 @@ public class GcpBudgetService {
             CloudAccountRepository cloudAccountRepository,
             UserRepository userRepository,
             RedisCacheService redisCacheService,
-            EmailService emailService) {
+            EmailService emailService,
+            BudgetEmailBuilder budgetEmailBuilder) {
         this.gcpClientProvider = gcpClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.userRepository = userRepository;
         this.redisCacheService = redisCacheService;
         this.emailService = emailService;
+        this.budgetEmailBuilder = budgetEmailBuilder;
     }
 
     /**
@@ -192,7 +196,10 @@ public class GcpBudgetService {
                 String email = user.getEmail();
                 if (email != null && !email.isBlank()) {
                     String subject = "GCP Budget Created: " + request.getBudgetName();
-                    String html = buildBudgetCreatedEmail(request, gcpProjectId, email);
+                    String html = budgetEmailBuilder.buildGcpBudgetCreatedEmail(
+                            request.getBudgetName(), request.getBudgetLimit(),
+                            request.getCurrencyCode() != null ? request.getCurrencyCode() : "USD",
+                            gcpProjectId);
                     emailService.sendHtmlEmail(email, subject, html);
                     log.info("Budget creation notification sent to {} for project {}", email, gcpProjectId);
                 }
@@ -202,28 +209,7 @@ public class GcpBudgetService {
         }
     }
 
-    private String buildBudgetCreatedEmail(GcpBudgetCreateRequestDto request, String gcpProjectId, String email) {
-        String currency = request.getCurrencyCode() != null ? request.getCurrencyCode() : "USD";
-        return "<html><body style=\"font-family:Arial,sans-serif;background:#f5f7fa;padding:24px\">"
-                + "<div style=\"max-width:560px;margin:auto;background:#fff;border-radius:8px;padding:32px;border:1px solid #e0e0e0\">"
-                + "<h2 style=\"color:#1976D2;margin-top:0\">GCP Budget Created</h2>"
-                + "<p>A new budget has been set up for your GCP project.</p>"
-                + "<table style=\"width:100%;border-collapse:collapse;margin:16px 0\">"
-                + "<tr><td style=\"padding:8px 0;color:#555;width:40%\"><b>Budget Name</b></td>"
-                + "<td style=\"padding:8px 0\">" + request.getBudgetName() + "</td></tr>"
-                + "<tr><td style=\"padding:8px 0;color:#555\"><b>Limit</b></td>"
-                + "<td style=\"padding:8px 0\">" + currency + " " + request.getBudgetLimit() + "</td></tr>"
-                + "<tr><td style=\"padding:8px 0;color:#555\"><b>GCP Project</b></td>"
-                + "<td style=\"padding:8px 0\">" + gcpProjectId + "</td></tr>"
-                + "<tr><td style=\"padding:8px 0;color:#555\"><b>Alert Thresholds</b></td>"
-                + "<td style=\"padding:8px 0\">50%, 80%, 90%, 100% of budget</td></tr>"
-                + "</table>"
-                + "<p style=\"color:#888;font-size:12px\">You will be alerted as spending approaches these thresholds.<br>"
-                + "This notification was sent to " + email + ".</p>"
-                + "<hr style=\"border:none;border-top:1px solid #eee;margin:24px 0\">"
-                + "<p style=\"color:#aaa;font-size:11px;text-align:center\">XamOps Cloud FinOps Platform</p>"
-                + "</div></body></html>";
-    }
+
 
     /**
      * Create a mock budget stored in Redis (for testing or when GCP permissions are

@@ -275,10 +275,13 @@ data:
   LOG_WATCHER_BATCH_SIZE: "500"    # max log records per OpenObserve ingest call
 
   # ── OpenObserve connection (for log shipping) ───────────────────────────────
-  # Point to your OpenObserve in-cluster service.
-  OPENOBSERVE_URL: "http://openobserve.openobserve.svc.cluster.local:5080"
-  OPENOBSERVE_ORG: "default"
-  OPENOBSERVE_USERNAME: "root@example.com"
+  # Leave URL/ORG/USERNAME empty — the agent fetches them from the XamOps backend
+  # on startup via GET /api/v1/agent/config (FetchConfig). The backend returns the
+  # correct private IP and tenant org ID automatically.
+  # Only set these manually if you need to override the server-provided values.
+  OPENOBSERVE_URL: ""
+  OPENOBSERVE_ORG: ""
+  OPENOBSERVE_USERNAME: ""
   OPENOBSERVE_STREAM: "k8s-logs"
 
   # ── OpenCost configuration ──────────────────────────────────────────────────

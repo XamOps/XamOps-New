@@ -118,24 +118,19 @@ public class MarketplaceBillingShareService {
 
     private String buildEmailHtml(String accountId, String accountName,
                                    String yearMonth, String displayMonth, String downloadUrl) {
-        return "<!DOCTYPE html>" +
-               "<html><body style='margin:0;padding:0;background:#f5f5f5;font-family:sans-serif'>" +
-               "<div style='max-width:600px;margin:40px auto;background:#ffffff;" +
-                       "border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1)'>" +
-
-               // Header
-               "<div style='background:linear-gradient(135deg,#6366f1,#8b5cf6);" +
-                       "padding:32px 40px;text-align:center'>" +
-               "<h1 style='color:#ffffff;margin:0;font-size:24px;font-weight:700'>" +
-                       "XamOps BillOps</h1>" +
-               "<p style='color:rgba(255,255,255,0.85);margin:8px 0 0'>Billing Data Ready for Download</p>" +
-               "</div>" +
-
-               // Body
-               "<div style='padding:40px'>" +
+        return "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>AWS Billing Data Ready</title></head>" +
+               "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>" +
+               "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>" +
+               "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>" +
+               "<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;'>" +
+               "  <div style='margin-bottom:16px;'><span style='display:inline-block;background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>" +
+               "  <div style='font-size:40px;margin-bottom:14px;'>&#128190;</div>" +
+               "  <h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>AWS Billing Data Ready</h1>" +
+               "  <p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Your billing CSV is available for download</p>" +
+               "</td></tr>" +
+               "<tr><td style='padding:32px 40px;'>" +
                "<p style='color:#374151;font-size:15px;margin-top:0'>Hello,</p>" +
-               "<p style='color:#374151;font-size:15px'>Your AWS billing data for the following " +
-                       "account is ready for download:</p>" +
+               "<p style='color:#374151;font-size:15px'>Your AWS billing data for the following account is ready for download:</p>" +
 
                // Account card
                "<div style='background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;" +
@@ -180,17 +175,12 @@ public class MarketplaceBillingShareService {
                "<p style='color:#6b7280;font-size:13px'>" +
                        "The CSV file contains usage-type level cost data including usage quantities " +
                        "(e.g. hours, GB) and can be opened in Microsoft Excel or Google Sheets.</p>" +
-               "</div>" +
-
-               // Footer
-               "<div style='background:#f9fafb;border-top:1px solid #e5e7eb;" +
-                       "padding:20px 40px;text-align:center'>" +
-               "<p style='color:#9ca3af;font-size:12px;margin:0'>" +
-                       "Sent by XamOps BillOps &nbsp;|&nbsp; " +
-                       "If you did not request this, please ignore this email.</p>" +
-               "</div>" +
-
-               "</div>" +
-               "</body></html>";
+               "</td></tr>" +
+               "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>" +
+               "  <span style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>" +
+               "  <p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>" +
+               "  <p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>" +
+               "</td></tr>" +
+               "</table></td></tr></table></body></html>";
     }
 }

@@ -30,7 +30,9 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.GcpAccountRequestDto;
 import com.xammer.cloud.dto.gcp.*;
+import com.xammer.cloud.domain.CspBillingConfig;
 import com.xammer.cloud.repository.CachedDataRepository;
+import com.xammer.cloud.repository.CspBillingConfigRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -78,6 +80,9 @@ public class GcpDataService {
 
     @Autowired
     private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private CspBillingConfigRepository cspBillingConfigRepository;
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
     private final ObjectMapper objectMapper;
     private final RedisCacheService redisCache;
@@ -865,8 +870,15 @@ public class GcpDataService {
             //
             account.setExternalId(projectId);
 
-            // ✅ NEW: Set billing export table
             account.setBillingExportTable(request.getBillingExportTable());
+
+            if (Boolean.TRUE.equals(request.getCspManaged())) {
+                account.setCspManaged(true);
+                if (request.getCspBillingConfigId() != null) {
+                    cspBillingConfigRepository.findById(request.getCspBillingConfigId())
+                        .ifPresent(account::setCspBillingConfig);
+                }
+            }
 
             // Save to database
             CloudAccount savedAccount = cloudAccountRepository.save(account);

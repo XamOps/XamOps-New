@@ -95,6 +95,7 @@ CLOUD_PROVIDER=GCP
 LOG_LEVEL=info
 COLLECT_INTERVAL=300
 HEARTBEAT_INTERVAL=300
+HEALTH_PORT=9091
 
 # Collector flags — disk-only mode
 COLLECTOR_DISK=true
@@ -116,6 +117,7 @@ sudo tee /etc/systemd/system/xamops-disk-agent.service > /dev/null <<'UNIT'
 Description=XamOps Disk Agent (GCP)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -125,8 +127,6 @@ ExecStartPre=/bin/sh -c 'i=0; until curl -sf --max-time 3 -H "Metadata-Flavor: G
 ExecStart=/usr/local/bin/xamops-agent
 Restart=always
 RestartSec=15
-# Disable start-rate limit so systemd never permanently stops retrying after repeated boot failures
-StartLimitIntervalSec=0
 User=root
 
 [Install]
@@ -134,8 +134,21 @@ WantedBy=multi-user.target
 UNIT
 
 sudo systemctl daemon-reload
+
+# ── Systemd preset — prevents cloud-init/preset-all from disabling the service ──
+sudo mkdir -p /etc/systemd/system-preset
+sudo tee /etc/systemd/system-preset/90-xamops-disk-agent.preset > /dev/null <<'PRESET'
+enable xamops-disk-agent.service
+PRESET
+
 sudo systemctl enable xamops-disk-agent
 sudo systemctl restart xamops-disk-agent
+
+# ── Cron fallback — ensures agent starts on boot even if systemd enable is lost ──
+CRON_LINE="@reboot root sleep 30 && systemctl is-active --quiet xamops-disk-agent || systemctl start xamops-disk-agent"
+CRON_FILE="/etc/cron.d/xamops-disk-agent"
+echo "$CRON_LINE" | sudo tee "$CRON_FILE" > /dev/null
+sudo chmod 644 "$CRON_FILE"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 info "Done! GCP Disk agent is running."
