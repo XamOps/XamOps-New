@@ -1,0 +1,3 @@
+## 2025-05-15 - Accessible Topbar Controls
+**Learning:** Icon-only buttons in dense horizontal bars (like SuperAdminTopBar) frequently lack ARIA labels and explicit focus indicators, hindering keyboard navigation and screen reader support. Proper label-input association using `htmlFor` and `id` is also a common gap in rapid UI development.
+**Action:** Use `TooltipWrapper` for all icon-only buttons, provide descriptive `aria-label` attributes, and ensure `focus-visible` rings with appropriate offsets are applied to all interactive elements. Always associate labels with select/input elements using matching IDs.
