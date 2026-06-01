@@ -228,7 +228,7 @@ const AzureRightsizingTable: React.FC<AzureRightsizingTableProps> = ({
                 <div className="col-span-2">
                   {rec.monthlySavings > 0 ? (
                     <>
-                      <p className="font-semibold text-emerald-600">${rec.monthlySavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p className="font-semibold text-emerald-600">₹{rec.monthlySavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                       <p className="text-[11px] text-[rgba(0,0,0,0.35)]">/month</p>
                     </>
                   ) : (

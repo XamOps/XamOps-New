@@ -28,7 +28,7 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
   const chartInstanceRef = useRef<Chart<'doughnut'> | null>(null);
 
   const formatCurrency = (value: number): string =>
-    '$' + (value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const sortedData = useMemo(() =>
     [...costData].sort((a, b) => b.amount - a.amount), [costData]);

@@ -7,7 +7,7 @@ interface GcpFinOpsKPISectionProps {
 }
 
 const formatCurrency = (value: number | null | undefined): string =>
-  '$' + (value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const splitValue = (str: string) => {
   const dot = str.lastIndexOf('.');

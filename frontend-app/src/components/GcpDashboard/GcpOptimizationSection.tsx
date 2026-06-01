@@ -30,7 +30,7 @@ interface GcpOptimizationSectionProps {
 }
 
 const formatCurrency = (num: number): string =>
-    '$' + (num == null ? '0.00' : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    '₹' + (num == null ? '0.00' : num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 const renderEmptyCard = (title: string) => (
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-4">

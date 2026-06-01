@@ -68,7 +68,7 @@ const GcpWasteKPICards: React.FC<GcpWasteKPICardsProps> = ({ wasteItems, isLoadi
     return Object.entries(groups).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
   })();
 
-  const savingsStr = `$${totalSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const savingsStr = `₹${totalSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const savingsSplit = splitValue(savingsStr);
 
   return (

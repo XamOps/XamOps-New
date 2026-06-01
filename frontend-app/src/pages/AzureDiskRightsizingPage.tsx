@@ -259,7 +259,7 @@ const AzureDiskRightsizingPage: React.FC = () => {
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Potential Savings',   value: `$${totalWasted.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: 'mdi:piggy-bank',          iconColor: '#16A34A', iconBg: '#16A34A14' },
+          { label: 'Potential Savings',   value: `₹${totalWasted.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: 'mdi:piggy-bank',          iconColor: '#16A34A', iconBg: '#16A34A14' },
           { label: 'Unattached Disks',    value: String(unattachedCnt), icon: 'mdi:harddisk-remove',     iconColor: '#DC2626', iconBg: '#DC262614' },
           { label: 'Oversized (Shrink)',  value: String(shrinkCnt),     icon: 'mdi:arrow-collapse-down', iconColor: '#D97706', iconBg: '#D9770614' },
           { label: 'Undersized (Expand)', value: String(expandCnt),     icon: 'mdi:arrow-expand-up',     iconColor: '#3B82F6', iconBg: '#3B82F614' },
@@ -430,13 +430,13 @@ const AzureDiskRightsizingPage: React.FC = () => {
 
                   {/* Monthly Cost */}
                   <div className="col-span-1">
-                    <p className="font-semibold text-[rgba(0,0,0,0.88)]">${disk.monthlyCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    <p className="font-semibold text-[rgba(0,0,0,0.88)]">₹{disk.monthlyCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                   </div>
 
                   {/* Savings */}
                   <div className="col-span-1">
                     {disk.estimatedSavings > 0 ? (
-                      <p className="font-semibold text-emerald-600">${disk.estimatedSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</p>
+                      <p className="font-semibold text-emerald-600">₹{disk.estimatedSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</p>
                     ) : (
                       <span className="text-[rgba(0,0,0,0.3)]">—</span>
                     )}
@@ -530,7 +530,7 @@ const AzureDiskRightsizingPage: React.FC = () => {
                 {a.oldSizeGb && a.newSizeGb ? `${a.oldSizeGb} GB → ${a.newSizeGb} GB` : '—'}
               </div>
               <div className="col-span-1 font-medium text-emerald-600">
-                {a.estimatedSavings ? `$${a.estimatedSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo` : '—'}
+                {a.estimatedSavings ? `₹${a.estimatedSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo` : '—'}
               </div>
               <div className="col-span-1">
                 <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${

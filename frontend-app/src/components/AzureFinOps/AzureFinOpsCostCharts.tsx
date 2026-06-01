@@ -140,7 +140,7 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
           tooltip: {
             callbacks: {
               label: (ctx) =>
-                ` ${(ctx.raw as number).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`,
+                ` ₹${(ctx.raw as number).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
             },
           },
         },
@@ -149,7 +149,7 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
             grid: { color: gridColor },
             ticks: {
               color: tickColor,
-              callback: (v) => `$${(v as number).toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
+              callback: (v) => `₹${(v as number).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
             },
           },
           y: { grid: { display: false }, ticks: { color: tickColor } },

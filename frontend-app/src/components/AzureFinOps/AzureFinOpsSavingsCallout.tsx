@@ -13,9 +13,7 @@ const AzureFinOpsSavingsCallout: React.FC<AzureFinOpsSavingsCalloutProps> = ({ r
 
   if (savings <= 0) return null;
 
-  const formatted = savings.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
+  const formatted = '₹' + savings.toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

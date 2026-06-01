@@ -16,10 +16,8 @@ interface GcpFinOpsBudgetsProps {
 }
 
 const formatCurrency = (value: number): string => {
-  if (value === null || value === undefined || isNaN(value)) return '$0.00';
-  return (value || 0).toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
+  if (value === null || value === undefined || isNaN(value)) return '₹0.00';
+  return '₹' + (value || 0).toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

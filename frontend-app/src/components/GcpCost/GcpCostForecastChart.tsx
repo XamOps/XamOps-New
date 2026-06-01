@@ -135,7 +135,7 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
           y: {
             beginAtZero: true,
             grid: { color: 'rgba(226,232,240,0.5)' },
-            ticks: { font: { size: 11 }, callback: (v) => '$' + Number(v).toLocaleString() },
+            ticks: { font: { size: 11 }, callback: (v) => '₹' + Number(v).toLocaleString('en-IN') },
           },
           x: {
             grid: { display: false },

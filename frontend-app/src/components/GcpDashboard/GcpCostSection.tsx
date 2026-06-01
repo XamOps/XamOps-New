@@ -48,7 +48,7 @@ const GcpCostSection: React.FC<GcpCostSectionProps> = ({ billingSummary, isLoadi
   const [breakdownLoading, setBreakdownLoading] = useState(false);
 
   const formatCurrency = (num: number): string =>
-    '$' + (num != null ? num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
+    '₹' + (num != null ? num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
 
   const getCurrentMonthServices = useCallback((): { name: string; amount: number }[] => {
     if (!billingSummary?.topServices) return [];

@@ -17,7 +17,7 @@ const impactBadgeCls = (impact: string): string => {
 };
 
 const formatCurrency = (v: number): string =>
-  v.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const AzureFinOpsInsightsSection: React.FC<AzureFinOpsInsightsSectionProps> = ({ reportData, isLoading }) => {
   const rightsizingItems = reportData?.rightsizingItems ?? [];

@@ -100,7 +100,7 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, change, changeLabel, tr
 
 const AzureKPISection: React.FC<AzureKPISectionProps> = ({ kpiData, costHistory, isLoading }) => {
   const formatCurrency = (num: number): string =>
-    '$' + (num != null ? num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
+    '₹' + (num != null ? num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
 
   const costs = costHistory?.costs || [];
   const mtdSpend = kpiData.mtdSpend || 0;

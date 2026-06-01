@@ -11,7 +11,7 @@ interface AzureCostHistoryChartProps {
 }
 
 const formatCurrency = (value: number): string =>
-  '$' + (value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHistory, isLoading }) => {
   const chartRef = useRef<any>(null);
@@ -65,7 +65,7 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
           y: {
             beginAtZero: true,
             grid: { color: 'rgba(226,232,240,0.5)' },
-            ticks: { callback: (v: any) => '$' + Number(v).toLocaleString(), color: '#6b7280', font: { size: 10 } },
+            ticks: { callback: (v: any) => '₹' + Number(v).toLocaleString('en-IN'), color: '#6b7280', font: { size: 10 } },
           },
           x: {
             grid: { display: false },

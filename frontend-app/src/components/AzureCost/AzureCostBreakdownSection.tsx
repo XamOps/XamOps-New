@@ -19,7 +19,7 @@ const COLORS = [
 ];
 
 const formatCurrency = (value: number): string =>
-  '$' + (value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 
 const AzureCostBreakdownSection: React.FC<AzureCostBreakdownSectionProps> = ({

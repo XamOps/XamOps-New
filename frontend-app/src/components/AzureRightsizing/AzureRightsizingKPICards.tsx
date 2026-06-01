@@ -69,7 +69,7 @@ const AzureRightsizingKPICards: React.FC<AzureRightsizingKPICardsProps> = ({ rec
     );
   }
 
-  const savingsStr = `$${potentialSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const savingsStr = `₹${potentialSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const savingsSplit = splitValue(savingsStr);
 
   return (

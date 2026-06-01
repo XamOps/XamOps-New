@@ -43,7 +43,7 @@ export const GcpRightsizingTable: React.FC<GcpRightsizingTableProps> = ({
 
   const formatSavings = (rec: GcpRightsizingRecommendation): string => {
     const value = Math.abs(rec.monthlySavings || 0);
-    return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return '₹' + value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
   const getReasonText = (rec: GcpRightsizingRecommendation): string => {

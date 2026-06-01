@@ -10,7 +10,7 @@ interface AzureCostForecastChartProps {
 }
 
 const formatCurrency = (value: number): string =>
-  '$' + (value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const AzureCostForecastChart: React.FC<AzureCostForecastChartProps> = ({ forecast, isLoading }) => {
   const chartRef = useRef<Chart<'line'> | null>(null);
@@ -101,7 +101,7 @@ const AzureCostForecastChart: React.FC<AzureCostForecastChartProps> = ({ forecas
           y: {
             beginAtZero: true,
             grid: { color: 'rgba(226,232,240,0.5)' },
-            ticks: { font: { size: 11 }, callback: (v) => '$' + Number(v).toLocaleString() },
+            ticks: { font: { size: 11 }, callback: (v) => '₹' + Number(v).toLocaleString('en-IN') },
           },
           x: {
             grid: { display: false },

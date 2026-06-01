@@ -15,9 +15,7 @@ interface GcpFinOpsInsightsProps {
 }
 
 const formatCurrency = (value: number): string => {
-  return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
+  return '₹' + value.toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

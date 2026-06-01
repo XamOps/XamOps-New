@@ -12,7 +12,7 @@ const VAR_PIE_PALETTE = [
 ];
 
 const formatCurrency = (value: number): string =>
-  value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  '₹' + value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface GcpFinOpsChartsProps {
   costBreakdown: GcpCostBreakdown;

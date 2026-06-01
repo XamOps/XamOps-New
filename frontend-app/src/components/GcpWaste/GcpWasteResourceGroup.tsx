@@ -47,7 +47,7 @@ const GcpWasteResourceGroup: React.FC<GcpWasteResourceGroupProps> = ({ type, res
         <div className="flex items-center gap-3">
           {totalSavings > 0 && (
             <span className="text-[12px] font-semibold text-rose-600">
-              ${totalSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
+              ₹{totalSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
             </span>
           )}
           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100">
@@ -74,7 +74,7 @@ const GcpWasteResourceGroup: React.FC<GcpWasteResourceGroupProps> = ({ type, res
               <div className="col-span-5 font-semibold text-[rgba(0,0,0,0.88)] truncate">{resource.resourceName}</div>
               <div className="col-span-3 text-[rgba(0,0,0,0.55)]">{resource.location || 'N/A'}</div>
               <div className="col-span-2 font-semibold text-rose-600">
-                ${(resource.monthlySavings || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ₹{(resource.monthlySavings || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div className="col-span-2 flex justify-end">
                 <button

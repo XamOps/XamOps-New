@@ -30,7 +30,7 @@ const AzureCostSection: React.FC<AzureCostSectionProps> = ({ costHistory, billin
   const [breakdownLoading, setBreakdownLoading] = useState(false);
 
   const formatCurrency = (num: number): string =>
-    '$' + (num != null ? num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
+    '₹' + (num != null ? num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
 
   const buildBreakdown = useCallback(() => {
     if (!costHistory?.labels?.length) return;
@@ -228,7 +228,7 @@ const AzureCostSection: React.FC<AzureCostSectionProps> = ({ costHistory, billin
             beginAtZero: true,
             ticks: {
               maxTicksLimit: 5,
-              callback: (v: any) => '$' + (v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v),
+              callback: (v: any) => '₹' + (v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v),
               color: 'rgba(0,0,0,0.4)',
               font: { size: 11 },
             },
