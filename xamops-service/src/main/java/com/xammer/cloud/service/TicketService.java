@@ -318,6 +318,15 @@ public class TicketService {
             ticket.setHasNewUserReply(!isAdminReply);
         }
 
+        // Set/clear reminder-tracking fields for the 45-min scheduler
+        if (isAdminReply && !replyDto.isInternal()) {
+            ticket.setLastAdminReplyAt(java.time.LocalDateTime.now());
+            ticket.setReminderSentAt(null);
+        } else if (!isAdminReply) {
+            ticket.setLastAdminReplyAt(null);
+            ticket.setReminderSentAt(null);
+        }
+
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
 
@@ -378,9 +387,24 @@ public class TicketService {
 
         ticket.setStatus("CLOSED");
         ticket.setClosedAt(java.time.LocalDateTime.now());
+        ticket.setLastAdminReplyAt(null);
+        ticket.setReminderSentAt(null);
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
         broadcastTicketChange();
+
+        try {
+            User creator = ticket.getCreator();
+            if (creator != null && creator.getEmail() != null && !creator.getEmail().isBlank()) {
+                String subject = String.format("Your ticket has been closed — #%d: %s",
+                        ticket.getId(), ticket.getSubject());
+                String html = buildTicketClosedEmailHtml(ticket, creator);
+                emailService.sendHtmlEmail(creator.getEmail(), subject, html);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to send ticket-closed email for ticket {}", ticket.getId(), e);
+        }
+
         return convertToDto(updatedTicket);
     }
 
@@ -660,5 +684,68 @@ public class TicketService {
         sb.append("</td></tr>");
         sb.append("</table></td></tr></table></body></html>");
         return sb.toString();
+    }
+
+    private String buildTicketClosedEmailHtml(Ticket ticket, User creator) {
+        String severityVal = ticket.getSeverity() != null ? ticket.getSeverity() : "—";
+        String categoryVal = ticket.getCategory() != null ? ticket.getCategory() : "—";
+        return "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'>"
+            + "<meta name='viewport' content='width=device-width,initial-scale=1.0'>"
+            + "<title>Ticket Closed</title></head>"
+            + "<body style='margin:0;padding:0;background:#f1f5f9;"
+            + "font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>"
+            + "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'>"
+            + "<tr><td style='padding:32px 16px;'>"
+            + "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
+            + "style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;"
+            + "overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>"
+            + "<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;'>"
+            + "  <div style='margin-bottom:16px;'><span style='display:inline-block;"
+            + "background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;"
+            + "font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>"
+            + "  <div style='font-size:40px;margin-bottom:14px;'>&#10003;</div>"
+            + "  <h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>Ticket Closed</h1>"
+            + "  <p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Ticket #"
+            + ticket.getId() + ": " + ticket.getSubject() + "</p>"
+            + "</td></tr>"
+            + "<tr><td style='padding:32px 40px;'>"
+            + "<p style='margin:0 0 20px;color:#374151;font-size:15px;'>Hi <strong>"
+            + creator.getUsername() + "</strong>,</p>"
+            + "<p style='margin:0 0 20px;color:#374151;font-size:15px;'>"
+            + "Your support ticket has been resolved and closed by our team.</p>"
+            + "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
+            + "style='margin-bottom:20px;'>"
+            + "<tr><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;"
+            + "font-size:13px;width:38%;'>Ticket ID</td>"
+            + "<td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#1e293b;"
+            + "font-size:13px;font-weight:500;'>#" + ticket.getId() + "</td></tr>"
+            + "<tr><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;"
+            + "font-size:13px;'>Category</td>"
+            + "<td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#1e293b;"
+            + "font-size:13px;font-weight:500;'>" + categoryVal + "</td></tr>"
+            + "<tr><td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#64748b;"
+            + "font-size:13px;'>Severity</td>"
+            + "<td style='padding:10px 0;border-bottom:1px solid #f1f5f9;color:#1e293b;"
+            + "font-size:13px;font-weight:500;'>" + severityVal + "</td></tr>"
+            + "<tr><td style='padding:10px 0;color:#64748b;font-size:13px;'>Status</td>"
+            + "<td style='padding:10px 0;'>"
+            + "<span style='background:#dc2626;color:white;padding:2px 10px;border-radius:12px;"
+            + "font-size:11px;font-weight:700;'>CLOSED</span></td></tr>"
+            + "</table>"
+            + "<p style='margin:0;color:#64748b;font-size:13px;border:1px solid #e2e8f0;"
+            + "border-radius:8px;padding:14px;background:#f8fafc;'>"
+            + "If you believe this was closed in error, you can reopen it from your support portal.</p>"
+            + "</td></tr>"
+            + "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;"
+            + "padding:24px 40px;text-align:center;'>"
+            + "  <span style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,"
+            + "#764ba2 100%);padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;"
+            + "font-weight:700;letter-spacing:1px;'>XAMOPS</span>"
+            + "  <p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>"
+            + "Cloud Cost Management &amp; Security Platform</p>"
+            + "  <p style='margin:0;color:#cbd5e1;font-size:11px;'>"
+            + "&copy; 2026 XamOps. All rights reserved.</p>"
+            + "</td></tr>"
+            + "</table></td></tr></table></body></html>";
     }
 }
