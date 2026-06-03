@@ -27,6 +27,7 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
 
     @Query("SELECT t FROM Ticket t LEFT JOIN FETCH t.creator " +
            "WHERE t.status != 'CLOSED' " +
+           "AND t.lastAdminReplyAt IS NOT NULL " +
            "AND t.lastAdminReplyAt <= :cutoff " +
            "AND t.reminderSentAt IS NULL")
     List<Ticket> findTicketsNeedingReminder(@Param("cutoff") LocalDateTime cutoff);

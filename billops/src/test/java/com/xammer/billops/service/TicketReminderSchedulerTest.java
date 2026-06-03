@@ -70,6 +70,7 @@ class TicketReminderSchedulerTest {
                 scheduler.collectAndMarkSent(now.minusMinutes(45), now);
 
         assertThat(result).hasSize(1);
+        assertThat(result.get(0).ticketId).isEqualTo(42L);
         assertThat(result.get(0).creatorEmail).isEqualTo("user@example.com");
         assertThat(ticket.getReminderSentAt()).isNotNull();
         verify(ticketRepository).save(ticket);
