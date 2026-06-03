@@ -83,6 +83,8 @@ public class SecurityConfig {
                                         new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                                         new AntPathRequestMatcher("/api/**")))
                         .authorizeHttpRequests(auth -> auth
+                                .requestMatchers(new AntPathRequestMatcher("/api/admin/**"))
+                                    .hasAuthority("ROLE_SUPER_ADMIN")
                                 .anyRequest().authenticated())
                         .addFilterBefore(impersonationJwtFilter, UsernamePasswordAuthenticationFilter.class);
 
