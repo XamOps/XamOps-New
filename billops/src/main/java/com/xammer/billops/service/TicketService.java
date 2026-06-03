@@ -436,6 +436,15 @@ public class TicketService {
             ticket.setHasNewUserReply(!isAdminReply);
         }
 
+        // Set/clear reminder-tracking fields for the 45-min scheduler
+        if (isAdminReply && !replyDto.isInternal()) {
+            ticket.setLastAdminReplyAt(java.time.LocalDateTime.now());
+            ticket.setReminderSentAt(null);
+        } else if (!isAdminReply) {
+            ticket.setLastAdminReplyAt(null);
+            ticket.setReminderSentAt(null);
+        }
+
         Ticket updatedTicket = ticketRepository.save(ticket);
 
         // Skip email notifications for internal admin notes
@@ -496,10 +505,23 @@ public class TicketService {
         ticket.setStatus("CLOSED");
         ticket.setClosedAt(java.time.LocalDateTime.now());
         ticket.setUpdatedAt(java.time.LocalDateTime.now());
+        ticket.setLastAdminReplyAt(null);
+        ticket.setReminderSentAt(null);
         Ticket updatedTicket = ticketRepository.save(ticket);
 
-        // Evict Cache for this specific category + Admin list
         evictTicketCaches(updatedTicket.getCategory());
+
+        try {
+            User creator = ticket.getCreator();
+            if (creator != null && creator.getEmail() != null && !creator.getEmail().isBlank()) {
+                String subject = String.format("Your ticket has been closed — #%d: %s",
+                        ticket.getId(), ticket.getSubject());
+                String html = buildTicketClosedEmailHtml(ticket, creator);
+                emailService.sendHtmlEmail(creator.getEmail(), subject, html);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to send ticket-closed email for ticket {}", ticket.getId(), e);
+        }
 
         return convertToDto(updatedTicket, true);
     }
@@ -598,6 +620,49 @@ public class TicketService {
      * The reply body (from Quill) is rendered as-is so HTML cards
      * (e.g. meeting invites) display correctly.
      */
+    private String buildTicketClosedEmailHtml(Ticket ticket, User creator) {
+        String severityVal = ticket.getSeverity() != null ? escapeHtml(ticket.getSeverity()) : "—";
+        String categoryVal = ticket.getCategory() != null ? escapeHtml(ticket.getCategory()) : "—";
+        return "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>"
+                + "<body style=\"margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f3f4f6;\">"
+                + "<div style=\"max-width:620px;margin:32px auto;background:white;border-radius:16px;"
+                + "overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.08);\">"
+                + "<div style=\"background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:24px;\">"
+                + "<p style=\"margin:0;color:rgba(255,255,255,.75);font-size:12px;font-weight:600;"
+                + "text-transform:uppercase;letter-spacing:.06em;\">Ticket #" + ticket.getId() + "</p>"
+                + "<h1 style=\"margin:4px 0 0;color:white;font-size:18px;font-weight:700;\">"
+                + escapeHtml(ticket.getSubject()) + "</h1>"
+                + "</div>"
+                + "<div style=\"padding:24px;\">"
+                + "<p style=\"margin:0 0 16px;color:#374151;font-size:15px;\">Hi <strong>"
+                + escapeHtml(creator.getUsername()) + "</strong>,</p>"
+                + "<p style=\"margin:0 0 16px;color:#374151;font-size:15px;\">"
+                + "Your support ticket has been resolved and closed by our team.</p>"
+                + "<table style=\"width:100%;border-collapse:collapse;margin-bottom:20px;\">"
+                + "<tr><td style=\"padding:8px 0;border-bottom:1px solid #f3f4f6;color:#6b7280;"
+                + "font-size:13px;width:35%;\">Category</td>"
+                + "<td style=\"padding:8px 0;border-bottom:1px solid #f3f4f6;color:#111827;"
+                + "font-size:13px;font-weight:500;\">" + categoryVal + "</td></tr>"
+                + "<tr><td style=\"padding:8px 0;border-bottom:1px solid #f3f4f6;color:#6b7280;"
+                + "font-size:13px;\">Severity</td>"
+                + "<td style=\"padding:8px 0;border-bottom:1px solid #f3f4f6;color:#111827;"
+                + "font-size:13px;font-weight:500;\">" + severityVal + "</td></tr>"
+                + "<tr><td style=\"padding:8px 0;color:#6b7280;font-size:13px;\">Status</td>"
+                + "<td style=\"padding:8px 0;\">"
+                + "<span style=\"background:#dc2626;color:white;padding:2px 10px;border-radius:12px;"
+                + "font-size:11px;font-weight:700;\">CLOSED</span></td></tr>"
+                + "</table>"
+                + "<p style=\"margin:0;color:#6b7280;font-size:13px;border:1px solid #e5e7eb;"
+                + "border-radius:8px;padding:12px;background:#f9fafb;\">"
+                + "If you believe this was closed in error, you can reopen it from your support portal.</p>"
+                + "</div>"
+                + "<div style=\"padding:14px 24px;background:#f9fafb;border-top:1px solid #f3f4f6;text-align:center;\">"
+                + "<p style=\"margin:0;font-size:11px;color:#9ca3af;\">This notification was sent from "
+                + "<strong style=\"color:#667eea;\">XamOps Support</strong>.</p>"
+                + "</div>"
+                + "</div></body></html>";
+    }
+
     private String buildReplyNotificationEmailTemplate(Ticket ticket, User author, TicketReply reply) {
         boolean isAdmin = author.getRole() != null && author.getRole().contains("ADMIN");
         String senderLabel = isAdmin ? "Support Team" : escapeHtml(author.getUsername());
