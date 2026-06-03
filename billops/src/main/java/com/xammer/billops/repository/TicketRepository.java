@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query; // <-- IMPORT
 import org.springframework.data.repository.query.Param; // <-- IMPORT
 import java.util.List; // <-- IMPORT
+import java.time.LocalDateTime;
 
 public interface TicketRepository extends JpaRepository<Ticket, Long> {
 
@@ -23,4 +24,10 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
     // --- ADD THIS (Fixes Lazy Loading for getTicketById) ---
     @Query("SELECT t FROM Ticket t LEFT JOIN FETCH t.replies r LEFT JOIN FETCH r.author WHERE t.id = :id")
     Ticket findByIdWithRepliesAndAuthors(@Param("id") Long id);
+
+    @Query("SELECT t FROM Ticket t LEFT JOIN FETCH t.creator " +
+           "WHERE t.status != 'CLOSED' " +
+           "AND t.lastAdminReplyAt <= :cutoff " +
+           "AND t.reminderSentAt IS NULL")
+    List<Ticket> findTicketsNeedingReminder(@Param("cutoff") LocalDateTime cutoff);
 }
