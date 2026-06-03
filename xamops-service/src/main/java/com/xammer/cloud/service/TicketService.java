@@ -687,8 +687,8 @@ public class TicketService {
     }
 
     private String buildTicketClosedEmailHtml(Ticket ticket, User creator) {
-        String severityVal = ticket.getSeverity() != null ? ticket.getSeverity() : "—";
-        String categoryVal = ticket.getCategory() != null ? ticket.getCategory() : "—";
+        String severityVal = ticket.getSeverity() != null ? escapeHtml(ticket.getSeverity()) : "—";
+        String categoryVal = ticket.getCategory() != null ? escapeHtml(ticket.getCategory()) : "—";
         return "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'>"
             + "<meta name='viewport' content='width=device-width,initial-scale=1.0'>"
             + "<title>Ticket Closed</title></head>"
@@ -706,11 +706,11 @@ public class TicketService {
             + "  <div style='font-size:40px;margin-bottom:14px;'>&#10003;</div>"
             + "  <h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>Ticket Closed</h1>"
             + "  <p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Ticket #"
-            + ticket.getId() + ": " + ticket.getSubject() + "</p>"
+            + ticket.getId() + ": " + escapeHtml(ticket.getSubject()) + "</p>"
             + "</td></tr>"
             + "<tr><td style='padding:32px 40px;'>"
             + "<p style='margin:0 0 20px;color:#374151;font-size:15px;'>Hi <strong>"
-            + creator.getUsername() + "</strong>,</p>"
+            + escapeHtml(creator.getUsername()) + "</strong>,</p>"
             + "<p style='margin:0 0 20px;color:#374151;font-size:15px;'>"
             + "Your support ticket has been resolved and closed by our team.</p>"
             + "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
@@ -747,5 +747,10 @@ public class TicketService {
             + "&copy; 2026 XamOps. All rights reserved.</p>"
             + "</td></tr>"
             + "</table></td></tr></table></body></html>";
+    }
+
+    private String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 }
