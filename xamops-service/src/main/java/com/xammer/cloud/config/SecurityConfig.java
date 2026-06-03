@@ -125,6 +125,10 @@ public class SecurityConfig {
                                                 // Docker/K8s health checks — must be public so health probes don't 401
                                                 .requestMatchers(new AntPathRequestMatcher("/actuator/health")).permitAll()
 
+                                                // Maintenance status — must be public so frontend can check even when unauthenticated
+                                                .requestMatchers(new AntPathRequestMatcher("/api/health")).permitAll()
+                                                .requestMatchers(new AntPathRequestMatcher("/api/maintenance/status")).permitAll()
+
                                                 // Public Static Resources & Pages
                                                 .requestMatchers(
                                                                 new AntPathRequestMatcher("/"),
