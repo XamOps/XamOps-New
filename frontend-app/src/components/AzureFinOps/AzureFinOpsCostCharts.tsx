@@ -179,7 +179,7 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Cost by Service – Variable Radius Pie */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
         <div className="flex items-center gap-3 mb-5">
           <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]" style={{ backgroundColor: '#0078D408' }}>
             <Icon icon="mdi:chart-pie" width={16} color="#0078D4" />
@@ -200,7 +200,7 @@ const AzureFinOpsCostCharts: React.FC<AzureFinOpsCostChartsProps> = ({ reportDat
       </div>
 
       {/* Cost by Region */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
         <div className="flex items-center gap-3 mb-5">
           <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]" style={{ backgroundColor: '#F9731614' }}>
             <Icon icon="mdi:earth" width={16} color="#F97316" />

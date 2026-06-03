@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useSonarQube } from '../hooks/useSonarQube';
 import { QualityGateStatus, Rating, NewSonarQubeProject } from '../types/sonarqube';
@@ -75,8 +76,9 @@ const MetricCard: React.FC<{
   icon: string; iconColor: string; iconBg: string;
   title: string; rating?: Rating;
   children: React.ReactNode;
-}> = ({ icon, iconColor, iconBg, title, rating, children }) => (
-  <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-5 shadow-sm">
+  style?: React.CSSProperties;
+}> = ({ icon, iconColor, iconBg, title, rating, children, style }) => (
+  <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-5 shadow-sm card-hover-lift" style={style}>
     <div className="flex items-center justify-between mb-4">
       <div className="flex items-center gap-3">
         <div className={`w-10 h-10 ${iconBg} border rounded-lg flex items-center justify-center`}>
@@ -221,9 +223,11 @@ const SonarQubePage: React.FC = () => {
         </div>
       )}
 
+      <AnimatePresence mode="wait">
+
       {/* Loading */}
       {isLoading && (
-        <div className="space-y-5">
+        <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="space-y-5">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl h-36 animate-pulse" />
             <div className="lg:col-span-2 bg-white border border-[rgba(0,0,0,0.08)] rounded-xl h-36 animate-pulse" />
@@ -233,38 +237,43 @@ const SonarQubePage: React.FC = () => {
               <div key={i} className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl h-48 animate-pulse" />
             ))}
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* No projects */}
       {!isLoading && projects.length === 0 && (
-        <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl py-16 shadow-sm text-center">
-          <div className="w-14 h-14 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)] rounded-xl flex items-center justify-center mx-auto mb-4">
-            <Icon icon="mdi:inbox-outline" width={26} color="rgba(0,0,0,0.2)" />
+        <motion.div key="no-projects" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+          <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl py-16 shadow-sm text-center">
+            <div className="w-14 h-14 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)] rounded-xl flex items-center justify-center mx-auto mb-4">
+              <Icon icon="mdi:inbox-outline" width={26} color="rgba(0,0,0,0.2)" />
+            </div>
+            <h3 className="text-[17px] font-bold text-[rgba(0,0,0,0.88)]">No Projects Found</h3>
+            <p className="text-[13px] text-[rgba(0,0,0,0.45)] mt-1 max-w-xs mx-auto">Add your first SonarQube project to start analyzing code quality</p>
+            <button onClick={() => setIsManageModalOpen(true)}
+              className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-all active:scale-95">
+              <Icon icon="mdi:plus" width={14} />
+              Add Project
+            </button>
           </div>
-          <h3 className="text-[17px] font-bold text-[rgba(0,0,0,0.88)]">No Projects Found</h3>
-          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mt-1 max-w-xs mx-auto">Add your first SonarQube project to start analyzing code quality</p>
-          <button onClick={() => setIsManageModalOpen(true)}
-            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-colors">
-            <Icon icon="mdi:plus" width={14} />
-            Add Project
-          </button>
-        </div>
+        </motion.div>
       )}
 
       {/* No project selected */}
       {!isLoading && projects.length > 0 && !selectedProjectId && (
-        <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl py-16 shadow-sm text-center">
-          <div className="w-14 h-14 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)] rounded-xl flex items-center justify-center mx-auto mb-4">
-            <Icon icon="mdi:cursor-pointer" width={26} color="rgba(0,0,0,0.2)" />
+        <motion.div key="select-project" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+          <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl py-16 shadow-sm text-center">
+            <div className="w-14 h-14 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)] rounded-xl flex items-center justify-center mx-auto mb-4">
+              <Icon icon="mdi:cursor-pointer" width={26} color="rgba(0,0,0,0.2)" />
+            </div>
+            <h3 className="text-[17px] font-bold text-[rgba(0,0,0,0.88)]">Select a Project</h3>
+            <p className="text-[13px] text-[rgba(0,0,0,0.45)] mt-1">Choose a project above to view detailed quality metrics</p>
           </div>
-          <h3 className="text-[17px] font-bold text-[rgba(0,0,0,0.88)]">Select a Project</h3>
-          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mt-1">Choose a project above to view detailed quality metrics</p>
-        </div>
+        </motion.div>
       )}
 
       {/* Metrics */}
       {!isLoading && selectedProjectId && metrics && (
+        <motion.div key="metrics" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
         <div className="space-y-5">
 
           {/* Summary strip */}
@@ -338,7 +347,7 @@ const SonarQubePage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
             {/* Reliability */}
-            <MetricCard icon="mdi:bug-outline" iconColor="#EA580C" iconBg="bg-orange-50 border-orange-100" title="Reliability" rating={metrics.reliabilityRating}>
+            <MetricCard icon="mdi:bug-outline" iconColor="#EA580C" iconBg="bg-orange-50 border-orange-100" title="Reliability" rating={metrics.reliabilityRating} style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0s both' }}>
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-wider">Bugs</span>
@@ -351,7 +360,7 @@ const SonarQubePage: React.FC = () => {
             </MetricCard>
 
             {/* Security */}
-            <MetricCard icon="mdi:lock-outline" iconColor="#DC2626" iconBg="bg-red-50 border-red-100" title="Security" rating={metrics.securityRating}>
+            <MetricCard icon="mdi:lock-outline" iconColor="#DC2626" iconBg="bg-red-50 border-red-100" title="Security" rating={metrics.securityRating} style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.06s both' }}>
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-wider">Vulnerabilities</span>
@@ -364,7 +373,7 @@ const SonarQubePage: React.FC = () => {
             </MetricCard>
 
             {/* Hotspots */}
-            <MetricCard icon="mdi:alert-outline" iconColor="#D97706" iconBg="bg-amber-50 border-amber-100" title="Hotspots" rating={metrics.securityReviewRating}>
+            <MetricCard icon="mdi:alert-outline" iconColor="#D97706" iconBg="bg-amber-50 border-amber-100" title="Hotspots" rating={metrics.securityReviewRating} style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.12s both' }}>
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-wider">To Review</span>
@@ -377,7 +386,7 @@ const SonarQubePage: React.FC = () => {
             </MetricCard>
 
             {/* Maintainability */}
-            <MetricCard icon="mdi:wrench-outline" iconColor="#6366F1" iconBg="bg-indigo-50 border-indigo-100" title="Maintainability" rating={metrics.maintainabilityRating}>
+            <MetricCard icon="mdi:wrench-outline" iconColor="#6366F1" iconBg="bg-indigo-50 border-indigo-100" title="Maintainability" rating={metrics.maintainabilityRating} style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.18s both' }}>
               <div className="space-y-3">
                 <div>
                   <div className="flex justify-between items-center mb-2">
@@ -396,7 +405,7 @@ const SonarQubePage: React.FC = () => {
             </MetricCard>
 
             {/* Test Coverage */}
-            <MetricCard icon="mdi:crosshairs" iconColor="#3B82F6" iconBg="bg-blue-50 border-blue-100" title="Test Coverage">
+            <MetricCard icon="mdi:crosshairs" iconColor="#3B82F6" iconBg="bg-blue-50 border-blue-100" title="Test Coverage" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.24s both' }}>
               <div className="flex items-center gap-5">
                 {/* SVG ring */}
                 <div className="relative flex-shrink-0 w-20 h-20">
@@ -427,7 +436,7 @@ const SonarQubePage: React.FC = () => {
             </MetricCard>
 
             {/* Duplications */}
-            <MetricCard icon="mdi:content-copy" iconColor="#EC4899" iconBg="bg-pink-50 border-pink-100" title="Duplications">
+            <MetricCard icon="mdi:content-copy" iconColor="#EC4899" iconBg="bg-pink-50 border-pink-100" title="Duplications" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.30s both' }}>
               <div className="space-y-3">
                 <div>
                   {(() => {
@@ -454,7 +463,10 @@ const SonarQubePage: React.FC = () => {
 
           </div>
         </div>
+        </motion.div>
       )}
+
+      </AnimatePresence>
 
       {/* Manage Projects Modal */}
       <DialogRoot isOpen={isManageModalOpen} onClose={() => setIsManageModalOpen(false)} maxWidth="max-w-2xl">

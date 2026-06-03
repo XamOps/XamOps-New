@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useDevOpsScripts } from '../hooks/useDevOpsScripts';
 import { DevOpsScript, ScriptCategory } from '../types/devopsInTheBox';
@@ -138,22 +139,25 @@ const DevOpsInTheBoxPage: React.FC = () => {
         </div>
       )}
 
+      <AnimatePresence mode="wait">
+
       {/* Loading */}
       {isLoading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => (
             <div key={i} className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl h-44 animate-pulse" />
           ))}
-        </div>
+        </motion.div>
       )}
 
       {/* Scripts Grid */}
       {!isLoading && filteredScripts.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredScripts.map(script => {
+        <motion.div key="grid" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredScripts.map((script, idx) => {
             const m = catMeta(script.category);
             return (
               <div key={script.id} onClick={() => setSelectedScript(script)}
+                style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}
                 className={`bg-white border ${m.border} rounded-xl p-5 cursor-pointer hover:shadow-md transition-all`}>
                 <div className="flex items-start justify-between mb-3">
                   <div className={`w-10 h-10 ${m.bg} border ${m.border} rounded-lg flex items-center justify-center flex-shrink-0`}>
@@ -183,23 +187,27 @@ const DevOpsInTheBoxPage: React.FC = () => {
               </div>
             );
           })}
-        </div>
+        </motion.div>
       )}
 
       {/* Empty */}
       {!isLoading && filteredScripts.length === 0 && !error && (
-        <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl py-16 shadow-sm text-center">
-          <div className="w-12 h-12 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)] rounded-xl flex items-center justify-center mx-auto mb-3">
-            <Icon icon="mdi:magnify" width={24} color="rgba(0,0,0,0.2)" />
+        <motion.div key="empty" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+          <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl py-16 shadow-sm text-center">
+            <div className="w-12 h-12 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)] rounded-xl flex items-center justify-center mx-auto mb-3">
+              <Icon icon="mdi:magnify" width={24} color="rgba(0,0,0,0.2)" />
+            </div>
+            <p className="text-[14px] font-bold text-[rgba(0,0,0,0.55)]">No Scripts Found</p>
+            <p className="text-[12px] text-[rgba(0,0,0,0.35)] mt-1">
+              {filters.searchTerm || filters.filterCategory !== 'all'
+                ? 'Try adjusting your search or filters.'
+                : 'No scripts available at the moment.'}
+            </p>
           </div>
-          <p className="text-[14px] font-bold text-[rgba(0,0,0,0.55)]">No Scripts Found</p>
-          <p className="text-[12px] text-[rgba(0,0,0,0.35)] mt-1">
-            {filters.searchTerm || filters.filterCategory !== 'all'
-              ? 'Try adjusting your search or filters.'
-              : 'No scripts available at the moment.'}
-          </p>
-        </div>
+        </motion.div>
       )}
+
+      </AnimatePresence>
 
       {/* Script Detail Modal */}
       <DialogRoot isOpen={!!selectedScript} onClose={() => setSelectedScript(null)} maxWidth="max-w-4xl">

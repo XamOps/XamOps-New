@@ -1,4 +1,5 @@
 import React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureWasteData } from '../hooks/useAzureWasteData';
@@ -31,44 +32,64 @@ const AzureWastePage: React.FC = () => {
 
       {selectedAccountId && (
         <>
-          <AzureWasteKPICards allItems={allItems} isLoading={isLoading} />
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+          >
+            <AzureWasteKPICards allItems={allItems} isLoading={isLoading} />
+          </motion.div>
 
-          {/* Loading skeletons */}
-          {isLoading && (
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 animate-pulse">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)]" />
-                    <div className="flex-1">
-                      <div className="h-3 w-32 bg-[rgba(0,0,0,0.06)] rounded mb-2" />
-                      <div className="h-2 w-20 bg-[rgba(0,0,0,0.04)] rounded" />
+          <AnimatePresence mode="wait">
+            {isLoading && (
+              <motion.div
+                key="loading"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="space-y-3"
+              >
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 animate-pulse">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)]" />
+                      <div className="flex-1">
+                        <div className="h-3 w-32 bg-[rgba(0,0,0,0.06)] rounded mb-2" />
+                        <div className="h-2 w-20 bg-[rgba(0,0,0,0.04)] rounded" />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </motion.div>
+            )}
 
-          {/* No waste */}
-          {!isLoading && allItems.length === 0 && (
-            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
-              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
-                <Icon icon="mdi:check-circle-outline" width={24} color="#16A34A" />
-              </div>
-              <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Waste Detected</p>
-              <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Your Azure resources appear clean — no idle disks, stopped VMs, or orphaned IPs found.</p>
-            </div>
-          )}
-
-          {/* Resource groups */}
-          {!isLoading && wasteGroups.length > 0 && (
-            <div className="space-y-3">
-              {wasteGroups.map(group => (
-                <AzureWasteResourceGroup key={group.type} group={group} />
-              ))}
-            </div>
-          )}
+            {!isLoading && (
+              <motion.div
+                key="content"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                className="space-y-3"
+              >
+                {allItems.length === 0 ? (
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
+                      <Icon icon="mdi:check-circle-outline" width={24} color="#16A34A" />
+                    </div>
+                    <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Waste Detected</p>
+                    <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Your Azure resources appear clean — no idle disks, stopped VMs, or orphaned IPs found.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {wasteGroups.map(group => (
+                      <AzureWasteResourceGroup key={group.type} group={group} />
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </>
       )}
     </main>

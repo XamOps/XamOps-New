@@ -39,7 +39,7 @@ const FinOpsTaggingCompliance: React.FC<FinOpsTaggingComplianceProps> = ({
       : { text: '#991b1b', bar: '#dc2626', bg: '#fef2f2', icon: '#dc2626' };
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
       {/* Section header */}
       <div className="flex items-center gap-2 pb-4 border-b border-[rgba(0,0,0,0.06)] mb-5">
         <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]">

@@ -210,6 +210,13 @@ const CostSection: React.FC<CostSectionProps> = ({ billingSummary, isLoading, ac
         categoryPercentage: 0.7,
         barPercentage: 1.0,
         interaction: { mode: 'index' as const, intersect: false },
+        animation: {
+          duration: 800,
+          easing: 'easeOutQuart' as const,
+          y: {
+            from: (ctx: any) => ctx.chart.scales.y.getPixelForValue(0),
+          },
+        },
         plugins: {
           legend: {
             display: true,
@@ -324,7 +331,7 @@ const CostSection: React.FC<CostSectionProps> = ({ billingSummary, isLoading, ac
   return (
     <>
       {/* Service Cost Breakdown — 6 months stacked */}
-      <div className="lg:col-span-3 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-full">
+      <div className="lg:col-span-3 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-full widget-panel-hover">
         <div className="flex items-center justify-between mb-5">
           <div>
             <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost Breakdown</p>
@@ -366,7 +373,7 @@ const CostSection: React.FC<CostSectionProps> = ({ billingSummary, isLoading, ac
       </div>
 
       {/* Billing Summary */}
-      <div className="lg:col-span-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-full">
+      <div className="lg:col-span-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-full widget-panel-hover">
         <div className="mb-5">
           <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Billing Summary</p>
           <p className="text-[11px] text-[rgba(0,0,0,0.4)] flex items-center gap-1.5 mt-0.5">

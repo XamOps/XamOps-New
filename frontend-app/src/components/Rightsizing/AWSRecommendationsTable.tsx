@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import type { AWSRecommendation } from '../../hooks/useRightsizingData';
 
@@ -43,7 +44,7 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
   }
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover">
       {/* Subheader */}
       <div className="flex items-center gap-2 px-5 py-3 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
         <Icon icon="mdi:aws" width={14} color="#FF9900" />
@@ -68,9 +69,12 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
           : null;
 
         return (
-          <div
+          <motion.div
             key={`${rec.resourceId}-${idx}`}
             className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.15, delay: Math.min(idx * 0.04, 0.6), ease: 'easeOut' }}
           >
             {/* Instance */}
             <div className="col-span-4 flex items-center gap-3 min-w-0">
@@ -120,7 +124,7 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
                   onClick={() => onApply && rec.region && onApply(rec.resourceId, rec.recommendedType, rec.region)}
                   disabled={!canApply || !rec.region || !onApply}
                   title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply: change to ${rec.recommendedType}`}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
+                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-all active:scale-95 ${
                     canApply && rec.region
                       ? 'border-indigo-200 text-indigo-600 hover:bg-indigo-50 cursor-pointer'
                       : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.25)] cursor-not-allowed'
@@ -133,7 +137,7 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
                 <span className="text-[11px] text-[rgba(0,0,0,0.25)] italic">N/A</span>
               )}
             </div>
-          </div>
+          </motion.div>
         );
       })}
     </div>

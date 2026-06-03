@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { gooeyToast } from 'goey-toast';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureSpotAutomationData, AzureVMSS } from '../hooks/useAzureSpotAutomationData';
@@ -414,11 +415,12 @@ const AzureSpotAutomationPage: React.FC = () => {
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 p-8 space-y-8">
+            <div className="flex-1 p-8">
+            <AnimatePresence mode="wait">
 
                 {/* ─── DASHBOARD TAB ─── */}
                 {activeTab === 'dashboard' && (
-                    <>
+                    <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="space-y-8">
                         {/* KPI Grid */}
                         <SpotAutomationKPIs
                             costs={costs}
@@ -658,17 +660,19 @@ const AzureSpotAutomationPage: React.FC = () => {
                                 </p>
                             </div>
                         </div>
-                    </>
+                    </motion.div>
                 )}
 
                 {/* ─── HISTORY TAB ─── */}
                 {activeTab === 'history' && (
-                    <ActionsHistory accountId={selectedAccountId} provider="AZURE" />
+                    <motion.div key="history" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+                        <ActionsHistory accountId={selectedAccountId} provider="AZURE" />
+                    </motion.div>
                 )}
 
                 {/* ─── LAUNCH ANALYTICS TAB ─── */}
                 {activeTab === 'analytics' && (
-                    <div className="space-y-6">
+                    <motion.div key="analytics" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="space-y-6">
                         {/* Range selector */}
                         <div className="flex items-center justify-between">
                             <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">
@@ -855,12 +859,12 @@ const AzureSpotAutomationPage: React.FC = () => {
                                 No analytics data yet. Enable AutoSpotting on a VMSS to start collecting launch data.
                             </div>
                         )}
-                    </div>
+                    </motion.div>
                 )}
 
                 {/* ─── SETTINGS TAB ─── */}
                 {activeTab === 'settings' && (
-                    <div className="space-y-6 max-w-2xl">
+                    <motion.div key="settings" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="space-y-6 max-w-2xl">
                         <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Settings</h2>
 
                         {/* Reservation Respect */}
@@ -946,8 +950,10 @@ const AzureSpotAutomationPage: React.FC = () => {
                                 )}
                             </div>
                         </div>
-                    </div>
+                    </motion.div>
                 )}
+
+            </AnimatePresence>
             </div>
         </div>
     );

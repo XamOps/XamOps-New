@@ -35,6 +35,7 @@ interface UseBillOpsAdminTicketsReturn {
   tickets: AdminTicket[];
   filteredTickets: AdminTicket[];
   starredClientIds: Set<number>;
+  newlyUpdatedIds: Set<number>;
   loading: boolean;
   isUpdating: boolean;
   error: string | null;
@@ -68,6 +69,13 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
   const [activeTab, setActiveTab] = useState<AdminTicketTab>('All');
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<TicketFilters>(DEFAULT_FILTERS);
+  const [newlyUpdatedIds, setNewlyUpdatedIds] = useState<Set<number>>(new Set());
+
+  // Tracks the snapshot seen on the previous fetch to detect new/updated tickets
+  const prevSnapshotRef = useRef<Map<number, { updatedAt: string; hasUnreadUserReply: boolean }>>(new Map());
+  // True until the first successful fetch completes — we don't highlight on initial load
+  const isFirstFetchRef = useRef(true);
+  const highlightClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasData = tickets.length > 0;
 
@@ -245,6 +253,44 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
         new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime()
       );
 
+      // Detect newly arrived or updated tickets vs the previous snapshot
+      if (!isFirstFetchRef.current) {
+        const prev = prevSnapshotRef.current;
+        const newIds = new Set<number>();
+        for (const t of sortedTickets) {
+          const prevEntry = prev.get(t.id);
+          if (!prevEntry) {
+            // Brand-new ticket that wasn't in the previous fetch
+            newIds.add(t.id);
+          } else if (
+            prevEntry.updatedAt !== (t.updatedAt ?? '') ||
+            prevEntry.hasUnreadUserReply !== (t.hasUnreadUserReply ?? false)
+          ) {
+            // Existing ticket got a reply or was otherwise updated
+            newIds.add(t.id);
+          }
+        }
+        if (newIds.size > 0) {
+          setNewlyUpdatedIds(newIds);
+          // Auto-clear highlight after 8 s — one-time visibility
+          if (highlightClearTimerRef.current) clearTimeout(highlightClearTimerRef.current);
+          highlightClearTimerRef.current = setTimeout(() => {
+            setNewlyUpdatedIds(new Set());
+          }, 8000);
+        }
+      }
+
+      // Update snapshot for next comparison
+      const nextSnapshot = new Map<number, { updatedAt: string; hasUnreadUserReply: boolean }>();
+      for (const t of sortedTickets) {
+        nextSnapshot.set(t.id, {
+          updatedAt: t.updatedAt ?? '',
+          hasUnreadUserReply: t.hasUnreadUserReply ?? false,
+        });
+      }
+      prevSnapshotRef.current = nextSnapshot;
+      isFirstFetchRef.current = false;
+
       // Update cache with timestamp
       const now = Date.now();
       const cacheData: AdminTicketCacheData = {
@@ -326,6 +372,13 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
     return () => window.removeEventListener('ticket:updated', handleTicketUpdated);
   }, [fetchTickets]);
 
+  // Cleanup highlight clear timer on unmount
+  useEffect(() => {
+    return () => {
+      if (highlightClearTimerRef.current) clearTimeout(highlightClearTimerRef.current);
+    };
+  }, []);
+
   /**
    * Auto-poll every 30 seconds so newly created tickets (by users) appear
    * without requiring a manual refresh
@@ -357,6 +410,7 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
     tickets,
     filteredTickets,
     starredClientIds,
+    newlyUpdatedIds,
     loading,
     isUpdating,
     error,

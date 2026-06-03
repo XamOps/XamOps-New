@@ -26,7 +26,7 @@ const FinOpsBudgets: React.FC<FinOpsBudgetsProps> = ({
   };
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
       {/* Header */}
       <div className="flex items-center justify-between pb-4 border-b border-[rgba(0,0,0,0.06)] mb-5">
         <div className="flex items-center gap-2">

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useCICDPipelines } from '../hooks/useCICDPipelines';
 import { RunHistory } from '../types/cicdPipelines';
@@ -129,9 +130,10 @@ const CICDPipelinesPage: React.FC = () => {
           ))}
         </div>
 
+        <AnimatePresence mode="wait">
         {/* GitHub Tab */}
         {activeTab === 'github' && (
-          <div>
+          <motion.div key="github" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
             {/* GitHub Metrics */}
             <div className="mb-6">
               {githubMetrics.error && (
@@ -165,10 +167,11 @@ const CICDPipelinesPage: React.FC = () => {
             )}
             {!isLoadingGithub && githubRuns.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {githubRuns.map(run => {
+                {githubRuns.map((run, idx) => {
                   const st = statusStyle(run.displayStatus);
                   return (
                     <div key={run.id} onClick={() => viewWorkflowHistory(run)}
+                      style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}
                       className={`bg-white border ${st.border} rounded-xl p-4 cursor-pointer hover:shadow-md transition-all`}>
                       <div className="flex justify-between items-center mb-2.5">
                         <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.07)] px-2 py-0.5 rounded-full truncate max-w-[130px]">
@@ -193,12 +196,12 @@ const CICDPipelinesPage: React.FC = () => {
                 })}
               </div>
             )}
-          </div>
+          </motion.div>
         )}
 
         {/* Jenkins Tab */}
         {activeTab === 'jenkins' && (
-          <div>
+          <motion.div key="jenkins" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
             {/* Jenkins Metrics */}
             <div className="mb-6">
               {jenkinsMetrics.error && (
@@ -231,10 +234,11 @@ const CICDPipelinesPage: React.FC = () => {
             )}
             {!isLoadingJenkins && jenkinsJobs.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {jenkinsJobs.map(job => {
+                {jenkinsJobs.map((job, idx) => {
                   const st = statusStyle(job.displayStatus);
                   return (
                     <div key={job.url} onClick={() => viewWorkflowHistory(job)}
+                      style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}
                       className={`bg-white border ${st.border} rounded-xl p-4 cursor-pointer hover:shadow-md transition-all`}>
                       <div className="flex justify-between items-center mb-2.5">
                         <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.07)] px-2 py-0.5 rounded-full">
@@ -263,8 +267,9 @@ const CICDPipelinesPage: React.FC = () => {
                 })}
               </div>
             )}
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
 
       {/* Workflow History Modal */}

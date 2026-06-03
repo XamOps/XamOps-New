@@ -19,7 +19,7 @@
  * - Pagination for large tables
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useFinOpsData } from '../hooks/useFinOpsData';
 import type { DateFilter, NewBudget, NewSchedule, PaginationState } from '../types/finops';
@@ -53,6 +53,23 @@ const getInitialDates = (): DateFilter => {
     startDate: formatDate(startOfMonth),
     endDate: formatDate(today),
   };
+};
+
+const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
+      }, { threshold: 0.06 });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
+  return <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>{children}</div>;
 };
 
 export const FinOpsPage: React.FC = () => {
@@ -275,58 +292,68 @@ export const FinOpsPage: React.FC = () => {
           )}
 
           {/* Budgets Section */}
-          {sectionLoading.budgets ? (
-            <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-40 w-full rounded-xl" />
-          ) : reportData && (
-            <FinOpsBudgets
-              budgets={reportData.budgets}
-              onCreateBudget={() => setIsBudgetModalOpen(true)}
-              onScheduleReport={() => setIsScheduleModalOpen(true)}
-              onDeleteBudget={handleDeleteBudget}
-            />
-          )}
+          <RevealSection>
+            {sectionLoading.budgets ? (
+              <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-40 w-full rounded-xl" />
+            ) : reportData && (
+              <FinOpsBudgets
+                budgets={reportData.budgets}
+                onCreateBudget={() => setIsBudgetModalOpen(true)}
+                onScheduleReport={() => setIsScheduleModalOpen(true)}
+                onDeleteBudget={handleDeleteBudget}
+              />
+            )}
+          </RevealSection>
 
           {/* Scheduled Reports */}
           {reportSchedules.length > 0 && (
-            <FinOpsScheduledReports schedules={reportSchedules} onDeleteSchedule={handleDeleteSchedule} />
+            <RevealSection>
+              <FinOpsScheduledReports schedules={reportSchedules} onDeleteSchedule={handleDeleteSchedule} />
+            </RevealSection>
           )}
 
           {/* Charts Grid — shows when cost-history + cost-by-region resolve */}
-          {sectionLoading.charts ? (
-            <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-64 w-full rounded-xl" />
-          ) : reportData && (
-            <FinOpsCharts costBreakdown={reportData.costBreakdown} />
-          )}
+          <RevealSection delay={0.05}>
+            {sectionLoading.charts ? (
+              <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-64 w-full rounded-xl" />
+            ) : reportData && (
+              <FinOpsCharts costBreakdown={reportData.costBreakdown} />
+            )}
+          </RevealSection>
 
           {/* Tagging Compliance — may be slow (full resource scan); shows its own skeleton */}
-          {sectionLoading.tagging ? (
-            <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-48 w-full rounded-xl" />
-          ) : reportData && (
-            <FinOpsTaggingCompliance
-              taggingCompliance={reportData.taggingCompliance}
-              pagination={taggingPagination}
-              onPaginationChange={(updates) => updatePagination('tagging', updates)}
-            />
-          )}
+          <RevealSection delay={0.05}>
+            {sectionLoading.tagging ? (
+              <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-48 w-full rounded-xl" />
+            ) : reportData && (
+              <FinOpsTaggingCompliance
+                taggingCompliance={reportData.taggingCompliance}
+                pagination={taggingPagination}
+                onPaginationChange={(updates) => updatePagination('tagging', updates)}
+              />
+            )}
+          </RevealSection>
 
           {/* Insights — shows when rightsizing + wasted-resources + anomalies resolve */}
-          {sectionLoading.insights ? (
-            <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-64 w-full rounded-xl" />
-          ) : reportData && (
-            reportData.rightsizingRecommendations.length > 0 ||
-            reportData.wastedResources.length > 0 ||
-            reportData.costAnomalies.length > 0
-          ) && reportData && (
-            <FinOpsInsights
-              costAnomalies={reportData.costAnomalies}
-              rightsizingRecommendations={reportData.rightsizingRecommendations}
-              wastedResources={reportData.wastedResources}
-              rightsizingPagination={rightsizingPagination}
-              wastedPagination={wastedPagination}
-              onRightsizingPaginationChange={(updates) => updatePagination('rightsizing', updates)}
-              onWastedPaginationChange={(updates) => updatePagination('wasted', updates)}
-            />
-          )}
+          <RevealSection delay={0.05}>
+            {sectionLoading.insights ? (
+              <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-64 w-full rounded-xl" />
+            ) : reportData && (
+              reportData.rightsizingRecommendations.length > 0 ||
+              reportData.wastedResources.length > 0 ||
+              reportData.costAnomalies.length > 0
+            ) && reportData && (
+              <FinOpsInsights
+                costAnomalies={reportData.costAnomalies}
+                rightsizingRecommendations={reportData.rightsizingRecommendations}
+                wastedResources={reportData.wastedResources}
+                rightsizingPagination={rightsizingPagination}
+                wastedPagination={wastedPagination}
+                onRightsizingPaginationChange={(updates) => updatePagination('rightsizing', updates)}
+                onWastedPaginationChange={(updates) => updatePagination('wasted', updates)}
+              />
+            )}
+          </RevealSection>
         </>
       )}
 

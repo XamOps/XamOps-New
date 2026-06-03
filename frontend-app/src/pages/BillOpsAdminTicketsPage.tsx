@@ -74,15 +74,17 @@ interface TicketRowProps {
   ticket: AdminTicket;
   onView: (id: number) => void;
   isStarredClient: boolean;
+  isNew: boolean;
 }
 
-const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient }) => {
+const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient, isNew }) => {
   const isClosed = ticket.status === 'CLOSED';
   const sla = ticket.createdAt
     ? getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt)
     : null;
 
   const rowBorderClass = (() => {
+    if (isNew) return 'border-l-[3px] border-l-amber-400 bg-amber-50/30';
     if (!sla) return '';
     if (sla.status === 'breached') return 'border-l-[3px] border-l-red-400 bg-red-50/20';
     if (['Critical', 'Urgent'].includes(ticket.severity) && !isClosed)
@@ -119,13 +121,18 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
     >
       {/* ID */}
       <td className="px-4 py-3 whitespace-nowrap">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {isStarredClient && (
             <span title="Primary client">
               <Icon icon="mdi:star" width={10} className="text-amber-400" />
             </span>
           )}
           <span className="text-[11px] text-[rgba(0,0,0,0.35)] font-mono">#{ticket.id}</span>
+          {isNew && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-bold rounded bg-amber-500 text-white uppercase tracking-wide animate-pulse">
+              New
+            </span>
+          )}
         </div>
       </td>
 
@@ -249,7 +256,8 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient 
   prev.ticket.id === next.ticket.id &&
   prev.ticket.updatedAt === next.ticket.updatedAt &&
   prev.ticket.hasUnreadUserReply === next.ticket.hasUnreadUserReply &&
-  prev.isStarredClient === next.isStarredClient
+  prev.isStarredClient === next.isStarredClient &&
+  prev.isNew === next.isNew
 );
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -260,6 +268,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     tickets,
     filteredTickets,
     starredClientIds,
+    newlyUpdatedIds,
     loading,
     isUpdating,
     error,
@@ -1000,6 +1009,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                           ticket={ticket}
                           onView={viewTicket}
                           isStarredClient={ticket.clientId != null && starredClientIds.has(ticket.clientId)}
+                          isNew={newlyUpdatedIds.has(ticket.id)}
                         />
                       ))
                     : renderEmptyState()}

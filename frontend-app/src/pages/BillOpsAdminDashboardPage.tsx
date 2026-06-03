@@ -66,11 +66,23 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   const [clientsData, setClientsData] = useState<ClientsApiData[] | null>(null);
   const [clientsLoading, setClientsLoading] = useState(true);
 
+  const CLIENTS_CACHE_KEY = 'billops_admin_clients_data';
 
   useEffect(() => {
+    const cached = localStorage.getItem(CLIENTS_CACHE_KEY);
+    if (cached) {
+      try {
+        setClientsData(JSON.parse(cached) as ClientsApiData[]);
+        setClientsLoading(false);
+      } catch (e) { /* ignore corrupt cache */ }
+    }
+
     apiFetch('/api/xamops/billops-admin/clients', { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then((d: ClientsApiData[]) => setClientsData(d))
+      .then((d: ClientsApiData[]) => {
+        setClientsData(d);
+        localStorage.setItem(CLIENTS_CACHE_KEY, JSON.stringify(d));
+      })
       .catch(err => console.error('Failed to load clients data for spend total', err))
       .finally(() => setClientsLoading(false));
   }, []);

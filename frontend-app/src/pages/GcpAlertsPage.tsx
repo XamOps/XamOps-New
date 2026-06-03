@@ -13,6 +13,7 @@
  */
 
 import React, { useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -65,7 +66,7 @@ const GcpAlertsPage: React.FC = () => {
 
     return (
         <div className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen">
-            <div className="space-y-5">
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-5">
 
                 {/* No Account Selected */}
                 {!selectedAccountId && !isLoading && (
@@ -92,7 +93,7 @@ const GcpAlertsPage: React.FC = () => {
                     ) : (
                         <>
                             {/* Total Alerts */}
-                            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+                            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0s both' }}>
                                 <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">TOTAL ALERTS</p>
                                 <p
                                     className="tabular-nums text-[rgba(0,0,0,0.88)]"
@@ -104,7 +105,7 @@ const GcpAlertsPage: React.FC = () => {
                             </div>
 
                             {/* Critical Usage */}
-                            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+                            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.06s both' }}>
                                 <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">CRITICAL USAGE</p>
                                 <p
                                     className="tabular-nums text-red-600"
@@ -116,7 +117,7 @@ const GcpAlertsPage: React.FC = () => {
                             </div>
 
                             {/* Warning */}
-                            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+                            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.12s both' }}>
                                 <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">WARNING</p>
                                 <p
                                     className="tabular-nums text-amber-500"
@@ -128,7 +129,7 @@ const GcpAlertsPage: React.FC = () => {
                             </div>
 
                             {/* Healthy */}
-                            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+                            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.18s both' }}>
                                 <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">HEALTHY</p>
                                 <p
                                     className="tabular-nums text-emerald-600"
@@ -180,17 +181,21 @@ const GcpAlertsPage: React.FC = () => {
                             </span>
                         </div>
 
+                        <AnimatePresence mode="wait">
                         {/* Loading Skeleton */}
                         {isLoading && (
+                            <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                             <div className="p-5 space-y-3">
                                 {[...Array(6)].map((_, i) => (
                                     <div key={i} className="h-10 bg-[rgba(0,0,0,0.04)] rounded animate-pulse" />
                                 ))}
                             </div>
+                            </motion.div>
                         )}
 
                         {/* Empty State */}
                         {!isLoading && filteredAlerts.length === 0 && (
+                            <motion.div key="empty" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
                             <div className="py-16 text-center">
                                 <div className="w-14 h-14 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center mx-auto mb-3">
                                     <Icon icon="mdi:check-circle-outline" width={28} className="text-emerald-500" />
@@ -199,16 +204,18 @@ const GcpAlertsPage: React.FC = () => {
                                 <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-4">No critical alerts found for the selected filter.</p>
                                 <button
                                     onClick={() => loadAlerts(true)}
-                                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-[13px] font-semibold rounded-lg hover:bg-indigo-700 transition-all mx-auto"
+                                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-[13px] font-semibold rounded-lg hover:bg-indigo-700 transition-all mx-auto active:scale-95"
                                 >
                                     <Icon icon="mdi:refresh" width={14} />
                                     Refresh Check
                                 </button>
                             </div>
+                            </motion.div>
                         )}
 
                         {/* Alerts Table */}
                         {!isLoading && filteredAlerts.length > 0 && (
+                            <motion.div key="table" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
                                     <thead>
@@ -221,8 +228,8 @@ const GcpAlertsPage: React.FC = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredAlerts.map((alert) => (
-                                            <tr key={alert.id} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                                        {filteredAlerts.map((alert, idx) => (
+                                            <tr key={alert.id} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors" style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}>
 
                                                 {/* Service / Category */}
                                                 <td className="px-5 py-3">
@@ -325,11 +332,13 @@ const GcpAlertsPage: React.FC = () => {
                                     </tbody>
                                 </table>
                             </div>
+                            </motion.div>
                         )}
+                        </AnimatePresence>
                     </div>
                 )}
 
-            </div>
+            </motion.div>
         </div>
     );
 };

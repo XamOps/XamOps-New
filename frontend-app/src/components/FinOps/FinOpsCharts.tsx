@@ -151,7 +151,7 @@ const FinOpsCharts: React.FC<FinOpsChartsProps> = ({ costBreakdown }) => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Cost by Service – Variable Radius Pie */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
         <div className="flex items-center gap-2 mb-5">
           <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]">
             <Icon icon="mdi:chart-pie" width={16} color="#4285F4" />
@@ -175,7 +175,7 @@ const FinOpsCharts: React.FC<FinOpsChartsProps> = ({ costBreakdown }) => {
       </div>
 
       {/* Cost by Region */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
         <div className="flex items-center gap-2 mb-5">
           <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]">
             <Icon icon="mdi:earth" width={16} color="#F4A429" />

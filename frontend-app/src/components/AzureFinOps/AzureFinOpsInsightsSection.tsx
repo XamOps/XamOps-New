@@ -39,7 +39,7 @@ const AzureFinOpsInsightsSection: React.FC<AzureFinOpsInsightsSectionProps> = ({
   const totalItems = rightsizingItems.length + wasteItems.length;
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
       {/* Header */}
       <div className="flex items-center gap-3 mb-5">
         <div

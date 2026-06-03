@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpWasteData } from '../hooks/useGcpWasteData';
@@ -54,79 +55,93 @@ const GcpWastePage: React.FC = () => {
         </div>
       )}
 
-      {/* Loading */}
-      {selectedAccountId && isLoading && wasteItems.length === 0 && (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-[110px] animate-pulse">
-                <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
-                <div className="h-7 w-28 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
-                <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] rounded" />
-              </div>
-            ))}
-          </div>
-          <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 animate-pulse">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)]" />
-                  <div className="flex-1">
-                    <div className="h-3 w-32 bg-[rgba(0,0,0,0.06)] rounded mb-2" />
-                    <div className="h-2 w-20 bg-[rgba(0,0,0,0.04)] rounded" />
-                  </div>
+      <AnimatePresence mode="wait">
+        {/* Loading */}
+        {selectedAccountId && isLoading && wasteItems.length === 0 && (
+          <motion.div
+            key="loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-5"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-[110px] animate-pulse">
+                  <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+                  <div className="h-7 w-28 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+                  <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] rounded" />
                 </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Content */}
-      {selectedAccountId && !isLoading && (
-        <>
-          {/* Partial scan warning */}
-          {isPartial && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3.5 flex items-center gap-3">
-              <Icon icon="mdi:alert-outline" width={18} color="#D97706" />
-              <p className="text-[13px] text-amber-800 flex-1">
-                Some detectors timed out — results may be incomplete.{' '}
-                <button
-                  onClick={() => loadWasteReport(true)}
-                  className="font-semibold underline underline-offset-2 hover:text-amber-900"
-                >
-                  Force Refresh
-                </button>{' '}
-                to run a full scan.
-              </p>
-            </div>
-          )}
-
-          <GcpWasteKPICards wasteItems={wasteItems} isLoading={isLoading} />
-
-          {groupedResources.length === 0 ? (
-            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
-              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
-                <Icon icon="mdi:leaf" width={24} color="#16A34A" />
-              </div>
-              <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Waste Found</p>
-              <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Your GCP environment is looking clean and optimized.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {groupedResources.map(group => (
-                <GcpWasteResourceGroup
-                  key={group.type}
-                  type={group.type}
-                  resources={group.resources}
-                  isOpen={expandedGroups.has(group.type)}
-                  onToggle={() => toggleGroup(group.type)}
-                />
               ))}
             </div>
-          )}
-        </>
-      )}
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)]" />
+                    <div className="flex-1">
+                      <div className="h-3 w-32 bg-[rgba(0,0,0,0.06)] rounded mb-2" />
+                      <div className="h-2 w-20 bg-[rgba(0,0,0,0.04)] rounded" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Content */}
+        {selectedAccountId && !isLoading && (
+          <motion.div
+            key="content"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="space-y-5"
+          >
+            {isPartial && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3.5 flex items-center gap-3">
+                <Icon icon="mdi:alert-outline" width={18} color="#D97706" />
+                <p className="text-[13px] text-amber-800 flex-1">
+                  Some detectors timed out — results may be incomplete.{' '}
+                  <button
+                    onClick={() => loadWasteReport(true)}
+                    className="font-semibold underline underline-offset-2 hover:text-amber-900"
+                  >
+                    Force Refresh
+                  </button>{' '}
+                  to run a full scan.
+                </p>
+              </div>
+            )}
+
+            <GcpWasteKPICards wasteItems={wasteItems} isLoading={isLoading} />
+
+            {groupedResources.length === 0 ? (
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
+                  <Icon icon="mdi:leaf" width={24} color="#16A34A" />
+                </div>
+                <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Waste Found</p>
+                <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Your GCP environment is looking clean and optimized.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {groupedResources.map(group => (
+                  <GcpWasteResourceGroup
+                    key={group.type}
+                    type={group.type}
+                    resources={group.resources}
+                    isOpen={expandedGroups.has(group.type)}
+                    onToggle={() => toggleGroup(group.type)}
+                  />
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 };

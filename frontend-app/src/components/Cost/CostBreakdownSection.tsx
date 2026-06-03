@@ -79,6 +79,7 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
         }],
       },
       options: {
+        animation: { animateRotate: true, animateScale: true, duration: 900, easing: 'easeOutQuart' },
         responsive: true,
         maintainAspectRatio: false,
         cutout: '68%',
@@ -126,7 +127,7 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
   }, [costData, sortedData, onHistoricalClick]);
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm widget-panel-hover">
 
       {/* Header + Filters */}
       <div className="px-5 pt-5 pb-4 border-b border-[rgba(0,0,0,0.06)]">
@@ -270,6 +271,7 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
                       <tr
                         key={item.name}
                         className={`border-t border-[rgba(0,0,0,0.04)] transition-colors ${isUntagged ? 'bg-amber-50/60' : 'hover:bg-[rgba(0,0,0,0.02)] cursor-pointer'}`}
+                        style={{ animation: `fadeInUp 0.35s ease ${index * 0.035}s both` }}
                         onClick={() => !isUntagged && onHistoricalClick(item.name)}
                       >
                         <td className="px-5 py-3">

@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useRightsizingData } from '../hooks/useRightsizingData';
@@ -133,51 +134,67 @@ export const RightsizingPage: React.FC = () => {
             ))}
           </div>
 
-          {/* AWS tab */}
-          {activeTab === 'aws' && (
-            !isLoadingAWS && filteredAWSRecommendations.length === 0 ? (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
-                <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
-                  <Icon icon="mdi:check-circle-outline" width={24} color="#16A34A" />
-                </div>
-                <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Recommendations</p>
-                <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-4">No rightsizing recommendations available at this time.</p>
-                <div className="inline-flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-left max-w-md mx-auto">
-                  <Icon icon="mdi:information-outline" width={15} color="#D97706" className="flex-shrink-0 mt-0.5" />
-                  <p className="text-[12px] text-amber-700">
-                    Ensure <strong>AWS Cost Optimization Hub</strong> is enabled in your AWS Cost Management console.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <AWSRecommendationsTable
-                recommendations={filteredAWSRecommendations}
-                isLoading={isLoadingAWS}
-                canApply={canApply}
-                onApply={handleApplyRequest}
-              />
-            )
-          )}
+          <AnimatePresence mode="wait">
+            {activeTab === 'aws' && (
+              <motion.div
+                key="aws"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
+                {!isLoadingAWS && filteredAWSRecommendations.length === 0 ? (
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#16A34A14' }}>
+                      <Icon icon="mdi:check-circle-outline" width={24} color="#16A34A" />
+                    </div>
+                    <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Recommendations</p>
+                    <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-4">No rightsizing recommendations available at this time.</p>
+                    <div className="inline-flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-left max-w-md mx-auto">
+                      <Icon icon="mdi:information-outline" width={15} color="#D97706" className="flex-shrink-0 mt-0.5" />
+                      <p className="text-[12px] text-amber-700">
+                        Ensure <strong>AWS Cost Optimization Hub</strong> is enabled in your AWS Cost Management console.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <AWSRecommendationsTable
+                    recommendations={filteredAWSRecommendations}
+                    isLoading={isLoadingAWS}
+                    canApply={canApply}
+                    onApply={handleApplyRequest}
+                  />
+                )}
+              </motion.div>
+            )}
 
-          {/* XamOps tab */}
-          {activeTab === 'xamops' && (
-            !isLoadingXamOps && xamopsRecommendations.length === 0 ? (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
-                <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Icon icon="mdi:lightning-bolt-outline" width={24} color="rgba(0,0,0,0.3)" />
-                </div>
-                <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No XamAi Recommendations</p>
-                <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Could not load custom recommendations at this time.</p>
-              </div>
-            ) : (
-              <XamOpsRecommendationsTable
-                recommendations={xamopsRecommendations}
-                isLoading={isLoadingXamOps}
-                canApply={canApply}
-                onApply={handleApplyRequest}
-              />
-            )
-          )}
+            {activeTab === 'xamops' && (
+              <motion.div
+                key="xamops"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
+                {!isLoadingXamOps && xamopsRecommendations.length === 0 ? (
+                  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
+                    <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+                      <Icon icon="mdi:lightning-bolt-outline" width={24} color="rgba(0,0,0,0.3)" />
+                    </div>
+                    <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No XamAi Recommendations</p>
+                    <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Could not load custom recommendations at this time.</p>
+                  </div>
+                ) : (
+                  <XamOpsRecommendationsTable
+                    recommendations={xamopsRecommendations}
+                    isLoading={isLoadingXamOps}
+                    canApply={canApply}
+                    onApply={handleApplyRequest}
+                  />
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </>
       )}
 

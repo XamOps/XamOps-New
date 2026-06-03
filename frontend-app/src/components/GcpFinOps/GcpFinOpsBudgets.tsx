@@ -30,7 +30,7 @@ const GcpFinOpsBudgets: React.FC<GcpFinOpsBudgetsProps> = ({
   onDeleteBudget,
 }) => {
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
       {/* Header */}
       <div className="flex justify-between items-start mb-5">
         <div className="flex items-center gap-3">

@@ -1,4 +1,5 @@
 import React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureSecurityData } from '../hooks/useAzureSecurityData';
@@ -87,12 +88,18 @@ const AzureSecurityPage: React.FC = () => {
               onSelectionChange={(key) => setActiveTab(key as ActiveTab)}
             />
 
-            {activeTab === 'assessments' && (
-              <AzureSecurityAssessmentsSection assessments={assessments} isLoading={isLoading} />
-            )}
-            {activeTab === 'alerts' && (
-              <AzureSecurityAlertsTable alerts={alerts} isLoading={isLoading} />
-            )}
+            <AnimatePresence mode="wait">
+              {activeTab === 'assessments' && (
+                <motion.div key="assessments" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+                  <AzureSecurityAssessmentsSection assessments={assessments} isLoading={isLoading} />
+                </motion.div>
+              )}
+              {activeTab === 'alerts' && (
+                <motion.div key="alerts" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+                  <AzureSecurityAlertsTable alerts={alerts} isLoading={isLoading} />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         )}
       </div>

@@ -30,7 +30,7 @@ const NavSection: React.FC<NavSectionProps> = ({
       {/* Popover above — for footer sections that open upward */}
       {direction === 'up' && (
         <div className={clsx(
-          'absolute bottom-full left-0 w-full mb-1 transition-[grid-template-rows,opacity] duration-200 ease-out rounded-xl shadow-md z-50 overflow-hidden grid will-change-[grid-template-rows,opacity]',
+          'absolute bottom-full left-0 w-full mb-1 transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] rounded-xl shadow-md z-50 overflow-hidden grid will-change-[grid-template-rows,opacity]',
           dark
             ? 'border border-[rgba(255,255,255,0.08)] bg-[#1a1a1a]'
             : 'border border-[rgba(0,0,0,0.08)] bg-white',
@@ -91,7 +91,7 @@ const NavSection: React.FC<NavSectionProps> = ({
       {direction === 'down' && (
         <div
           className={clsx(
-            'grid transition-[grid-template-rows,opacity,margin] duration-200 ease-out overflow-hidden',
+            'grid transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden',
             isOpen
               ? 'grid-rows-[1fr] opacity-100 mt-0.5'
               : 'grid-rows-[0fr] opacity-0 mt-0'

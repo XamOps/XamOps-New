@@ -52,7 +52,7 @@ function readCache(): ClientDetails[] | null {
 function writeCache(data: ClientDetails[]) {
     try {
         localStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
-    } catch {}
+    } catch { }
 }
 
 const ClientDetailsPage: React.FC = () => {
@@ -80,7 +80,7 @@ const ClientDetailsPage: React.FC = () => {
     // Sum converted consumptions for a client
     const clientTotal = useCallback((c: ClientDetails): number =>
         c.accounts.reduce((s, a) => s + (convertConsumption(a.consumption || 0, a.provider)), 0),
-    [convertConsumption]);
+        [convertConsumption]);
 
     const { setActions, clearActions } = useTopbarActions();
 
@@ -177,8 +177,8 @@ const ClientDetailsPage: React.FC = () => {
             user.accountAccessIds.length === 0
                 ? client.accounts.map(a => a.providerAccountId)
                 : user.accountAccessIds
-                      .map(id => client.accounts.find(a => a.id === id)?.providerAccountId)
-                      .filter((pid): pid is string => Boolean(pid));
+                    .map(id => client.accounts.find(a => a.id === id)?.providerAccountId)
+                    .filter((pid): pid is string => Boolean(pid));
 
         try {
             const res = await fetch('/api/billops/generate-impersonation-token', {
@@ -732,11 +732,10 @@ const ClientDetailsPage: React.FC = () => {
                             <button
                                 key={page}
                                 onClick={() => setCurrentPage(page)}
-                                className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
-                                    isActive
+                                className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${isActive
                                         ? 'bg-indigo-600 text-white'
                                         : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                                }`}
+                                    }`}
                             >
                                 {page}
                             </button>

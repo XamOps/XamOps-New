@@ -8,7 +8,6 @@ type Step = 'request' | 'verify' | 'reset';
 
 const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
   const [step, setStep] = useState<Step>('request');
-  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -24,7 +23,7 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
 
     try {
       const response = await fetch(
-        `/api/auth/forgot-password?username=${encodeURIComponent(username)}&email=${encodeURIComponent(email)}`,
+        `/api/auth/forgot-password?email=${encodeURIComponent(email)}`,
         { method: 'POST' }
       );
 
@@ -51,7 +50,7 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
 
     try {
       const response = await fetch(
-        `/api/auth/verify-otp?username=${encodeURIComponent(username)}&otp=${encodeURIComponent(otp)}`,
+        `/api/auth/verify-otp?email=${encodeURIComponent(email)}&otp=${encodeURIComponent(otp)}`,
         { method: 'POST' }
       );
 
@@ -84,7 +83,7 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
 
     try {
       const response = await fetch(
-        `/api/auth/reset-password?username=${encodeURIComponent(username)}&otp=${encodeURIComponent(otp)}&newPassword=${encodeURIComponent(newPassword)}`,
+        `/api/auth/reset-password?email=${encodeURIComponent(email)}&otp=${encodeURIComponent(otp)}&newPassword=${encodeURIComponent(newPassword)}`,
         { method: 'POST' }
       );
 
@@ -138,21 +137,6 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBackToLogin }) => {
       {/* Step 1: Request OTP */}
       {step === 'request' && (
         <form onSubmit={handleRequestOtp} className="form-stack">
-          <div className="input-group">
-            <label htmlFor="username" className="label-text">Username</label>
-            <div className="input-container">
-              <i className="fas fa-user input-icon-left"></i>
-              <input
-                type="text"
-                id="username"
-                className="input-field"
-                placeholder="Enter your username"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-          </div>
           <div className="input-group">
             <label htmlFor="email" className="label-text">Email Address</label>
             <div className="input-container">

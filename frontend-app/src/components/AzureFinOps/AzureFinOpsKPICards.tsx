@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { AzureFinOpsReportData } from '../../types/azureFinops';
 
@@ -45,28 +45,53 @@ const CLOUD_SVG = (
 
 interface KPICardProps {
   label: string;
-  value: string;
+  rawValue: number;
   icon: string;
   iconColor: string;
   iconBg: string;
   changePercent?: number | null;
   changeLabel?: string;
   isSavings?: boolean;
+  index: number;
 }
 
-const KPICard: React.FC<KPICardProps> = ({ label, value, icon, iconColor, iconBg, changePercent, changeLabel, isSavings }) => {
-  const split = splitValue(value);
+const KPICard: React.FC<KPICardProps> = ({ label, rawValue, icon, iconColor, iconBg, changePercent, changeLabel, isSavings, index }) => {
+  const animRef = useRef<number | undefined>(undefined);
+  const prevRawValue = useRef(rawValue);
+  const [animCount, setAnimCount] = useState(rawValue);
+
+  useEffect(() => {
+    if (rawValue === prevRawValue.current) return;
+    const prev = prevRawValue.current;
+    prevRawValue.current = rawValue;
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    if (rawValue === 0) { setAnimCount(0); return; }
+    const duration = 1050;
+    const startTime = performance.now();
+    const step = (now: number) => {
+      const t = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimCount(prev + eased * (rawValue - prev));
+      if (t < 1) animRef.current = requestAnimationFrame(step);
+      else setAnimCount(rawValue);
+    };
+    animRef.current = requestAnimationFrame(step);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+  }, [rawValue]);
+
+  const split = splitValue(formatCurrency(animCount));
   const hasChange = changePercent != null && !isNaN(changePercent) && changePercent !== 0;
   const isGood = isSavings ? true : (changePercent ?? 0) < 0;
   const badgeText = hasChange ? `${(changePercent ?? 0) >= 0 ? '+' : ''}${Math.abs(changePercent ?? 0).toFixed(1)}%` : '';
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+    <div
+      className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift"
+      style={{ animation: `fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${0.05 + index * 0.09}s both` }}
+    >
       {CLOUD_SVG}
       <div className="relative z-10">
-        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">
-          {label}
-        </p>
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{label}</p>
         <div className="flex items-end justify-between mb-3">
           <p className="leading-8 flex items-baseline gap-0.5">
             <span style={NUM_STYLE}>{split.main}</span>
@@ -96,6 +121,7 @@ const KPICard: React.FC<KPICardProps> = ({ label, value, icon, iconColor, iconBg
   );
 };
 
+/* MoM Change card — shows a % string, not a currency. No count-up needed, just stagger + hover. */
 interface KPICardRawProps {
   label: string;
   displayValue: string;
@@ -104,10 +130,14 @@ interface KPICardRawProps {
   iconColor: string;
   iconBg: string;
   changeLabel?: string;
+  index: number;
 }
 
-const KPICardRaw: React.FC<KPICardRawProps> = ({ label, displayValue, valueColor, icon, iconColor, iconBg, changeLabel }) => (
-  <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+const KPICardRaw: React.FC<KPICardRawProps> = ({ label, displayValue, valueColor, icon, iconColor, iconBg, changeLabel, index }) => (
+  <div
+    className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift"
+    style={{ animation: `fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${0.05 + index * 0.09}s both` }}
+  >
     {CLOUD_SVG}
     <div className="relative z-10">
       <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{label}</p>
@@ -144,10 +174,10 @@ const AzureFinOpsKPICards: React.FC<AzureFinOpsKPICardsProps> = ({ reportData, i
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <KPICard label="Month-to-Date Spend" value={formatCurrency(totalSpend)} icon="mdi:currency-usd" iconColor="#0078D4" iconBg="#0078D414" changeLabel="current month actual" />
-      <KPICard label="Forecasted Spend" value={formatCurrency(forecastedSpend)} icon="mdi:chart-line" iconColor="#D97706" iconBg="#FFB90014" changeLabel="ML-powered estimate" />
-      <KPICardRaw label="MoM Change" displayValue={`${momChange >= 0 ? '+' : ''}${momChange.toFixed(1)}%`} icon={momChange >= 0 ? 'mdi:trending-up' : 'mdi:trending-down'} iconColor={momChange === 0 ? '#6B7280' : momChange > 0 ? '#DC2626' : '#16A34A'} iconBg={momChange === 0 ? 'rgba(0,0,0,0.04)' : momChange > 0 ? '#FEE2E214' : '#DCFCE714'} valueColor={momChange === 0 ? 'rgb(10,10,10)' : momChange > 0 ? '#DC2626' : '#16A34A'} changeLabel="vs last month" />
-      <KPICard label="Potential Savings" value={formatCurrency(totalPotentialSavings)} icon="mdi:piggy-bank" iconColor="#16A34A" iconBg="#16A34A14" changeLabel="available to reclaim" isSavings />
+      <KPICard    index={0} label="Month-to-Date Spend" rawValue={totalSpend}           icon="mdi:currency-usd"                                         iconColor="#0078D4" iconBg="#0078D414" changeLabel="current month actual" />
+      <KPICard    index={1} label="Forecasted Spend"     rawValue={forecastedSpend}      icon="mdi:chart-line"                                           iconColor="#D97706" iconBg="#FFB90014" changeLabel="ML-powered estimate" />
+      <KPICardRaw index={2} label="MoM Change"           displayValue={`${momChange >= 0 ? '+' : ''}${momChange.toFixed(1)}%`} icon={momChange >= 0 ? 'mdi:trending-up' : 'mdi:trending-down'} iconColor={momChange === 0 ? '#6B7280' : momChange > 0 ? '#DC2626' : '#16A34A'} iconBg={momChange === 0 ? 'rgba(0,0,0,0.04)' : momChange > 0 ? '#FEE2E214' : '#DCFCE714'} valueColor={momChange === 0 ? 'rgb(10,10,10)' : momChange > 0 ? '#DC2626' : '#16A34A'} changeLabel="vs last month" />
+      <KPICard    index={3} label="Potential Savings"    rawValue={totalPotentialSavings} icon="mdi:piggy-bank"                                          iconColor="#16A34A" iconBg="#16A34A14" changeLabel="available to reclaim" isSavings />
     </div>
   );
 };

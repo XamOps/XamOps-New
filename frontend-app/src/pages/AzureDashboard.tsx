@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   AzureDashboardData,
   AzureResourceType,
@@ -24,6 +24,23 @@ declare global {
     Highcharts: any;
   }
 }
+
+const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
+      }, { threshold: 0.06 });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
+  return <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>{children}</div>;
+};
 
 const AzureDashboard: React.FC = () => {
   // Get selected account IDs from session storage - initialized synchronously
@@ -186,45 +203,51 @@ const AzureDashboard: React.FC = () => {
       )}
 
       {/* Main Grid: Map & Inventory (3:2) */}
-      <div className="grid gap-6 lg:grid-cols-5">
-        {widgetVisibility.map && dashboardData && (
-          <AzureMapSection
-            regionStatus={dashboardData.regionStatus || []}
-            isLoading={loading.map}
-            onRegionClick={(name) => showNotification(`Dashboard filtered by: ${name}`, 'info')}
-          />
-        )}
+      <RevealSection>
+        <div className="grid gap-6 lg:grid-cols-5">
+          {widgetVisibility.map && dashboardData && (
+            <AzureMapSection
+              regionStatus={dashboardData.regionStatus || []}
+              isLoading={loading.map}
+              onRegionClick={(name) => showNotification(`Dashboard filtered by: ${name}`, 'info')}
+            />
+          )}
 
-        {widgetVisibility.inventory && dashboardData && (
-          <AzureInventorySection
-            resources={resources}
-            totalResources={totalResources}
-            loading={loading.inventory}
-            accountIds={selectedAccountIds}
-          />
-        )}
-      </div>
+          {widgetVisibility.inventory && dashboardData && (
+            <AzureInventorySection
+              resources={resources}
+              totalResources={totalResources}
+              loading={loading.inventory}
+              accountIds={selectedAccountIds}
+            />
+          )}
+        </div>
+      </RevealSection>
 
       {/* Optimization Section */}
       {widgetVisibility.optimization && dashboardData && dashboardData.optimization && (
-        <AzureOptimizationSection
-          optimization={dashboardData.optimization}
-          selectedAccountIds={selectedAccountIds}
-          isLoading={loading.optimization}
-        />
+        <RevealSection delay={0.05}>
+          <AzureOptimizationSection
+            optimization={dashboardData.optimization}
+            selectedAccountIds={selectedAccountIds}
+            isLoading={loading.optimization}
+          />
+        </RevealSection>
       )}
 
       {/* Cost & Billing Grid */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {(widgetVisibility.cost || widgetVisibility.billing) && dashboardData && (
-          <AzureCostSection
-            costHistory={dashboardData.costHistory}
-            billingSummary={dashboardData.billingSummary}
-            isLoading={loading.cost}
-            accountId={selectedAccountIds[0]}
-          />
-        )}
-      </div>
+      <RevealSection delay={0.1}>
+        <div className="grid gap-6 lg:grid-cols-3">
+          {(widgetVisibility.cost || widgetVisibility.billing) && dashboardData && (
+            <AzureCostSection
+              costHistory={dashboardData.costHistory}
+              billingSummary={dashboardData.billingSummary}
+              isLoading={loading.cost}
+              accountId={selectedAccountIds[0]}
+            />
+          )}
+        </div>
+      </RevealSection>
     </main>
   );
 };

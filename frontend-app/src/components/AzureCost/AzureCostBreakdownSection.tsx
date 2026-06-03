@@ -73,6 +73,7 @@ const AzureCostBreakdownSection: React.FC<AzureCostBreakdownSectionProps> = ({
         }],
       },
       options: {
+        animation: { animateRotate: true, animateScale: true, duration: 900, easing: 'easeOutQuart' },
         responsive: true,
         maintainAspectRatio: false,
         cutout: '68%',
@@ -114,7 +115,7 @@ const AzureCostBreakdownSection: React.FC<AzureCostBreakdownSectionProps> = ({
   }, [chartItems]);
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm mb-6">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm mb-6 widget-panel-hover">
 
       {/* Header + Toggle */}
       <div className="px-5 pt-5 pb-4 border-b border-[rgba(0,0,0,0.06)]">
@@ -194,6 +195,7 @@ const AzureCostBreakdownSection: React.FC<AzureCostBreakdownSectionProps> = ({
                     <tr
                       key={item.name || index}
                       className={`border-t border-[rgba(0,0,0,0.04)] transition-colors ${groupBy === 'SERVICE' && onServiceClick ? 'hover:bg-[rgba(0,0,0,0.02)] cursor-pointer' : ''}`}
+                      style={{ animation: `fadeInUp 0.35s ease ${index * 0.035}s both` }}
                       onClick={() => groupBy === 'SERVICE' && onServiceClick?.(item.name)}
                     >
                       <td className="px-5 py-3">

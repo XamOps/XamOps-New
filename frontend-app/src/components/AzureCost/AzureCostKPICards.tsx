@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import type { AzureCostKPIs } from '../../hooks/useAzureCostData';
 
 interface AzureCostKPICardsProps {
@@ -22,6 +22,63 @@ const CloudSVG = () => (
   </div>
 );
 
+interface CurrencyCardProps {
+  title: string;
+  rawValue: number;
+  subtitle: string;
+  index: number;
+}
+
+const CurrencyCard: React.FC<CurrencyCardProps> = ({ title, rawValue, subtitle, index }) => {
+  const animRef = useRef<number | undefined>(undefined);
+  const prevRawValue = useRef(rawValue);
+  const [animCount, setAnimCount] = useState(rawValue);
+
+  useEffect(() => {
+    if (rawValue === prevRawValue.current) return;
+    const prev = prevRawValue.current;
+    prevRawValue.current = rawValue;
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    if (rawValue === 0) { setAnimCount(0); return; }
+    const duration = 1050;
+    const startTime = performance.now();
+    const step = (now: number) => {
+      const t = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimCount(prev + eased * (rawValue - prev));
+      if (t < 1) animRef.current = requestAnimationFrame(step);
+      else setAnimCount(rawValue);
+    };
+    animRef.current = requestAnimationFrame(step);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+  }, [rawValue]);
+
+  const split = formatSplit(formatCurrency(animCount));
+
+  return (
+    <div
+      className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift"
+      style={{ animation: `fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${0.05 + index * 0.09}s both` }}
+    >
+      <CloudSVG />
+      <div className="relative z-10">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">{title}</p>
+        <p className="leading-8 mb-3 flex items-baseline gap-0.5">
+          <span style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+            {split.main}
+          </span>
+          {split.cents && (
+            <span style={{ fontFamily: "'Inter',sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10,10,10)' }}>
+              {split.cents}
+            </span>
+          )}
+        </p>
+        <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{subtitle}</span>
+      </div>
+    </div>
+  );
+};
+
 const AzureCostKPICards: React.FC<AzureCostKPICardsProps> = ({ kpis, isLoading }) => {
   if (isLoading) {
     return (
@@ -37,67 +94,11 @@ const AzureCostKPICards: React.FC<AzureCostKPICardsProps> = ({ kpis, isLoading }
     );
   }
 
-  const mtdSplit = formatSplit(formatCurrency(kpis.mtdSpend));
-  const forecastSplit = formatSplit(formatCurrency(kpis.forecastedSpend));
-  const lastSplit = formatSplit(formatCurrency(kpis.lastMonthSpend));
-
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
-        <CloudSVG />
-        <div className="relative z-10">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Month-to-Date</p>
-          <p className="leading-8 mb-3 flex items-baseline gap-0.5">
-            <span style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
-              {mtdSplit.main}
-            </span>
-            {mtdSplit.cents && (
-              <span style={{ fontFamily: "'Inter',sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10,10,10)' }}>
-                {mtdSplit.cents}
-              </span>
-            )}
-          </p>
-          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">Current month actual spend</span>
-        </div>
-      </div>
-
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
-        <CloudSVG />
-        <div className="relative z-10">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Forecasted</p>
-          <p className="leading-8 mb-3 flex items-baseline gap-0.5">
-            <span style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
-              {forecastSplit.main}
-            </span>
-            {forecastSplit.cents && (
-              <span style={{ fontFamily: "'Inter',sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10,10,10)' }}>
-                {forecastSplit.cents}
-              </span>
-            )}
-          </p>
-          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">Projected end-of-month</span>
-        </div>
-      </div>
-
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
-        <CloudSVG />
-        <div className="relative z-10">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Last Month</p>
-          <p className="leading-8 mb-3 flex items-baseline gap-0.5">
-            <span style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
-              {lastSplit.main}
-            </span>
-            {lastSplit.cents && (
-              <span style={{ fontFamily: "'Inter',sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10,10,10)' }}>
-                {lastSplit.cents}
-              </span>
-            )}
-          </p>
-          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">Previous month actual spend</span>
-        </div>
-      </div>
-
+      <CurrencyCard index={0} title="Month-to-Date" rawValue={kpis.mtdSpend} subtitle="Current month actual spend" />
+      <CurrencyCard index={1} title="Forecasted" rawValue={kpis.forecastedSpend} subtitle="Projected end-of-month" />
+      <CurrencyCard index={2} title="Last Month" rawValue={kpis.lastMonthSpend} subtitle="Previous month actual spend" />
     </div>
   );
 };

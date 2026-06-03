@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -142,12 +143,14 @@ const GcpCloudK8sPage: React.FC = () => {
 
   return (
     <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
-      <GcpCloudK8sClusterTable
-        clusters={clusters}
-        isLoading={isLoading}
-        onViewDetails={navigateToDetails}
-      />
-      <GcpCloudK8sIntegrations />
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-5">
+        <GcpCloudK8sClusterTable
+          clusters={clusters}
+          isLoading={isLoading}
+          onViewDetails={navigateToDetails}
+        />
+        <GcpCloudK8sIntegrations />
+      </motion.div>
       <GcpCloudK8sHelpModal
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}

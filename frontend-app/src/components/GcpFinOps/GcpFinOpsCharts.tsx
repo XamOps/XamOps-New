@@ -144,7 +144,7 @@ const GcpFinOpsCharts: React.FC<GcpFinOpsChartsProps> = ({ costBreakdown }) => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Cost by Service – Variable Radius Pie */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
         <div className="px-0 pt-0 pb-4 flex items-center gap-3">
           <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]" style={{ backgroundColor: '#4285F414' }}>
             <Icon icon="mdi:chart-pie" width={16} color="#4285F4" />
@@ -168,7 +168,7 @@ const GcpFinOpsCharts: React.FC<GcpFinOpsChartsProps> = ({ costBreakdown }) => {
       </div>
 
       {/* Cost by Region */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
         <div className="px-0 pt-0 pb-4 flex items-center gap-3">
           <div className="w-7 h-7 flex items-center justify-center rounded-md border border-[rgba(0,0,0,0.06)]" style={{ backgroundColor: '#EA433514' }}>
             <Icon icon="mdi:earth" width={16} color="#EA4335" />

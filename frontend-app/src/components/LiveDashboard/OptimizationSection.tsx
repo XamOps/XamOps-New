@@ -209,7 +209,7 @@ const OptimizationSection: React.FC<OptimizationSectionProps> = ({
   const criticalAlerts = summary.criticalAlerts || 0;
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
       {/* Section header */}
       <div className="flex items-center justify-between mb-5">
         <div>

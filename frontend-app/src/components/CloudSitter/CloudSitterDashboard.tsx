@@ -1,4 +1,5 @@
 import React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import type { EC2Resource } from '../../types/cloudsitter';
 
@@ -118,7 +119,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
       {(allResources.length > 0 || isLoading) && (
         <div className="grid grid-cols-4 gap-4 mb-5">
           {/* Total Instances */}
-          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0s both' }}>
             {CLOUD_SVG}
             <div className="relative z-10">
               <div className="flex items-start justify-between mb-2">
@@ -135,7 +136,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
           </div>
 
           {/* Managed */}
-          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.06s both' }}>
             {CLOUD_SVG}
             <div className="relative z-10">
               <div className="flex items-start justify-between mb-2">
@@ -152,7 +153,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
           </div>
 
           {/* Total Monthly Cost */}
-          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.12s both' }}>
             {CLOUD_SVG}
             <div className="relative z-10">
               <div className="flex items-start justify-between mb-2">
@@ -169,7 +170,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
           </div>
 
           {/* Potential Savings */}
-          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.18s both' }}>
             {CLOUD_SVG}
             <div className="relative z-10">
               <div className="flex items-start justify-between mb-2">
@@ -236,40 +237,60 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
         </div>
       </div>
 
-      {/* Loading skeletons */}
-      {isLoading && (
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="px-5 py-4 border-t border-[rgba(0,0,0,0.04)] animate-pulse flex items-center gap-4">
-              <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)] flex-shrink-0" />
-              <div className="flex-1 space-y-2">
-                <div className="h-2.5 w-40 bg-[rgba(0,0,0,0.06)] rounded" />
-                <div className="h-2 w-24 bg-[rgba(0,0,0,0.04)] rounded" />
+      <AnimatePresence mode="wait">
+        {/* Loading skeletons */}
+        {isLoading && (
+          <motion.div
+            key="loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden"
+          >
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="px-5 py-4 border-t border-[rgba(0,0,0,0.04)] animate-pulse flex items-center gap-4">
+                <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.06)] flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-2.5 w-40 bg-[rgba(0,0,0,0.06)] rounded" />
+                  <div className="h-2 w-24 bg-[rgba(0,0,0,0.04)] rounded" />
+                </div>
+                <div className="h-6 w-24 bg-[rgba(0,0,0,0.04)] rounded-full" />
               </div>
-              <div className="h-6 w-24 bg-[rgba(0,0,0,0.04)] rounded-full" />
+            ))}
+          </motion.div>
+        )}
+
+        {/* Empty State */}
+        {!isLoading && (!accountId || resources.length === 0) && (
+          <motion.div
+            key="empty"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center"
+          >
+            <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+              <Icon icon="mdi:server" width={22} color="rgba(0,0,0,0.3)" />
             </div>
-          ))}
-        </div>
-      )}
+            <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Resources Found</p>
+            <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
+              {accountId
+                ? 'No instances matched your search criteria.'
+                : 'Select an account from the sidebar to view resources.'}
+            </p>
+          </motion.div>
+        )}
 
-      {/* Empty State */}
-      {!isLoading && (!accountId || resources.length === 0) && (
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-10 text-center">
-          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
-            <Icon icon="mdi:server" width={22} color="rgba(0,0,0,0.3)" />
-          </div>
-          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Resources Found</p>
-          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
-            {accountId
-              ? 'No instances matched your search criteria.'
-              : 'Select an account from the sidebar to view resources.'}
-          </p>
-        </div>
-      )}
-
-      {/* Resources Table */}
-      {!isLoading && resources.length > 0 && (
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+        {/* Resources Table */}
+        {!isLoading && resources.length > 0 && (
+          <motion.div
+            key="content"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover"
+          >
           {/* Column headers */}
           <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
             <div className="col-span-3">Name / ID</div>
@@ -282,7 +303,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
             <div className="col-span-1 text-center">Actions</div>
           </div>
 
-          {resources.map((resource) => {
+          {resources.map((resource, idx) => {
             const isTerminated = resource.state === 'terminated' || resource.state === 'stopped';
             const monthlyCost  = getMonthlyRunCost(resource);
             const potSavings   = getPotentialSavings(resource);
@@ -293,6 +314,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
               <div
                 key={resource.id}
                 className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+                style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.03, 0.45)}s both` }}
               >
                 {/* Name / ID */}
                 <div className="col-span-3 flex items-center gap-2.5 min-w-0">
@@ -390,7 +412,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                 <div className="col-span-1 flex justify-center">
                   <button
                     onClick={() => onAssignPolicy(resource)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 transition-colors"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 transition-all active:scale-95"
                   >
                     <Icon icon="mdi:calendar-check-outline" width={11} />
                     Assign
@@ -399,8 +421,9 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
               </div>
             );
           })}
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 };

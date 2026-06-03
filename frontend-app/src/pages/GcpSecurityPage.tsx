@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -6,32 +7,32 @@ import { useGcpSecurityData } from '../hooks/useGcpSecurityData';
 import type { GcpSeverityLevel } from '../types/gcpSecurity';
 import { DialogRoot, DialogPanel } from '../components/ui';
 
-const SEVERITY_HEADER: Record<GcpSeverityLevel, string> = {
-  CRITICAL: 'bg-red-50 text-red-800',
-  HIGH:     'bg-orange-50 text-orange-800',
-  MEDIUM:   'bg-yellow-50 text-yellow-800',
-  LOW:      'bg-blue-50 text-blue-800',
-};
-
-const SEVERITY_BADGE: Record<GcpSeverityLevel, string> = {
-  CRITICAL: 'bg-red-100 text-red-700 border-red-200',
-  HIGH:     'bg-orange-100 text-orange-700 border-orange-200',
-  MEDIUM:   'bg-yellow-100 text-yellow-700 border-yellow-200',
-  LOW:      'bg-blue-100 text-blue-700 border-blue-200',
-};
-
 const SEVERITY_ICON: Record<GcpSeverityLevel, string> = {
-  CRITICAL: 'mdi:skull-crossbones-outline',
-  HIGH:     'mdi:alert-triangle',
-  MEDIUM:   'mdi:alert-circle-outline',
-  LOW:      'mdi:information-outline',
+  CRITICAL: 'mdi:alert-circle',
+  HIGH:     'mdi:alert',
+  MEDIUM:   'mdi:minus-circle',
+  LOW:      'mdi:information',
 };
 
-const SEVERITY_DOT: Record<GcpSeverityLevel, string> = {
+const SEVERITY_ICON_BG: Record<GcpSeverityLevel, string> = {
   CRITICAL: 'bg-red-500',
   HIGH:     'bg-orange-500',
-  MEDIUM:   'bg-yellow-500',
+  MEDIUM:   'bg-yellow-400',
   LOW:      'bg-blue-500',
+};
+
+const SEVERITY_ICON_COLOR: Record<GcpSeverityLevel, string> = {
+  CRITICAL: 'text-white',
+  HIGH:     'text-white',
+  MEDIUM:   'text-gray-900',
+  LOW:      'text-white',
+};
+
+const SEVERITY_BADGE_BG: Record<GcpSeverityLevel, string> = {
+  CRITICAL: 'bg-red-500 text-white',
+  HIGH:     'bg-orange-500 text-white',
+  MEDIUM:   'bg-yellow-400 text-gray-900',
+  LOW:      'bg-blue-500 text-white',
 };
 
 const GcpSecurityPage: React.FC = () => {
@@ -123,8 +124,8 @@ const GcpSecurityPage: React.FC = () => {
                   { label: 'Critical',       value: severityCounts.CRITICAL || 0,                         sub: 'immediate attention',       valueClass: 'text-red-600' },
                   { label: 'High Priority',  value: severityCounts.HIGH || 0,                             sub: 'requires action',           valueClass: 'text-orange-500' },
                   { label: 'Medium & Low',   value: (severityCounts.MEDIUM || 0) + (severityCounts.LOW || 0), sub: 'monitor closely',       valueClass: 'text-yellow-600' },
-                ].map((c) => (
-                  <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+                ].map((c, i) => (
+                  <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 card-hover-lift" style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) ${i * 0.06}s both` }}>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.45)] mb-2 leading-tight">{c.label}</p>
                     <p className={`text-[22px] font-bold leading-tight tabular-nums ${c.valueClass}`}>{c.value}</p>
                     <p className="text-[11px] text-gray-400 mt-1">{c.sub}</p>
@@ -163,152 +164,184 @@ const GcpSecurityPage: React.FC = () => {
 
             {/* IAM Drift Section */}
             {!isLoading && iamDrift.length > 0 && (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+              <div className="rounded-xl overflow-hidden shadow-sm border border-[rgba(255,255,255,0.06)]">
                 <button
                   onClick={() => toggleSection('iamDrift')}
-                  className="w-full flex items-center justify-between px-5 py-3.5 bg-purple-50 text-purple-800 transition-colors"
+                  className="w-full flex items-center justify-between px-5 py-3.5 bg-[#111111] hover:bg-[#1a1a1a] transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="w-2 h-2 rounded-full bg-purple-500" />
-                    <Icon icon="mdi:account-shield-outline" width={15} />
-                    <span className="text-sm font-bold">IAM Policy Drift</span>
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center bg-purple-500">
+                      <Icon icon="mdi:account-shield" width={16} className="text-white" />
+                    </div>
+                    <span className="text-sm font-bold text-white">IAM Policy Drift</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">{iamDrift.length}</span>
-                    <Icon icon="mdi:chevron-down" width={16} className={`transition-transform duration-200 ${openSections.includes('iamDrift') ? 'rotate-180' : ''}`} />
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-500 text-white">{iamDrift.length}</span>
+                    <Icon icon="mdi:chevron-down" width={16} className={`text-white/60 transition-transform duration-300 ease-in-out ${openSections.includes('iamDrift') ? 'rotate-180' : 'rotate-0'}`} />
                   </div>
                 </button>
-                {openSections.includes('iamDrift') && (
-                  <div className="p-6">
-                    <p className="text-sm text-gray-500 italic">IAM Drift details would appear here.</p>
+                <div style={{ display: 'grid', gridTemplateRows: openSections.includes('iamDrift') ? '1fr' : '0fr', transition: 'grid-template-rows 320ms cubic-bezier(0.4, 0, 0.2, 1)' }}>
+                  <div style={{ overflow: 'hidden', minHeight: 0 }}>
+                    <div style={{ opacity: openSections.includes('iamDrift') ? 1 : 0, transform: openSections.includes('iamDrift') ? 'translateY(0)' : 'translateY(-6px)', transition: 'opacity 280ms ease, transform 280ms ease' }} className="p-6 bg-white border-t border-[rgba(0,0,0,0.08)]">
+                      <p className="text-sm text-gray-500 italic">IAM Drift details would appear here.</p>
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
             )}
 
             {/* Container Vulnerabilities Section */}
             {!isLoading && vulnerabilities.length > 0 && (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+              <div className="rounded-xl overflow-hidden shadow-sm border border-[rgba(255,255,255,0.06)]">
                 <button
                   onClick={() => toggleSection('vulnerabilities')}
-                  className="w-full flex items-center justify-between px-5 py-3.5 bg-cyan-50 text-cyan-800 transition-colors"
+                  className="w-full flex items-center justify-between px-5 py-3.5 bg-[#111111] hover:bg-[#1a1a1a] transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="w-2 h-2 rounded-full bg-cyan-500" />
-                    <Icon icon="mdi:package-variant-outline" width={15} />
-                    <span className="text-sm font-bold">Container Vulnerabilities</span>
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center bg-cyan-500">
+                      <Icon icon="mdi:package-variant" width={16} className="text-white" />
+                    </div>
+                    <span className="text-sm font-bold text-white">Container Vulnerabilities</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-700 border border-cyan-200">{vulnerabilities.length}</span>
-                    <Icon icon="mdi:chevron-down" width={16} className={`transition-transform duration-200 ${openSections.includes('vulnerabilities') ? 'rotate-180' : ''}`} />
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-cyan-500 text-white">{vulnerabilities.length}</span>
+                    <Icon icon="mdi:chevron-down" width={16} className={`text-white/60 transition-transform duration-300 ease-in-out ${openSections.includes('vulnerabilities') ? 'rotate-180' : 'rotate-0'}`} />
                   </div>
                 </button>
-                {openSections.includes('vulnerabilities') && (
-                  <div className="p-6">
-                    <p className="text-sm text-gray-500 italic">Vulnerability details would appear here.</p>
+                <div style={{ display: 'grid', gridTemplateRows: openSections.includes('vulnerabilities') ? '1fr' : '0fr', transition: 'grid-template-rows 320ms cubic-bezier(0.4, 0, 0.2, 1)' }}>
+                  <div style={{ overflow: 'hidden', minHeight: 0 }}>
+                    <div style={{ opacity: openSections.includes('vulnerabilities') ? 1 : 0, transform: openSections.includes('vulnerabilities') ? 'translateY(0)' : 'translateY(-6px)', transition: 'opacity 280ms ease, transform 280ms ease' }} className="p-6 bg-white border-t border-[rgba(0,0,0,0.08)]">
+                      <p className="text-sm text-gray-500 italic">Vulnerability details would appear here.</p>
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
             )}
 
+            <AnimatePresence mode="wait">
             {/* Loading State */}
             {isLoading && (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-40 mb-4" />
-                <div className="space-y-3">
-                  {[...Array(5)].map((_, i) => <div key={i} className="h-10 bg-gray-100 rounded" />)}
+              <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 animate-pulse">
+                  <div className="h-4 bg-gray-200 rounded w-40 mb-4" />
+                  <div className="space-y-3">
+                    {[...Array(5)].map((_, i) => <div key={i} className="h-10 bg-gray-100 rounded" />)}
+                  </div>
                 </div>
-              </div>
+              </motion.div>
             )}
 
             {/* Empty State */}
             {!isLoading && filteredFindings.length === 0 && (
-              <div className="text-center py-20 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm">
-                <div className="w-16 h-16 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-4">
-                  <Icon icon="mdi:shield-check-outline" width={32} color="#10b981" />
+              <motion.div key="empty" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+                <div className="text-center py-20 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm">
+                  <div className="w-16 h-16 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-4">
+                    <Icon icon="mdi:shield-check-outline" width={32} color="#10b981" />
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">All Clear!</h3>
+                  <p className="text-sm text-gray-500 mb-5">No security findings detected. Your environment appears to be secure.</p>
+                  <button
+                    onClick={() => loadAllData(true)}
+                    className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-colors"
+                  >
+                    <Icon icon="mdi:refresh" width={14} />
+                    <span>Run Security Scan</span>
+                  </button>
                 </div>
-                <h3 className="text-lg font-bold text-gray-800 mb-2">All Clear!</h3>
-                <p className="text-sm text-gray-500 mb-5">No security findings detected. Your environment appears to be secure.</p>
-                <button
-                  onClick={() => loadAllData(true)}
-                  className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-colors"
-                >
-                  <Icon icon="mdi:refresh" width={14} />
-                  <span>Run Security Scan</span>
-                </button>
-              </div>
+              </motion.div>
             )}
 
             {/* Severity Sections */}
-            {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as GcpSeverityLevel[]).map((severity) => {
+            {!isLoading && filteredFindings.length > 0 && (
+              <motion.div key="findings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-4">
+            {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as GcpSeverityLevel[]).map((severity, idx) => {
               const findingsForSeverity = getFindingsBySeverity(severity);
-              if (isLoading || findingsForSeverity.length === 0) return null;
+              if (findingsForSeverity.length === 0) return null;
 
               return (
-                <div key={severity} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+                <div key={severity} className="rounded-xl overflow-hidden shadow-sm border border-[rgba(255,255,255,0.06)]" style={{ animation: `fadeInUp 0.3s ease ${idx * 0.06}s both` }}>
                   <button
                     onClick={() => toggleSeverity(severity)}
-                    className={`w-full flex items-center justify-between px-5 py-3.5 ${SEVERITY_HEADER[severity]} transition-colors`}
+                    className="w-full flex items-center justify-between px-5 py-3.5 bg-[#111111] hover:bg-[#1a1a1a] transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <span className={`w-2 h-2 rounded-full ${SEVERITY_DOT[severity]}`} />
-                      <Icon icon={SEVERITY_ICON[severity]} width={15} />
-                      <span className="text-sm font-bold">{severity} Severity Findings</span>
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center ${SEVERITY_ICON_BG[severity]}`}>
+                        <Icon icon={SEVERITY_ICON[severity]} width={16} className={SEVERITY_ICON_COLOR[severity]} />
+                      </div>
+                      <span className="text-sm font-bold text-white">{severity} Severity Findings</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${SEVERITY_BADGE[severity]}`}>
+                      <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${SEVERITY_BADGE_BG[severity]}`}>
                         {findingsForSeverity.length}
                       </span>
-                      <Icon icon="mdi:chevron-down" width={16} className={`transition-transform duration-200 ${openSeverities.includes(severity) ? 'rotate-180' : ''}`} />
+                      <Icon icon="mdi:chevron-down" width={16} className={`text-white/60 transition-transform duration-300 ease-in-out ${openSeverities.includes(severity) ? 'rotate-180' : 'rotate-0'}`} />
                     </div>
                   </button>
 
-                  {openSeverities.includes(severity) && (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b border-gray-100">
-                          <tr>
-                            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Category</th>
-                            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Description</th>
-                            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Resource</th>
-                            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Compliance</th>
-                            <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {findingsForSeverity.map((finding, index) => (
-                            <tr key={`${finding.resourceName}-${index}`} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                              <td className="px-4 py-3">
-                                <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2 py-0.5 rounded">{finding.category}</span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="text-xs text-gray-700 line-clamp-2">{finding.description}</span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="text-xs font-medium text-gray-800 truncate max-w-[160px] block">{finding.resourceName}</span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                  {finding.complianceControl || 'GCP Best Practice'}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <button
-                                  onClick={() => openRemediationModal(finding)}
-                                  className="px-3 py-1 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
-                                >
-                                  Fix Now
-                                </button>
-                              </td>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateRows: openSeverities.includes(severity) ? '1fr' : '0fr',
+                      transition: 'grid-template-rows 320ms cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                  >
+                    <div style={{ overflow: 'hidden', minHeight: 0 }}>
+                      <div
+                        style={{
+                          opacity: openSeverities.includes(severity) ? 1 : 0,
+                          transform: openSeverities.includes(severity) ? 'translateY(0)' : 'translateY(-6px)',
+                          transition: 'opacity 280ms ease, transform 280ms ease',
+                        }}
+                        className="overflow-x-auto bg-white border-t border-[rgba(0,0,0,0.08)]"
+                      >
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-b border-gray-100">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Category</th>
+                              <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Description</th>
+                              <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Resource</th>
+                              <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Compliance</th>
+                              <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Action</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {findingsForSeverity.map((finding, index) => (
+                              <tr key={`${finding.resourceName}-${index}`} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
+                                <td className="px-4 py-3">
+                                  <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2 py-0.5 rounded">{finding.category}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="text-xs text-gray-700 line-clamp-2">{finding.description}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="text-xs font-medium text-gray-800 truncate max-w-[160px] block">{finding.resourceName}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    {finding.complianceControl || 'GCP Best Practice'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <button
+                                    onClick={() => openRemediationModal(finding)}
+                                    className="px-3 py-1 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+                                  >
+                                    Fix Now
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })}
+              </motion.div>
+            )}
+            </AnimatePresence>
           </div>
         )}
       </div>

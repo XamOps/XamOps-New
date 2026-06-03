@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureRightsizingData } from '../hooks/useAzureRightsizingData';
@@ -7,6 +7,23 @@ import {
   AzureRightsizingKPICards,
   AzureRightsizingTable,
 } from '../components/AzureRightsizing';
+
+const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
+      }, { threshold: 0.06 });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
+  return <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>{children}</div>;
+};
 
 const AzureRightsizingPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -34,8 +51,12 @@ const AzureRightsizingPage: React.FC = () => {
 
       {selectedAccountId && (
         <>
-          <AzureRightsizingKPICards recommendations={recommendations} isLoading={isLoading} />
-          <AzureRightsizingTable recommendations={recommendations} status={status} isLoading={isLoading} />
+          <RevealSection>
+            <AzureRightsizingKPICards recommendations={recommendations} isLoading={isLoading} />
+          </RevealSection>
+          <RevealSection delay={0.05}>
+            <AzureRightsizingTable recommendations={recommendations} status={status} isLoading={isLoading} />
+          </RevealSection>
         </>
       )}
     </main>

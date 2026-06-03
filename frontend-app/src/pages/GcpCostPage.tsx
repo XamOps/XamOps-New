@@ -13,7 +13,7 @@
  * - Real-time data fetching
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpCostData } from '../hooks/useGcpCostData';
 import type { GcpCostFilters, GcpForecastDataPoint } from '../types/gcpCost';
@@ -26,6 +26,23 @@ import {
   GcpCostForecastChart,
 } from '../components/GcpCost';
 
+
+const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
+      }, { threshold: 0.06 });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
+  return <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>{children}</div>;
+};
 
 const GcpCostPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -170,23 +187,27 @@ const GcpCostPage: React.FC = () => {
             />
 
             {/* Cost Breakdown Section */}
-            <GcpCostBreakdownSection
-              costData={costData}
-              filters={filters}
-              isLoading={isLoading}
-              onFiltersChange={handleFiltersChange}
-            />
+            <RevealSection>
+              <GcpCostBreakdownSection
+                costData={costData}
+                filters={filters}
+                isLoading={isLoading}
+                onFiltersChange={handleFiltersChange}
+              />
+            </RevealSection>
 
             {/* Cost Forecast Chart */}
-            <GcpCostForecastChart
-              data={forecastState.data}
-              isLoading={forecastState.isLoading}
-              service={forecastState.service}
-              periods={forecastState.periods}
-              availableServices={forecastState.availableServices}
-              onServiceChange={handleForecastServiceChange}
-              onPeriodsChange={handleForecastPeriodsChange}
-            />
+            <RevealSection delay={0.05}>
+              <GcpCostForecastChart
+                data={forecastState.data}
+                isLoading={forecastState.isLoading}
+                service={forecastState.service}
+                periods={forecastState.periods}
+                availableServices={forecastState.availableServices}
+                onServiceChange={handleForecastServiceChange}
+                onPeriodsChange={handleForecastPeriodsChange}
+              />
+            </RevealSection>
           </>
         )}
       </div>

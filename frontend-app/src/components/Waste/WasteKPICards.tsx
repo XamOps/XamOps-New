@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { WastedResource, HighestWasteService } from '../../types/waste';
 
@@ -6,6 +6,14 @@ interface WasteKPICardsProps {
   wastedResources: WastedResource[];
   isLoading: boolean;
 }
+
+const formatCurrency = (value: number): string =>
+  '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const splitValue = (str: string) => {
+  const dot = str.lastIndexOf('.');
+  return dot === -1 ? { main: str, cents: '' } : { main: str.slice(0, dot), cents: str.slice(dot) };
+};
 
 const NUM_STYLE: React.CSSProperties = {
   fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
@@ -35,9 +43,66 @@ const CLOUD_SVG = (
   </div>
 );
 
-const splitValue = (str: string) => {
-  const dot = str.lastIndexOf('.');
-  return dot === -1 ? { main: str, cents: '' } : { main: str.slice(0, dot), cents: str.slice(dot) };
+interface KPICardProps {
+  label: string;
+  rawValue: number;
+  subtitle: string;
+  icon: string;
+  iconColor: string;
+  iconBg: string;
+  index: number;
+  isCount?: boolean;
+}
+
+const KPICard: React.FC<KPICardProps> = ({ label, rawValue, subtitle, icon, iconColor, iconBg, index, isCount }) => {
+  const animRef = useRef<number | undefined>(undefined);
+  const prevRawValue = useRef(rawValue);
+  const [animCount, setAnimCount] = useState(rawValue);
+
+  useEffect(() => {
+    if (rawValue === prevRawValue.current) return;
+    const prev = prevRawValue.current;
+    prevRawValue.current = rawValue;
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    if (rawValue === 0) { setAnimCount(0); return; }
+    const duration = 1050;
+    const startTime = performance.now();
+    const step = (now: number) => {
+      const t = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimCount(prev + eased * (rawValue - prev));
+      if (t < 1) animRef.current = requestAnimationFrame(step);
+      else setAnimCount(rawValue);
+    };
+    animRef.current = requestAnimationFrame(step);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+  }, [rawValue]);
+
+  const split = isCount
+    ? { main: String(Math.round(animCount)), cents: '' }
+    : splitValue(formatCurrency(animCount));
+
+  return (
+    <div
+      className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift"
+      style={{ animation: `fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${0.05 + index * 0.09}s both` }}
+    >
+      {CLOUD_SVG}
+      <div className="relative z-10">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{label}</p>
+        <div className="flex items-end justify-between mb-3">
+          <p className="leading-8 flex items-baseline gap-0.5">
+            <span style={NUM_STYLE}>{split.main}</span>
+            {split.cents && <span style={CENTS_STYLE}>{split.cents}</span>}
+          </p>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: iconBg }}>
+            <Icon icon={icon} width={18} color={iconColor} />
+          </div>
+        </div>
+        <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{subtitle}</span>
+      </div>
+    </div>
+  );
 };
 
 const WasteKPICards: React.FC<WasteKPICardsProps> = ({ wastedResources, isLoading }) => {
@@ -70,67 +135,40 @@ const WasteKPICards: React.FC<WasteKPICardsProps> = ({ wastedResources, isLoadin
     return Object.values(groups).reduce((max, s) => s.totalCost > max.totalCost ? s : max);
   })();
 
-  const savingsStr = `$${potentialSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const savingsSplit = splitValue(savingsStr);
-  const hwStr = highestWasteService ? `$${highestWasteService.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00';
-  const hwSplit = splitValue(hwStr);
+  const topServiceSubtitle = highestWasteService
+    ? `${highestWasteService.serviceType} · ${highestWasteService.count} resource${highestWasteService.count !== 1 ? 's' : ''}`
+    : 'no data';
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {/* Potential Savings */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
-        {CLOUD_SVG}
-        <div className="relative z-10">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Potential Savings</p>
-          <div className="flex items-end justify-between mb-3">
-            <p className="leading-8 flex items-baseline gap-0.5">
-              <span style={NUM_STYLE}>{savingsSplit.main}</span>
-              {savingsSplit.cents && <span style={CENTS_STYLE}>{savingsSplit.cents}</span>}
-            </p>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: '#16A34A14' }}>
-              <Icon icon="mdi:piggy-bank" width={18} color="#16A34A" />
-            </div>
-          </div>
-          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">per month if cleaned up</span>
-        </div>
-      </div>
-
-      {/* Wasted Resources */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
-        {CLOUD_SVG}
-        <div className="relative z-10">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Wasted Resources</p>
-          <div className="flex items-end justify-between mb-3">
-            <p className="leading-8">
-              <span style={NUM_STYLE}>{resourceCount}</span>
-            </p>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: '#DC262614' }}>
-              <Icon icon="mdi:alert-circle-outline" width={18} color="#DC2626" />
-            </div>
-          </div>
-          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">items detected</span>
-        </div>
-      </div>
-
-      {/* Highest Waste Service */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
-        {CLOUD_SVG}
-        <div className="relative z-10">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Top Waste Service</p>
-          <div className="flex items-end justify-between mb-3">
-            <p className="leading-8 flex items-baseline gap-0.5">
-              <span style={NUM_STYLE}>{hwSplit.main}</span>
-              {hwSplit.cents && <span style={CENTS_STYLE}>{hwSplit.cents}</span>}
-            </p>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: '#F5922814' }}>
-              <Icon icon="mdi:fire" width={18} color="#F59228" />
-            </div>
-          </div>
-          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">
-            {highestWasteService ? `${highestWasteService.serviceType} · ${highestWasteService.count} resource${highestWasteService.count !== 1 ? 's' : ''}` : 'no data'}
-          </span>
-        </div>
-      </div>
+      <KPICard
+        index={0}
+        label="Potential Savings"
+        rawValue={potentialSavings}
+        subtitle="per month if cleaned up"
+        icon="mdi:piggy-bank"
+        iconColor="#16A34A"
+        iconBg="#16A34A14"
+      />
+      <KPICard
+        index={1}
+        label="Wasted Resources"
+        rawValue={resourceCount}
+        subtitle="items detected"
+        icon="mdi:alert-circle-outline"
+        iconColor="#DC2626"
+        iconBg="#DC262614"
+        isCount
+      />
+      <KPICard
+        index={2}
+        label="Top Waste Service"
+        rawValue={highestWasteService?.totalCost || 0}
+        subtitle={topServiceSubtitle}
+        icon="mdi:fire"
+        iconColor="#F59228"
+        iconBg="#F5922814"
+      />
     </div>
   );
 };

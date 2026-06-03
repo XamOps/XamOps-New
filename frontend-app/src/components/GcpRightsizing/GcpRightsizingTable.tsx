@@ -72,7 +72,7 @@ export const GcpRightsizingTable: React.FC<GcpRightsizingTableProps> = ({
   }
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
         {/* Service filters */}
@@ -149,6 +149,7 @@ export const GcpRightsizingTable: React.FC<GcpRightsizingTableProps> = ({
           <div
             key={rec.recommendationId || `${rec.resourceName}-${idx}`}
             className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+            style={{ animation: `fadeInUp 0.35s ease ${Math.min(idx * 0.035, 0.4)}s both` }}
           >
             {/* Resource name */}
             <div className="col-span-3 flex items-center gap-2.5 min-w-0">

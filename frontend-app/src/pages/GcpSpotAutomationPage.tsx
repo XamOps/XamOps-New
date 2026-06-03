@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpSpotAutomationData, GcpMIG } from '../hooks/useGcpSpotAutomationData';
@@ -768,11 +769,12 @@ const GcpSpotAutomationPage: React.FC = () => {
             </div>
 
             {/* Main Content */}
-            <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
+            <main className="flex-1 px-6 pt-4 pb-6">
+            <AnimatePresence mode="wait">
 
                 {/* ── Dashboard Tab ──────────────────────────────────────────── */}
                 {activeTab === 'dashboard' && (
-                    <>
+                    <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="space-y-5">
                         <SpotAutomationKPIs
                             costs={costs}
                             savings={savings}
@@ -995,12 +997,22 @@ const GcpSpotAutomationPage: React.FC = () => {
                                 </div>
                             )}
                         </div>
-                    </>
+                    </motion.div>
                 )}
 
-                {activeTab === 'analytics' && <AnalyticsTab accountId={selectedAccountId} />}
+                {activeTab === 'analytics' && (
+                    <motion.div key="analytics" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+                        <AnalyticsTab accountId={selectedAccountId} />
+                    </motion.div>
+                )}
 
-                {activeTab === 'history' && <ActionsHistory accountId={selectedAccountId} provider="GCP" />}
+                {activeTab === 'history' && (
+                    <motion.div key="history" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+                        <ActionsHistory accountId={selectedAccountId} provider="GCP" />
+                    </motion.div>
+                )}
+
+            </AnimatePresence>
             </main>
         </div>
     );

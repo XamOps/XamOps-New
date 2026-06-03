@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -659,15 +660,17 @@ const ComplianceOpsPage: React.FC = () => {
   if (isLoading) {
     return (
       <main className="flex-1 px-6 pt-4 pb-6 bg-white">
-        <div className="animate-pulse space-y-6">
-          <div className="h-8 bg-[rgba(0,0,0,0.06)] rounded w-64" />
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-28 bg-[rgba(0,0,0,0.06)] rounded-xl" />
-            ))}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+          <div className="animate-pulse space-y-6">
+            <div className="h-8 bg-[rgba(0,0,0,0.06)] rounded w-64" />
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-28 bg-[rgba(0,0,0,0.06)] rounded-xl" />
+              ))}
+            </div>
+            <div className="h-64 bg-[rgba(0,0,0,0.06)] rounded-xl" />
           </div>
-          <div className="h-64 bg-[rgba(0,0,0,0.06)] rounded-xl" />
-        </div>
+        </motion.div>
       </main>
     );
   }
@@ -677,15 +680,17 @@ const ComplianceOpsPage: React.FC = () => {
   if (!selectedAccountId) {
     return (
       <main className="flex-1 flex items-center justify-center p-8 bg-white">
-        <div className="text-center max-w-md">
-          <div className="w-14 h-14 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mx-auto mb-4">
-            <Icon icon="mdi:cloud-outline" width={32} color="#4f46e5" />
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
+          <div className="text-center max-w-md">
+            <div className="w-14 h-14 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mx-auto mb-4">
+              <Icon icon="mdi:cloud-outline" width={32} color="#4f46e5" />
+            </div>
+            <h3 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">No Account Selected</h3>
+            <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
+              Select a cloud account from the sidebar to view compliance status across frameworks.
+            </p>
           </div>
-          <h3 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">No Account Selected</h3>
-          <p className="text-[13px] text-[rgba(0,0,0,0.45)]">
-            Select a cloud account from the sidebar to view compliance status across frameworks.
-          </p>
-        </div>
+        </motion.div>
       </main>
     );
   }
@@ -695,23 +700,25 @@ const ComplianceOpsPage: React.FC = () => {
   if (findings.length === 0 && !isLoading) {
     return (
       <main className="flex-1 flex items-center justify-center p-8 bg-white">
-        <div className="text-center max-w-lg">
-          <div className="w-14 h-14 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-4">
-            <Icon icon="mdi:shield-check-outline" width={32} color="#10b981" />
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
+          <div className="text-center max-w-lg">
+            <div className="w-14 h-14 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-4">
+              <Icon icon="mdi:shield-check-outline" width={32} color="#10b981" />
+            </div>
+            <h3 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">No Compliance Data Available</h3>
+            <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-6">
+              Run a security scan to generate compliance findings across frameworks like CIS, SOC 2, PCI-DSS, and more.
+            </p>
+            <button
+              onClick={triggerScan}
+              disabled={isRefreshing || prowlerStatus.status === 'RUNNING'}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white rounded-md text-[12px] font-medium hover:bg-black disabled:opacity-50 transition-colors active:scale-95"
+            >
+              <Icon icon="mdi:play-outline" width={14} className={(isRefreshing || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''} />
+              {prowlerStatus.status === 'RUNNING' ? 'Scan Running...' : isRefreshing ? 'Loading...' : 'Run Compliance Scan'}
+            </button>
           </div>
-          <h3 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">No Compliance Data Available</h3>
-          <p className="text-[13px] text-[rgba(0,0,0,0.45)] mb-6">
-            Run a security scan to generate compliance findings across frameworks like CIS, SOC 2, PCI-DSS, and more.
-          </p>
-          <button
-            onClick={triggerScan}
-            disabled={isRefreshing || prowlerStatus.status === 'RUNNING'}
-            className="inline-flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white rounded-md text-[12px] font-medium hover:bg-black disabled:opacity-50 transition-colors"
-          >
-            <Icon icon="mdi:play-outline" width={14} className={(isRefreshing || prowlerStatus.status === 'RUNNING') ? 'animate-spin' : ''} />
-            {prowlerStatus.status === 'RUNNING' ? 'Scan Running...' : isRefreshing ? 'Loading...' : 'Run Compliance Scan'}
-          </button>
-        </div>
+        </motion.div>
       </main>
     );
   }
@@ -720,7 +727,7 @@ const ComplianceOpsPage: React.FC = () => {
 
   return (
     <main className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen">
-      <div className="space-y-5">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-5">
 
         {/* Prowler Running Banner (AWS only) */}
         {provider === 'AWS' && prowlerStatus.status === 'RUNNING' && (
@@ -752,8 +759,8 @@ const ComplianceOpsPage: React.FC = () => {
             { label: 'Failed Controls', value: overallStats.totalFailed,     sub: 'Require attention',      valueClass: 'text-red-600' },
             { label: 'Critical Issues', value: overallStats.totalCritical,   sub: 'Fix immediately',        valueClass: 'text-red-600' },
             { label: 'Total Findings',  value: overallStats.totalFindings,   sub: 'Across all frameworks',  valueClass: 'text-[rgba(0,0,0,0.88)]' },
-          ].map((c) => (
-            <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+          ].map((c, i) => (
+            <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 card-hover-lift" style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) ${(i + 1) * 0.06}s both` }}>
               <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{c.label}</p>
               <p className={`tabular-nums ${c.valueClass}`} style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px' }}>{c.value}</p>
               <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">{c.sub}</p>
@@ -786,6 +793,8 @@ const ComplianceOpsPage: React.FC = () => {
             </nav>
           </div>
 
+          <AnimatePresence mode="wait">
+          <motion.div key={activeTab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
           {/* ============================================ */}
           {/* TAB: Framework Overview                      */}
           {/* ============================================ */}
@@ -793,7 +802,7 @@ const ComplianceOpsPage: React.FC = () => {
             <div className="p-6 space-y-5">
               {/* Framework Score Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {frameworkScores.map((fw) => {
+                {frameworkScores.map((fw, idx) => {
                   const scoreColor = getScoreColor(fw.score);
                   return (
                     <div
@@ -803,6 +812,7 @@ const ComplianceOpsPage: React.FC = () => {
                           ? `border-2 ${fw.borderColor} shadow-md`
                           : 'border border-[rgba(0,0,0,0.12)] shadow-sm hover:shadow-md'
                       }`}
+                      style={{ animation: `fadeInUp 0.35s ease ${Math.min(idx * 0.05, 0.4)}s both` }}
                       onClick={() => {
                         setSelectedFramework(selectedFramework === fw.name ? 'all' : fw.name);
                         setActiveTab('controls');
@@ -974,7 +984,7 @@ const ComplianceOpsPage: React.FC = () => {
                         const sevBadge = getSeverityBadge(control.severity);
                         const fwConfig = getFrameworkConfig(control.framework);
                         return (
-                          <tr key={idx} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                          <tr key={idx} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors" style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}>
                             <td className="px-4 py-3">
                               <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold ${fwConfig.bgColor} ${fwConfig.color}`}>
                                 <Icon icon={fwConfig.icon} width={11} />
@@ -1158,10 +1168,10 @@ const ComplianceOpsPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {frameworkScores.map((fw) => {
+                        {frameworkScores.map((fw, idx) => {
                           const scoreColor = getScoreColor(fw.score);
                           return (
-                            <tr key={fw.name} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                            <tr key={fw.name} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors" style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}>
                               <td className="px-6 py-3">
                                 <div className="flex items-center gap-2">
                                   <div className={`w-8 h-8 rounded-lg ${fw.bgColor} flex items-center justify-center`}>
@@ -1207,8 +1217,10 @@ const ComplianceOpsPage: React.FC = () => {
               )}
             </div>
           )}
+          </motion.div>
+          </AnimatePresence>
         </div>
-      </div>
+      </motion.div>
     </main>
   );
 };

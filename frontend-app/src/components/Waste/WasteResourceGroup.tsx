@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Icon } from '@iconify/react';
 import type { WastedResource } from '../../types/waste';
 
@@ -50,6 +50,59 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
   onDelete,
 }) => {
   const [expandedResources, setExpandedResources] = useState<Set<string>>(new Set());
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Increments each time the accordion opens — forces row remount to replay stagger
+  const [rowKey, setRowKey] = useState(0);
+
+  // Set initial hidden state before first paint
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    panel.style.maxHeight = '0px';
+    panel.style.overflow = 'hidden';
+    panel.style.opacity = '0';
+  }, []);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    // Cancel any in-flight transition so rapid toggling doesn't glitch
+    panel.style.transition = 'none';
+
+    if (isOpen) {
+      // Measure natural height with no constraint
+      panel.style.overflow = 'hidden';
+      panel.style.maxHeight = 'none';
+      const h = panel.scrollHeight;
+      panel.style.maxHeight = '0px';
+      panel.style.opacity = '0';
+      panel.getBoundingClientRect(); // force reflow
+      panel.style.transition = 'max-height 0.32s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s ease';
+      panel.style.maxHeight = `${h}px`;
+      panel.style.opacity = '1';
+      setRowKey(k => k + 1);
+
+      // After animation completes, remove max-height so inner row expansions aren't clipped
+      const t = setTimeout(() => {
+        if (panelRef.current) {
+          panelRef.current.style.maxHeight = 'none';
+          panelRef.current.style.overflow = 'visible';
+        }
+      }, 360);
+      return () => clearTimeout(t);
+    } else {
+      // Capture current height (panel may be fully open with maxHeight: none)
+      const h = panel.scrollHeight;
+      panel.style.overflow = 'hidden';
+      panel.style.maxHeight = `${h}px`;
+      panel.style.opacity = '1';
+      panel.getBoundingClientRect(); // force reflow
+      panel.style.transition = 'max-height 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease';
+      panel.style.maxHeight = '0px';
+      panel.style.opacity = '0';
+    }
+  }, [isOpen]);
 
   const totalSavings = resources.reduce((sum, r) => sum + (r.monthlySavings || 0), 0);
   const icon = SERVICE_ICONS[serviceType] || 'mdi:cube-outline';
@@ -63,7 +116,7 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
   };
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover">
       {/* Group header */}
       <div
         onClick={onToggle}
@@ -94,92 +147,95 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
         </div>
       </div>
 
-      {/* Resource rows */}
-      {isOpen && (
-        <div className="border-t border-[rgba(0,0,0,0.06)]">
-          {/* Table header */}
-          <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
-            <div className="col-span-5">Resource</div>
-            <div className="col-span-2">Region</div>
-            <div className="col-span-2">Monthly Savings</div>
-            <div className="col-span-3 text-right">Actions</div>
-          </div>
+      {/* Resource panel — always rendered; animated via direct DOM manipulation */}
+      <div ref={panelRef} className="border-t border-[rgba(0,0,0,0.06)]">
+        {/* Table header */}
+        <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
+          <div className="col-span-5">Resource</div>
+          <div className="col-span-2">Region</div>
+          <div className="col-span-2">Monthly Savings</div>
+          <div className="col-span-3 text-right">Actions</div>
+        </div>
 
-          {resources.map((resource) => {
-            const isExpanded = expandedResources.has(resource.resourceId);
-            return (
-              <div key={resource.resourceId} className="border-t border-[rgba(0,0,0,0.04)]">
-                {/* Row */}
-                <div
-                  onClick={() => toggleResource(resource.resourceId)}
-                  className="grid grid-cols-12 items-center px-5 py-3.5 cursor-pointer hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
-                >
-                  <div className="col-span-5 flex items-center gap-2.5">
-                    <svg
-                      className={`w-3 h-3 text-[rgba(0,0,0,0.25)] flex-shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
-                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                    <div className="min-w-0">
-                      <p className="font-semibold text-[rgba(0,0,0,0.88)] truncate">{resource.resourceName || 'Untitled'}</p>
-                      <p className="font-mono text-[11px] text-[rgba(0,0,0,0.4)] truncate">{resource.resourceId}</p>
-                    </div>
-                  </div>
-                  <div className="col-span-2 text-[rgba(0,0,0,0.6)] font-medium">{resource.region}</div>
-                  <div className="col-span-2 font-semibold text-rose-600">
-                    ${(resource.monthlySavings || 0).toFixed(2)}
-                  </div>
-                  <div className="col-span-3 flex justify-end gap-2" onClick={e => e.stopPropagation()}>
-                    <button
-                      onClick={() => onDelete(resource)}
-                      disabled={!canDelete}
-                      title={canDelete ? 'Delete resource' : 'Read-only access'}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-rose-600 border border-rose-200 hover:bg-rose-50"
-                    >
-                      <Icon icon="mdi:trash-can-outline" width={13} />
-                      Delete
-                    </button>
-                    <button
-                      disabled
-                      title="Archive (Coming Soon)"
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.4)] opacity-50 cursor-not-allowed"
-                    >
-                      <Icon icon="mdi:archive-outline" width={13} />
-                      Archive
-                    </button>
+        {resources.map((resource, index) => {
+          const isExpanded = expandedResources.has(resource.resourceId);
+          return (
+            // rowKey forces remount on each open so stagger animations replay
+            <div
+              key={`${resource.resourceId}-${rowKey}`}
+              className="border-t border-[rgba(0,0,0,0.04)]"
+              style={{ animation: `fadeInUp 0.3s ease ${0.05 + index * 0.04}s both` }}
+            >
+              {/* Row */}
+              <div
+                onClick={() => toggleResource(resource.resourceId)}
+                className="grid grid-cols-12 items-center px-5 py-3.5 cursor-pointer hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+              >
+                <div className="col-span-5 flex items-center gap-2.5">
+                  <svg
+                    className={`w-3 h-3 text-[rgba(0,0,0,0.25)] flex-shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[rgba(0,0,0,0.88)] truncate">{resource.resourceName || 'Untitled'}</p>
+                    <p className="font-mono text-[11px] text-[rgba(0,0,0,0.4)] truncate">{resource.resourceId}</p>
                   </div>
                 </div>
+                <div className="col-span-2 text-[rgba(0,0,0,0.6)] font-medium">{resource.region}</div>
+                <div className="col-span-2 font-semibold text-rose-600">
+                  ${(resource.monthlySavings || 0).toFixed(2)}
+                </div>
+                <div className="col-span-3 flex justify-end gap-2" onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={() => onDelete(resource)}
+                    disabled={!canDelete}
+                    title={canDelete ? 'Delete resource' : 'Read-only access'}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-rose-600 border border-rose-200 hover:bg-rose-50"
+                  >
+                    <Icon icon="mdi:trash-can-outline" width={13} />
+                    Delete
+                  </button>
+                  <button
+                    disabled
+                    title="Archive (Coming Soon)"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.4)] opacity-50 cursor-not-allowed"
+                  >
+                    <Icon icon="mdi:archive-outline" width={13} />
+                    Archive
+                  </button>
+                </div>
+              </div>
 
-                {/* Expanded details */}
-                {isExpanded && (
-                  <div className="px-14 py-4 bg-[rgba(0,0,0,0.015)] border-t border-[rgba(0,0,0,0.04)]">
-                    <p className="text-[12px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] mb-3">Waste Details</p>
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-[13px]">
-                      <div className="flex gap-2">
-                        <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Reason:</span>
-                        <span className="text-[rgba(0,0,0,0.75)]">{resource.reason}</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Monthly Cost:</span>
-                        <span className="font-semibold text-rose-600">${(resource.monthlySavings || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Region:</span>
-                        <span className="text-[rgba(0,0,0,0.75)]">{resource.region}</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Resource Type:</span>
-                        <span className="text-[rgba(0,0,0,0.75)]">{resource.resourceType}</span>
-                      </div>
+              {/* Expanded details */}
+              {isExpanded && (
+                <div className="px-14 py-4 bg-[rgba(0,0,0,0.015)] border-t border-[rgba(0,0,0,0.04)]">
+                  <p className="text-[12px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] mb-3">Waste Details</p>
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-[13px]">
+                    <div className="flex gap-2">
+                      <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Reason:</span>
+                      <span className="text-[rgba(0,0,0,0.75)]">{resource.reason}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Monthly Cost:</span>
+                      <span className="font-semibold text-rose-600">${(resource.monthlySavings || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Region:</span>
+                      <span className="text-[rgba(0,0,0,0.75)]">{resource.region}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Resource Type:</span>
+                      <span className="text-[rgba(0,0,0,0.75)]">{resource.resourceType}</span>
                     </div>
                   </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

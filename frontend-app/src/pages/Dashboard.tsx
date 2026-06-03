@@ -14,7 +14,7 @@
  * - Visual appearance and functionality identical to original
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccounts } from '../contexts/AccountContext';
@@ -32,6 +32,42 @@ import OptimizationSection from '../components/LiveDashboard/OptimizationSection
 import CostSection from '../components/LiveDashboard/CostSection';
 import EmptyState from '../components/LiveDashboard/EmptyState';
 import LoadingSkeleton from '../components/LiveDashboard/LoadingSkeleton';
+
+const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    // Small delay before observing so initially-visible elements still animate in
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) {
+            el.classList.add('is-visible');
+            observer.unobserve(el);
+          }
+        },
+        { threshold: 0.06 },
+      );
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className="section-reveal"
+      style={delay ? { transitionDelay: `${delay}s` } : undefined}
+    >
+      {children}
+    </div>
+  );
+};
 
 export const Dashboard: React.FC = () => {
   const { hasAnyRole, selectedTenant, impersonateUser, tenantList, tenantUsers } = useAuth();
@@ -219,8 +255,8 @@ export const Dashboard: React.FC = () => {
         <>
           {console.log('🎯 [Dashboard] Rendering Dashboard Content with data:', dashboardData)}
           <div id="widgets-container" className="space-y-5">
-            {/* KPI Cards Widget */}
-            <div id="widget-kpi" className="widget fade-in">
+            {/* KPI Cards — own stagger animation, no scroll-reveal needed */}
+            <div id="widget-kpi" className="widget">
               <KPISection
                 kpiData={dashboardData.kpi}
                 costHistory={dashboardData.costHistory}
@@ -229,37 +265,43 @@ export const Dashboard: React.FC = () => {
             </div>
 
             {/* Map + Inventory Widget */}
-            <div id="widget-middle" className="widget grid gap-6 lg:grid-cols-5 fade-in" style={{ height: '460px' }}>
-              <MapSection
-                regionStatus={dashboardData.regionStatus || []}
-                isLoading={loadingState.map}
-              />
-              <InventorySection
-                inventory={dashboardData.resourceInventory}
-                isLoading={loadingState.inventory}
-                getLink={getLink}
-              />
-            </div>
+            <RevealSection>
+              <div id="widget-middle" className="widget grid gap-6 lg:grid-cols-5" style={{ height: '460px' }}>
+                <MapSection
+                  regionStatus={dashboardData.regionStatus || []}
+                  isLoading={loadingState.map}
+                />
+                <InventorySection
+                  inventory={dashboardData.resourceInventory}
+                  isLoading={loadingState.inventory}
+                  getLink={getLink}
+                />
+              </div>
+            </RevealSection>
 
             {/* Optimization Hub Widget */}
-            <div id="widget-optimization" className="widget fade-in">
-              <OptimizationSection
-                optimization={dashboardData.optimization}
-                isLoading={loadingState.optimization}
-                isMultiAccount={multiAccountMode && selectedAccountIds.length > 1}
-                selectedAccountIds={selectedAccountIds}
-              />
-            </div>
+            <RevealSection delay={0.05}>
+              <div id="widget-optimization" className="widget">
+                <OptimizationSection
+                  optimization={dashboardData.optimization}
+                  isLoading={loadingState.optimization}
+                  isMultiAccount={multiAccountMode && selectedAccountIds.length > 1}
+                  selectedAccountIds={selectedAccountIds}
+                />
+              </div>
+            </RevealSection>
 
             {/* Cost History + Billing Widget */}
-            <div id="widget-costs" className="widget grid gap-6 lg:grid-cols-5 fade-in">
-              <CostSection
-                costHistory={dashboardData.costHistory}
-                billingSummary={dashboardData.billingSummary}
-                isLoading={loadingState.cost}
-                accountId={selectedAccountIds.length === 1 ? selectedAccountIds[0] : null}
-              />
-            </div>
+            <RevealSection delay={0.05}>
+              <div id="widget-costs" className="widget grid gap-6 lg:grid-cols-5">
+                <CostSection
+                  costHistory={dashboardData.costHistory}
+                  billingSummary={dashboardData.billingSummary}
+                  isLoading={loadingState.cost}
+                  accountId={selectedAccountIds.length === 1 ? selectedAccountIds[0] : null}
+                />
+              </div>
+            </RevealSection>
           </div>
         </>
       )}

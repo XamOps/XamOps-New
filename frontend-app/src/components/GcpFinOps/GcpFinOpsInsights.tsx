@@ -36,7 +36,7 @@ const GcpFinOpsInsights: React.FC<GcpFinOpsInsightsProps> = ({
   }
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
       {/* Section header */}
       <div className="px-0 pt-0 pb-4 flex items-center gap-3">
         <div

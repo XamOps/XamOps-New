@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import apiClient from '../utils/apiClient';
@@ -117,12 +118,14 @@ const CloudK8sPage: React.FC = () => {
         isRefreshing={isRefreshing}
         onRefresh={() => fetchClusters(true)}
       />
-      <CloudK8sClusterTable
-        clusters={clusters}
-        isLoading={isLoading}
-        onViewDetails={navigateToDetails}
-      />
-      <CloudK8sIntegrations />
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-5">
+        <CloudK8sClusterTable
+          clusters={clusters}
+          isLoading={isLoading}
+          onViewDetails={navigateToDetails}
+        />
+        <CloudK8sIntegrations />
+      </motion.div>
     </main>
   );
 };

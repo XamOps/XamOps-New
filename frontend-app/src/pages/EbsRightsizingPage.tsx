@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useEbsRightsizingData, EbsVolume, RoiResult, PendingDeletionVolume } from '../hooks/useEbsRightsizingData';
@@ -180,9 +181,17 @@ const EbsRightsizingPage: React.FC = () => {
             ))}
           </div>
 
+          <AnimatePresence mode="wait">
           {/* OVERVIEW TAB */}
           {activeTab === 'overview' && (
-            <div className="space-y-5">
+            <motion.div
+              key="overview"
+              className="space-y-5"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+            >
               {/* KPI cards */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                 {[
@@ -192,8 +201,8 @@ const EbsRightsizingPage: React.FC = () => {
                   { icon: 'mdi:link-off',              label: 'Unattached',         value: String(unattachedCount),                                 iconColor: '#DC2626', iconBg: '#DC262614' },
                   { icon: 'mdi:arrow-collapse',        label: 'Shrink',             value: isDiskUsageLoading ? '…' : String(shrinkCount),          iconColor: '#F59E0B', iconBg: '#F59E0B14' },
                   { icon: 'mdi:piggy-bank-outline',    label: 'Savings/mo',         value: `$${totalWastedMonthly.toFixed(2)}`,                     iconColor: '#16A34A', iconBg: '#16A34A14' },
-                ].map(card => (
-                  <div key={card.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-4 relative overflow-hidden">
+                ].map((card, i) => (
+                  <div key={card.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-4 relative overflow-hidden card-hover-lift" style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) ${i * 0.06}s both` }}>
                     {CLOUD_SVG}
                     <div className="relative z-10 flex items-center justify-between mb-2">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[rgba(0,0,0,0.55)]">{card.label}</p>
@@ -233,7 +242,7 @@ const EbsRightsizingPage: React.FC = () => {
               )}
 
               {/* Volumes table */}
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover">
                 {/* Table toolbar */}
                 <div className="flex flex-wrap items-center gap-2 px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
                   <div className="relative flex-1 min-w-[160px]">
@@ -310,7 +319,7 @@ const EbsRightsizingPage: React.FC = () => {
                   </div>
                 ) : (
                   <>
-                    {pagedVolumes.map((vol) => (
+                    {pagedVolumes.map((vol, idx) => (
                       <div
                         key={vol.volumeId}
                         onClick={(e) => {
@@ -318,6 +327,7 @@ const EbsRightsizingPage: React.FC = () => {
                           setMonitoringVolume(vol);
                         }}
                         className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors cursor-pointer text-[13px]"
+                        style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.03, 0.45)}s both` }}
                       >
                         {/* Volume */}
                         <div className="col-span-3 min-w-0">
@@ -402,7 +412,7 @@ const EbsRightsizingPage: React.FC = () => {
                               {recommendationBadge(vol.recommendation)}
                               <button
                                 onClick={() => setGuideTarget({ volumeId: vol.volumeId, region: vol.region, instanceId: vol.instanceId ?? undefined, currentSizeGb: vol.sizeGb, recommendedSizeGb: vol.recommendedSizeGb, recommendation: vol.recommendation as 'SHRINK' | 'EXPAND', isRootVolume: vol.isRootVolume, volumeType: vol.volumeType })}
-                                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95"
                               >
                                 <Icon icon="mdi:book-open-outline" width={10} />How to fix
                               </button>
@@ -476,13 +486,22 @@ const EbsRightsizingPage: React.FC = () => {
                   </>
                 )}
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* ROI CALCULATOR TAB */}
           {activeTab === 'roi' && (
-            <RoiCalculator calculateRoi={calculateRoi} />
+            <motion.div
+              key="roi"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+            >
+              <RoiCalculator calculateRoi={calculateRoi} />
+            </motion.div>
           )}
+          </AnimatePresence>
         </>
       )}
 

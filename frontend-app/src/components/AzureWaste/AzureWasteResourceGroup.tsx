@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Icon } from '@iconify/react';
 import type { AzureWasteGroup } from '../../types/azureWaste';
 
@@ -16,10 +16,65 @@ const TYPE_ICONS: Record<string, { icon: string; color: string; bg: string }> = 
 
 const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group }) => {
   const [isOpen, setIsOpen] = useState(group.open ?? true);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const isFirstEffect = useRef(true);
+  const [rowKey, setRowKey] = useState(0);
+
   const meta = TYPE_ICONS[group.type] ?? { icon: 'mdi:cube-outline', color: '#3B82F6', bg: '#3B82F614' };
 
+  // Set initial hidden state before first paint (only when starting closed)
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || isOpen) return;
+    panel.style.maxHeight = '0px';
+    panel.style.overflow = 'hidden';
+    panel.style.opacity = '0';
+  }, []);
+
+  useEffect(() => {
+    // Skip the initial mount call — useLayoutEffect already set correct initial state
+    if (isFirstEffect.current) {
+      isFirstEffect.current = false;
+      return;
+    }
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    panel.style.transition = 'none';
+
+    if (isOpen) {
+      panel.style.overflow = 'hidden';
+      panel.style.maxHeight = 'none';
+      const h = panel.scrollHeight;
+      panel.style.maxHeight = '0px';
+      panel.style.opacity = '0';
+      panel.getBoundingClientRect();
+      panel.style.transition = 'max-height 0.32s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s ease';
+      panel.style.maxHeight = `${h}px`;
+      panel.style.opacity = '1';
+      setRowKey(k => k + 1);
+
+      const t = setTimeout(() => {
+        if (panelRef.current) {
+          panelRef.current.style.maxHeight = 'none';
+          panelRef.current.style.overflow = 'visible';
+        }
+      }, 360);
+      return () => clearTimeout(t);
+    } else {
+      const h = panel.scrollHeight;
+      panel.style.overflow = 'hidden';
+      panel.style.maxHeight = `${h}px`;
+      panel.style.opacity = '1';
+      panel.getBoundingClientRect();
+      panel.style.transition = 'max-height 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease';
+      panel.style.maxHeight = '0px';
+      panel.style.opacity = '0';
+    }
+  }, [isOpen]);
+
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover">
       {/* Group header */}
       <div
         onClick={() => setIsOpen(p => !p)}
@@ -52,39 +107,38 @@ const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group
         </div>
       </div>
 
-      {/* Resource table */}
-      {isOpen && (
-        <div className="border-t border-[rgba(0,0,0,0.06)]">
-          <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
-            <div className="col-span-4">Resource Name</div>
-            <div className="col-span-2">Region</div>
-            <div className="col-span-4">Reason</div>
-            <div className="col-span-2 text-right">Savings/mo</div>
-          </div>
-
-          {group.resources.map((resource, idx) => (
-            <div
-              key={resource.resourceId || idx}
-              className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
-            >
-              <div className="col-span-4 font-semibold text-[rgba(0,0,0,0.88)] truncate" title={resource.resourceName}>
-                {resource.resourceName || '—'}
-              </div>
-              <div className="col-span-2 text-[rgba(0,0,0,0.55)]">{resource.region || '—'}</div>
-              <div className="col-span-4 text-[rgba(0,0,0,0.55)] text-[12px] leading-relaxed">{resource.reason}</div>
-              <div className="col-span-2 text-right">
-                {resource.monthlySavings > 0 ? (
-                  <span className="font-semibold text-rose-600">
-                    ${resource.monthlySavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                ) : (
-                  <span className="text-[rgba(0,0,0,0.3)] text-[11px]">hygiene</span>
-                )}
-              </div>
-            </div>
-          ))}
+      {/* Resource panel — always rendered, animated via JS */}
+      <div ref={panelRef} className="border-t border-[rgba(0,0,0,0.06)]">
+        <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
+          <div className="col-span-4">Resource Name</div>
+          <div className="col-span-2">Region</div>
+          <div className="col-span-4">Reason</div>
+          <div className="col-span-2 text-right">Savings/mo</div>
         </div>
-      )}
+
+        {group.resources.map((resource, idx) => (
+          <div
+            key={`${resource.resourceId || idx}-${rowKey}`}
+            className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+            style={{ animation: `fadeInUp 0.3s ease ${0.05 + idx * 0.04}s both` }}
+          >
+            <div className="col-span-4 font-semibold text-[rgba(0,0,0,0.88)] truncate" title={resource.resourceName}>
+              {resource.resourceName || '—'}
+            </div>
+            <div className="col-span-2 text-[rgba(0,0,0,0.55)]">{resource.region || '—'}</div>
+            <div className="col-span-4 text-[rgba(0,0,0,0.55)] text-[12px] leading-relaxed">{resource.reason}</div>
+            <div className="col-span-2 text-right">
+              {resource.monthlySavings > 0 ? (
+                <span className="font-semibold text-rose-600">
+                  ${resource.monthlySavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              ) : (
+                <span className="text-[rgba(0,0,0,0.3)] text-[11px]">hygiene</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

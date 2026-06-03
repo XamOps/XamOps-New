@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -97,32 +98,41 @@ const SecurityPage: React.FC = () => {
           />
         )}
 
-        {selectedAccountId && isLoading && (
-          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 animate-pulse">
-            <div className="h-4 bg-[rgba(0,0,0,0.06)] rounded w-40 mb-4" />
-            <div className="space-y-3">
-              {[...Array(5)].map((_, i) => <div key={i} className="h-10 bg-[rgba(0,0,0,0.04)] rounded" />)}
-            </div>
-          </div>
-        )}
+        <AnimatePresence mode="wait">
+          {selectedAccountId && isLoading && (
+            <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 animate-pulse">
+                <div className="h-4 bg-[rgba(0,0,0,0.06)] rounded w-40 mb-4" />
+                <div className="space-y-3">
+                  {[...Array(5)].map((_, i) => <div key={i} className="h-10 bg-[rgba(0,0,0,0.04)] rounded" />)}
+                </div>
+              </div>
+            </motion.div>
+          )}
 
-        {selectedAccountId && !isLoading && filteredFindings.length === 0 && (
-          <SecurityEmptyState onRefresh={() => loadFindings(true)} />
-        )}
+          {selectedAccountId && !isLoading && filteredFindings.length === 0 && (
+            <motion.div key="empty" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <SecurityEmptyState onRefresh={() => loadFindings(true)} />
+            </motion.div>
+          )}
 
-        {selectedAccountId && !isLoading && filteredFindings.length > 0 && (
-          <div className="space-y-4">
-            {SEVERITY_LEVELS.map((severity) => (
-              <SecurityFindingsSection
-                key={severity}
-                severity={severity}
-                findings={getFindingsBySeverity(severity)}
-                isOpen={openSeverities.includes(severity)}
-                onToggle={() => toggleSeverity(severity)}
-              />
-            ))}
-          </div>
-        )}
+          {selectedAccountId && !isLoading && filteredFindings.length > 0 && (
+            <motion.div key="findings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
+              <div className="space-y-4">
+                {SEVERITY_LEVELS.map((severity, idx) => (
+                  <div key={severity} style={{ animation: `fadeInUp 0.3s ease ${idx * 0.06}s both` }}>
+                    <SecurityFindingsSection
+                      severity={severity}
+                      findings={getFindingsBySeverity(severity)}
+                      isOpen={openSeverities.includes(severity)}
+                      onToggle={() => toggleSeverity(severity)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </main>
   );

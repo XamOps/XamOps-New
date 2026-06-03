@@ -17,6 +17,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useEksDashboard } from '../hooks/useEksDashboard';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -199,17 +200,21 @@ const EksDetailsPage: React.FC = () => {
 
             {/* Tab Content */}
             <div className="tab-content">
-              {activeTab === 'overview' && <EksOverviewTab eksData={eksData} />}
-              {activeTab === 'cost' && <EksCostTab eksData={eksData} />}
-              {activeTab === 'performance' && <EksPerformanceTab eksData={eksData} />}
-              {activeTab === 'security' && <EksSecurityTab eksData={eksData} />}
-              {activeTab === 'workloads' && <EksWorkloadsTab eksData={eksData} />}
-              {activeTab === 'pods' && <EksPodsTab eksData={eksData} />}
-              {activeTab === 'containers' && <EksContainersTab eksData={eksData} />}
-              {activeTab === 'nodes' && <EksNodesTab eksData={eksData} />}
-              {activeTab === 'resources' && <EksResourcesTab eksData={eksData} />}
-              {activeTab === 'karpenter' && <EksKarpenterTab eksData={eksData} />}
-              {/* {activeTab === 'autoscaling' && <EksAutoscalingTab eksData={eksData} />} */}
+              <AnimatePresence mode="wait">
+                <motion.div key={activeTab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+                  {activeTab === 'overview' && <EksOverviewTab eksData={eksData} />}
+                  {activeTab === 'cost' && <EksCostTab eksData={eksData} />}
+                  {activeTab === 'performance' && <EksPerformanceTab eksData={eksData} />}
+                  {activeTab === 'security' && <EksSecurityTab eksData={eksData} />}
+                  {activeTab === 'workloads' && <EksWorkloadsTab eksData={eksData} />}
+                  {activeTab === 'pods' && <EksPodsTab eksData={eksData} />}
+                  {activeTab === 'containers' && <EksContainersTab eksData={eksData} />}
+                  {activeTab === 'nodes' && <EksNodesTab eksData={eksData} />}
+                  {activeTab === 'resources' && <EksResourcesTab eksData={eksData} />}
+                  {activeTab === 'karpenter' && <EksKarpenterTab eksData={eksData} />}
+                  {/* {activeTab === 'autoscaling' && <EksAutoscalingTab eksData={eksData} />} */}
+                </motion.div>
+              </AnimatePresence>
             </div>
           </>
         )}

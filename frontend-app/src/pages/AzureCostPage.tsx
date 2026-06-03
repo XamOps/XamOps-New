@@ -13,7 +13,7 @@
  * - Manual refresh via POST /api/xamops/azure/dashboard/refresh
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureCostData } from '../hooks/useAzureCostData';
 import {
@@ -24,6 +24,23 @@ import {
   AzureCostForecastChart,
   AzureServiceTrendChart,
 } from '../components/AzureCost';
+
+const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
+      }, { threshold: 0.06 });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
+  return <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>{children}</div>;
+};
 
 const AzureCostPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -77,34 +94,42 @@ const AzureCostPage: React.FC = () => {
             />
 
             {/* Cost Breakdown */}
-            <AzureCostBreakdownSection
-              billingSummary={billingSummary}
-              costByRegion={costByRegion}
-              isLoading={isLoading}
-              onServiceClick={loadServiceTrend}
-            />
+            <RevealSection>
+              <AzureCostBreakdownSection
+                billingSummary={billingSummary}
+                costByRegion={costByRegion}
+                isLoading={isLoading}
+                onServiceClick={loadServiceTrend}
+              />
+            </RevealSection>
 
             {/* Per-Service Monthly Trend Drawer (appears when a service row is clicked) */}
             {serviceTrend.dimension && (
-              <AzureServiceTrendChart
-                dimension={serviceTrend.dimension}
-                data={serviceTrend.data}
-                isLoading={serviceTrend.isLoading}
-                onClose={clearServiceTrend}
-              />
+              <RevealSection>
+                <AzureServiceTrendChart
+                  dimension={serviceTrend.dimension}
+                  data={serviceTrend.data}
+                  isLoading={serviceTrend.isLoading}
+                  onClose={clearServiceTrend}
+                />
+              </RevealSection>
             )}
 
             {/* Cost History */}
-            <AzureCostHistoryChart
-              costHistory={costHistory}
-              isLoading={isLoading}
-            />
+            <RevealSection delay={0.05}>
+              <AzureCostHistoryChart
+                costHistory={costHistory}
+                isLoading={isLoading}
+              />
+            </RevealSection>
 
             {/* ML Cost Forecast */}
-            <AzureCostForecastChart
-              forecast={forecast}
-              isLoading={isForecastLoading}
-            />
+            <RevealSection delay={0.1}>
+              <AzureCostForecastChart
+                forecast={forecast}
+                isLoading={isForecastLoading}
+              />
+            </RevealSection>
           </>
         )}
       </div>

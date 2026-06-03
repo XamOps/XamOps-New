@@ -18,8 +18,11 @@ interface CostForecastChartProps {
   onServiceChange: (service: string) => void;
 }
 
-const KPICard: React.FC<{ title: string; value: string; icon: string; color: string; tooltip: string }> = ({ title, value, tooltip }) => (
-  <div className="group relative bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-4 shadow-sm flex-1 min-w-[160px] cursor-help">
+const KPICard: React.FC<{ title: string; value: string; icon: string; color: string; tooltip: string; index?: number }> = ({ title, value, tooltip, index = 0 }) => (
+  <div
+    className="group relative bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-4 shadow-sm flex-1 min-w-[160px] cursor-help card-hover-lift"
+    style={{ animation: `fadeInUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) ${0.05 + index * 0.08}s both` }}
+  >
     <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.45)] mb-1.5">{title}</p>
     <p className="text-[22px] font-bold text-[rgba(0,0,0,0.88)] tabular-nums">{value}</p>
     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-[rgba(0,0,0,0.88)] text-white text-[10px] rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 text-center leading-tight">
@@ -91,6 +94,7 @@ const CostForecastChart: React.FC<CostForecastChartProps> = ({
         ],
       },
       options: {
+        animation: { duration: 800, easing: 'easeOutQuart' },
         responsive: true,
         maintainAspectRatio: false,
         font: {
@@ -188,7 +192,7 @@ const CostForecastChart: React.FC<CostForecastChartProps> = ({
   const kpis = calculateKPIs();
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-6">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-6 widget-panel-hover">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
           <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">
@@ -216,6 +220,7 @@ const CostForecastChart: React.FC<CostForecastChartProps> = ({
       {!isLoading && kpis && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <KPICard
+            index={0}
             title="Total Forecasted"
             value={kpis.totalPredicted}
             icon="fas fa-chart-line"
@@ -223,6 +228,7 @@ const CostForecastChart: React.FC<CostForecastChartProps> = ({
             tooltip="Sum of all predicted costs for the next 30 days."
           />
           <KPICard
+            index={1}
             title="Forecast Peak"
             value={kpis.peakCost}
             icon="fas fa-arrow-trend-up"
@@ -230,6 +236,7 @@ const CostForecastChart: React.FC<CostForecastChartProps> = ({
             tooltip="The highest single-day cost predicted in this forecast."
           />
           <KPICard
+            index={2}
             title="Confidence Range"
             value={kpis.uncertainty}
             icon="fas fa-shield-halved"

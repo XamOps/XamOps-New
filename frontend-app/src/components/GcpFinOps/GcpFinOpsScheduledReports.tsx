@@ -10,7 +10,7 @@ interface GcpFinOpsScheduledReportsProps {
 const GcpFinOpsScheduledReports: React.FC<GcpFinOpsScheduledReportsProps> = ({ schedules, onDeleteSchedule }) => {
   if (!schedules || schedules.length === 0) return null;
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 widget-panel-hover">
       <div className="flex items-center justify-between mb-4">
         <div>
           <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Scheduled Reports</p>

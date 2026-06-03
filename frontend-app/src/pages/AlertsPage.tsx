@@ -17,6 +17,7 @@
  */
 
 import React, { useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAlertsData } from '../hooks/useAlertsData';
@@ -85,7 +86,7 @@ const AlertsPage: React.FC = () => {
       {/* Tabs */}
       <AlertsTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
-      <div className="space-y-5">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-5">
         {/* No Account State */}
         {!selectedAccountId && !isLoading && (
           <div className="py-20 flex flex-col items-center justify-center text-center">
@@ -97,6 +98,8 @@ const AlertsPage: React.FC = () => {
           </div>
         )}
 
+        <AnimatePresence mode="wait">
+        <motion.div key={activeTab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
         {/* CloudGuard Tab Content */}
         {activeTab === 'cloudguard' && selectedAccountId && (
           <div className="space-y-5">
@@ -166,7 +169,9 @@ const AlertsPage: React.FC = () => {
             <EksAlertsTab />
           </div>
         )}
-      </div>
+        </motion.div>
+        </AnimatePresence>
+      </motion.div>
     </main>
   );
 };

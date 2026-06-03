@@ -30,7 +30,7 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
   const [scale, setScale] = useState(BASE_SCALE);
 
   return (
-    <div className="lg:col-span-3 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden h-full">
+    <div className="lg:col-span-3 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden h-full widget-panel-hover">
       {/* Header */}
       <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <div>

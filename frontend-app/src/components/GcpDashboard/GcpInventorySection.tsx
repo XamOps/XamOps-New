@@ -51,7 +51,7 @@ const getIconMeta = (type: string): { iconName: string; iconColor: string } => {
     return { iconName: 'simple-icons:googlecloud', iconColor: '#4285F4' };
 };
 
-const ResourceCard: React.FC<ResourceCardProps> = ({ name, count, type, accountIds }) => {
+const ResourceCard: React.FC<ResourceCardProps & { animIndex: number }> = ({ name, count, type, accountIds, animIndex }) => {
     const navigate = useNavigate();
     const { iconName, iconColor } = getIconMeta(type);
 
@@ -59,6 +59,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ name, count, type, accountI
         <button
             onClick={() => navigate(`/gcp-cloudlist?service=${encodeURIComponent(type)}&accountIds=${accountIds.join(',')}`)}
             className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-[rgba(0,0,0,0.025)] transition-colors text-left group"
+            style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) ${animIndex * 0.055}s both` }}
         >
             <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${iconColor}14` }}>
@@ -81,7 +82,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ name, count, type, accountI
 
 const GcpInventorySection: React.FC<GcpInventorySectionProps> = ({ resources, loading, accountIds }) => {
     return (
-        <div className="lg:col-span-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm flex flex-col overflow-hidden h-full">
+        <div className="lg:col-span-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm flex flex-col overflow-hidden h-full widget-panel-hover">
             {/* Header — identical to AWS */}
             <div className="flex items-center justify-between px-5 pt-5 pb-4 flex-shrink-0">
                 <div>
@@ -108,8 +109,8 @@ const GcpInventorySection: React.FC<GcpInventorySectionProps> = ({ resources, lo
             ) : (
                 <div className="flex-1 overflow-y-auto inventory-hide-scrollbar" style={{ scrollbarWidth: 'none' }}>
                     {resources.filter(r => r.count > 0).length > 0 ? (
-                        resources.filter(r => r.count > 0).map((resource) => (
-                            <ResourceCard key={resource.type} name={resource.name} count={resource.count} type={resource.type} accountIds={accountIds} />
+                        resources.filter(r => r.count > 0).map((resource, idx) => (
+                            <ResourceCard key={resource.type} name={resource.name} count={resource.count} type={resource.type} accountIds={accountIds} animIndex={idx} />
                         ))
                     ) : (
                         <div className="py-12 text-center">

@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpPerformanceData } from '../hooks/useGcpPerformanceData';
@@ -220,13 +221,15 @@ const GcpPerformancePage: React.FC = () => {
   if (!selectedAccountId) {
     return (
       <main className="flex-1 p-6 bg-white min-h-screen">
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="w-14 h-14 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4">
-            <Icon icon="mdi:speedometer" width={28} color="#4f46e5" />
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-14 h-14 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4">
+              <Icon icon="mdi:speedometer" width={28} color="#4f46e5" />
+            </div>
+            <h3 className="text-base font-bold text-gray-700 mb-1">No GCP Account Selected</h3>
+            <p className="text-sm text-gray-500">Please select a GCP project from the sidebar to view performance insights.</p>
           </div>
-          <h3 className="text-base font-bold text-gray-700 mb-1">No GCP Account Selected</h3>
-          <p className="text-sm text-gray-500">Please select a GCP project from the sidebar to view performance insights.</p>
-        </div>
+        </motion.div>
       </main>
     );
   }
@@ -235,20 +238,22 @@ const GcpPerformancePage: React.FC = () => {
   if (error && !insights.length) {
     return (
       <main className="flex-1 p-6 bg-white min-h-screen">
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="w-14 h-14 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center mb-4">
-            <Icon icon="mdi:alert" width={28} color="#ef4444" />
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-14 h-14 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center mb-4">
+              <Icon icon="mdi:alert" width={28} color="#ef4444" />
+            </div>
+            <h3 className="text-base font-bold text-gray-700 mb-1">Failed to Load Performance Insights</h3>
+            <p className="text-sm text-gray-500 mb-4">{error.message}</p>
+            <button
+              onClick={refresh}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors active:scale-95"
+            >
+              <Icon icon="mdi:refresh" width={14} />
+              Retry
+            </button>
           </div>
-          <h3 className="text-base font-bold text-gray-700 mb-1">Failed to Load Performance Insights</h3>
-          <p className="text-sm text-gray-500 mb-4">{error.message}</p>
-          <button
-            onClick={refresh}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors"
-          >
-            <Icon icon="mdi:refresh" width={14} />
-            Retry
-          </button>
-        </div>
+        </motion.div>
       </main>
     );
   }
@@ -278,7 +283,7 @@ const GcpPerformancePage: React.FC = () => {
         </div>
       )}
 
-      <div className="space-y-6">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-6">
         {/* Metrics Cards */}
         <MetricsCards summary={summary} loading={loading} />
 
@@ -307,6 +312,8 @@ const GcpPerformancePage: React.FC = () => {
             </nav>
           </div>
 
+          <AnimatePresence mode="wait">
+          <motion.div key={activeTab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
           {/* Critical Insights Tab */}
           {activeTab === 'insights' && (
             <div className="p-6 space-y-4">
@@ -360,8 +367,10 @@ const GcpPerformancePage: React.FC = () => {
               <BestPracticesTable insights={bestPracticeInsights} loading={loading} />
             </div>
           )}
+          </motion.div>
+          </AnimatePresence>
         </div>
-      </div>
+      </motion.div>
     </main>
   );
 };

@@ -1,18 +1,14 @@
 package com.xammer.cloud.controller;
 
-import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.User;
-import com.xammer.cloud.dto.GlobalUserDto;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailService;
-import com.xammer.cloud.service.MasterDatabaseService;
 import com.xammer.cloud.service.RedisCacheService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Optional;
 import java.util.Random;
 
 @RestController
@@ -31,50 +27,22 @@ public class PasswordResetController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    @Autowired
-    private MasterDatabaseService masterDatabaseService;
-
-    /**
-     * Helper: Looks up the user in the Global Master DB to find their Tenant ID,
-     * then switches the current thread's context to that Tenant.
-     */
-    private void setTenantContextForUser(String username) {
-        // 1. Global Lookup
-        Optional<GlobalUserDto> globalUserOpt = masterDatabaseService.findGlobalUser(username);
-        
-        if (globalUserOpt.isPresent()) {
-            String tenantId = globalUserOpt.get().getTenantId();
-            // 2. Context Switch
-            TenantContext.setCurrentTenant(tenantId);
-        } else {
-            throw new RuntimeException("User not found in Global Directory");
-        }
-    }
-
     // 1. Send OTP
     @PostMapping("/forgot-password")
-    public ResponseEntity<?> sendOtp(@RequestParam String username, @RequestParam String email) {
+    public ResponseEntity<?> sendOtp(@RequestParam String email) {
         try {
-            // ✅ FIX: Switch to the correct database for this user
-            setTenantContextForUser(username);
-
-            // Find user in their specific Tenant DB
-            User user = userRepository.findByUsername(username)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
-
-            // Verify email matches
-            if (user.getEmail() == null || !user.getEmail().equalsIgnoreCase(email)) {
-                return ResponseEntity.badRequest().body("Email does not match our records.");
-            }
+            // Find user by email directly — no global_users lookup needed
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new RuntimeException("No account found with that email address."));
 
             // Generate 6-digit OTP
             String otp = String.format("%06d", new Random().nextInt(999999));
-            
-            // Save OTP to Redis (Expires in 5 minutes)
-            redisCacheService.saveOtp(username, otp);
+
+            // Save OTP to Redis keyed by email (expires in 5 minutes)
+            redisCacheService.saveOtp(email, otp);
 
             // Send Email
-            String subject = "BillOps Password Reset Code";
+            String subject = "XamOps Password Reset Code";
             String body = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>Password Reset Code</title></head>"
                           + "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>"
                           + "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>"
@@ -96,10 +64,9 @@ public class PasswordResetController {
                           + "<p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>"
                           + "</td></tr>"
                           + "</table></td></tr></table></body></html>";
-            
-            // Log for debugging (in case email fails)
-            System.out.println(">>> OTP for " + username + ": " + otp);
-            
+
+            System.out.println(">>> OTP for " + email + ": " + otp);
+
             emailService.sendHtmlEmail(email, subject, body);
 
             return ResponseEntity.ok().body("OTP sent to your email.");
@@ -112,11 +79,9 @@ public class PasswordResetController {
 
     // 2. Verify OTP
     @PostMapping("/verify-otp")
-    public ResponseEntity<?> verifyOtp(@RequestParam String username, @RequestParam String otp) {
-        // Redis is global/shared, so strictly speaking we don't NEED the tenant context here,
-        // but it doesn't hurt.
-        String cachedOtp = redisCacheService.getOtp(username);
-        
+    public ResponseEntity<?> verifyOtp(@RequestParam String email, @RequestParam String otp) {
+        String cachedOtp = redisCacheService.getOtp(email);
+
         if (cachedOtp != null && cachedOtp.equals(otp)) {
             return ResponseEntity.ok().body("OTP Verified");
         }
@@ -125,28 +90,23 @@ public class PasswordResetController {
 
     // 3. Reset Password
     @PostMapping("/reset-password")
-    public ResponseEntity<?> resetPassword(@RequestParam String username, 
+    public ResponseEntity<?> resetPassword(@RequestParam String email,
                                            @RequestParam String otp,
                                            @RequestParam String newPassword) {
         try {
-            // Re-verify OTP to be safe
-            String cachedOtp = redisCacheService.getOtp(username);
+            // Re-verify OTP
+            String cachedOtp = redisCacheService.getOtp(email);
             if (cachedOtp == null || !cachedOtp.equals(otp)) {
                 return ResponseEntity.badRequest().body("Invalid request or OTP expired.");
             }
 
-            // ✅ FIX: Switch to the correct database to update the password
-            setTenantContextForUser(username);
-
-            User user = userRepository.findByUsername(username)
+            User user = userRepository.findByEmail(email)
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
-            // Update password
             user.setPassword(passwordEncoder.encode(newPassword));
             userRepository.save(user);
 
-            // Clear OTP
-            redisCacheService.deleteOtp(username);
+            redisCacheService.deleteOtp(email);
 
             return ResponseEntity.ok().body("Password updated successfully.");
 

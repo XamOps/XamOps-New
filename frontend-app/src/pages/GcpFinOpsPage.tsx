@@ -17,7 +17,7 @@
  * - Date range filtering
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpFinOpsData } from '../hooks/useGcpFinOpsData';
 import type { DateFilter, GcpNewBudget, GcpNewSchedule } from '../types/gcpFinops';
@@ -33,6 +33,23 @@ import GcpFinOpsInsights from '../components/GcpFinOps/GcpFinOpsInsights';
 import GcpBudgetModal from '../components/GcpFinOps/GcpBudgetModal';
 import GcpScheduleModal from '../components/GcpFinOps/GcpScheduleModal';
 import GcpToast from '../components/GcpFinOps/GcpToast';
+
+const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
+      }, { threshold: 0.06 });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
+  return <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>{children}</div>;
+};
 
 export const GcpFinOpsPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -282,34 +299,42 @@ export const GcpFinOpsPage: React.FC = () => {
         <>
           <GcpFinOpsKPISection kpis={reportData.kpis} />
 
-          <GcpFinOpsBudgets
-            budgets={(reportData.budgets || []).map((b) => ({
-              ...b,
-              actualSpend: b.actualSpend || reportData.kpis?.monthToDateSpend || 0,
-              forecastedSpend: b.forecastedSpend || reportData.kpis?.forecastedSpend || 0,
-            }))}
-            onCreateBudget={() => setIsBudgetModalOpen(true)}
-            onScheduleReport={() => setIsScheduleModalOpen(true)}
-            onDeleteBudget={handleDeleteBudget}
-          />
+          <RevealSection>
+            <GcpFinOpsBudgets
+              budgets={(reportData.budgets || []).map((b) => ({
+                ...b,
+                actualSpend: b.actualSpend || reportData.kpis?.monthToDateSpend || 0,
+                forecastedSpend: b.forecastedSpend || reportData.kpis?.forecastedSpend || 0,
+              }))}
+              onCreateBudget={() => setIsBudgetModalOpen(true)}
+              onScheduleReport={() => setIsScheduleModalOpen(true)}
+              onDeleteBudget={handleDeleteBudget}
+            />
+          </RevealSection>
 
           {reportSchedules.length > 0 && (
-            <GcpFinOpsScheduledReports
-              schedules={reportSchedules}
-              onDeleteSchedule={handleDeleteSchedule}
-            />
+            <RevealSection>
+              <GcpFinOpsScheduledReports
+                schedules={reportSchedules}
+                onDeleteSchedule={handleDeleteSchedule}
+              />
+            </RevealSection>
           )}
 
-          <GcpFinOpsCharts costBreakdown={reportData.costBreakdown} />
+          <RevealSection delay={0.05}>
+            <GcpFinOpsCharts costBreakdown={reportData.costBreakdown} />
+          </RevealSection>
 
           {(reportData.rightsizingRecommendations.length > 0 ||
             reportData.wastedResources.length > 0 ||
             reportData.costAnomalies.length > 0) && (
-              <GcpFinOpsInsights
-                costAnomalies={reportData.costAnomalies}
-                rightsizingRecommendations={reportData.rightsizingRecommendations}
-                wastedResources={reportData.wastedResources}
-              />
+              <RevealSection delay={0.05}>
+                <GcpFinOpsInsights
+                  costAnomalies={reportData.costAnomalies}
+                  rightsizingRecommendations={reportData.rightsizingRecommendations}
+                  wastedResources={reportData.wastedResources}
+                />
+              </RevealSection>
             )}
         </>
       )}

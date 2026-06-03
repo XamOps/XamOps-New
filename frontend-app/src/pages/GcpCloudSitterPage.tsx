@@ -1,4 +1,5 @@
 import React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpCloudSitter } from '../hooks/useGcpCloudSitter';
@@ -39,44 +40,49 @@ const GcpCloudSitterPage: React.FC = () => {
       />
 
       <div className="flex-1">
-        {cs.currentView === 'dashboard' && (
-          <CloudSitterDashboard
-            accountId={gcpProjectId}
-            isLoading={cs.isLoading}
-            searchQuery={cs.searchQuery}
-            resources={cs.resources}
-            allResources={cs.allResources}
-            onSearchChange={cs.setSearchQuery}
-            onRefresh={() => cs.loadData(true)}
-            onCreatePolicy={cs.openCreatePolicy}
-            onManagePolicies={() => cs.setShowManagePoliciesModal(true)}
-            onAssignPolicy={cs.openAssignModal}
-            provider="GCP"
-          />
-        )}
-
-        {cs.currentView === 'createPolicy' && (
-          <CloudSitterPolicyForm
-            policyForm={cs.policyForm}
-            policyGrid={cs.policyGrid}
-            editMode={cs.editMode}
-            isSaving={cs.isSaving}
-            isDragging={cs.isDragging}
-            onFormChange={cs.setPolicyForm}
-            onGridToggle={cs.toggleCell}
-            onGridDrag={cs.dragToggle}
-            onStartDrag={() => cs.setIsDragging(true)}
-            onStopDrag={() => cs.setIsDragging(false)}
-            onResetGrid={cs.resetGrid}
-            onSave={cs.savePolicy}
-            onCancel={cs.closeCreatePolicy}
-            instanceId={cs.formInstanceTarget?.id}
-            instanceName={cs.formInstanceTarget?.name}
-            instanceRegion={cs.formInstanceTarget?.region}
-            accountId={gcpProjectId}
-            onApplyRecommendation={cs.applyRecommendationToGrid}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          {cs.currentView === 'dashboard' && (
+            <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <CloudSitterDashboard
+                accountId={gcpProjectId}
+                isLoading={cs.isLoading}
+                searchQuery={cs.searchQuery}
+                resources={cs.resources}
+                allResources={cs.allResources}
+                onSearchChange={cs.setSearchQuery}
+                onRefresh={() => cs.loadData(true)}
+                onCreatePolicy={cs.openCreatePolicy}
+                onManagePolicies={() => cs.setShowManagePoliciesModal(true)}
+                onAssignPolicy={cs.openAssignModal}
+                provider="GCP"
+              />
+            </motion.div>
+          )}
+          {cs.currentView === 'createPolicy' && (
+            <motion.div key="createPolicy" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <CloudSitterPolicyForm
+                policyForm={cs.policyForm}
+                policyGrid={cs.policyGrid}
+                editMode={cs.editMode}
+                isSaving={cs.isSaving}
+                isDragging={cs.isDragging}
+                onFormChange={cs.setPolicyForm}
+                onGridToggle={cs.toggleCell}
+                onGridDrag={cs.dragToggle}
+                onStartDrag={() => cs.setIsDragging(true)}
+                onStopDrag={() => cs.setIsDragging(false)}
+                onResetGrid={cs.resetGrid}
+                onSave={cs.savePolicy}
+                onCancel={cs.closeCreatePolicy}
+                instanceId={cs.formInstanceTarget?.id}
+                instanceName={cs.formInstanceTarget?.name}
+                instanceRegion={cs.formInstanceTarget?.region}
+                accountId={gcpProjectId}
+                onApplyRecommendation={cs.applyRecommendationToGrid}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <AssignPolicyModal

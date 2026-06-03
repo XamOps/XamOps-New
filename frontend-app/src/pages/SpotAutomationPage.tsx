@@ -23,6 +23,7 @@
  */
 
 import React, { useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { gooeyToast } from 'goey-toast';
 import { useAccounts } from '../contexts/AccountContext';
@@ -109,56 +110,67 @@ const SpotAutomationPage: React.FC = () => {
           <span><strong>Beta Feature:</strong> AWS Spot Automation is currently in beta. Some features may be incomplete or subject to change.</span>
         </div>
 
-        {/* Dashboard Tab */}
-        {activeTab === 'dashboard' && (
-          isLoading && asgs.length === 0 ? (
-            <SpotAutomationSkeleton />
-          ) : (
-            <div className="space-y-5">
-              <SpotAutomationKPIs
-                costs={costs}
-                savings={savings}
-                enabledASGsCount={enabledASGsCount}
-                totalASGsCount={asgs.length}
-                enabledRegionsCount={enabledRegionsCount}
-              />
+        <AnimatePresence mode="wait">
+          {/* Dashboard Tab */}
+          {activeTab === 'dashboard' && (
+            <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              {isLoading && asgs.length === 0 ? (
+                <SpotAutomationSkeleton />
+              ) : (
+                <div className="space-y-5">
+                  <SpotAutomationKPIs
+                    costs={costs}
+                    savings={savings}
+                    enabledASGsCount={enabledASGsCount}
+                    totalASGsCount={asgs.length}
+                    enabledRegionsCount={enabledRegionsCount}
+                  />
 
-              <SpotAutomationChart
-                historyData={historyData}
-                historySummary={historySummary}
-                timeRange={historyTimeRange}
-                isLoading={isLoadingHistory}
-                onTimeRangeChange={handleTimeRangeChange}
-                onRefresh={() => fetchHistoryData(historyTimeRange)}
-              />
+                  <SpotAutomationChart
+                    historyData={historyData}
+                    historySummary={historySummary}
+                    timeRange={historyTimeRange}
+                    isLoading={isLoadingHistory}
+                    onTimeRangeChange={handleTimeRangeChange}
+                    onRefresh={() => fetchHistoryData(historyTimeRange)}
+                  />
 
-              <SpotAutomationASGTable
-                asgs={asgs}
-                costs={costs}
-                totalInstances={totalInstances}
-                isLoading={isLoading}
-                selectedAccountId={selectedAccountId}
-                onToggleASG={handleToggleASG}
-                onSyncASG={syncASG}
-                onRefresh={() => fetchCostData(true)}
-              />
-            </div>
-          )
-        )}
+                  <SpotAutomationASGTable
+                    asgs={asgs}
+                    costs={costs}
+                    totalInstances={totalInstances}
+                    isLoading={isLoading}
+                    selectedAccountId={selectedAccountId}
+                    onToggleASG={handleToggleASG}
+                    onSyncASG={syncASG}
+                    onRefresh={() => fetchCostData(true)}
+                  />
+                </div>
+              )}
+            </motion.div>
+          )}
 
-        {/* Launch Analytics Tab */}
-        {activeTab === 'analytics' && (
-          <LaunchAnalytics accountId={selectedAccountId || ''} />
-        )}
+          {/* Launch Analytics Tab */}
+          {activeTab === 'analytics' && (
+            <motion.div key="analytics" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <LaunchAnalytics accountId={selectedAccountId || ''} />
+            </motion.div>
+          )}
 
-        {/* Actions History Tab */}
-        {activeTab === 'history' && (
-          <ActionsHistory accountId={selectedAccountId} />
-        )}
-        {/* RI/SP Coverage Tab */}
-        {activeTab === 'risp-coverage' && (
-          <RispCoverage accountId={selectedAccountId} />
-        )}
+          {/* Actions History Tab */}
+          {activeTab === 'history' && (
+            <motion.div key="history" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <ActionsHistory accountId={selectedAccountId} />
+            </motion.div>
+          )}
+
+          {/* RI/SP Coverage Tab */}
+          {activeTab === 'risp-coverage' && (
+            <motion.div key="risp-coverage" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <RispCoverage accountId={selectedAccountId} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
       </div>
 

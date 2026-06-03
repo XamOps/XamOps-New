@@ -17,6 +17,7 @@
  */
 
 import React, { useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -151,8 +152,8 @@ const PerformancePage: React.FC = () => {
                   { label: 'Total Insights', value: summary.totalInsights || 0, sub: 'All findings', valueColor: 'rgb(10,10,10)' },
                   { label: 'Critical', value: summary.critical || 0, sub: 'Immediate attention', valueColor: 'rgb(220,38,38)' },
                   { label: 'Warnings', value: (summary.warning || 0) + (summary.weakWarning || 0), sub: 'Review needed', valueColor: 'rgb(234,88,12)' },
-                ].map(c => (
-                  <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+                ].map((c, i) => (
+                  <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 card-hover-lift" style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) ${i * 0.06}s both` }}>
                     <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)] mb-2">{c.label}</p>
                     <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: c.valueColor, fontVariantNumeric: 'tabular-nums' }}>{c.value}</p>
                     <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">{c.sub}</p>
@@ -186,6 +187,8 @@ const PerformancePage: React.FC = () => {
                 </nav>
               </div>
 
+              <AnimatePresence mode="wait">
+              <motion.div key={activeTab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
               {/* Insights Tab */}
               {activeTab === 'insights' && (
                 <div className="p-6 space-y-4">
@@ -262,12 +265,13 @@ const PerformancePage: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredInsights.map(insight => (
+                          {filteredInsights.map((insight, idx) => (
                             <tr
                               key={insight.id}
                               className={`border-t border-[rgba(0,0,0,0.04)] transition-colors ${
                                 selectedInsights.includes(insight.id) ? 'bg-blue-50/60 border-l-2 border-l-indigo-500' : 'hover:bg-[rgba(0,0,0,0.025)]'
                               }`}
+                              style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}
                             >
                               <td className="px-4 py-3">
                                 <input
@@ -338,8 +342,8 @@ const PerformancePage: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {bestPracticeInsights.map(insight => (
-                            <tr key={insight.id} className="border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                          {bestPracticeInsights.map((insight, idx) => (
+                            <tr key={insight.id} className="border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors" style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}>
                               <td className="px-4 py-3">
                                 <p className="font-medium text-[rgba(0,0,0,0.88)] text-sm">{insight.insight}</p>
                                 {insight.description && <p className="text-xs text-[rgba(0,0,0,0.5)] mt-0.5">{insight.description}</p>}
@@ -368,6 +372,8 @@ const PerformancePage: React.FC = () => {
                   )}
                 </div>
               )}
+              </motion.div>
+              </AnimatePresence>
             </div>
           </>
         )}

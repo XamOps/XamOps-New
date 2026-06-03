@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -32,8 +33,8 @@ function SummaryCards({ s }: { s: DbSavingsSummary }) {
   ];
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
-      {cards.map((c) => (
-        <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+      {cards.map((c, i) => (
+        <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) ${i * 0.06}s both` }}>
           <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.45)] mb-2 leading-tight">{c.label}</p>
           <p className="text-[22px] font-bold text-gray-900 leading-tight tabular-nums">{c.value}</p>
           {c.sub && <p className="text-[11px] text-gray-400 mt-1">{c.sub}</p>}
@@ -132,7 +133,7 @@ function InventoryTab({
                     </div>
                   </td>
                 </tr>
-              ) : filtered.map(row => {
+              ) : filtered.map((row, idx) => {
                 const i = row.rdsData;
                 const am = row.source === 'agent'
                   ? agentInstanceMetrics.find(m => m.dbHost === row.agentHost)
@@ -144,6 +145,7 @@ function InventoryTab({
                     key={row.instanceId}
                     onClick={() => onSelect(row)}
                     className="border-b border-[#ebe6df] hover:bg-[#faf9f5] cursor-pointer"
+                    style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}
                   >
                     <td className="px-4 py-3 font-semibold text-[#cc785c] whitespace-nowrap">
                       <span className="hover:underline underline-offset-2">
@@ -515,59 +517,64 @@ const AzureDataOpsPage: React.FC = () => {
           </div>
         )}
 
-        {/* Loading */}
-        {subscriptionId && loading && <LoadingSkeleton />}
+        <AnimatePresence mode="wait">
+          {subscriptionId && loading && (
+            <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+              <LoadingSkeleton />
+            </motion.div>
+          )}
 
-        {/* Instance detail — full page */}
-        {subscriptionId && !loading && selectedInstance && (
-          <DbInstanceDetailPage
-            instance={selectedInstance}
-            metrics={metrics[selectedInstance.instanceId]}
-            agentStats={agentQueryStats}
-            agentInstanceMetrics={agentInstanceMetrics}
-            slowQueries={slowQueries?.queries ?? []}
-            idle={idle}
-            rightsizing={rightsizing}
-            security={security}
-            allSnapshots={snapshots}
-            costs={costs}
-            cloudProvider="azure"
-            fetchTimeseries={fetchInstanceTimeseries}
-            fetchAgentTimeseries={fetchAgentTimeseries}
-            fetchAgentTableSizes={fetchAgentTableSizes}
-            fetchAgentVacuumStats={fetchAgentVacuumStats}
-            fetchAgentUserActivity={fetchAgentUserActivity}
-            fetchAgentIndexUsage={fetchAgentIndexUsage}
-            fetchAgentTableActivity={fetchAgentTableActivity}
-            onConnected={async (inst) => { await refresh(); setSelectedInstance(inst); }}
-            onHealthChange={handleHealthChange}
-          />
-        )}
+          {subscriptionId && !loading && selectedInstance && (
+            <motion.div key="detail" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <DbInstanceDetailPage
+                instance={selectedInstance}
+                metrics={metrics[selectedInstance.instanceId]}
+                agentStats={agentQueryStats}
+                agentInstanceMetrics={agentInstanceMetrics}
+                slowQueries={slowQueries?.queries ?? []}
+                idle={idle}
+                rightsizing={rightsizing}
+                security={security}
+                allSnapshots={snapshots}
+                costs={costs}
+                cloudProvider="azure"
+                fetchTimeseries={fetchInstanceTimeseries}
+                fetchAgentTimeseries={fetchAgentTimeseries}
+                fetchAgentTableSizes={fetchAgentTableSizes}
+                fetchAgentVacuumStats={fetchAgentVacuumStats}
+                fetchAgentUserActivity={fetchAgentUserActivity}
+                fetchAgentIndexUsage={fetchAgentIndexUsage}
+                fetchAgentTableActivity={fetchAgentTableActivity}
+                onConnected={async (inst) => { await refresh(); setSelectedInstance(inst); }}
+                onHealthChange={handleHealthChange}
+              />
+            </motion.div>
+          )}
 
-        {/* Inventory */}
-        {subscriptionId && !loading && !selectedInstance && (
-          <>
-            {(() => {
-              const agentOnlyHosts = new Set<string>();
-              agentQueryStats.forEach(s => {
-                if (!s.dbHost) return;
-                const matchesAzure = inventory.some(i => i.endpoint && s.dbHost.startsWith(i.endpoint));
-                if (!matchesAzure) agentOnlyHosts.add(s.dbHost);
-              });
-              const agentOnlyCost = Array.from(agentOnlyHosts).reduce((sum, host) => {
-                const am = agentInstanceMetrics.find(m => m.dbHost === host);
-                return sum + (am?.ec2HourlyPrice ? am.ec2HourlyPrice * 730 : 0);
-              }, 0);
-              const combinedSummary = summary
-                ? { ...summary, totalInstances: summary.totalInstances + agentOnlyHosts.size, totalDbMonthlyCost: summary.totalDbMonthlyCost + agentOnlyCost }
-                : agentOnlyHosts.size > 0
-                  ? { totalDbMonthlyCost: agentOnlyCost, totalPotentialSavings: 0, totalInstances: agentOnlyHosts.size, idleInstances: 0, idleSavingsPotential: 0, rightsizingCandidates: 0, rightsizingSavingsPotential: 0, snapshotWasteCost: 0, savingsPercentage: 0 }
-                  : null;
-              return combinedSummary && <SummaryCards s={combinedSummary} />;
-            })()}
-            <InventoryTab inventory={inventory} agentStats={agentQueryStats} agentInstanceMetrics={agentInstanceMetrics} onSelect={setSelectedInstance} />
-          </>
-        )}
+          {subscriptionId && !loading && !selectedInstance && (
+            <motion.div key="inventory" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
+              {(() => {
+                const agentOnlyHosts = new Set<string>();
+                agentQueryStats.forEach(s => {
+                  if (!s.dbHost) return;
+                  const matchesAzure = inventory.some(i => i.endpoint && s.dbHost.startsWith(i.endpoint));
+                  if (!matchesAzure) agentOnlyHosts.add(s.dbHost);
+                });
+                const agentOnlyCost = Array.from(agentOnlyHosts).reduce((sum, host) => {
+                  const am = agentInstanceMetrics.find(m => m.dbHost === host);
+                  return sum + (am?.ec2HourlyPrice ? am.ec2HourlyPrice * 730 : 0);
+                }, 0);
+                const combinedSummary = summary
+                  ? { ...summary, totalInstances: summary.totalInstances + agentOnlyHosts.size, totalDbMonthlyCost: summary.totalDbMonthlyCost + agentOnlyCost }
+                  : agentOnlyHosts.size > 0
+                    ? { totalDbMonthlyCost: agentOnlyCost, totalPotentialSavings: 0, totalInstances: agentOnlyHosts.size, idleInstances: 0, idleSavingsPotential: 0, rightsizingCandidates: 0, rightsizingSavingsPotential: 0, snapshotWasteCost: 0, savingsPercentage: 0 }
+                    : null;
+                return combinedSummary && <SummaryCards s={combinedSummary} />;
+              })()}
+              <InventoryTab inventory={inventory} agentStats={agentQueryStats} agentInstanceMetrics={agentInstanceMetrics} onSelect={setSelectedInstance} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
       </div>
     </main>

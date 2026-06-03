@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import type { XamOpsRecommendation } from '../../hooks/useRightsizingData';
 
@@ -44,7 +45,7 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
   }
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover">
       {/* Subheader */}
       <div className="flex items-center gap-2 px-5 py-3 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
         <Icon icon="mdi:lightning-bolt" width={14} color="#6366F1" />
@@ -72,9 +73,12 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
         const amdUtil = extractUtilization(rec.amdRecommendation);
 
         return (
-          <div
+          <motion.div
             key={`${rec.instanceId || rec.currentInstance}-${idx}`}
             className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[12px]"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.15, delay: Math.min(idx * 0.04, 0.6), ease: 'easeOut' }}
           >
             {/* Instance */}
             <div className="col-span-3 flex items-center gap-2.5 min-w-0">
@@ -124,7 +128,7 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                 onClick={() => onApply && rec.region && onApply(rec.instanceId, intelType, rec.region)}
                 disabled={!canApply || !rec.region || !onApply}
                 title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply Intel: ${intelType}`}
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border transition-colors ${
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border transition-all active:scale-95 ${
                   canApply && rec.region
                     ? 'border-blue-200 text-blue-600 hover:bg-blue-50 cursor-pointer'
                     : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.25)] cursor-not-allowed'
@@ -137,7 +141,7 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                 onClick={() => onApply && rec.region && onApply(rec.instanceId, amdType, rec.region)}
                 disabled={!canApply || !rec.region || !onApply}
                 title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply AMD: ${amdType}`}
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border transition-colors ${
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border transition-all active:scale-95 ${
                   canApply && rec.region
                     ? 'border-purple-200 text-purple-600 hover:bg-purple-50 cursor-pointer'
                     : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.25)] cursor-not-allowed'
@@ -147,7 +151,7 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                 AMD
               </button>
             </div>
-          </div>
+          </motion.div>
         );
       })}
     </div>

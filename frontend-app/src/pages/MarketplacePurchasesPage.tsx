@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { Icon } from '@iconify/react';
 import {
@@ -1919,7 +1920,7 @@ const MarketplacePurchasesPage: React.FC = () => {
   };
 
   return (
-    <main className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen space-y-5">
+    <main className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen">
 
       {/* ── Modals (portal-style, rendered at top level) ── */}
       {poModalSub && cloudAccountId && (
@@ -1939,11 +1940,19 @@ const MarketplacePurchasesPage: React.FC = () => {
         />
       )}
 
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="space-y-5">
+      <AnimatePresence mode="wait">
+
       {/* ══ ISV Metering Tab ══ */}
-      {pageTab === 'isv' && <IsvMeteringTab />}
+      {pageTab === 'isv' && (
+        <motion.div key="isv" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+          <IsvMeteringTab />
+        </motion.div>
+      )}
 
       {/* ══ Discover Tab ══ */}
       {pageTab === 'discover' && (
+        <motion.div key="discover" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
         <>
           {!cloudAccountId && (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
@@ -1965,10 +1974,12 @@ const MarketplacePurchasesPage: React.FC = () => {
             <DiscoverPanel cloudAccountId={cloudAccountId} />
           )}
         </>
+        </motion.div>
       )}
 
       {/* ══ Marketplace Purchases Tab ══ */}
       {pageTab === 'marketops' && (
+        <motion.div key="marketops" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
         <>
           {/* No account selected */}
           {!cloudAccountId && (
@@ -2084,15 +2095,16 @@ const MarketplacePurchasesPage: React.FC = () => {
 
                   {/* Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {subscriptions.map(sub => (
-                      <ProductCard
-                        key={sub.productCode}
-                        subscription={sub}
-                        selected={selectedProduct?.productCode === sub.productCode}
-                        onClick={() => handleProductClick(sub)}
-                        onPo={() => setPoModalSub(sub)}
-                        onCancel={() => setCancelModalSub(sub)}
-                      />
+                    {subscriptions.map((sub, idx) => (
+                      <div key={sub.productCode} style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) ${Math.min(idx * 0.06, 0.4)}s both` }}>
+                        <ProductCard
+                          subscription={sub}
+                          selected={selectedProduct?.productCode === sub.productCode}
+                          onClick={() => handleProductClick(sub)}
+                          onPo={() => setPoModalSub(sub)}
+                          onCancel={() => setCancelModalSub(sub)}
+                        />
+                      </div>
                     ))}
                   </div>
 
@@ -2114,7 +2126,11 @@ const MarketplacePurchasesPage: React.FC = () => {
             </>
           )}
         </>
+        </motion.div>
       )}
+
+      </AnimatePresence>
+      </motion.div>
     </main>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   GcpDashboardData,
@@ -25,6 +25,23 @@ declare global {
     Highcharts: any;
   }
 }
+
+const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
+      }, { threshold: 0.06 });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
+  return <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>{children}</div>;
+};
 
 const GcpDashboard: React.FC = () => {
   // Get selected account IDs from session storage - initialized synchronously
@@ -443,44 +460,50 @@ const GcpDashboard: React.FC = () => {
       )}
 
       {/* Main Grid: Map & Inventory (3:2) */}
-      <div className="grid gap-6 lg:grid-cols-5 fade-in">
-        {widgetVisibility.map && (
-          <GcpMapSection
-            regionStatus={singleData?.regionStatus || []}
-            isLoading={loading.map}
-            onRegionClick={(name) => showNotification(`Dashboard filtered by: ${name}`, 'info')}
-          />
-        )}
+      <RevealSection>
+        <div className="grid gap-6 lg:grid-cols-5">
+          {widgetVisibility.map && (
+            <GcpMapSection
+              regionStatus={singleData?.regionStatus || []}
+              isLoading={loading.map}
+              onRegionClick={(name) => showNotification(`Dashboard filtered by: ${name}`, 'info')}
+            />
+          )}
 
-        {widgetVisibility.inventory && (
-          <GcpInventorySection
-            resources={resources}
-            totalResources={totalResources}
-            loading={loading.inventory}
-            accountIds={selectedAccountIds}
-          />
-        )}
-      </div>
+          {widgetVisibility.inventory && (
+            <GcpInventorySection
+              resources={resources}
+              totalResources={totalResources}
+              loading={loading.inventory}
+              accountIds={selectedAccountIds}
+            />
+          )}
+        </div>
+      </RevealSection>
 
       {/* Optimization Section */}
       {widgetVisibility.optimization && singleData && singleData.optimization && (
-        <GcpOptimizationSection
-          optimization={singleData.optimization}
-          isLoading={loading.optimization}
-        />
+        <RevealSection delay={0.05}>
+          <GcpOptimizationSection
+            optimization={singleData.optimization}
+            isLoading={loading.optimization}
+          />
+        </RevealSection>
       )}
 
       {/* Cost & Billing Grid */}
-      <div className="grid gap-6 lg:grid-cols-3 fade-in">
-        {(widgetVisibility.cost || widgetVisibility.billing) && singleData && (
-          <GcpCostSection
-            costHistory={singleData.costHistory}
-            billingSummary={singleData.billingSummary}
-            isLoading={loading.cost}
-            accountId={selectedAccountIds[0]}
-          />
-        )}
-      </div>
+      <RevealSection delay={0.1}>
+        <div className="grid gap-6 lg:grid-cols-3">
+          {(widgetVisibility.cost || widgetVisibility.billing) && singleData && (
+            <GcpCostSection
+              costHistory={singleData.costHistory}
+              billingSummary={singleData.billingSummary}
+              isLoading={loading.cost}
+              accountId={selectedAccountIds[0]}
+            />
+          )}
+        </div>
+      </RevealSection>
     </main>
   );
 };

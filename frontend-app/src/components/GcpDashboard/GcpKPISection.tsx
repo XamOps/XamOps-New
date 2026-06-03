@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect, useState } from 'react';
 
 interface GcpKPIData {
   mtdSpend: number;
@@ -16,7 +16,7 @@ interface GcpKPISectionProps {
 
 interface KPICardProps {
   title: string;
-  value: string;
+  rawValue: number;
   change: number;
   changeLabel: string;
   trendData: number[];
@@ -24,6 +24,7 @@ interface KPICardProps {
   sparklineId: string;
   isSavings?: boolean;
   subtitle?: string;
+  index: number;
 }
 
 const hexToRgba = (hex: string, alpha: number): string => {
@@ -33,8 +34,35 @@ const hexToRgba = (hex: string, alpha: number): string => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-const KPICard: React.FC<KPICardProps> = ({ title, value, change, changeLabel, trendData, chartColor, sparklineId, isSavings = false, subtitle }) => {
+const fmt = (n: number) =>
+  '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const KPICard: React.FC<KPICardProps> = ({
+  title, rawValue, change, changeLabel, trendData, chartColor, sparklineId, isSavings = false, subtitle, index,
+}) => {
   const chartInstanceRef = useRef<any>(null);
+  const animRef = useRef<number | undefined>(undefined);
+  const prevRawValue = useRef(0);
+  const [animCount, setAnimCount] = useState(rawValue);
+
+  useEffect(() => {
+    if (rawValue === prevRawValue.current) return;
+    const prev = prevRawValue.current;
+    prevRawValue.current = rawValue;
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    if (rawValue === 0) { setAnimCount(0); return; }
+    const duration = 1050;
+    const startTime = performance.now();
+    const step = (now: number) => {
+      const t = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimCount(prev + eased * (rawValue - prev));
+      if (t < 1) animRef.current = requestAnimationFrame(step);
+      else setAnimCount(rawValue);
+    };
+    animRef.current = requestAnimationFrame(step);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+  }, [rawValue]);
 
   const handleMouseEnter = useCallback(() => {
     if (!window.Chart || !trendData || trendData.length === 0) return;
@@ -64,9 +92,14 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, change, changeLabel, tr
   const isGood = isSavings ? true : change < 0;
   const badgeText = `${change >= 0 ? '+' : ''}${Math.abs(change).toFixed(1)}%`;
 
+  const display = fmt(animCount);
+  const mainPart = display.includes('.') ? display.slice(0, display.lastIndexOf('.')) : display;
+  const decPart  = display.includes('.') ? display.slice(display.lastIndexOf('.')) : '';
+
   return (
     <div
-      className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden group"
+      className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden group card-hover-lift"
+      style={{ animation: `fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${0.05 + index * 0.09}s both` }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -84,11 +117,11 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, change, changeLabel, tr
         <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{title}</p>
         <p className="leading-8 mb-1 flex items-baseline gap-0.5">
           <span style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
-            {value.includes('.') ? value.slice(0, value.lastIndexOf('.')) : value}
+            {mainPart}
           </span>
-          {value.includes('.') && (
+          {decPart && (
             <span style={{ fontFamily: "'Inter',sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10,10,10)' }}>
-              {value.slice(value.lastIndexOf('.'))}
+              {decPart}
             </span>
           )}
         </p>
@@ -110,22 +143,22 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, change, changeLabel, tr
 };
 
 const GcpKPISection: React.FC<GcpKPISectionProps> = ({ kpiData, costHistory, isLoading }) => {
-  const formatCurrency = (num: number): string =>
-    '₹' + (num != null ? num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
+  const fmtFull = (n: number) => '₹' + (n != null ? n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00');
 
   const costs = costHistory?.costs || [];
-  const mtdSpend = kpiData.mtdSpend || 0;
-  const lastMonthSpend = kpiData.lastMonthSpend || 0;
+  const mtdSpend        = kpiData.mtdSpend || 0;
+  const lastMonthSpend  = kpiData.lastMonthSpend || 0;
   const forecastedSpend = kpiData.forecastedSpend || 0;
+  const potentialSavings = kpiData.potentialSavings || 0;
 
-  const mtdChange = lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100) : 0;
+  const mtdChange      = lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100) : 0;
   const forecastChange = mtdSpend > 0 ? ((forecastedSpend - mtdSpend) / mtdSpend * 100) : 0;
   const lastMonthChange = costs.length > 2 ? ((lastMonthSpend - costs[costs.length - 3]) / costs[costs.length - 3] * 100) : 0;
 
   const buildSavingsSubtitle = () => {
-    const breakdown = kpiData.potentialSavingsBreakdown;
-    if (!breakdown) return undefined;
-    return `Optimization: ${formatCurrency(breakdown.optimization)} · AutoSpotting: ${formatCurrency(breakdown.autoSpotting)}`;
+    const b = kpiData.potentialSavingsBreakdown;
+    if (!b) return undefined;
+    return `Optimization: ${fmtFull(b.optimization)} · AutoSpotting: ${fmtFull(b.autoSpotting)}`;
   };
 
   if (isLoading) {
@@ -144,10 +177,10 @@ const GcpKPISection: React.FC<GcpKPISectionProps> = ({ kpiData, costHistory, isL
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <KPICard title="Month-to-Date Spend" value={formatCurrency(mtdSpend)} change={mtdChange} changeLabel="vs last period" trendData={costs.length > 0 ? costs : [0]} chartColor="#6b7280" sparklineId="gcp-sparkline-mtd" />
-      <KPICard title="Forecasted Spend" value={formatCurrency(forecastedSpend)} change={forecastChange} changeLabel="vs current MTD" trendData={costs.length > 0 ? [...costs, forecastedSpend] : [forecastedSpend]} chartColor="#6b7280" sparklineId="gcp-sparkline-forecast" />
-      <KPICard title="Last Month Spend" value={formatCurrency(lastMonthSpend)} change={lastMonthChange} changeLabel="vs prior month" trendData={costs.length > 1 ? costs.slice(0, -1) : [lastMonthSpend]} chartColor="#6b7280" sparklineId="gcp-sparkline-lastmonth" />
-      <KPICard title="Potential Savings" value={formatCurrency(kpiData.potentialSavings)} change={0} changeLabel="available to reclaim" trendData={[0, kpiData.potentialSavings]} chartColor="#1BE68B" sparklineId="gcp-sparkline-savings" isSavings subtitle={buildSavingsSubtitle()} />
+      <KPICard index={0} title="Month-to-Date Spend"  rawValue={mtdSpend}         change={mtdChange}       changeLabel="vs last period"      trendData={costs.length > 0 ? costs : [0]}                               chartColor="#6b7280" sparklineId="gcp-sparkline-mtd"       />
+      <KPICard index={1} title="Forecasted Spend"     rawValue={forecastedSpend}  change={forecastChange}  changeLabel="vs current MTD"      trendData={costs.length > 0 ? [...costs, forecastedSpend] : [forecastedSpend]} chartColor="#6b7280" sparklineId="gcp-sparkline-forecast"  />
+      <KPICard index={2} title="Last Month Spend"     rawValue={lastMonthSpend}   change={lastMonthChange} changeLabel="vs prior month"      trendData={costs.length > 1 ? costs.slice(0, -1) : [lastMonthSpend]}     chartColor="#6b7280" sparklineId="gcp-sparkline-lastmonth" />
+      <KPICard index={3} title="Potential Savings"    rawValue={potentialSavings} change={0}               changeLabel="available to reclaim" trendData={[0, potentialSavings]}                                        chartColor="#1BE68B" sparklineId="gcp-sparkline-savings"   isSavings subtitle={buildSavingsSubtitle()} />
     </div>
   );
 };

@@ -64,6 +64,7 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
         }],
       },
       options: {
+        animation: { animateRotate: true, animateScale: true, duration: 900, easing: 'easeOutQuart' },
         responsive: true,
         maintainAspectRatio: false,
         cutout: '68%',
@@ -105,7 +106,7 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
   }, [costData, sortedData]);
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm">
+    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm widget-panel-hover">
 
       {/* Header + Filters */}
       <div className="px-5 pt-5 pb-4 border-b border-[rgba(0,0,0,0.06)]">
@@ -178,7 +179,7 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
                   {sortedData.map((item, index) => {
                     const pct = ((item.amount / totalCost) * 100).toFixed(1);
                     return (
-                      <tr key={item.name || index} className="border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+                      <tr key={item.name || index} className="border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)] transition-colors" style={{ animation: `fadeInUp 0.35s ease ${index * 0.035}s both` }}>
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-2.5">
                             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }}></span>

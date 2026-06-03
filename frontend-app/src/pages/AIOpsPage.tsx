@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAIOpsData } from '../hooks/useAIOpsData';
 import { useUsageAnalyticsData } from '../hooks/useUsageAnalyticsData';
@@ -435,10 +436,13 @@ const AIOpsPage: React.FC = () => {
             </div>
           )}
 
+          <AnimatePresence mode="wait">
+
           {/* ═══════════════════════════════════════════════════════
               Tab 1: LLM Dashboard (Enhanced - CloudIDR style)
               ═══════════════════════════════════════════════════════ */}
           {activeTab === 'dashboard' && (hasProviders || isLoading) && (
+            <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
             <LLMDashboardTab
               kpis={kpis}
               allTimeMetrics={allTimeMetrics}
@@ -454,12 +458,14 @@ const AIOpsPage: React.FC = () => {
               kpisLoading={sectionLoading.kpis}
               chartsLoading={sectionLoading.charts}
             />
+            </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════
               Tab 2: Usage Analytics
               ═══════════════════════════════════════════════════════ */}
           {activeTab === 'usage-analytics' && hasProviders && (
+            <motion.div key="usage-analytics" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
             <div className="space-y-4">
               {/* Filters + Sub-tabs header */}
               <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-4 space-y-3">
@@ -477,162 +483,187 @@ const AIOpsPage: React.FC = () => {
               </div>
 
               {/* Sub-tab Content */}
+              <AnimatePresence mode="wait">
               {activeSubTab === 'request-logs' && (
-                <RequestLogsTable
-                  data={analytics.requestLogs}
-                  loading={analytics.logsLoading}
-                  page={analytics.logsPage}
-                  size={analytics.logsSize}
-                  onPageChange={analytics.setLogsPage}
-                  onSizeChange={analytics.setLogsSize}
-                  onExport={handleExportCsv}
-                />
+                <motion.div key="request-logs" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.15, ease: 'easeOut' }}>
+                  <RequestLogsTable
+                    data={analytics.requestLogs}
+                    loading={analytics.logsLoading}
+                    page={analytics.logsPage}
+                    size={analytics.logsSize}
+                    onPageChange={analytics.setLogsPage}
+                    onSizeChange={analytics.setLogsSize}
+                    onExport={handleExportCsv}
+                  />
+                </motion.div>
               )}
-
               {activeSubTab === 'agents' && (
-                <AgentBreakdownSection
-                  data={analytics.agentBreakdown}
-                  loading={analytics.agentLoading}
-                  onAgentClick={handleAgentClick}
-                />
+                <motion.div key="agents" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.15, ease: 'easeOut' }}>
+                  <AgentBreakdownSection
+                    data={analytics.agentBreakdown}
+                    loading={analytics.agentLoading}
+                    onAgentClick={handleAgentClick}
+                  />
+                </motion.div>
               )}
-
               {activeSubTab === 'models' && (
-                <ModelComparisonSection
-                  data={analytics.modelComparison}
-                  loading={analytics.modelLoading}
-                />
+                <motion.div key="models" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.15, ease: 'easeOut' }}>
+                  <ModelComparisonSection
+                    data={analytics.modelComparison}
+                    loading={analytics.modelLoading}
+                  />
+                </motion.div>
               )}
-
               {activeSubTab === 'heatmap' && (
-                <TokenHeatmap
-                  data={analytics.tokenHeatmap}
-                  loading={analytics.heatmapLoading}
-                />
+                <motion.div key="heatmap" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.15, ease: 'easeOut' }}>
+                  <TokenHeatmap
+                    data={analytics.tokenHeatmap}
+                    loading={analytics.heatmapLoading}
+                  />
+                </motion.div>
               )}
-
               {activeSubTab === 'teams' && (
-                <TeamBreakdownSection
-                  data={teamAnalytics.data}
-                  loading={teamAnalytics.loading}
-                />
+                <motion.div key="teams" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.15, ease: 'easeOut' }}>
+                  <TeamBreakdownSection
+                    data={teamAnalytics.data}
+                    loading={teamAnalytics.loading}
+                  />
+                </motion.div>
               )}
-
               {activeSubTab === 'performance' && (
-                <PerformanceSection
-                  data={perfMetrics.data}
-                  loading={perfMetrics.loading}
-                />
+                <motion.div key="performance" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.15, ease: 'easeOut' }}>
+                  <PerformanceSection
+                    data={perfMetrics.data}
+                    loading={perfMetrics.loading}
+                  />
+                </motion.div>
               )}
-
               {activeSubTab === 'compute' && (
-                <ComputeMetricsSection
-                  data={computeMetrics.data}
-                  loading={computeMetrics.loading}
-                />
+                <motion.div key="compute" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: 0.15, ease: 'easeOut' }}>
+                  <ComputeMetricsSection
+                    data={computeMetrics.data}
+                    loading={computeMetrics.loading}
+                  />
+                </motion.div>
               )}
+              </AnimatePresence>
             </div>
+            </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════
               Tab 3: Budget & Controls
               ═══════════════════════════════════════════════════════ */}
           {activeTab === 'budget-controls' && hasProviders && (
-            <BudgetOverview
-              summary={budget.summary}
-              loading={budget.summaryLoading}
-              onAdd={() => { setEditingBudget(null); setIsBudgetModalOpen(true); }}
-              onEdit={(budgetId) => {
-                const found = budget.summary?.budgets.find(b => b.budgetId === budgetId);
-                if (found) {
-                  setEditingBudget({
-                    id: found.budgetId,
-                    providerConfigId: found.providerConfigId ?? null,
-                    providerName: found.providerName ?? null,
-                    budgetName: found.budgetName,
-                    monthlyLimitUsd: found.monthlyLimitUsd,
-                    alertThresholds: found.thresholds.join(','),
-                    autoDisable: found.autoDisable,
-                    status: found.status,
-                    notificationEmail: null,
-                  });
-                  setIsBudgetModalOpen(true);
-                }
-              }}
-              onDelete={(budgetId) => budget.deleteBudget(budgetId)}
-              onDismissAlert={(alertId) => budget.dismissAlert(alertId)}
-              onToggleStatus={(budgetId, newStatus) => budget.toggleBudgetStatus(budgetId, newStatus)}
-              dailySpend={budget.dailySpend}
-            />
+            <motion.div key="budget-controls" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <BudgetOverview
+                summary={budget.summary}
+                loading={budget.summaryLoading}
+                onAdd={() => { setEditingBudget(null); setIsBudgetModalOpen(true); }}
+                onEdit={(budgetId) => {
+                  const found = budget.summary?.budgets.find(b => b.budgetId === budgetId);
+                  if (found) {
+                    setEditingBudget({
+                      id: found.budgetId,
+                      providerConfigId: found.providerConfigId ?? null,
+                      providerName: found.providerName ?? null,
+                      budgetName: found.budgetName,
+                      monthlyLimitUsd: found.monthlyLimitUsd,
+                      alertThresholds: found.thresholds.join(','),
+                      autoDisable: found.autoDisable,
+                      status: found.status,
+                      notificationEmail: null,
+                    });
+                    setIsBudgetModalOpen(true);
+                  }
+                }}
+                onDelete={(budgetId) => budget.deleteBudget(budgetId)}
+                onDismissAlert={(alertId) => budget.dismissAlert(alertId)}
+                onToggleStatus={(budgetId, newStatus) => budget.toggleBudgetStatus(budgetId, newStatus)}
+                dailySpend={budget.dailySpend}
+              />
+            </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════
               Tab 4: Cost Optimizer
               ═══════════════════════════════════════════════════════ */}
           {activeTab === 'cost-optimizer' && hasProviders && (
-            <CostOptimizerTab
-              rules={routing.rules}
-              stats={routing.stats}
-              history={routing.history}
-              rulesLoading={routing.rulesLoading}
-              statsLoading={routing.statsLoading}
-              historyLoading={routing.historyLoading}
-              saving={routing.saving}
-              onCreateRule={routing.createRule}
-              onUpdateRule={routing.updateRule}
-              onToggleRule={routing.toggleRule}
-              onDeleteRule={routing.deleteRule}
-            />
+            <motion.div key="cost-optimizer" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <CostOptimizerTab
+                rules={routing.rules}
+                stats={routing.stats}
+                history={routing.history}
+                rulesLoading={routing.rulesLoading}
+                statsLoading={routing.statsLoading}
+                historyLoading={routing.historyLoading}
+                saving={routing.saving}
+                onCreateRule={routing.createRule}
+                onUpdateRule={routing.updateRule}
+                onToggleRule={routing.toggleRule}
+                onDeleteRule={routing.deleteRule}
+              />
+            </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════
               Tab 5: API Keys
               ═══════════════════════════════════════════════════════ */}
           {activeTab === 'api-keys' && hasProviders && (
-            <ApiKeyManagement
-              keys={apiKeys.keys}
-              loading={apiKeys.loading}
-              onRotateKey={apiKeys.rotateKey}
-              onUpdateUsageLimit={apiKeys.updateUsageLimit}
-              onDeleteProvider={async (id: number) => {
-                await deleteProvider(id);
-                apiKeys.loadKeys();
-              }}
-              onCleanupOrphanedLogs={apiKeys.cleanupOrphanedLogs}
-              onAssignTeam={apiKeys.assignTeam}
-            />
+            <motion.div key="api-keys" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <ApiKeyManagement
+                keys={apiKeys.keys}
+                loading={apiKeys.loading}
+                onRotateKey={apiKeys.rotateKey}
+                onUpdateUsageLimit={apiKeys.updateUsageLimit}
+                onDeleteProvider={async (id: number) => {
+                  await deleteProvider(id);
+                  apiKeys.loadKeys();
+                }}
+                onCleanupOrphanedLogs={apiKeys.cleanupOrphanedLogs}
+                onAssignTeam={apiKeys.assignTeam}
+              />
+            </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════
               Tab 6: Managed Inference
               ═══════════════════════════════════════════════════════ */}
           {activeTab === 'managed-inference' && hasProviders && (
-            <ManagedInferenceTab
-              data={inference.data}
-              loading={inference.loading}
-            />
+            <motion.div key="managed-inference" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <ManagedInferenceTab
+                data={inference.data}
+                loading={inference.loading}
+              />
+            </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════
               Tab 7: Insights
               ═══════════════════════════════════════════════════════ */}
           {activeTab === 'insights' && hasProviders && (
-            <InsightsDashboard
-              data={insights.data}
-              loading={insights.loading}
-            />
+            <motion.div key="insights" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <InsightsDashboard
+                data={insights.data}
+                loading={insights.loading}
+              />
+            </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════
               Tab 8: LiteLLM
               ═══════════════════════════════════════════════════════ */}
           {activeTab === 'litellm' && (
-            <LiteLLMTab
-              providers={providers}
-              serverBaseUrl={(typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'https://api.xamops.com'}
-              onEditProvider={p => { setEditingProvider(p); setIsProviderModalOpen(true); }}
-            />
+            <motion.div key="litellm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <LiteLLMTab
+                providers={providers}
+                serverBaseUrl={(typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'https://api.xamops.com'}
+                onEditProvider={p => { setEditingProvider(p); setIsProviderModalOpen(true); }}
+              />
+            </motion.div>
           )}
+
+          </AnimatePresence>
         </div>
       </div>
 

@@ -13,6 +13,7 @@
 
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
 import clsx from 'clsx';
@@ -391,11 +392,20 @@ const AuthenticatedLayout: React.FC = () => {
                     style={{ WebkitOverflowScrolling: 'touch' }}
                 >
                     <Topbar />
-                    <div className="flex-1 pt-0" key={location.key}>
-                        <Suspense fallback={null}>
-                            <Outlet />
-                        </Suspense>
-                    </div>
+                    <AnimatePresence mode="wait" initial={false}>
+                        <motion.div
+                            key={location.key}
+                            className="flex-1 pt-0"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ duration: 0.18, ease: 'easeOut' }}
+                        >
+                            <Suspense fallback={null}>
+                                <Outlet />
+                            </Suspense>
+                        </motion.div>
+                    </AnimatePresence>
                 </div>
                 {/* Global Command Palette — open with Cmd+K / Ctrl+K */}
                 <CommandPalette />

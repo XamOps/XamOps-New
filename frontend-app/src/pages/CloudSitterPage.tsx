@@ -15,6 +15,7 @@
  */
 
 import React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useAccounts } from '../contexts/AccountContext';
 import { useCloudSitter } from '../hooks/useCloudSitter';
 import CloudSitterHeader from '../components/CloudSitter/CloudSitterHeader';
@@ -40,45 +41,48 @@ const CloudSitterPage: React.FC = () => {
 
       {/* Content */}
       <div className="flex-1">
-        {/* Dashboard View */}
-        {cloudSitter.currentView === 'dashboard' && (
-          <CloudSitterDashboard
-            accountId={selectedAccountId}
-            isLoading={cloudSitter.isLoading}
-            searchQuery={cloudSitter.searchQuery}
-            resources={cloudSitter.resources}
-            allResources={cloudSitter.allResources}
-            onSearchChange={cloudSitter.setSearchQuery}
-            onRefresh={() => cloudSitter.loadData(true)}
-            onCreatePolicy={cloudSitter.openCreatePolicy}
-            onManagePolicies={() => cloudSitter.setShowManagePoliciesModal(true)}
-            onAssignPolicy={cloudSitter.openAssignModal}
-          />
-        )}
-
-        {/* Create/Edit Policy View */}
-        {cloudSitter.currentView === 'createPolicy' && (
-          <CloudSitterPolicyForm
-            policyForm={cloudSitter.policyForm}
-            policyGrid={cloudSitter.policyGrid}
-            editMode={cloudSitter.editMode}
-            isSaving={cloudSitter.isSaving}
-            isDragging={cloudSitter.isDragging}
-            onFormChange={cloudSitter.setPolicyForm}
-            onGridToggle={cloudSitter.toggleCell}
-            onGridDrag={cloudSitter.dragToggle}
-            onStartDrag={() => cloudSitter.setIsDragging(true)}
-            onStopDrag={() => cloudSitter.setIsDragging(false)}
-            onResetGrid={cloudSitter.resetGrid}
-            onSave={cloudSitter.savePolicy}
-            onCancel={cloudSitter.closeCreatePolicy}
-            instanceId={cloudSitter.formInstanceTarget?.id}
-            instanceName={cloudSitter.formInstanceTarget?.name}
-            instanceRegion={cloudSitter.formInstanceTarget?.region}
-            accountId={selectedAccountId}
-            onApplyRecommendation={cloudSitter.applyRecommendationToGrid}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          {cloudSitter.currentView === 'dashboard' && (
+            <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <CloudSitterDashboard
+                accountId={selectedAccountId}
+                isLoading={cloudSitter.isLoading}
+                searchQuery={cloudSitter.searchQuery}
+                resources={cloudSitter.resources}
+                allResources={cloudSitter.allResources}
+                onSearchChange={cloudSitter.setSearchQuery}
+                onRefresh={() => cloudSitter.loadData(true)}
+                onCreatePolicy={cloudSitter.openCreatePolicy}
+                onManagePolicies={() => cloudSitter.setShowManagePoliciesModal(true)}
+                onAssignPolicy={cloudSitter.openAssignModal}
+              />
+            </motion.div>
+          )}
+          {cloudSitter.currentView === 'createPolicy' && (
+            <motion.div key="createPolicy" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+              <CloudSitterPolicyForm
+                policyForm={cloudSitter.policyForm}
+                policyGrid={cloudSitter.policyGrid}
+                editMode={cloudSitter.editMode}
+                isSaving={cloudSitter.isSaving}
+                isDragging={cloudSitter.isDragging}
+                onFormChange={cloudSitter.setPolicyForm}
+                onGridToggle={cloudSitter.toggleCell}
+                onGridDrag={cloudSitter.dragToggle}
+                onStartDrag={() => cloudSitter.setIsDragging(true)}
+                onStopDrag={() => cloudSitter.setIsDragging(false)}
+                onResetGrid={cloudSitter.resetGrid}
+                onSave={cloudSitter.savePolicy}
+                onCancel={cloudSitter.closeCreatePolicy}
+                instanceId={cloudSitter.formInstanceTarget?.id}
+                instanceName={cloudSitter.formInstanceTarget?.name}
+                instanceRegion={cloudSitter.formInstanceTarget?.region}
+                accountId={selectedAccountId}
+                onApplyRecommendation={cloudSitter.applyRecommendationToGrid}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Assign Policy Modal */}

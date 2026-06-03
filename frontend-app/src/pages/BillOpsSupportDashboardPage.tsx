@@ -590,13 +590,6 @@ const BillOpsSupportDashboardPage: React.FC = () => {
     setActions(
       <div className="flex items-center gap-2">
         <button
-          onClick={openNewChatModal}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-semibold transition-colors"
-        >
-          <i className="fas fa-plus text-[10px]"></i>
-          New Chat
-        </button>
-        <button
           onClick={openIntegrationsModal}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-md text-xs font-semibold transition-colors"
         >
@@ -617,7 +610,7 @@ const BillOpsSupportDashboardPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, loading, refreshInbox, openNewChatModal, openIntegrationsModal]);
+  }, [setActions, clearActions, loading, refreshInbox, openIntegrationsModal]);
 
   /* ════════════════════════════ render helpers ══════════════════ */
 

@@ -14,7 +14,7 @@
  * - Real-time data fetching
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useCostData } from '../hooks/useCostData';
@@ -30,6 +30,23 @@ import CostBreakdownSection from '../components/Cost/CostBreakdownSection';
 import HistoricalTrendChart from '../components/Cost/HistoricalTrendChart';
 import CostForecastChart from '../components/Cost/CostForecastChart';
 
+
+const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
+      }, { threshold: 0.06 });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
+  return <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>{children}</div>;
+};
 
 const CostPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -254,40 +271,46 @@ const CostPage: React.FC = () => {
             />
 
             {/* Cost Breakdown Section */}
-            <CostBreakdownSection
-              costData={filteredCostData}
-              filters={filters}
-              isLoading={isLoading || labelFilterLoading}
-              onFiltersChange={handleFiltersChange}
-              onHistoricalClick={handleHistoricalClick}
-              labels={allLabels}
-              labelFilterId={labelFilterId}
-              onLabelFilterChange={handleLabelFilterChange}
-              labelFilterLoading={labelFilterLoading}
-              labelResourceLevel={labelCostData?.resourceLevel}
-              labelMessage={labelCostData?.message}
-              labelTrackedResources={labelCostData?.trackedResources}
-              labelApproximationWarning={labelCostData?.approximationWarning}
-            />
+            <RevealSection>
+              <CostBreakdownSection
+                costData={filteredCostData}
+                filters={filters}
+                isLoading={isLoading || labelFilterLoading}
+                onFiltersChange={handleFiltersChange}
+                onHistoricalClick={handleHistoricalClick}
+                labels={allLabels}
+                labelFilterId={labelFilterId}
+                onLabelFilterChange={handleLabelFilterChange}
+                labelFilterLoading={labelFilterLoading}
+                labelResourceLevel={labelCostData?.resourceLevel}
+                labelMessage={labelCostData?.message}
+                labelTrackedResources={labelCostData?.trackedResources}
+                labelApproximationWarning={labelCostData?.approximationWarning}
+              />
+            </RevealSection>
 
             {/* Historical Trend Chart */}
             {historicalState.dimension && (
-              <HistoricalTrendChart
-                dimension={historicalState.dimension}
-                data={historicalState.data}
-                isLoading={historicalState.isLoading}
-                onClose={handleCloseHistorical}
-              />
+              <RevealSection>
+                <HistoricalTrendChart
+                  dimension={historicalState.dimension}
+                  data={historicalState.data}
+                  isLoading={historicalState.isLoading}
+                  onClose={handleCloseHistorical}
+                />
+              </RevealSection>
             )}
 
             {/* Cost Forecast Chart */}
-            <CostForecastChart
-              data={forecastState.data}
-              isLoading={forecastState.isLoading}
-              service={forecastState.service}
-              availableServices={availableServices}
-              onServiceChange={handleForecastServiceChange}
-            />
+            <RevealSection delay={0.05}>
+              <CostForecastChart
+                data={forecastState.data}
+                isLoading={forecastState.isLoading}
+                service={forecastState.service}
+                availableServices={availableServices}
+                onServiceChange={handleForecastServiceChange}
+              />
+            </RevealSection>
           </>
         )}
       </div>

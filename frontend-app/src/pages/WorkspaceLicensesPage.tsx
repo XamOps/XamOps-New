@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -482,7 +483,7 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
   }, [setTitle, setActions, clearActions, status?.domain, lastSync, handleSync, handleDisconnect, syncing, disconnecting]);
 
   return (
-    <div className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen space-y-5">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen space-y-5">
 
       {actionError && (
         <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex gap-2 text-sm text-red-700">
@@ -499,8 +500,8 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
           { label: 'Active', value: status?.activeUsers ?? '—', sub: 'Logged in recently' },
           { label: 'Inactive', value: status?.inactiveUsers ?? '—', sub: `No login in >${inactiveDays} days` },
           { label: 'Suspended', value: status?.suspendedUsers ?? '—', sub: 'Access suspended' },
-        ].map(({ label, value, sub }) => (
-          <div key={label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        ].map(({ label, value, sub }, i) => (
+          <div key={label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) ${i * 0.06}s both` }}>
             <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
               <svg className="absolute -top-8 -right-12 w-32 h-32" viewBox="0 0 200 120" fill="currentColor" style={{ color: '#6b7280' }}>
                 <path d="M140 70c0-15-12-27-27-27-3 0-6 1-9 2-6-14-20-24-36-24-17 0-31 10-36 24-3-1-6-2-9-2-15 0-27 12-27 27s12 27 27 27h117c15 0 27-12 27-27z"/>
@@ -537,6 +538,9 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
           </button>
         ))}
       </div>
+
+      <AnimatePresence mode="wait">
+      <motion.div key={activeTab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
 
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -702,8 +706,8 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
                     {filteredUsers.length === 0 && (
                       <tr><td colSpan={5} className="text-center py-10 text-[rgba(0,0,0,0.4)]">No users found</td></tr>
                     )}
-                    {filteredUsers.map((u) => (
-                      <tr key={u.email} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                    {filteredUsers.map((u, idx) => (
+                      <tr key={u.email} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors" style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
@@ -795,7 +799,7 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
                       {optimItems.map((item, i) => {
                         const sev = optimSeverity[item.type] ?? { label: item.type, color: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)]', icon: 'mdi:account-outline' };
                         return (
-                          <tr key={i} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors">
+                          <tr key={i} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.025)] transition-colors" style={{ animation: `fadeInUp 0.3s ease ${Math.min(i * 0.04, 0.4)}s both` }}>
                             <td className="py-3 px-4">
                               <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${sev.color} flex items-center gap-1 w-fit`}>
                                 <Icon icon={sev.icon} width={11} />{sev.label}
@@ -891,7 +895,9 @@ const ConnectedDashboard: React.FC<{ onDisconnected: () => void; onRefresh: () =
           }
         </div>
       )}
-    </div>
+      </motion.div>
+      </AnimatePresence>
+    </motion.div>
   );
 };
 
@@ -918,10 +924,12 @@ const WorkspaceLicensesPage: React.FC = () => {
   if (loading) {
     return (
       <main className="flex-1 flex items-center justify-center bg-white min-h-screen">
-        <div className="flex flex-col items-center gap-3">
-          <Icon icon="mdi:loading" width={32} className="animate-spin text-[rgba(0,0,0,0.3)]" />
-          <p className="text-[rgba(0,0,0,0.4)] text-sm">Loading Workspace…</p>
-        </div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
+          <div className="flex flex-col items-center gap-3">
+            <Icon icon="mdi:loading" width={32} className="animate-spin text-[rgba(0,0,0,0.3)]" />
+            <p className="text-[rgba(0,0,0,0.4)] text-sm">Loading Workspace…</p>
+          </div>
+        </motion.div>
       </main>
     );
   }
@@ -929,23 +937,35 @@ const WorkspaceLicensesPage: React.FC = () => {
   if (error) {
     return (
       <main className="flex-1 flex items-center justify-center bg-white min-h-screen">
-        <div className="text-center p-8">
-          <div className="w-14 h-14 bg-red-50 border border-red-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-            <Icon icon="mdi:alert-outline" width={28} className="text-red-500" />
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
+          <div className="text-center p-8">
+            <div className="w-14 h-14 bg-red-50 border border-red-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+              <Icon icon="mdi:alert-outline" width={28} className="text-red-500" />
+            </div>
+            <p className="text-[rgba(0,0,0,0.7)] font-medium mb-4">{error}</p>
+            <button onClick={refetch} className="px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white rounded-xl text-[12px] font-medium hover:bg-[rgba(0,0,0,0.75)]">Retry</button>
           </div>
-          <p className="text-[rgba(0,0,0,0.7)] font-medium mb-4">{error}</p>
-          <button onClick={refetch} className="px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white rounded-xl text-[12px] font-medium hover:bg-[rgba(0,0,0,0.75)]">Retry</button>
-        </div>
+        </motion.div>
       </main>
     );
   }
 
   return (
     <main key={refreshKey} className="flex-1 flex flex-col">
-      {status?.connected
-        ? <ConnectedDashboard onDisconnected={handleDisconnected} onRefresh={refetch} />
-        : <ConnectionPanel onConnected={handleConnected} />
-      }
+      <AnimatePresence mode="wait">
+        {status?.connected
+          ? (
+            <motion.div key="connected" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="flex-1 flex flex-col">
+              <ConnectedDashboard onDisconnected={handleDisconnected} onRefresh={refetch} />
+            </motion.div>
+          )
+          : (
+            <motion.div key="connection" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="flex-1 flex flex-col">
+              <ConnectionPanel onConnected={handleConnected} />
+            </motion.div>
+          )
+        }
+      </AnimatePresence>
     </main>
   );
 };

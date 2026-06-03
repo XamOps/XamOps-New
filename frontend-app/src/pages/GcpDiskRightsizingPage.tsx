@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpDiskRightsizingData, GcpDisk } from '../hooks/useGcpDiskRightsizingData';
@@ -307,8 +308,8 @@ const GcpDiskRightsizingPage: React.FC = () => {
           { label: 'Unattached Disks',    value: String(unattachedCnt), icon: 'mdi:harddisk-remove',     iconColor: '#DC2626', iconBg: '#DC262614' },
           { label: 'Oversized (Shrink)',  value: String(shrinkCnt),     icon: 'mdi:arrow-collapse-down', iconColor: '#D97706', iconBg: '#D9770614' },
           { label: 'Undersized (Expand)', value: String(expandCnt),     icon: 'mdi:arrow-expand-up',     iconColor: '#3B82F6', iconBg: '#3B82F614' },
-        ].map(card => (
-          <div key={card.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        ].map((card, i) => (
+          <div key={card.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) ${i * 0.06}s both` }}>
             {CLOUD_SVG}
             <div className="relative z-10">
               <div className="flex items-start justify-between mb-2">
@@ -353,8 +354,15 @@ const GcpDiskRightsizingPage: React.FC = () => {
         ))}
       </div>
 
+      <AnimatePresence mode="wait">
       {activeTab === 'overview' && (
-        <>
+        <motion.div
+          key="overview"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+        >
           {/* Filters */}
           <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm px-4 py-3 flex flex-wrap gap-3 items-center">
             <div className="relative">
@@ -407,7 +415,7 @@ const GcpDiskRightsizingPage: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover">
               {/* Column headers */}
               <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
                 <div className="col-span-3">Disk</div>
@@ -428,10 +436,11 @@ const GcpDiskRightsizingPage: React.FC = () => {
                   <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No Disks Found</p>
                   <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Try adjusting your filters or search term.</p>
                 </div>
-              ) : paginated.map(disk => (
+              ) : paginated.map((disk, idx) => (
                 <div
                   key={`${disk.diskName}-${disk.zone}`}
                   className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+                  style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.03, 0.45)}s both` }}
                 >
                   {/* Disk */}
                   <div className="col-span-3 flex items-center gap-2.5 min-w-0">
@@ -505,7 +514,7 @@ const GcpDiskRightsizingPage: React.FC = () => {
                     {disk.recommendation === 'DELETE_UNATTACHED' && (
                       <button
                         onClick={() => setConfirmAction({ disk, actionType: 'DELETE_UNATTACHED' })}
-                        className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors"
+                        className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-all active:scale-95"
                       >
                         Delete
                       </button>
@@ -513,7 +522,7 @@ const GcpDiskRightsizingPage: React.FC = () => {
                     {(disk.recommendation === 'SHRINK' || disk.recommendation === 'EXPAND') && (
                       <button
                         onClick={() => setConfirmAction({ disk, actionType: disk.recommendation, targetSizeGb: disk.recommendedSizeGb })}
-                        className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
+                        className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95"
                       >
                         → {disk.recommendedSizeGb} GB
                       </button>
@@ -541,11 +550,18 @@ const GcpDiskRightsizingPage: React.FC = () => {
               )}
             </div>
           )}
-        </>
+        </motion.div>
       )}
 
       {activeTab === 'history' && (
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+        <motion.div
+          key="history"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+        >
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover">
           {/* Column headers */}
           <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
             <div className="col-span-3">Disk</div>
@@ -590,7 +606,9 @@ const GcpDiskRightsizingPage: React.FC = () => {
             </div>
           ))}
         </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* Confirm action modal */}
       {confirmAction && (
