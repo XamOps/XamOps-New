@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
-import { ExternalLink } from 'lucide-react';
 import { gooeyToast } from 'goey-toast';
 import type { CloudAccount } from '../../types/accountManager';
 

@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { Icon } from '@iconify/react';
 import { useTopbar } from '../../contexts/TopbarContext';
 
 interface CloudK8sHeaderProps {

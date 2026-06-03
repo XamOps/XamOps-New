@@ -950,3 +950,8 @@ body {
     border-radius: 1.25rem;
   }
 }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

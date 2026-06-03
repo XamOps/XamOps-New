@@ -46,14 +46,6 @@ export const GcpRightsizingTable: React.FC<GcpRightsizingTableProps> = ({
     return '₹' + value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const getReasonText = (rec: GcpRightsizingRecommendation): string => {
-    if (rec.reason && rec.reason !== 'No details available') return rec.reason;
-    if (rec.recommendationType === 'PERFORMANCE_IMPROVEMENT')
-      return 'Resource is underprovisioned. Upgrade recommended for better performance.';
-    if (rec.recommendationType === 'COST_SAVINGS')
-      return 'Resource is overprovisioned. Downgrade recommended to reduce costs.';
-    return rec.description || 'Optimization recommended';
-  };
 
   if (isLoading) {
     return (

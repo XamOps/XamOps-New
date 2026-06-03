@@ -83,6 +83,8 @@ public class SecurityConfig {
                                         new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                                         new AntPathRequestMatcher("/api/**")))
                         .authorizeHttpRequests(auth -> auth
+                                .requestMatchers(new AntPathRequestMatcher("/api/admin/**"))
+                                    .hasAuthority("ROLE_SUPER_ADMIN")
                                 .anyRequest().authenticated())
                         .addFilterBefore(impersonationJwtFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -124,6 +126,10 @@ public class SecurityConfig {
 
                                                 // Docker/K8s health checks — must be public so health probes don't 401
                                                 .requestMatchers(new AntPathRequestMatcher("/actuator/health")).permitAll()
+
+                                                // Maintenance status — must be public so frontend can check even when unauthenticated
+                                                .requestMatchers(new AntPathRequestMatcher("/api/health")).permitAll()
+                                                .requestMatchers(new AntPathRequestMatcher("/api/maintenance/status")).permitAll()
 
                                                 // Public Static Resources & Pages
                                                 .requestMatchers(

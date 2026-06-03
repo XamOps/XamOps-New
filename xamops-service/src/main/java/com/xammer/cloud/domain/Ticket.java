@@ -60,6 +60,14 @@ public class Ticket {
     @Column(name = "has_new_user_reply", nullable = false)
     private boolean hasNewUserReply = false;
 
+    /** Timestamp of the last non-internal admin reply — used by the 45-min reminder scheduler */
+    @Column(name = "last_admin_reply_at")
+    private LocalDateTime lastAdminReplyAt;
+
+    /** Timestamp when the 45-min waiting reminder was last sent — prevents duplicate sends */
+    @Column(name = "reminder_sent_at")
+    private LocalDateTime reminderSentAt;
+
     @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<TicketReply> replies = new ArrayList<>();
 
@@ -193,4 +201,10 @@ public class Ticket {
 
     public boolean isHasNewUserReply() { return hasNewUserReply; }
     public void setHasNewUserReply(boolean hasNewUserReply) { this.hasNewUserReply = hasNewUserReply; }
+
+    public LocalDateTime getLastAdminReplyAt() { return lastAdminReplyAt; }
+    public void setLastAdminReplyAt(LocalDateTime lastAdminReplyAt) { this.lastAdminReplyAt = lastAdminReplyAt; }
+
+    public LocalDateTime getReminderSentAt() { return reminderSentAt; }
+    public void setReminderSentAt(LocalDateTime reminderSentAt) { this.reminderSentAt = reminderSentAt; }
 }

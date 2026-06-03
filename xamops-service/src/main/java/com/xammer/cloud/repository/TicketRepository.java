@@ -2,14 +2,12 @@ package com.xammer.cloud.repository;
 
 import com.xammer.cloud.domain.Ticket;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query; // --- ADDED IMPORT ---
-import org.springframework.data.repository.query.Param; // --- ADDED IMPORT ---
-import org.springframework.stereotype.Repository;
-import java.util.Optional;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-
+import org.springframework.stereotype.Repository;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional; // --- ADDED IMPORT ---
+import java.util.Optional;
 
 @Repository
 public interface TicketRepository extends JpaRepository<Ticket, Long> {
@@ -32,6 +30,12 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
     @Query("SELECT t FROM Ticket t LEFT JOIN FETCH t.replies r LEFT JOIN FETCH r.author WHERE t.id = :id")
 Optional<Ticket> findByIdWithRepliesAndAuthors(@Param("id") Long id);
 
-    
+    @Query("SELECT t FROM Ticket t LEFT JOIN FETCH t.creator " +
+           "WHERE t.status != 'CLOSED' " +
+           "AND t.lastAdminReplyAt IS NOT NULL " +
+           "AND t.lastAdminReplyAt <= :cutoff " +
+           "AND t.reminderSentAt IS NULL")
+    List<Ticket> findTicketsNeedingReminder(@Param("cutoff") LocalDateTime cutoff);
+
     // --- END: ADDED METHOD ---
 }

@@ -4,7 +4,6 @@
  */
 
 import React from 'react';
-import { Icon } from '@iconify/react';
 import { PerformanceSummary } from '../../types/gcpPerformance';
 
 interface MetricsCardsProps {

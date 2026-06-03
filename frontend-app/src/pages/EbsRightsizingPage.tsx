@@ -76,7 +76,7 @@ const EbsRightsizingPage: React.FC = () => {
   const {
     volumes, pendingDeletion,
     isLoading, isDiskUsageLoading, isRefreshing, ssmUnavailableInstances, totalWastedMonthly,
-    unattachedCount, shrinkCount, expandCount,
+    unattachedCount, shrinkCount,
     calculateRoi, refreshAll, deletePendingVolume, keepVolume,
   } = useEbsRightsizingData({ selectedAccountId });
 
@@ -333,8 +333,8 @@ const EbsRightsizingPage: React.FC = () => {
                         <div className="col-span-3 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <p className="font-mono text-[12px] text-[rgba(0,0,0,0.88)] font-semibold truncate">{vol.volumeId}</p>
-                            {vol.encrypted && <Icon icon="mdi:lock" width={10} color="#6366F1" title="Encrypted" />}
-                            {vol.isRootVolume && <Icon icon="mdi:server" width={10} color="#8B5CF6" title="Root Volume" />}
+                            {vol.encrypted && <Icon icon="mdi:lock" width={10} color="#6366F1" />}
+                            {vol.isRootVolume && <Icon icon="mdi:server" width={10} color="#8B5CF6" />}
                           </div>
                           {vol.volumeName && <p className="text-[11px] text-[rgba(0,0,0,0.4)] truncate">{vol.volumeName}</p>}
                         </div>
