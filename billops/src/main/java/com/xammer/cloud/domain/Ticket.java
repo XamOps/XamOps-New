@@ -58,6 +58,12 @@ public class Ticket {
 
     private LocalDateTime closedAt;
 
+    @Column(name = "last_admin_reply_at")
+    private LocalDateTime lastAdminReplyAt;
+
+    @Column(name = "reminder_sent_at")
+    private LocalDateTime reminderSentAt;
+
     private LocalDateTime chatStartedAt;
 
     private Long assignedToId;
@@ -221,4 +227,10 @@ public class Ticket {
 
     public boolean isHasNewUserReply() { return hasNewUserReply; }
     public void setHasNewUserReply(boolean hasNewUserReply) { this.hasNewUserReply = hasNewUserReply; }
+
+    public LocalDateTime getLastAdminReplyAt() { return lastAdminReplyAt; }
+    public void setLastAdminReplyAt(LocalDateTime lastAdminReplyAt) { this.lastAdminReplyAt = lastAdminReplyAt; }
+
+    public LocalDateTime getReminderSentAt() { return reminderSentAt; }
+    public void setReminderSentAt(LocalDateTime reminderSentAt) { this.reminderSentAt = reminderSentAt; }
 }
