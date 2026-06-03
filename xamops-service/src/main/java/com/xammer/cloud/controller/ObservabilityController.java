@@ -64,7 +64,6 @@ public class ObservabilityController {
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
             logger.error("getConfig failed: {}", e.getMessage());
-            // ✅ SECURE: Use a generic error message to prevent information leakage (CWE-209).
             return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing your request. Please contact support if the issue persists."));
         }
     }
@@ -85,7 +84,6 @@ public class ObservabilityController {
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
             logger.error("updateConfig failed: {}", e.getMessage());
-            // ✅ SECURE: Use a generic error message to prevent information leakage (CWE-209).
             return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while processing your request. Please contact support if the issue persists."));
         }
     }

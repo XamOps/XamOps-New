@@ -72,8 +72,9 @@ public class GlobalExceptionHandler {
         Map<String, Object> body = new HashMap<>();
         body.put("timestamp", new Date());
         // ✅ SECURE: Use a generic error message to prevent information leakage (CWE-209).
-        // Details are logged internally but never returned to the client.
+        // Details are logged internally above but never returned to the client.
         body.put("message", "An unexpected error occurred while processing your request. Please contact support if the issue persists.");
+        body.put("error", "Internal Server Error"); // Preserve "error" key for API compatibility
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(body);
