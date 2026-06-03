@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 interface MaintenanceContextValue {
   isMaintenanceMode: boolean;
@@ -37,18 +37,20 @@ async function checkMaintenanceFlag(): Promise<boolean> {
 
 export const MaintenanceProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  async function poll() {
-    const [healthy, flagActive] = await Promise.all([checkHealth(), checkMaintenanceFlag()]);
-    setIsMaintenanceMode(!healthy || flagActive);
-  }
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function poll() {
+      const [healthy, flagActive] = await Promise.all([checkHealth(), checkMaintenanceFlag()]);
+      if (!cancelled) setIsMaintenanceMode(!healthy || flagActive);
+    }
+
     poll();
-    intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
+    const id = setInterval(poll, POLL_INTERVAL_MS);
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      cancelled = true;
+      clearInterval(id);
     };
   }, []);
 
