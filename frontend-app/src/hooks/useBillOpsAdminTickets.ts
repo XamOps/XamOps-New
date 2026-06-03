@@ -50,7 +50,7 @@ interface UseBillOpsAdminTicketsReturn {
   setSearch: (search: string) => void;
   setFilters: (filters: TicketFilters) => void;
   clearFilters: () => void;
-  fetchTickets: (forceRefresh?: boolean) => Promise<void>;
+  fetchTickets: (forceRefresh?: boolean, clearLocalCache?: boolean) => Promise<void>;
   getCategoryCount: (category: AdminTicketTab) => number;
 }
 
@@ -216,8 +216,8 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
    * Fetch fresh tickets from API.
    * Uses hasDataRef so this callback is stable (empty deps) and never stale.
    */
-  const fetchTickets = useCallback(async (forceRefresh = false) => {
-    if (forceRefresh) {
+  const fetchTickets = useCallback(async (forceRefresh = false, clearLocalCache = true) => {
+    if (forceRefresh && clearLocalCache) {
       console.log('🖱️ Manual refresh triggered');
       // Clear local cache so force refresh starts truly fresh
       localStorage.removeItem(cacheKeyRef.current);
@@ -230,6 +230,9 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
     setError(null);
 
     try {
+      // Always bypass Redis on force-refresh so cross-service writes (e.g. XamOps
+      // reply updating the shared DB) are visible even though BillOps Redis cache
+      // was not evicted by the other service.
       const url = forceRefresh
         ? '/api/billops/tickets?forceRefresh=true'
         : '/api/billops/tickets';
@@ -338,9 +341,17 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
     // Show stale data instantly from localStorage while fresh data loads in background
     loadFromCache();
 
-    // Background refresh — does NOT clear cache or show skeleton (isUpdating only)
-    // ticket:updated event handles force-refresh after mutations (close, reply, assign)
-    fetchTickets(false);
+    // If a reply/close/assign was made from the detail page (which unmounts this component),
+    // the ticket:updated event was missed. A localStorage flag signals that a force-refresh
+    // is needed so the replied ticket bubbles to the top and the optimization bail-out
+    // doesn't serve stale Redis data.
+    const needsRefresh = localStorage.getItem('billops_admin_tickets_needs_refresh') === '1';
+    if (needsRefresh) {
+      localStorage.removeItem('billops_admin_tickets_needs_refresh');
+      fetchTickets(true);
+    } else {
+      fetchTickets(false);
+    }
   }, []);
 
   /**
@@ -380,13 +391,15 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
   }, []);
 
   /**
-   * Auto-poll every 30 seconds so newly created tickets (by users) appear
-   * without requiring a manual refresh
+   * Auto-poll every 30 seconds so newly created/replied tickets appear without
+   * a manual refresh. Uses forceRefresh=true to bypass BillOps Redis cache so
+   * that replies added via XamOps (shared DB, separate Redis) are visible.
+   * clearLocalCache=false keeps the UI from flickering on each poll.
    */
   useEffect(() => {
     const intervalId = setInterval(() => {
       if (document.hidden) return; // skip when tab is not visible
-      fetchTickets(false);
+      fetchTickets(true, false);
     }, 30000);
     return () => clearInterval(intervalId);
   }, [fetchTickets]);

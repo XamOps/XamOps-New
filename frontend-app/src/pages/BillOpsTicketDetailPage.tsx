@@ -96,6 +96,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const noteQuillRef = useRef<HTMLDivElement>(null);
   const noteQuillInstance = useRef<Quill | null>(null);
   const isDraggingRef = useRef(false);
+  const hasInitialScrolled = useRef(false);
 
   // File attachment
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -146,7 +147,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const getStatusBadgeClasses = (status: string) => {
     if (status === 'OPEN') return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
     if (status === 'IN_PROGRESS') return 'bg-amber-50 text-amber-700 border border-amber-200';
-    return 'bg-gray-100 text-gray-500 border border-gray-200';
+    return 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] border border-[rgba(0,0,0,0.12)]';
   };
 
   const getInitials = useCallback((name: string): string => {
@@ -285,16 +286,22 @@ const BillOpsTicketDetailPage: React.FC = () => {
   // (placeholder effect removed — notes now use the separate sticky note panel)
 
   /**
-   * Scroll to bottom when replies change
+   * Scroll to bottom on initial load; on new replies only scroll when already near bottom
+   * so we don't yank users away from older messages they're reading.
    */
   useEffect(() => {
-    if (chatContainerRef.current && ticket) {
-      setTimeout(() => {
-        if (chatContainerRef.current) {
-          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-        }
-      }, 100);
-    }
+    if (!chatContainerRef.current || !ticket?.replies?.length) return;
+    setTimeout(() => {
+      const el = chatContainerRef.current;
+      if (!el) return;
+      if (!hasInitialScrolled.current) {
+        el.scrollTop = el.scrollHeight;
+        hasInitialScrolled.current = true;
+      } else {
+        const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (distFromBottom < 200) el.scrollTop = el.scrollHeight;
+      }
+    }, 100);
   }, [ticket?.replies]);
 
   /**
@@ -459,17 +466,17 @@ const BillOpsTicketDetailPage: React.FC = () => {
       <div className="flex items-center gap-3">
         <button
           onClick={goBackToTickets}
-          className="w-8 h-8 flex items-center justify-center rounded-md bg-gray-100 text-gray-500 hover:text-indigo-600 hover:bg-gray-200 transition-colors flex-shrink-0"
+          className="w-8 h-8 flex items-center justify-center rounded-md bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.08)] transition-colors flex-shrink-0"
           title="Back to List"
         >
           <Icon icon="mdi:arrow-left" width={14} />
         </button>
 
-        <div className="hidden lg:block min-w-0 pr-3 border-r border-gray-200">
-          <h1 className="text-[13px] font-semibold text-gray-900 leading-none truncate max-w-[240px] xl:max-w-[400px]">
+        <div className="hidden lg:block min-w-0 pr-3 border-r border-[rgba(0,0,0,0.12)]">
+          <h1 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] leading-none truncate max-w-[240px] xl:max-w-[400px]">
             {ticket.subject}
           </h1>
-          <p className="text-[11px] text-gray-400 mt-0.5 truncate max-w-[240px] xl:max-w-[400px]">
+          <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-0.5 truncate max-w-[240px] xl:max-w-[400px]">
             Case #{ticket.id} · {ticket.service}
           </p>
         </div>
@@ -488,13 +495,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
               disabled={isAssigning || ticket.status === 'CLOSED'}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium border transition-colors ${
                 ticket.assignedToUsername
-                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                  : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                  ? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.88)] border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.06)]'
+                  : 'bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)] hover:border-[rgba(0,0,0,0.18)] hover:text-[rgba(0,0,0,0.88)]'
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {ticket.assignedToUsername ? (
                 <>
-                  <div className="w-4 h-4 rounded-md bg-indigo-600 flex items-center justify-center text-white text-[8px] font-semibold flex-shrink-0">
+                  <div className="w-4 h-4 rounded-md bg-[rgba(0,0,0,0.88)] flex items-center justify-center text-white text-[8px] font-semibold flex-shrink-0">
                     {ticket.assignedToUsername.charAt(0).toUpperCase()}
                   </div>
                   <span className="hidden xl:inline truncate max-w-[80px]">{ticket.assignedToUsername}</span>
@@ -507,27 +514,27 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </button>
 
             {showAssignDropdown && adminUsers.length > 0 && (
-              <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-100 py-1 z-50 overflow-hidden">
-                <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-widest border-b border-gray-100">Assign to</div>
+              <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-[rgba(0,0,0,0.06)] py-1 z-50 overflow-hidden">
+                <div className="px-3 py-1.5 text-[10px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest border-b border-[rgba(0,0,0,0.06)]">Assign to</div>
                 {adminUsers.map(admin => (
                   <button
                     key={admin.id}
                     onClick={() => handleAssign(admin.id, admin.username)}
-                    className={`w-full text-left flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-indigo-50 hover:text-indigo-700 transition-colors ${
-                      ticket.assignedToId === admin.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'
+                    className={`w-full text-left flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-[rgba(0,0,0,0.04)] hover:text-[rgba(0,0,0,0.88)] transition-colors ${
+                      ticket.assignedToId === admin.id ? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.6)]'
                     }`}
                   >
-                    <div className="w-5 h-5 rounded-md bg-indigo-600 flex items-center justify-center text-white text-[9px] font-semibold flex-shrink-0">
+                    <div className="w-5 h-5 rounded-md bg-[rgba(0,0,0,0.88)] flex items-center justify-center text-white text-[9px] font-semibold flex-shrink-0">
                       {admin.username.charAt(0).toUpperCase()}
                     </div>
                     {admin.username}
-                    {ticket.assignedToId === admin.id && <Icon icon="mdi:check" width={14} className="text-indigo-500 ml-auto" />}
+                    {ticket.assignedToId === admin.id && <Icon icon="mdi:check" width={14} className="text-[rgba(0,0,0,0.4)] ml-auto" />}
                   </button>
                 ))}
                 {ticket.assignedToUsername && (
                   <button
                     onClick={() => handleAssign(0, '')}
-                    className="w-full text-left flex items-center gap-2 px-3 py-2 text-[12px] text-red-500 hover:bg-red-50 transition-colors border-t border-gray-100"
+                    className="w-full text-left flex items-center gap-2 px-3 py-2 text-[12px] text-red-500 hover:bg-red-50 transition-colors border-t border-[rgba(0,0,0,0.06)]"
                   >
                     <Icon icon="mdi:account-remove-outline" width={12} />
                     Unassign
@@ -542,7 +549,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
         <div className="relative" data-actions-dropdown>
           <button
             onClick={() => setShowActionsDropdown(v => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-[12px] font-medium hover:bg-indigo-700 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white rounded-md text-[12px] font-medium hover:bg-black transition-colors"
           >
             <Icon icon="mdi:lightning-bolt" width={12} />
             <span className="hidden lg:inline">Actions</span>
@@ -550,11 +557,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
           </button>
 
           {showActionsDropdown && (
-            <div className="absolute top-full right-0 mt-1 w-52 bg-white rounded-md shadow-lg border border-gray-100 py-1 z-50 overflow-hidden">
+            <div className="absolute top-full right-0 mt-1 w-52 bg-white rounded-md shadow-lg border border-[rgba(0,0,0,0.06)] py-1 z-50 overflow-hidden">
               {isAdmin && ticket.status !== 'CLOSED' && (
                 <button
                   onClick={() => { setShowRcaModal(true); setShowActionsDropdown(false); }}
-                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-[rgba(0,0,0,0.6)] hover:bg-purple-50 hover:text-purple-700 transition-colors"
                 >
                   <Icon icon="mdi:file-document-edit-outline" width={16} className="text-purple-500 flex-shrink-0" />
                   Generate RCA
@@ -563,7 +570,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
               {isAdmin && ticket.status !== 'CLOSED' && (
                 <button
                   onClick={() => { openMeetModal(); setShowActionsDropdown(false); }}
-                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-[rgba(0,0,0,0.6)] hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
                 >
                   <Icon icon="mdi:video-outline" width={16} className="text-emerald-500 flex-shrink-0" />
                   Schedule Meet
@@ -572,7 +579,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
               {isAdmin && (ticket.replies?.length ?? 0) > 0 && (
                 <button
                   onClick={() => { setShowEmailModal(true); setShowActionsDropdown(false); }}
-                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-gray-700 hover:bg-sky-50 hover:text-sky-700 transition-colors"
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-[rgba(0,0,0,0.6)] hover:bg-sky-50 hover:text-sky-700 transition-colors"
                 >
                   <Icon icon="mdi:email-outline" width={16} className="text-sky-500 flex-shrink-0" />
                   Email Thread
@@ -581,7 +588,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
               {ticket.status !== 'CLOSED' && (
                 <button
                   onClick={() => { handleCloseTicket(); setShowActionsDropdown(false); }}
-                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-red-600 hover:bg-red-50 transition-colors border-t border-gray-100"
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-red-600 hover:bg-red-50 transition-colors border-t border-[rgba(0,0,0,0.06)]"
                 >
                   <Icon icon="mdi:close-circle-outline" width={16} className="text-red-500 flex-shrink-0" />
                   Close Ticket
@@ -993,14 +1000,14 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const renderRcaSection = (arrayName: keyof RCAFormData, sections: RCAFormSection[]) => (
     <>
       {sections.map((section, index) => (
-        <div key={index} className="mb-3 bg-gray-50 p-4 rounded-lg border border-gray-200 relative group">
-          <button type="button" onClick={() => removeRcaSection(arrayName, index)} className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors">
+        <div key={index} className="mb-3 bg-[rgba(0,0,0,0.02)] p-4 rounded-lg border border-[rgba(0,0,0,0.12)] relative group">
+          <button type="button" onClick={() => removeRcaSection(arrayName, index)} className="absolute top-2 right-2 text-[rgba(0,0,0,0.35)] hover:text-red-500 transition-colors">
             <Icon icon="mdi:close" width={14} />
           </button>
           <div className="mb-2">
-            <input value={section.heading} onChange={e => updateRcaSection(arrayName, index, 'heading', e.target.value)} type="text" className="block w-full bg-transparent border-0 border-b border-gray-300 focus:border-purple-500 focus:ring-0 text-sm font-semibold placeholder-gray-400 px-0" placeholder="Sub-heading" />
+            <input value={section.heading} onChange={e => updateRcaSection(arrayName, index, 'heading', e.target.value)} type="text" className="block w-full bg-transparent border-0 border-b border-[rgba(0,0,0,0.12)] focus:border-purple-500 focus:ring-0 text-sm font-semibold placeholder-[rgba(0,0,0,0.35)] px-0" placeholder="Sub-heading" />
           </div>
-          <textarea value={section.content} onChange={e => updateRcaSection(arrayName, index, 'content', e.target.value)} className="w-full bg-white border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500 text-sm" rows={2} placeholder="Details..."></textarea>
+          <textarea value={section.content} onChange={e => updateRcaSection(arrayName, index, 'content', e.target.value)} className="w-full bg-white border-[rgba(0,0,0,0.12)] rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500 text-sm" rows={2} placeholder="Details..."></textarea>
         </div>
       ))}
       <button type="button" onClick={() => addRcaSection(arrayName)} className="text-sm text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium">
@@ -1023,7 +1030,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
         <div className="text-center">
           <Icon icon="mdi:alert-circle-outline" width={40} className="text-red-500 mb-4 mx-auto block" />
           <p className="text-xl text-[rgba(0,0,0,0.5)]">{error}</p>
-          <button onClick={goBackToTickets} className="mt-4 text-indigo-600 hover:text-indigo-500 underline">
+          <button onClick={goBackToTickets} className="mt-4 text-[rgba(0,0,0,0.88)] hover:text-[rgba(0,0,0,0.5)] underline">
             Back to Tickets
           </button>
         </div>
@@ -1052,31 +1059,31 @@ const BillOpsTicketDetailPage: React.FC = () => {
           <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
             <div className="flex gap-4">
               <div className="flex-shrink-0">
-                <div className="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
+                <div className="w-10 h-10 rounded-lg bg-[rgba(0,0,0,0.88)] flex items-center justify-center text-white">
                   <Icon icon="mdi:ticket-outline" width={18} />
                 </div>
               </div>
               <div className="flex-1 min-w-0 space-y-4">
                 <div className="flex justify-between items-center gap-2">
-                  <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Original Issue Description</span>
-                  <span className="text-[11px] text-gray-400">Request #{ticket.id}</span>
+                  <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest">Original Issue Description</span>
+                  <span className="text-[11px] text-[rgba(0,0,0,0.35)]">Request #{ticket.id}</span>
                 </div>
-                <div className="text-[14px] text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
-                  {ticket.description || <span className="text-gray-400 italic text-sm">No description provided.</span>}
+                <div className="text-[14px] text-[rgba(0,0,0,0.6)] leading-relaxed whitespace-pre-wrap break-words">
+                  {ticket.description || <span className="text-[rgba(0,0,0,0.35)] italic text-sm">No description provided.</span>}
                 </div>
 
-                <div className="flex flex-wrap gap-x-5 gap-y-2 pt-4 border-t border-gray-100">
+                <div className="flex flex-wrap gap-x-5 gap-y-2 pt-4 border-t border-[rgba(0,0,0,0.06)]">
                   {ticket.accountId && (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Account / Project:</span>
-                      <span className="text-[11px] font-medium text-indigo-600 font-mono">{ticket.accountId}</span>
+                      <span className="text-[11px] text-[rgba(0,0,0,0.35)] uppercase tracking-widest">Account / Project:</span>
+                      <span className="text-[11px] font-medium text-[rgba(0,0,0,0.88)] font-mono">{ticket.accountId}</span>
                     </div>
                   )}
                   {ticket.creatorUsername && (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Raised by:</span>
-                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-gray-700">
-                        <span className="w-4 h-4 rounded-md bg-gray-200 text-gray-600 flex items-center justify-center text-[8px] font-semibold">
+                      <span className="text-[11px] text-[rgba(0,0,0,0.35)] uppercase tracking-widest">Raised by:</span>
+                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-[rgba(0,0,0,0.6)]">
+                        <span className="w-4 h-4 rounded-md bg-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] flex items-center justify-center text-[8px] font-semibold">
                           {ticket.creatorUsername.charAt(0).toUpperCase()}
                         </span>
                         {ticket.creatorUsername}
@@ -1085,9 +1092,9 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   )}
                   {isAdmin && ticket.assignedToUsername && (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Assigned:</span>
-                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-700">
-                        <span className="w-4 h-4 rounded-md bg-indigo-600 text-white flex items-center justify-center text-[8px] font-semibold">
+                      <span className="text-[11px] text-[rgba(0,0,0,0.35)] uppercase tracking-widest">Assigned:</span>
+                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-[rgba(0,0,0,0.88)]">
+                        <span className="w-4 h-4 rounded-md bg-[rgba(0,0,0,0.88)] text-white flex items-center justify-center text-[8px] font-semibold">
                           {ticket.assignedToUsername.charAt(0).toUpperCase()}
                         </span>
                         {ticket.assignedToUsername}
@@ -1095,23 +1102,23 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     </div>
                   )}
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-gray-400 uppercase tracking-widest">Service:</span>
-                    <span className="text-[11px] font-medium text-indigo-600">{ticket.service}</span>
+                    <span className="text-[11px] text-[rgba(0,0,0,0.35)] uppercase tracking-widest">Service:</span>
+                    <span className="text-[11px] font-medium text-[rgba(0,0,0,0.88)]">{ticket.service}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-gray-400 uppercase tracking-widest">Submitted:</span>
-                    <span className="text-[11px] text-gray-600">{ticket.createdAt ? new Date(ticket.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</span>
+                    <span className="text-[11px] text-[rgba(0,0,0,0.35)] uppercase tracking-widest">Submitted:</span>
+                    <span className="text-[11px] text-[rgba(0,0,0,0.5)]">{ticket.createdAt ? new Date(ticket.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</span>
                   </div>
                   {ticket.chatStartedAt && (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Chat Started:</span>
-                      <span className="text-[11px] font-medium text-indigo-600">{new Date(ticket.chatStartedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
+                      <span className="text-[11px] text-[rgba(0,0,0,0.35)] uppercase tracking-widest">Chat Started:</span>
+                      <span className="text-[11px] font-medium text-[rgba(0,0,0,0.88)]">{new Date(ticket.chatStartedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
                     </div>
                   )}
                   {ticket.closedAt && (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-gray-400 uppercase tracking-widest">Closed At:</span>
-                      <span className="text-[11px] text-gray-600">{new Date(ticket.closedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
+                      <span className="text-[11px] text-[rgba(0,0,0,0.35)] uppercase tracking-widest">Closed At:</span>
+                      <span className="text-[11px] text-[rgba(0,0,0,0.5)]">{new Date(ticket.closedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
                     </div>
                   )}
                 </div>
@@ -1142,10 +1149,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
           </div>
 
           {/* Discussion Header */}
-          <div className="flex items-center gap-3 text-gray-400">
+          <div className="flex items-center gap-3 text-[rgba(0,0,0,0.35)]">
             <span className="text-[11px] font-semibold uppercase tracking-widest whitespace-nowrap">Correspondence Log</span>
-            <div className="h-px bg-gray-200 flex-1"></div>
-            <span className="text-[11px] text-gray-400 whitespace-nowrap">{ticket.replies?.length || 0} msg{(ticket.replies?.length || 0) !== 1 ? 's' : ''}</span>
+            <div className="h-px bg-[rgba(0,0,0,0.08)] flex-1"></div>
+            <span className="text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap">{ticket.replies?.length || 0} msg{(ticket.replies?.length || 0) !== 1 ? 's' : ''}</span>
           </div>
 
           {/* Replies */}
@@ -1160,7 +1167,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 if (isInternalReply) {
                   return (
                     <React.Fragment key={reply.id}>
-                      <div className="flex w-full justify-end">
+                      <div className="flex w-full justify-end chat-bubble-enter" style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
                         <div className="flex max-w-[85%] md:max-w-[70%] gap-3 flex-row-reverse min-w-0">
                           <div className="flex-shrink-0 mt-auto">
                             <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shadow-sm bg-amber-500 text-white">
@@ -1170,7 +1177,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           <div className="space-y-1 text-left min-w-0">
                             <div className="flex items-center justify-end gap-2 px-1">
                               <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 border border-amber-200 rounded uppercase tracking-wide flex-shrink-0">Internal Note</span>
-                              <span className="text-[10px] text-gray-400 flex-shrink-0">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
+                              <span className="text-[10px] text-[rgba(0,0,0,0.35)] flex-shrink-0">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
                             </div>
                             <div className="p-4 rounded-xl rounded-tr-sm shadow-sm text-sm leading-relaxed overflow-hidden bg-amber-50 text-amber-900 border border-amber-200">
                               <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat break-words" />
@@ -1196,18 +1203,18 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       </div>
                     )}
 
-                  <div className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'} chat-bubble-enter`} style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
                     <div className={`flex max-w-[85%] md:max-w-[72%] gap-3 min-w-0 ${isMine ? 'flex-row-reverse' : ''}`}>
                       <div className="flex-shrink-0 mt-auto">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold ${reply.admin ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold ${reply.admin ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)]'}`}>
                           {reply.admin ? <Icon icon="mdi:shield-account" width={16} /> : <span>{getInitials(reply.authorUsername)}</span>}
                         </div>
                       </div>
 
                       <div className="space-y-1.5 min-w-0 text-left">
                         <div className={`flex items-center gap-1.5 px-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                          {!isMine && <span className="text-[11px] font-semibold text-gray-800">{reply.authorUsername}</span>}
-                          <span className="text-[10px] text-gray-400">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
+                          {!isMine && <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)]">{reply.authorUsername}</span>}
+                          <span className="text-[10px] text-[rgba(0,0,0,0.35)]">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
                           {/* ── Read receipt ticks (only on my outgoing messages) ── */}
                           {isMine && (
                             <span
@@ -1222,13 +1229,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
                             >✓✓</span>
                           )}
                           {isMine && (
-                            <span className="text-[11px] font-semibold text-gray-800">
+                            <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)]">
                               {isAdmin ? reply.authorUsername : 'You'}
                             </span>
                           )}
                         </div>
 
-                        <div className={`group/msg relative p-4 rounded-xl shadow-sm text-sm leading-relaxed overflow-visible ${isMine ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-[rgba(0,0,0,0.88)] border border-[rgba(0,0,0,0.08)] rounded-tl-none'}`}>
+                        <div className={`group/msg relative p-4 rounded-xl shadow-sm text-sm leading-relaxed overflow-visible ${isMine ? 'bg-[rgba(0,0,0,0.88)] text-white rounded-tr-none' : 'bg-white text-[rgba(0,0,0,0.88)] border border-[rgba(0,0,0,0.08)] rounded-tl-none'}`}>
 
                           {/* ── Edit / Delete hover buttons ── */}
                           {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
@@ -1268,7 +1275,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                               <textarea
                                 value={editContent}
                                 onChange={e => setEditContent(e.target.value)}
-                                className="w-full rounded-lg border border-indigo-300 p-2 text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                className="w-full rounded-lg border border-[rgba(0,0,0,0.18)] p-2 text-sm text-[rgba(0,0,0,0.88)] resize-none focus:outline-none focus:ring-2 focus:ring-[rgba(0,0,0,0.3)]"
                                 rows={3}
                                 autoFocus
                               />
@@ -1286,7 +1293,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                       setEditingReplyId(null);
                                     } catch { globalThis.alert('Failed to edit. The 15-minute window may have passed.'); }
                                   }}
-                                  className="text-xs px-3 py-1 rounded-lg bg-white text-indigo-700 font-semibold hover:bg-indigo-50"
+                                  className="text-xs px-3 py-1 rounded-lg bg-white text-[rgba(0,0,0,0.88)] font-semibold hover:bg-[rgba(0,0,0,0.04)]"
                                 >Save</button>
                               </div>
                             </div>
@@ -1331,10 +1338,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                               {(!reply.attachmentName || !reply.attachmentName.startsWith('rca_ticket_')) && (
                                 <div
-                                  className={`flex items-center p-3 rounded-lg transition-colors cursor-pointer ${isMine ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-gray-50 border border-gray-100 hover:bg-gray-100'}`}
+                                  className={`flex items-center p-3 rounded-lg transition-colors cursor-pointer ${isMine ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.04)]'}`}
                                   onClick={() => reply.attachmentUrl ? globalThis.open(reply.attachmentUrl, '_blank') : alert('File URL not found')}
                                 >
-                                  <div className={`w-8 h-8 flex items-center justify-center rounded-md mr-3 ${isMine ? 'bg-white/20 text-white' : 'bg-white border border-gray-200 text-indigo-500'}`}>
+                                  <div className={`w-8 h-8 flex items-center justify-center rounded-md mr-3 ${isMine ? 'bg-white/20 text-white' : 'bg-white border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.4)]'}`}>
                                     {reply.attachmentType?.startsWith('image/') ? <Icon icon="mdi:file-image-outline" width={16} /> : reply.attachmentType?.includes('pdf') ? <Icon icon="mdi:file-pdf-box" width={16} /> : <Icon icon="mdi:file-outline" width={16} />}
                                   </div>
                                   <div className="flex-1 min-w-0">
@@ -1356,7 +1363,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </div>
           ) : (
             <div className="text-center py-10">
-              <p className="text-gray-400 text-sm italic">No replies yet. Start the conversation below.</p>
+              <p className="text-[rgba(0,0,0,0.35)] text-sm italic">No replies yet. Start the conversation below.</p>
             </div>
           )}
 
@@ -1366,7 +1373,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
               <div className="flex items-center gap-2.5">
                 <Icon icon="mdi:lock-outline" width={14} className="text-[rgba(0,0,0,0.35)]" />
                 This ticket was closed
-                {ticket.closedAt && <span className="text-gray-400">· {new Date(ticket.closedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>}
+                {ticket.closedAt && <span className="text-[rgba(0,0,0,0.35)]">· {new Date(ticket.closedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>}
               </div>
               {isAdmin && (
                 <button
@@ -1386,7 +1393,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
           <div className="sticky bottom-2 flex justify-end pointer-events-none px-5">
             <button
               onClick={scrollToBottom}
-              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-medium rounded-md shadow-md transition-colors"
+              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-[11px] font-medium rounded-md shadow-md transition-colors"
             >
               <Icon icon="mdi:chevron-down" width={14} />
               Latest
@@ -1399,15 +1406,15 @@ const BillOpsTicketDetailPage: React.FC = () => {
       {ticket.status !== 'CLOSED' ? (
         <div className="px-5 py-4 bg-white border-t border-[rgba(0,0,0,0.08)]">
           <form onSubmit={handleSubmitReply}>
-            <div className="bg-white rounded-xl border border-[rgba(0,0,0,0.12)] overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-400 transition-all">
+            <div className="bg-white rounded-xl border border-[rgba(0,0,0,0.12)] overflow-hidden focus-within:ring-2 focus-within:ring-[rgba(0,0,0,0.1)] focus-within:border-[rgba(0,0,0,0.3)] transition-all">
               <div className="px-4 py-2.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between bg-[rgba(0,0,0,0.02)]">
                 <div className="flex items-center gap-2 text-[11px] font-medium text-[rgba(0,0,0,0.5)]">
-                  <Icon icon="mdi:reply" width={12} className="text-indigo-500" />
+                  <Icon icon="mdi:reply" width={12} className="text-[rgba(0,0,0,0.4)]" />
                   Official Ticket Response
                 </div>
                 <div className="flex items-center gap-2">
                   {attachment && (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100 text-[11px] font-medium">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.88)] rounded-md border border-[rgba(0,0,0,0.06)] text-[11px] font-medium">
                       <Icon icon="mdi:paperclip" width={12} />
                       <span className="max-w-[140px] truncate">{fileName}</span>
                       <button type="button" onClick={clearFile} className="hover:text-red-500 transition-colors ml-0.5">
@@ -1428,7 +1435,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 border border-white"></span>
                       )}
                       {noteTasks.filter(t => !t.done).length > 0 && (
-                        <span className="absolute -top-1.5 -left-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-indigo-500 border border-white text-white text-[8px] font-semibold px-0.5">
+                        <span className="absolute -top-1.5 -left-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-[rgba(0,0,0,0.04)]0 border border-white text-white text-[8px] font-semibold px-0.5">
                           {noteTasks.filter(t => !t.done).length}
                         </span>
                       )}
@@ -1451,7 +1458,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmitting || (!newReplyHasContent && !attachment)}
-                  className="flex items-center gap-1.5 px-5 py-2 text-white rounded-md text-[12px] font-medium transition-colors disabled:opacity-50 bg-[rgba(0,0,0,0.88)] hover:bg-black"
+                  className="flex items-center gap-1.5 px-5 py-2 text-white rounded-md text-[12px] font-medium transition-all disabled:opacity-50 bg-[rgba(0,0,0,0.88)] hover:bg-black hover:scale-[1.02] active:scale-95"
                 >
                   {isSubmitting
                     ? <><Icon icon="mdi:loading" width={14} className="animate-spin" /> Sending...</>
@@ -1493,7 +1500,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.35)] mb-1.5 uppercase tracking-[0.08em]">
                     Recipients <span className="text-red-500">*</span>
                   </label>
-                  <div className="min-h-[44px] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 flex flex-wrap gap-1.5 items-center focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-400 transition-all bg-[rgba(0,0,0,0.04)] cursor-text">
+                  <div className="min-h-[44px] border border-[rgba(0,0,0,0.08)] rounded-lg px-3 py-2 flex flex-wrap gap-1.5 items-center focus-within:ring-2 focus-within:ring-[rgba(0,0,0,0.1)] focus-within:border-[rgba(0,0,0,0.3)] transition-all bg-[rgba(0,0,0,0.04)] cursor-text">
                     {emailRecipients.map(email => (
                       <span key={email} className="flex items-center gap-1 pl-2.5 pr-1 py-0.5 bg-sky-100 text-sky-800 rounded-full text-[11px] font-semibold border border-sky-200 flex-shrink-0">
                         {email}
@@ -1554,13 +1561,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       {adminUsers.filter(a => a.email).map(admin => (
                         <div key={admin.id} className="flex items-center justify-between px-3.5 py-3 bg-white hover:bg-[rgba(0,0,0,0.02)] transition-colors">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-semibold flex-shrink-0">
+                            <div className="w-7 h-7 rounded-full bg-[rgba(0,0,0,0.88)] text-white flex items-center justify-center text-[10px] font-semibold flex-shrink-0">
                               {admin.username.charAt(0).toUpperCase()}
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
                                 <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">{admin.username}</p>
-                                <span className="px-1.5 py-0.5 text-[8px] font-semibold bg-indigo-50 text-indigo-700 rounded-full uppercase tracking-widest border border-indigo-200">Admin</span>
+                                <span className="px-1.5 py-0.5 text-[8px] font-semibold bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.88)] rounded-full uppercase tracking-widest border border-[rgba(0,0,0,0.12)]">Admin</span>
                               </div>
                               <p className="text-[10px] text-[rgba(0,0,0,0.35)] mt-0.5 truncate">{admin.email}</p>
                             </div>
@@ -1591,12 +1598,12 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       onClick={() => setSendMode('separate')}
                       className={`flex-1 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-left transition-all ${
                         sendMode === 'separate'
-                          ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
+                          ? 'bg-[rgba(0,0,0,0.04)] border-[rgba(0,0,0,0.18)] text-[rgba(0,0,0,0.88)]'
                           : 'bg-white border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.5)] hover:border-[rgba(0,0,0,0.2)]'
                       }`}
                     >
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'separate' ? 'border-indigo-500' : 'border-[rgba(0,0,0,0.2)]'}`}>
-                        {sendMode === 'separate' && <div className="w-2 h-2 rounded-full bg-indigo-500"></div>}
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'separate' ? 'border-[rgba(0,0,0,0.88)]' : 'border-[rgba(0,0,0,0.2)]'}`}>
+                        {sendMode === 'separate' && <div className="w-2 h-2 rounded-full bg-[rgba(0,0,0,0.04)]0"></div>}
                       </div>
                       <div>
                         <div className="text-[11px] font-semibold uppercase tracking-widest leading-none">Separate</div>
@@ -1608,12 +1615,12 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       onClick={() => setSendMode('combined')}
                       className={`flex-1 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-left transition-all ${
                         sendMode === 'combined'
-                          ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
+                          ? 'bg-[rgba(0,0,0,0.04)] border-[rgba(0,0,0,0.18)] text-[rgba(0,0,0,0.88)]'
                           : 'bg-white border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.5)] hover:border-[rgba(0,0,0,0.2)]'
                       }`}
                     >
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'combined' ? 'border-indigo-500' : 'border-[rgba(0,0,0,0.2)]'}`}>
-                        {sendMode === 'combined' && <div className="w-2 h-2 rounded-full bg-indigo-500"></div>}
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sendMode === 'combined' ? 'border-[rgba(0,0,0,0.88)]' : 'border-[rgba(0,0,0,0.2)]'}`}>
+                        {sendMode === 'combined' && <div className="w-2 h-2 rounded-full bg-[rgba(0,0,0,0.04)]0"></div>}
                       </div>
                       <div>
                         <div className="text-[11px] font-semibold uppercase tracking-widest leading-none">Combined</div>
@@ -1676,7 +1683,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
           onClose={() => setShowRcaModal(false)}
           footer={
             <>
-              <button type="button" onClick={() => setShowRcaModal(false)} className="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
+              <button type="button" onClick={() => setShowRcaModal(false)} className="inline-flex justify-center rounded-md border border-[rgba(0,0,0,0.12)] shadow-sm px-4 py-2 bg-white text-sm font-medium text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.02)]">
                 Cancel
               </button>
               <button type="button" onClick={handleSubmitRca} disabled={rcaSubmitting} className="inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-purple-600 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50">
@@ -1688,32 +1695,32 @@ const BillOpsTicketDetailPage: React.FC = () => {
           <div className="overflow-y-auto max-h-[60vh] pr-2 custom-scrollbar">
             <form className="space-y-6">
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-2">1. Problem Statement <span className="text-red-500">*</span></label>
-                <textarea value={rcaFormData.problemStatement} onChange={e => setRcaFormData({ ...rcaFormData, problemStatement: e.target.value })} className="w-full shadow-sm border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 text-sm" rows={3} placeholder="Describe the problem briefly..."></textarea>
+                <label className="block text-sm font-bold text-[rgba(0,0,0,0.88)] mb-2">1. Problem Statement <span className="text-red-500">*</span></label>
+                <textarea value={rcaFormData.problemStatement} onChange={e => setRcaFormData({ ...rcaFormData, problemStatement: e.target.value })} className="w-full shadow-sm border-[rgba(0,0,0,0.12)] rounded-md focus:ring-purple-500 focus:border-purple-500 text-sm" rows={3} placeholder="Describe the problem briefly..."></textarea>
               </div>
-              <div className="border-t border-gray-200 pt-4">
-                <label className="block text-sm font-bold text-gray-800 mb-2">2. Incident Overview</label>
+              <div className="border-t border-[rgba(0,0,0,0.12)] pt-4">
+                <label className="block text-sm font-bold text-[rgba(0,0,0,0.88)] mb-2">2. Incident Overview</label>
                 {renderRcaSection('incidentOverview', rcaFormData.incidentOverview)}
               </div>
-              <div className="border-t border-gray-200 pt-4">
-                <label className="block text-sm font-bold text-gray-800 mb-2">3. Description of the Issue</label>
+              <div className="border-t border-[rgba(0,0,0,0.12)] pt-4">
+                <label className="block text-sm font-bold text-[rgba(0,0,0,0.88)] mb-2">3. Description of the Issue</label>
                 {renderRcaSection('descriptionSections', rcaFormData.descriptionSections)}
               </div>
-              <div className="border-t border-gray-200 pt-4">
-                <label className="block text-sm font-bold text-gray-800 mb-2">4. Root Cause Identification</label>
+              <div className="border-t border-[rgba(0,0,0,0.12)] pt-4">
+                <label className="block text-sm font-bold text-[rgba(0,0,0,0.88)] mb-2">4. Root Cause Identification</label>
                 {renderRcaSection('rootCauseSections', rcaFormData.rootCauseSections)}
               </div>
-              <div className="border-t border-gray-200 pt-4">
-                <label className="block text-sm font-bold text-gray-800 mb-2">5. Resolution</label>
+              <div className="border-t border-[rgba(0,0,0,0.12)] pt-4">
+                <label className="block text-sm font-bold text-[rgba(0,0,0,0.88)] mb-2">5. Resolution</label>
                 {renderRcaSection('resolutionSections', rcaFormData.resolutionSections)}
               </div>
-              <div className="border-t border-gray-200 pt-4">
-                <label className="block text-sm font-bold text-gray-800 mb-2">6. Prevention / Future Mitigation</label>
+              <div className="border-t border-[rgba(0,0,0,0.12)] pt-4">
+                <label className="block text-sm font-bold text-[rgba(0,0,0,0.88)] mb-2">6. Prevention / Future Mitigation</label>
                 {renderRcaSection('preventionSections', rcaFormData.preventionSections)}
               </div>
-              <div className="border-t border-gray-200 pt-4">
-                <label className="block text-sm font-bold text-gray-800 mb-2">7. Conclusion</label>
-                <textarea value={rcaFormData.conclusion} onChange={e => setRcaFormData({ ...rcaFormData, conclusion: e.target.value })} className="w-full shadow-sm border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 text-sm" rows={3} placeholder="Final summary..."></textarea>
+              <div className="border-t border-[rgba(0,0,0,0.12)] pt-4">
+                <label className="block text-sm font-bold text-[rgba(0,0,0,0.88)] mb-2">7. Conclusion</label>
+                <textarea value={rcaFormData.conclusion} onChange={e => setRcaFormData({ ...rcaFormData, conclusion: e.target.value })} className="w-full shadow-sm border-[rgba(0,0,0,0.12)] rounded-md focus:ring-purple-500 focus:border-purple-500 text-sm" rows={3} placeholder="Final summary..."></textarea>
               </div>
             </form>
           </div>
@@ -1761,7 +1768,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     value={meetTitle}
                     onChange={e => setMeetTitle(e.target.value)}
                     placeholder={`Support Meeting — Ticket #${ticket?.id}`}
-                    className="w-full px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-[rgba(0,0,0,0.04)]"
+                    className="w-full px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[rgba(0,0,0,0.1)] focus:border-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.04)]"
                   />
                 </div>
 
@@ -1774,7 +1781,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       value={meetDate}
                       onChange={e => setMeetDate(e.target.value)}
                       min={new Date().toISOString().substring(0, 10)}
-                      className="w-full px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-[rgba(0,0,0,0.04)]"
+                      className="w-full px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[rgba(0,0,0,0.1)] focus:border-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.04)]"
                     />
                   </div>
                   <div>
@@ -1783,7 +1790,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       type="time"
                       value={meetTime}
                       onChange={e => setMeetTime(e.target.value)}
-                      className="w-full px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-[rgba(0,0,0,0.04)]"
+                      className="w-full px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[rgba(0,0,0,0.1)] focus:border-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.04)]"
                     />
                   </div>
                 </div>
@@ -1841,7 +1848,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         value={meetLink}
                         onChange={e => setMeetLink(e.target.value)}
                         placeholder="https://meet.google.com/xxx-xxxx-xxx"
-                        className="flex-1 px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-[rgba(0,0,0,0.04)] font-mono"
+                        className="flex-1 px-3 py-2 text-[13px] border border-[rgba(0,0,0,0.08)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[rgba(0,0,0,0.1)] focus:border-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.04)] font-mono"
                       />
                       {meetLink && (
                         <button type="button" onClick={() => setMeetLink('')}
@@ -1863,7 +1870,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       href={generateGoogleCalendarUrl()}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[10px] text-[rgba(0,0,0,0.35)] hover:text-indigo-500 font-medium underline underline-offset-2 transition-colors"
+                      className="text-[10px] text-[rgba(0,0,0,0.35)] hover:text-[rgba(0,0,0,0.5)] font-medium underline underline-offset-2 transition-colors"
                     >
                       Add to Google Calendar ↗
                     </a>
@@ -1884,15 +1891,15 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         type="button"
                         onClick={handleShareMeetInChat}
                         disabled={isSharingMeet || !meetDate || !meetTime}
-                        className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-[13px] font-medium hover:bg-indigo-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full flex items-center gap-3 px-4 py-3 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.88)] rounded-xl text-[13px] font-medium hover:bg-[rgba(0,0,0,0.06)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isSharingMeet
-                          ? <Icon icon="mdi:loading" width={16} className="animate-spin text-indigo-500" />
-                          : <Icon icon="mdi:message-text-outline" width={16} className="text-indigo-500" />
+                          ? <Icon icon="mdi:loading" width={16} className="animate-spin text-[rgba(0,0,0,0.4)]" />
+                          : <Icon icon="mdi:message-text-outline" width={16} className="text-[rgba(0,0,0,0.4)]" />
                         }
                         <div className="text-left">
                           <div className="text-xs font-black">{isSharingMeet ? 'Sharing…' : 'Share in Chat'}</div>
-                          <div className="text-[10px] font-medium text-indigo-500">Posts meeting card in ticket thread</div>
+                          <div className="text-[10px] font-medium text-[rgba(0,0,0,0.4)]">Posts meeting card in ticket thread</div>
                         </div>
                       </button>
                     )}
@@ -2182,7 +2189,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                               }}
                               className="w-full text-left px-3 py-2.5 hover:bg-[rgba(0,0,0,0.02)] transition-colors border-b border-[rgba(0,0,0,0.04)] last:border-0"
                             >
-                              <div className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">
+                              <div className="text-[9px] font-black text-[rgba(0,0,0,0.4)] uppercase tracking-widest mb-1">
                                 {new Date(entry.savedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'short' })}
                               </div>
                               <div className="text-xs text-[rgba(0,0,0,0.5)] font-medium line-clamp-2 leading-snug">

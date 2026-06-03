@@ -199,7 +199,48 @@
   color: white;
 }
 
-/* Message Bubble Animations */
+/* ── Chat bubble entrance ─────────────────────────────────────────────────── */
+@keyframes chat-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-bubble-enter {
+  animation: chat-bubble-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Typing indicator ─────────────────────────────────────────────────────── */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+}
+
+.typing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.3);
+  animation: typing-bounce 1.4s infinite ease-in-out both;
+}
+
+.typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dot:nth-child(2) { animation-delay: -0.16s; }
+.typing-dot:nth-child(3) { animation-delay: 0s; }
+
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: scale(0.75); opacity: 0.4; }
+  40%            { transform: scale(1);    opacity: 1;   }
+}
+
+/* Legacy enter classes (kept for compat) */
 .billops-ticket-detail-page .message-bubble-enter {
   opacity: 0;
   transform: translateY(10px);
@@ -300,16 +341,21 @@
 .billops-ticket-detail-page button:focus-visible,
 .billops-ticket-detail-page input:focus-visible,
 .billops-ticket-detail-page textarea:focus-visible {
-  @apply outline-none ring-2 ring-indigo-500 ring-offset-2;
-}
-
-/* Improved Button Hover States */
-.billops-ticket-detail-page button:not(:disabled):hover {
-  @apply transform scale-[1.02] transition-transform;
+  @apply outline-none ring-2 ring-offset-2 ring-black/30;
 }
 
 .billops-ticket-detail-page button:disabled {
   @apply cursor-not-allowed opacity-50;
+}
+
+/* ── Reduced-motion: disable entrance animations ─────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .chat-bubble-enter,
+  .typing-dot {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
 
 /* Attachment Icon Colors */

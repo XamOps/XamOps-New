@@ -147,10 +147,10 @@ async function fetchTickets(
     data = data.filter((t) => t.accountId && accountIds.includes(t.accountId));
   }
 
-  // Sort newest-first
+  // Sort: most recently active first (reply or creation)
   data.sort((a, b) => {
-    const aT = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const bT = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    const aT = new Date((a as any).updatedAt ?? a.createdAt).getTime() || 0;
+    const bT = new Date((b as any).updatedAt ?? b.createdAt).getTime() || 0;
     return bT - aT;
   });
 
@@ -265,6 +265,18 @@ const TicketsPage: React.FC = () => {
       try { stompClient?.disconnect(); } catch { /* ignore */ }
     };
   }, [hasAccounts, qc]);
+
+  // ---------------------------------------------------------------------------
+  // Force-refetch on mount if user replied/closed from the detail page.
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (localStorage.getItem('user_tickets_needs_refresh') === '1') {
+      localStorage.removeItem('user_tickets_needs_refresh');
+      qc.invalidateQueries({ queryKey: ['tickets'] });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Listen for ticket-updated event from TicketDetailPage
@@ -489,7 +501,7 @@ const TicketsPage: React.FC = () => {
               return (
                 <AnimatedItem key={ticket.id} index={index} delay={index * 0.03}>
                 <div
-                  onClick={() => navigate(`/ticket-detail?id=${ticket.id}${ticket._source === 'billops' ? '&src=billops' : ''}`)}
+                  onClick={() => navigate(`/billops-ticket-detail?id=${ticket.id}`)}
                   className="flex items-center gap-4 px-5 py-4 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl hover:border-indigo-200 hover:shadow-sm transition-all cursor-pointer group"
                 >
                   {/* ID + Subject */}
@@ -604,7 +616,7 @@ const TicketsPage: React.FC = () => {
         <DialogPanel
           title={
             <div className="flex items-center gap-3">
-              <Icon icon="mdi:plus-circle-outline" width={18} className="text-indigo-600" />
+              <Icon icon="mdi:plus-circle-outline" width={18} className="text-[rgba(0,0,0,0.5)]" />
               <div>
                 <div className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)]">Create Support Case</div>
                 <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">Submit a new request for technical support</p>
@@ -626,7 +638,7 @@ const TicketsPage: React.FC = () => {
                 type="submit"
                 form="create-ticket-form"
                 disabled={createMutation.isPending}
-                className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
+                className="px-5 py-2.5 text-sm font-medium text-white bg-[rgba(0,0,0,0.88)] rounded-xl hover:bg-black active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
               >
                 {createMutation.isPending ? (
                   <><Icon icon="mdi:loading" width={14} className="animate-spin" />Submitting...</>

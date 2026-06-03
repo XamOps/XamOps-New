@@ -37,7 +37,8 @@ import java.util.stream.Collectors;
 public class TicketService {
 
     private static final Logger logger = LoggerFactory.getLogger(TicketService.class);
-    private static final String ADMIN_TECHNICAL_EMAIL = "sahil@xammer.in";
+    private static final java.util.List<String> ADMIN_TECHNICAL_EMAILS = java.util.List.of(
+            "shivam@xammer.com", "kartik@xammer.com", "etish@xammer.com");
     private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
 
     @Autowired
@@ -136,9 +137,6 @@ public class TicketService {
 
         // 5. Send Notification Email
         try {
-            String adminEmail = "Account and Billing".equalsIgnoreCase(savedTicket.getCategory()) ? ADMIN_BILLING_EMAIL
-                    : ADMIN_TECHNICAL_EMAIL;
-
             String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
             String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>New Support Ticket</title></head>" +
                 "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>" +
@@ -168,7 +166,13 @@ public class TicketService {
                 "</td></tr>" +
                 "</table></td></tr></table></body></html>";
 
-            emailService.sendHtmlEmail(adminEmail, subject, html);
+            if ("Account and Billing".equalsIgnoreCase(savedTicket.getCategory())) {
+                emailService.sendHtmlEmail(ADMIN_BILLING_EMAIL, subject, html);
+            } else {
+                for (String email : ADMIN_TECHNICAL_EMAILS) {
+                    emailService.sendHtmlEmail(email, subject, html);
+                }
+            }
         } catch (Exception e) {
             logger.error("Failed to send new ticket notification email for ticket {}", savedTicket.getId(), e);
         }
@@ -318,6 +322,8 @@ public class TicketService {
             ticket.setHasNewUserReply(!isAdminReply);
         }
 
+        ticket.setUpdatedAt(java.time.LocalDateTime.now());
+
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
 
@@ -355,9 +361,13 @@ public class TicketService {
                     emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, html);
                 }
             } else {
-                String adminEmail = "Account and Billing".equalsIgnoreCase(ticket.getCategory())
-                        ? ADMIN_BILLING_EMAIL : ADMIN_TECHNICAL_EMAIL;
-                emailService.sendHtmlEmail(adminEmail, subject, html);
+                if ("Account and Billing".equalsIgnoreCase(ticket.getCategory())) {
+                    emailService.sendHtmlEmail(ADMIN_BILLING_EMAIL, subject, html);
+                } else {
+                    for (String email : ADMIN_TECHNICAL_EMAILS) {
+                        emailService.sendHtmlEmail(email, subject, html);
+                    }
+                }
             }
         } catch (Exception e) {
             logger.error("Failed to send reply notification email for ticket {}", ticket.getId(), e);
@@ -378,6 +388,7 @@ public class TicketService {
 
         ticket.setStatus("CLOSED");
         ticket.setClosedAt(java.time.LocalDateTime.now());
+        ticket.setUpdatedAt(java.time.LocalDateTime.now());
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
         broadcastTicketChange();
@@ -399,6 +410,7 @@ public class TicketService {
 
         ticket.setStatus("OPEN");
         ticket.setClosedAt(null);
+        ticket.setUpdatedAt(java.time.LocalDateTime.now());
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
         broadcastTicketChange();

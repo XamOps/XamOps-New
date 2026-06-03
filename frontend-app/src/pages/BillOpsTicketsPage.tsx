@@ -80,8 +80,12 @@ async function fetchBillOpsTickets(
     data = data.filter((t) => t.accountId && accountIds.includes(t.accountId));
   }
 
-  // Sort newest-first
-  data.sort((a, b) => b.id - a.id);
+  // Sort: most recently active first (reply or creation)
+  data.sort((a, b) => {
+    const aT = new Date(a.updatedAt ?? a.createdAt).getTime();
+    const bT = new Date(b.updatedAt ?? b.createdAt).getTime();
+    return bT - aT;
+  });
 
   return data;
 }
@@ -188,6 +192,20 @@ const BillOpsTicketsPage: React.FC = () => {
       try { stompClient?.disconnect(); } catch { /* ignore */ }
     };
   }, [hasAccounts, qc]);
+
+  // ---------------------------------------------------------------------------
+  // Force-refetch on mount if user replied/closed from the detail page.
+  // The detail page sets a localStorage flag (ticket:updated fires but this
+  // component is unmounted by then, so the invalidate listener misses it).
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (localStorage.getItem('billops_user_tickets_needs_refresh') === '1') {
+      localStorage.removeItem('billops_user_tickets_needs_refresh');
+      qc.invalidateQueries({ queryKey: ['billops-tickets'] });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Listen for ticket-updated event from detail page

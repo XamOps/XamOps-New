@@ -20,6 +20,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -675,11 +676,11 @@ const BillOpsAdminTicketsPage: React.FC = () => {
 
   return (
     <main className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen">
-      <div className="max-w-full mx-auto space-y-4">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="max-w-full mx-auto space-y-4">
 
         {/* Stats Summary — unified bar */}
         {!loading && hasData && (
-          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100">
+          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0s both' }}>
             {/* Total */}
             <div className="p-4 flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.04)] flex items-center justify-center flex-shrink-0">
@@ -953,11 +954,17 @@ const BillOpsAdminTicketsPage: React.FC = () => {
           </div>
         )}
 
+        <AnimatePresence mode="wait">
         {/* Loading Skeleton */}
-        {loading && renderLoadingSkeleton()}
+        {loading && (
+          <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+            {renderLoadingSkeleton()}
+          </motion.div>
+        )}
 
         {/* Table */}
         {!loading && (
+          <motion.div key="table" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
           <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
             <div className="overflow-x-auto custom-scrollbar">
               <table className="min-w-full divide-y divide-gray-100">
@@ -1121,8 +1128,10 @@ const BillOpsAdminTicketsPage: React.FC = () => {
               </div>
             </div>
           </div>
+          </motion.div>
         )}
-      </div>
+        </AnimatePresence>
+      </motion.div>
 
       {/* ─── Admin Raise Ticket Modal ─────────────────────────────────────── */}
       {showRaiseModal && createPortal(

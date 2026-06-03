@@ -180,6 +180,9 @@ export const useBillOpsTicketDetail = (
 
         const updatedTicket = await response.json();
         setTicket(updatedTicket);
+        localStorage.setItem('billops_admin_tickets_needs_refresh', '1');
+        localStorage.setItem('billops_user_tickets_needs_refresh', '1');
+        localStorage.setItem('user_tickets_needs_refresh', '1');
         window.dispatchEvent(new CustomEvent('ticket:updated'));
       } catch (err) {
         console.error('Error submitting reply:', err);
@@ -209,6 +212,9 @@ export const useBillOpsTicketDetail = (
 
       const updatedTicket = await response.json();
       setTicket(updatedTicket);
+      localStorage.setItem('billops_admin_tickets_needs_refresh', '1');
+      localStorage.setItem('billops_user_tickets_needs_refresh', '1');
+      localStorage.setItem('user_tickets_needs_refresh', '1');
       window.dispatchEvent(new CustomEvent('ticket:updated'));
     } catch (err) {
       console.error('Error closing ticket:', err);
@@ -234,6 +240,9 @@ export const useBillOpsTicketDetail = (
 
       const updatedTicket = await response.json();
       setTicket(updatedTicket);
+      localStorage.setItem('billops_admin_tickets_needs_refresh', '1');
+      localStorage.setItem('billops_user_tickets_needs_refresh', '1');
+      localStorage.setItem('user_tickets_needs_refresh', '1');
       window.dispatchEvent(new CustomEvent('ticket:updated'));
     } catch (err) {
       console.error('Error reopening ticket:', err);
@@ -335,6 +344,9 @@ export const useBillOpsTicketDetail = (
           assignedToId: adminId,
           assignedToUsername: adminUsername
         } : prev);
+        localStorage.setItem('billops_admin_tickets_needs_refresh', '1');
+        localStorage.setItem('billops_user_tickets_needs_refresh', '1');
+        localStorage.setItem('user_tickets_needs_refresh', '1');
         window.dispatchEvent(new CustomEvent('ticket:updated'));
       } catch (err) {
         console.error('Error assigning ticket:', err);

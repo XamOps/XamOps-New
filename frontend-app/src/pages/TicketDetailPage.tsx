@@ -175,6 +175,8 @@ const TicketDetailPage: React.FC = () => {
           assignedToId: adminId || undefined,
           assignedToUsername: adminUsername || undefined
         } : prev);
+        localStorage.setItem('user_tickets_needs_refresh', '1');
+        localStorage.setItem('billops_admin_tickets_needs_refresh', '1');
         window.dispatchEvent(new CustomEvent('ticket:updated'));
       }
     } catch (err) {
@@ -206,6 +208,8 @@ const TicketDetailPage: React.FC = () => {
       if (!response.ok) throw new Error('Failed to close ticket');
       const updatedTicket = await response.json();
       setTicket(updatedTicket);
+      localStorage.setItem('user_tickets_needs_refresh', '1');
+      localStorage.setItem('billops_admin_tickets_needs_refresh', '1');
       window.dispatchEvent(new CustomEvent('ticket:updated'));
     } catch (err) {
       console.error('Error closing ticket:', err);
@@ -265,6 +269,8 @@ const TicketDetailPage: React.FC = () => {
       setAttachments([]);
       setIsInternalNote(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      localStorage.setItem('user_tickets_needs_refresh', '1');
+      localStorage.setItem('billops_admin_tickets_needs_refresh', '1');
       window.dispatchEvent(new CustomEvent('ticket:updated'));
 
       setTimeout(() => {

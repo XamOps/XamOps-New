@@ -106,8 +106,12 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
         );
       }
 
-      // Sort: Newest first
-      const sortedTickets = filteredTickets.sort((a, b) => b.id - a.id);
+      // Sort: most recently active first (reply or creation)
+      const sortedTickets = filteredTickets.sort((a, b) => {
+        const aT = new Date(a.updatedAt ?? a.createdAt).getTime();
+        const bT = new Date(b.updatedAt ?? b.createdAt).getTime();
+        return bT - aT;
+      });
       setTickets(sortedTickets);
 
     } catch (err) {
@@ -232,7 +236,11 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
         if (selectedAccountId) {
           filteredTickets = allTickets.filter(t => t.accountId === selectedAccountId);
         }
-        const sortedTickets = [...filteredTickets].sort((a, b) => b.id - a.id);
+        const sortedTickets = [...filteredTickets].sort((a, b) => {
+          const aT = new Date(a.updatedAt ?? a.createdAt).getTime();
+          const bT = new Date(b.updatedAt ?? b.createdAt).getTime();
+          return bT - aT;
+        });
         setTickets(sortedTickets);
       } catch (err) {
         console.error('[BillOps Tickets] Polling error:', err);
