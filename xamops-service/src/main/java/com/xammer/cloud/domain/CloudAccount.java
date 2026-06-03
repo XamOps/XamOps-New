@@ -63,6 +63,9 @@ public class CloudAccount {
     @JoinColumn(name = "csp_billing_config_id")
     private CspBillingConfig cspBillingConfig;
 
+    @Column(name = "billing_data_available")
+    private Boolean billingDataAvailable;
+
     @Column(name = "gcp_billing_account_id")
     private String gcpBillingAccountId;
 
