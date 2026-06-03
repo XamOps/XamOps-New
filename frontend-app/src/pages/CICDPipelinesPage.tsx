@@ -50,7 +50,6 @@ const CICDPipelinesPage: React.FC = () => {
     refreshData,
 
     autoOpenLog,
-    viewError,
   } = useCICDPipelines();
 
   const githubMetrics = useCicdMetrics('github');

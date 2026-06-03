@@ -32,7 +32,7 @@ function getFileName(script: DevOpsScript): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const DevOpsInTheBoxPage: React.FC = () => {
-  const { filteredScripts, isLoading, error, filters, setSearchTerm, setFilterCategory, refreshScripts } = useDevOpsScripts();
+  const { filteredScripts, isLoading, error, filters, setSearchTerm, setFilterCategory } = useDevOpsScripts();
   const [selectedScript, setSelectedScript] = useState<DevOpsScript | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
