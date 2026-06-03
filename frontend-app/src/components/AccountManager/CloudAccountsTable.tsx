@@ -184,9 +184,19 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                               <Icon icon="mdi:check-circle-outline" width={14} />
                             </button>
                           )}
-                          {isGcp && account.cspManaged && (
+                          {isGcp && account.cspManaged && account.billingDataAvailable === true && (
                             <Badge variant="outline" className="text-xs text-blue-600 border-blue-300 bg-blue-50">
                               CSP Managed
+                            </Badge>
+                          )}
+                          {isGcp && account.cspManaged && account.billingDataAvailable === false && (
+                            <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 bg-amber-50" title="Project not found in Sisl billing dataset yet">
+                              No Billing Data
+                            </Badge>
+                          )}
+                          {isGcp && account.cspManaged && account.billingDataAvailable == null && (
+                            <Badge variant="outline" className="text-xs text-slate-500 border-slate-300 bg-slate-50">
+                              Pending Sync
                             </Badge>
                           )}
                           {isGcp && !account.cspManaged && !hasBilling && (

@@ -283,6 +283,8 @@ public class AccountManagerController {
         dto.setGrafanaDashboardUid(account.getGrafanaDashboardUid());
         dto.setGrafanaDashboardSlug(account.getGrafanaDashboardSlug());
         dto.setBillingExportTable(account.getBillingExportTable());
+        dto.setCspManaged(account.isCspManaged());
+        dto.setBillingDataAvailable(account.getBillingDataAvailable());
         return dto;
     }
 

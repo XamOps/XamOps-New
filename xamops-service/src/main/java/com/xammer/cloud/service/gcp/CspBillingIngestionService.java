@@ -71,8 +71,16 @@ public class CspBillingIngestionService {
         double mtd = queryService.queryMtdTotal(bq, config, projectId, currentMonth);
         writeCache("gcp:unfiltered-mtd-spend:" + projectId, mtd, 60);
 
-        log.info("CSP ingestion done for {}: {} services, {} regions, {} months",
-            projectId, breakdown.size(), regions.size(), history.size());
+        boolean hasData = !breakdown.isEmpty() || !regions.isEmpty() || !history.isEmpty() || mtd > 0;
+        account.setBillingDataAvailable(hasData);
+        cloudAccountRepository.save(account);
+
+        if (!hasData) {
+            log.warn("CSP ingestion: no billing data found in dataset for project {} — project may not be in Sisl export yet", projectId);
+        } else {
+            log.info("CSP ingestion done for {}: {} services, {} regions, {} months",
+                projectId, breakdown.size(), regions.size(), history.size());
+        }
     }
 
     private void writeCache(String key, Object value, int ttlMinutes) {

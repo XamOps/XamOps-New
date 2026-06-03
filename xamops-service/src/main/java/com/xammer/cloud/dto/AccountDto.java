@@ -14,6 +14,8 @@ public class AccountDto {
     private String grafanaDashboardUid;
     private String grafanaDashboardSlug;
     private String billingExportTable;
+    private boolean cspManaged;
+    private Boolean billingDataAvailable;
 
     public AccountDto() {
     }
@@ -133,5 +135,21 @@ public class AccountDto {
 
     public void setBillingExportTable(String billingExportTable) {
         this.billingExportTable = billingExportTable;
+    }
+
+    public boolean isCspManaged() {
+        return cspManaged;
+    }
+
+    public void setCspManaged(boolean cspManaged) {
+        this.cspManaged = cspManaged;
+    }
+
+    public Boolean getBillingDataAvailable() {
+        return billingDataAvailable;
+    }
+
+    public void setBillingDataAvailable(Boolean billingDataAvailable) {
+        this.billingDataAvailable = billingDataAvailable;
     }
 }
