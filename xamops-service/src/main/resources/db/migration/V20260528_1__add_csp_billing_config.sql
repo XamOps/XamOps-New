@@ -19,8 +19,7 @@ CREATE TABLE csp_billing_config (
 -- 2. Add CSP management columns to cloud_account
 ALTER TABLE cloud_account
     ADD COLUMN csp_managed BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN csp_billing_config_id BIGINT REFERENCES csp_billing_config(id),
-    ADD COLUMN billing_data_available BOOLEAN;
+    ADD COLUMN csp_billing_config_id BIGINT REFERENCES csp_billing_config(id);
 
 -- 3. Create index for efficient lookups of CSP-managed accounts
 CREATE INDEX idx_cloud_account_csp_managed ON cloud_account(csp_managed);
