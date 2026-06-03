@@ -19,6 +19,8 @@ import { queryClient } from './lib/queryClient';
 import clsx from 'clsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
+import { MaintenanceProvider, useMaintenanceMode } from './contexts/MaintenanceContext';
+import MaintenancePage from './pages/MaintenancePage';
 import { VPCProvider } from './contexts/VPCContext';
 import { EksDashboardCacheProvider } from './contexts/EksDashboardCacheContext';
 import { AutoSpottingCacheProvider } from './contexts/AutoSpottingCacheContext';
@@ -559,22 +561,32 @@ const AppContent: React.FC = () => {
     );
 };
 
+const MaintenanceGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isMaintenanceMode } = useMaintenanceMode();
+  if (isMaintenanceMode) return <MaintenancePage />;
+  return <>{children}</>;
+};
+
 const App: React.FC = () => {
     return (
         <QueryClientProvider client={queryClient}>
-            <Router>
-                <AuthProvider>
-                    <AccountProvider>
-                        <VPCProvider>
-                            <EksDashboardCacheProvider>
-                                <AutoSpottingCacheProvider>
-                                    <AppContent />
-                                </AutoSpottingCacheProvider>
-                            </EksDashboardCacheProvider>
-                        </VPCProvider>
-                    </AccountProvider>
-                </AuthProvider>
-            </Router>
+            <MaintenanceProvider>
+                <MaintenanceGate>
+                    <Router>
+                        <AuthProvider>
+                            <AccountProvider>
+                                <VPCProvider>
+                                    <EksDashboardCacheProvider>
+                                        <AutoSpottingCacheProvider>
+                                            <AppContent />
+                                        </AutoSpottingCacheProvider>
+                                    </EksDashboardCacheProvider>
+                                </VPCProvider>
+                            </AccountProvider>
+                        </AuthProvider>
+                    </Router>
+                </MaintenanceGate>
+            </MaintenanceProvider>
         </QueryClientProvider>
     );
 };
