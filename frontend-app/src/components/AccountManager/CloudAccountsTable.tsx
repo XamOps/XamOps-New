@@ -185,19 +185,19 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                             </button>
                           )}
                           {isGcp && account.cspManaged && account.billingDataAvailable === true && (
-                            <Badge variant="outline" className="text-xs text-blue-600 border-blue-300 bg-blue-50">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-blue-200 bg-blue-50 text-[10px] font-semibold text-blue-600">
                               CSP Managed
-                            </Badge>
+                            </span>
                           )}
                           {isGcp && account.cspManaged && account.billingDataAvailable === false && (
-                            <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 bg-amber-50" title="Project not found in Sisl billing dataset yet">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-600" title="Project not found in Sisl billing dataset yet">
                               No Billing Data
-                            </Badge>
+                            </span>
                           )}
                           {isGcp && account.cspManaged && account.billingDataAvailable == null && (
-                            <Badge variant="outline" className="text-xs text-slate-500 border-slate-300 bg-slate-50">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.04)] text-[10px] font-semibold text-[rgba(0,0,0,0.4)]">
                               Pending Sync
-                            </Badge>
+                            </span>
                           )}
                           {isGcp && !account.cspManaged && !hasBilling && (
                             <button
