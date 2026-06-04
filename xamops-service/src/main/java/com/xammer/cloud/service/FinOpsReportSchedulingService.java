@@ -284,11 +284,13 @@ public class FinOpsReportSchedulingService {
                 logger.debug("Generated HTML email body with {} characters", htmlBody != null ? htmlBody.length() : 0);
 
                 // Append disk health section for AWS accounts that have agent data
-                if ("AWS".equals(account.getProvider())) {
+                if (htmlBody != null && "AWS".equals(account.getProvider())) {
                     try {
+                        // Cache is populated by DiskAlertScheduler every 4h; forceRefresh=false returns from cache on hit.
+                        // On cache miss this call blocks, consistent with the cost data fetch above.
                         List<Map<String, Object>> allVolumes = ebsDiskRightsizingService.getVolumes(accountId, false);
                         List<Map<String, Object>> flaggedVolumes = allVolumes.stream()
-                                .filter(v -> v.containsKey("usedPercent"))
+                                .filter(v -> v.containsKey("usedPercent") && v.containsKey("sizeGb"))
                                 .filter(v -> {
                                     double up = ((Number) v.get("usedPercent")).doubleValue();
                                     int sz    = ((Number) v.get("sizeGb")).intValue();
@@ -297,7 +299,10 @@ public class FinOpsReportSchedulingService {
                                 .collect(Collectors.toList());
                         String diskHtml = emailBuilder.buildDiskHealthSection(flaggedVolumes);
                         if (!diskHtml.isEmpty()) {
-                            htmlBody = htmlBody.replace("</body>", diskHtml + "</body>");
+                            int bodyCloseIdx = htmlBody.lastIndexOf("</body>");
+                            if (bodyCloseIdx >= 0) {
+                                htmlBody = htmlBody.substring(0, bodyCloseIdx) + diskHtml + htmlBody.substring(bodyCloseIdx);
+                            }
                         }
                     } catch (Exception e) {
                         logger.warn("[FinOpsReport] Could not inject disk health section for account {}: {}",
