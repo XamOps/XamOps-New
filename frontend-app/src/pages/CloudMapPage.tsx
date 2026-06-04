@@ -173,13 +173,13 @@ const CloudMapPage: React.FC = () => {
     });
 
     // When multiple VPC compound nodes are present, dagre lines them up
-    // horizontally as disconnected components. Rearrange into a 2-column grid.
+    // horizontally as disconnected components. Rearrange into a grid.
     if (!isEditable) {
       const vpcRoots = cyRef.current.nodes('[type="VPC"]');
       if (vpcRoots.length > 1) {
-        const COLS = 2;
-        const GAP_X = 200;
-        const GAP_Y = 200;
+        const COLS = vpcRoots.length > 4 ? 3 : 2;
+        const GAP_X = 120;
+        const GAP_Y = 120;
         let maxW = 0;
         let maxH = 0;
         vpcRoots.forEach((n: any) => {
@@ -198,7 +198,12 @@ const CloudMapPage: React.FC = () => {
           n.descendants().union(n).shift({ x: targetCx - curCx, y: targetCy - curCy });
         });
       }
-      cyRef.current.fit(undefined, 60);
+      cyRef.current.fit(undefined, 50);
+      // Don't let 10+ VPCs shrink below readable size
+      if (cyRef.current.zoom() < 0.55) {
+        cyRef.current.zoom(0.55);
+        cyRef.current.center();
+      }
     }
 
     // Node tap: Show info

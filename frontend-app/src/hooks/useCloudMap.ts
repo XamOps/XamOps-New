@@ -126,7 +126,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
         });
 
         elements.forEach((el) => {
-          const isEdge = el.group === 'edges';
+          const isEdge = el.group === 'edges' || (!!(el.data as any).source && !!(el.data as any).target);
           if (isEdge) {
             merged.push({
               ...el,
