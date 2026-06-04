@@ -13,12 +13,12 @@ interface WasteResourceGroupProps {
 
 const SERVICE_ICONS: Record<string, string> = {
   'EC2 Instance':        'mdi:server',
-  'EBS Volume':          'mdi:harddisk',
+  'EBS Volume':          '/icons/aws-ebs-volume.svg',
   'RDS Instance':        'mdi:database',
-  'Lambda':              'mdi:function',
+  'Lambda':              '/icons/aws-lambda-function.svg',
   'S3 Bucket':           'mdi:bucket',
   'Load Balancer':       'mdi:scale-balance',
-  'Auto Scaling Group':  'mdi:auto-fix',
+  'Auto Scaling Group':  '/icons/aws-ec2-autoscaling.svg',
   'VPC':                 'mdi:lan',
   'Security Group':      'mdi:shield-lock-outline',
   'Route 53 Zone':       'mdi:dns',
@@ -26,8 +26,8 @@ const SERVICE_ICONS: Record<string, string> = {
   'DynamoDB Table':      'mdi:table',
   'ECR Repository':      'mdi:package-variant-closed',
   'CloudTrail':          'mdi:clipboard-text-clock',
-  'Certificate Manager': 'mdi:certificate-outline',
-  'CloudWatch Log Group':'mdi:chart-line',
+  'Certificate Manager': '/icons/aws-certificate-manager.svg',
+  'CloudWatch Log Group':'/icons/aws-cloudwatch-logs.svg',
   'SNS Topic':           'mdi:bell-outline',
   'SQS Queue':           'mdi:tray-full',
   'Elastic IP':          'mdi:ip-network',
@@ -37,7 +37,7 @@ const SERVICE_ICONS: Record<string, string> = {
   'EKS Cluster':         'mdi:kubernetes',
   'ECS Cluster':         'mdi:layers-triple',
   'DB Snapshot':         '/icons/ebs-snapshot.svg',
-  'Log Group':           'mdi:text-box-outline',
+  'Log Group':           '/icons/aws-cloudwatch-logs.svg',
   'EFS File System':     'mdi:folder-network',
 };
 
