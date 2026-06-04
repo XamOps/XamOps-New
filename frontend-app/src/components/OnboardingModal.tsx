@@ -125,7 +125,6 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Billing Verification</h3>
                 <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed max-w-sm">
                   Are you taking billing services from <span className="font-semibold text-indigo-600">Xammer</span>?
-                  This is required to continue using XamOps.
                 </p>
                 <div className="flex gap-4 mt-8 w-full max-w-xs">
                   <button
