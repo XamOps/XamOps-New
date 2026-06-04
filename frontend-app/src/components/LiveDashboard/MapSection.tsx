@@ -111,11 +111,11 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
                   {/* Region name label */}
                   <text
                     textAnchor="middle"
-                    y={20}
+                    y={26}
                     stroke="#fff"
-                    strokeWidth={3}
+                    strokeWidth={4}
                     paintOrder="stroke"
-                    style={{ fontSize: 9, fill: '#374151', fontFamily: 'inherit', fontWeight: 600, pointerEvents: 'none' }}
+                    style={{ fontSize: 11, fill: '#1e293b', fontFamily: 'inherit', fontWeight: 700, pointerEvents: 'none' }}
                   >
                     {r.regionName ?? r.regionId}
                   </text>

@@ -175,11 +175,11 @@ const AzureMapSection: React.FC<AzureMapSectionProps> = ({ regionStatus, isLoadi
                     <circle r={8 / zoom} fill={color} stroke="#fff" strokeWidth={2.5 / zoom} style={{ cursor: 'pointer' }} />
                     <text
                       textAnchor="middle"
-                      y={20 / zoom}
+                      y={26 / zoom}
                       stroke="#fff"
-                      strokeWidth={3 / zoom}
+                      strokeWidth={4 / zoom}
                       paintOrder="stroke"
-                      style={{ fontSize: 9 / zoom, fill: '#374151', fontFamily: 'inherit', fontWeight: 600, pointerEvents: 'none' }}
+                      style={{ fontSize: 11 / zoom, fill: '#1e293b', fontFamily: 'inherit', fontWeight: 700, pointerEvents: 'none' }}
                     >
                       {region.name}
                     </text>
