@@ -17,11 +17,11 @@ const SERVICE_ICONS: Record<string, string> = {
   'RDS Instance':        'mdi:database',
   'Lambda':              '/icons/aws-lambda-function.svg',
   'S3 Bucket':           'mdi:bucket',
-  'Load Balancer':       'mdi:scale-balance',
+  'Load Balancer':       '/icons/aws-alb.svg',
   'Auto Scaling Group':  '/icons/aws-ec2-autoscaling.svg',
   'VPC':                 'mdi:lan',
   'Security Group':      'mdi:shield-lock-outline',
-  'Route 53 Zone':       'mdi:dns',
+  'Route 53 Zone':       '/icons/aws-route53-zone.svg',
   'ElastiCache Cluster': 'mdi:lightning-bolt',
   'DynamoDB Table':      'mdi:table',
   'ECR Repository':      'mdi:package-variant-closed',
@@ -29,6 +29,7 @@ const SERVICE_ICONS: Record<string, string> = {
   'Certificate Manager': '/icons/aws-certificate-manager.svg',
   'CloudWatch Log Group':'/icons/aws-cloudwatch-logs.svg',
   'SNS Topic':           'mdi:bell-outline',
+  'EventBridge':         '/icons/aws-eventbridge.svg',
   'SQS Queue':           'mdi:tray-full',
   'Elastic IP':          'mdi:ip-network',
   'Snapshot':            '/icons/ebs-snapshot.svg',
@@ -38,7 +39,7 @@ const SERVICE_ICONS: Record<string, string> = {
   'ECS Cluster':         'mdi:layers-triple',
   'DB Snapshot':         '/icons/ebs-snapshot.svg',
   'Log Group':           '/icons/aws-cloudwatch-logs.svg',
-  'EFS File System':     'mdi:folder-network',
+  'EFS File System':     '/icons/aws-efs.svg',
 };
 
 const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
