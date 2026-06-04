@@ -31,12 +31,12 @@ const SERVICE_ICONS: Record<string, string> = {
   'SNS Topic':           'mdi:bell-outline',
   'SQS Queue':           'mdi:tray-full',
   'Elastic IP':          'mdi:ip-network',
-  'Snapshot':            'mdi:backup-restore',
+  'Snapshot':            '/icons/ebs-snapshot.svg',
   'AMI':                 'mdi:disc',
   'ENI':                 'mdi:ethernet',
   'EKS Cluster':         'mdi:kubernetes',
   'ECS Cluster':         'mdi:layers-triple',
-  'DB Snapshot':         'mdi:database-clock',
+  'DB Snapshot':         '/icons/ebs-snapshot.svg',
   'Log Group':           'mdi:text-box-outline',
   'EFS File System':     'mdi:folder-network',
 };
@@ -130,7 +130,9 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
           <div className="w-8 h-8 rounded-lg flex items-center justify-center border border-[rgba(0,0,0,0.08)]" style={{ backgroundColor: '#DC262608' }}>
-            <Icon icon={icon} width={16} color="#DC2626" />
+            {icon.startsWith('/')
+              ? <img src={icon} width={16} height={16} style={{ objectFit: 'contain' }} />
+              : <Icon icon={icon} width={16} color="#DC2626" />}
           </div>
           <div>
             <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">{serviceType}</p>
