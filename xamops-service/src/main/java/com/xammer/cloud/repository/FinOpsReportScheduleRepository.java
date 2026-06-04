@@ -1,5 +1,6 @@
 package com.xammer.cloud.repository;
 
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.FinOpsReportSchedule;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -28,4 +29,10 @@ public interface FinOpsReportScheduleRepository extends JpaRepository<FinOpsRepo
     @Modifying
     @Transactional
     void deleteByCloudAccountId(Long cloudAccountId);
+
+    @Query("SELECT DISTINCT s.cloudAccount FROM FinOpsReportSchedule s WHERE s.isActive = true")
+    List<CloudAccount> findDistinctActiveAccounts();
+
+    @Query("SELECT DISTINCT s.email FROM FinOpsReportSchedule s WHERE s.cloudAccount.id = :accountId AND s.isActive = true")
+    List<String> findActiveEmailsByAccountId(@Param("accountId") Long accountId);
 }
