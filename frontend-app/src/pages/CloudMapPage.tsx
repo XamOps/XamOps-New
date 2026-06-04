@@ -163,12 +163,43 @@ const CloudMapPage: React.FC = () => {
         ? { name: 'preset' }
         : {
           name: 'dagre',
-          nodeSep: 80,
+          nodeSep: 60,
+          rankSep: 100,
           rankDir: 'TB',
+          fit: false,
         } as any,
       style: getCytoscapeStyle(),
       wheelSensitivity: 0.2,
     });
+
+    // When multiple VPC compound nodes are present, dagre lines them up
+    // horizontally as disconnected components. Rearrange into a 2-column grid.
+    if (!isEditable) {
+      const vpcRoots = cyRef.current.nodes('[type="VPC"]');
+      if (vpcRoots.length > 1) {
+        const COLS = 2;
+        const GAP_X = 200;
+        const GAP_Y = 200;
+        let maxW = 0;
+        let maxH = 0;
+        vpcRoots.forEach((n: any) => {
+          const bb = n.boundingBox({});
+          maxW = Math.max(maxW, bb.w);
+          maxH = Math.max(maxH, bb.h);
+        });
+        vpcRoots.forEach((n: any, i: number) => {
+          const col = i % COLS;
+          const row = Math.floor(i / COLS);
+          const bb = n.boundingBox({});
+          const curCx = (bb.x1 + bb.x2) / 2;
+          const curCy = (bb.y1 + bb.y2) / 2;
+          const targetCx = col * (maxW + GAP_X) + maxW / 2;
+          const targetCy = row * (maxH + GAP_Y) + maxH / 2;
+          n.descendants().union(n).shift({ x: targetCx - curCx, y: targetCy - curCy });
+        });
+      }
+      cyRef.current.fit(undefined, 60);
+    }
 
     // Node tap: Show info
     cyRef.current.on('tap', 'node', (evt: any) => {
