@@ -1,0 +1,184 @@
+package com.xammer.cloud.service;
+
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.DiskAlertState;
+import com.xammer.cloud.dto.AlertDto;
+import com.xammer.cloud.repository.DiskAlertStateRepository;
+import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+class DiskAlertServiceTest {
+
+    @Mock private FinOpsReportScheduleRepository scheduleRepository;
+    @Mock private EbsDiskRightsizingService ebsDiskRightsizingService;
+    @Mock private DiskAlertStateRepository diskAlertStateRepository;
+    @Mock private AlertEmailBuilder alertEmailBuilder;
+    @Mock private EmailService emailService;
+
+    private DiskAlertService service;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+        service = new DiskAlertService(
+                scheduleRepository, ebsDiskRightsizingService,
+                diskAlertStateRepository, alertEmailBuilder, emailService);
+    }
+
+    // ── Helper builders ───────────────────────────────────────────────────────
+
+    private CloudAccount awsAccount(Long id, String providerAccountId) {
+        CloudAccount acc = new CloudAccount();
+        acc.setId(id);
+        acc.setProvider("AWS");
+        acc.setAccountName("Test Account");
+        // CloudAccount.getProviderAccountId() uses switch on provider field
+        acc.setAwsAccountId(providerAccountId);
+        return acc;
+    }
+
+    private Map<String, Object> volume(String volumeId, String region, int sizeGb, double usedPercent) {
+        Map<String, Object> vol = new HashMap<>();
+        vol.put("volumeId", volumeId);
+        vol.put("region", region);
+        vol.put("sizeGb", sizeGb);
+        vol.put("usedPercent", usedPercent);
+        vol.put("freeGb", sizeGb * (1 - usedPercent / 100.0));
+        vol.put("recommendation", usedPercent > 80 ? "EXPAND" : (usedPercent < 25 ? "SHRINK" : "NONE"));
+        return vol;
+    }
+
+    // ── Tests ─────────────────────────────────────────────────────────────────
+
+    @Test
+    void runAlertScan_skipsNonAwsAccounts() {
+        CloudAccount gcpAccount = new CloudAccount();
+        gcpAccount.setProvider("GCP");
+        when(scheduleRepository.findDistinctActiveAccounts()).thenReturn(List.of(gcpAccount));
+
+        service.runAlertScan();
+
+        verify(ebsDiskRightsizingService, never()).getVolumes(any(), anyBoolean());
+    }
+
+    @Test
+    void scanAccount_firesAlertAndPersistsStateForNewNearFullVolume() {
+        CloudAccount account = awsAccount(1L, "123456789012");
+        Map<String, Object> vol = volume("vol-001", "ap-south-1", 30, 90.0); // 90% used
+
+        when(ebsDiskRightsizingService.getVolumes("123456789012", false)).thenReturn(List.of(vol));
+        when(diskAlertStateRepository.findByAccount_IdAndResolvedAtIsNull(1L)).thenReturn(List.of());
+        when(diskAlertStateRepository.findByAccount_IdAndVolumeIdAndAlertType(1L, "vol-001", "NEAR_FULL"))
+                .thenReturn(Optional.empty());
+        when(scheduleRepository.findActiveEmailsByAccountId(1L)).thenReturn(List.of("ops@example.com"));
+        when(alertEmailBuilder.buildAlertDigestEmail(anyList(), eq("Test Account"), eq("123456789012")))
+                .thenReturn("<html>alert</html>");
+
+        service.scanAccount(account);
+
+        // Email sent
+        verify(emailService).sendHtmlEmail(eq("ops@example.com"), contains("Disk Alert"), anyString());
+
+        // State persisted
+        ArgumentCaptor<DiskAlertState> captor = ArgumentCaptor.forClass(DiskAlertState.class);
+        verify(diskAlertStateRepository).save(captor.capture());
+        DiskAlertState saved = captor.getValue();
+        assertThat(saved.getAlertType()).isEqualTo("NEAR_FULL");
+        assertThat(saved.getVolumeId()).isEqualTo("vol-001");
+        assertThat(saved.getResolvedAt()).isNull();
+    }
+
+    @Test
+    void scanAccount_doesNotRepeatAlertWhenActiveStateExists() {
+        CloudAccount account = awsAccount(1L, "123456789012");
+        Map<String, Object> vol = volume("vol-001", "ap-south-1", 30, 90.0);
+
+        DiskAlertState existing = new DiskAlertState();
+        existing.setAlertType("NEAR_FULL");
+        existing.setVolumeId("vol-001");
+
+        when(ebsDiskRightsizingService.getVolumes("123456789012", false)).thenReturn(List.of(vol));
+        when(diskAlertStateRepository.findByAccount_IdAndResolvedAtIsNull(1L)).thenReturn(List.of(existing));
+
+        service.scanAccount(account);
+
+        verify(emailService, never()).sendHtmlEmail(any(), any(), any());
+        verify(diskAlertStateRepository, never()).save(any());
+    }
+
+    @Test
+    void scanAccount_setsResolvedAtWhenVolumeRecoversToBelowThreshold() {
+        CloudAccount account = awsAccount(1L, "123456789012");
+        // Volume now at 60% — healthy (was previously alerted for NEAR_FULL)
+        Map<String, Object> vol = volume("vol-001", "ap-south-1", 30, 60.0);
+
+        DiskAlertState active = new DiskAlertState();
+        active.setAlertType("NEAR_FULL");
+        active.setVolumeId("vol-001");
+        active.setAlertedAt(Instant.now().minusSeconds(3600));
+
+        when(ebsDiskRightsizingService.getVolumes("123456789012", false)).thenReturn(List.of(vol));
+        when(diskAlertStateRepository.findByAccount_IdAndResolvedAtIsNull(1L)).thenReturn(List.of(active));
+
+        service.scanAccount(account);
+
+        // resolvedAt set on the existing state
+        ArgumentCaptor<DiskAlertState> captor = ArgumentCaptor.forClass(DiskAlertState.class);
+        verify(diskAlertStateRepository).save(captor.capture());
+        assertThat(captor.getValue().getResolvedAt()).isNotNull();
+
+        // No new alert email sent
+        verify(emailService, never()).sendHtmlEmail(any(), any(), any());
+    }
+
+    @Test
+    void scanAccount_firesAlertForUnderutilizedVolume() {
+        CloudAccount account = awsAccount(1L, "123456789012");
+        Map<String, Object> vol = volume("vol-002", "ap-south-1", 50, 10.0); // 10% used, 50GB >= 20
+
+        when(ebsDiskRightsizingService.getVolumes("123456789012", false)).thenReturn(List.of(vol));
+        when(diskAlertStateRepository.findByAccount_IdAndResolvedAtIsNull(1L)).thenReturn(List.of());
+        when(diskAlertStateRepository.findByAccount_IdAndVolumeIdAndAlertType(1L, "vol-002", "UNDERUTILIZED"))
+                .thenReturn(Optional.empty());
+        when(scheduleRepository.findActiveEmailsByAccountId(1L)).thenReturn(List.of("ops@example.com"));
+        when(alertEmailBuilder.buildAlertDigestEmail(anyList(), any(), any())).thenReturn("<html>alert</html>");
+
+        service.scanAccount(account);
+
+        ArgumentCaptor<DiskAlertState> captor = ArgumentCaptor.forClass(DiskAlertState.class);
+        verify(diskAlertStateRepository).save(captor.capture());
+        assertThat(captor.getValue().getAlertType()).isEqualTo("UNDERUTILIZED");
+    }
+
+    @Test
+    void scanAccount_skipsVolumesWithoutAgentData() {
+        CloudAccount account = awsAccount(1L, "123456789012");
+        Map<String, Object> vol = new HashMap<>();
+        vol.put("volumeId", "vol-003");
+        vol.put("region", "ap-south-1");
+        vol.put("sizeGb", 30);
+        // No "usedPercent" key — no agent data
+
+        when(ebsDiskRightsizingService.getVolumes("123456789012", false)).thenReturn(List.of(vol));
+        when(diskAlertStateRepository.findByAccount_IdAndResolvedAtIsNull(1L)).thenReturn(List.of());
+
+        service.scanAccount(account);
+
+        verify(emailService, never()).sendHtmlEmail(any(), any(), any());
+    }
+}
