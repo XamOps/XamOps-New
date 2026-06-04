@@ -77,6 +77,7 @@ public class DiskAlertService {
             if (!vol.containsKey("usedPercent")) continue;
 
             String volumeId = (String) vol.get("volumeId");
+            if (volumeId == null) continue;
             String region   = (String) vol.get("region");
             double usedPct  = ((Number) vol.get("usedPercent")).doubleValue();
             int    sizeGb   = ((Number) vol.get("sizeGb")).intValue();
