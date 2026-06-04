@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
@@ -9,23 +9,6 @@ import apiClient from '../utils/apiClient';
 import WasteHeader from '../components/Waste/WasteHeader';
 import WasteKPICards from '../components/Waste/WasteKPICards';
 import WasteResourceGroup from '../components/Waste/WasteResourceGroup';
-
-const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const timer = setTimeout(() => {
-      const observer = new IntersectionObserver(([entry]) => {
-        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
-      }, { threshold: 0.06 });
-      observer.observe(el);
-      return () => observer.disconnect();
-    }, 60);
-    return () => clearTimeout(timer);
-  }, []);
-  return <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>{children}</div>;
-};
 
 export const WastePage: React.FC = () => {
   const { selectedAccountIds, accounts } = useAccounts();
