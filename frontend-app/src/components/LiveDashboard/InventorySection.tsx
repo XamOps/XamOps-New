@@ -61,7 +61,7 @@ const InventorySection: React.FC<InventorySectionProps> = ({ inventory, isLoadin
     { name: 'Load Balancers',   count: inventory.loadBalancerCount, iconName: '/icons/aws-alb.svg',             iconColor: '#4D27AA', service: 'ELB' },
     { name: 'ECS Clusters',     count: inventory.ecsCount,          iconName: 'simple-icons:amazonecs',               iconColor: '#FF9900', service: 'ECS' },
     { name: 'EKS Clusters',     count: inventory.eksCount,          iconName: 'simple-icons:amazoneks',               iconColor: '#FF9900', service: 'EKS' },
-    { name: 'Lightsail',        count: inventory.lightsailCount,    iconName: 'simple-icons:amazonlightsail',         iconColor: '#FF9900', service: 'Lightsail' },
+    { name: 'Lightsail',        count: inventory.lightsailCount,    iconName: '/icons/lightsail.png',                 iconColor: '#FF9900', service: 'Lightsail' },
     { name: 'Amplify Apps',     count: inventory.amplifyCount,      iconName: 'simple-icons:awsamplify',              iconColor: '#FF9900', service: 'Amplify' },
   ];
 
