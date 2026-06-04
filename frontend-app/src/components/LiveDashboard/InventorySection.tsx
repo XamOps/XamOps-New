@@ -28,7 +28,9 @@ const ResourceCard: React.FC<ResourceCardProps & { animIndex: number }> = ({ nam
     >
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${iconColor}14` }}>
-          <Icon icon={iconName} width={20} height={20} color={iconColor} />
+          {iconName.startsWith('/')
+            ? <img src={iconName} width={20} height={20} style={{ objectFit: 'contain' }} />
+            : <Icon icon={iconName} width={20} height={20} color={iconColor} />}
         </div>
         <div>
           <p className="text-[14px] font-normal text-[rgba(0,0,0,0.88)] leading-5">{name}</p>
@@ -53,10 +55,10 @@ const InventorySection: React.FC<InventorySectionProps> = ({ inventory, isLoadin
     { name: 'S3 Buckets',       count: inventory.s3Count,           iconName: 'simple-icons:amazons3',                iconColor: '#FF9900', service: 'S3' },
     { name: 'RDS Databases',    count: inventory.rdsCount,          iconName: 'simple-icons:amazonrds',               iconColor: '#527FFF', service: 'RDS' },
     { name: 'VPC Networks',     count: inventory.vpcCount,          iconName: 'mdi:lan',                              iconColor: '#8C4FFF', service: 'VPC' },
-    { name: 'Lambda Functions', count: inventory.lambdaCount,       iconName: 'simple-icons:awslambda',               iconColor: '#FF9900', service: 'Lambda' },
-    { name: 'EBS Volumes',      count: inventory.ebsCount,          iconName: 'mdi:harddisk',                         iconColor: '#527FFF', service: 'EBS' },
-    { name: 'Route53 Zones',    count: inventory.route53Count,      iconName: 'simple-icons:amazonroute53',           iconColor: '#8C4FFF', service: 'Route53' },
-    { name: 'Load Balancers',   count: inventory.loadBalancerCount, iconName: 'simple-icons:awselasticloadbalancing', iconColor: '#8C4FFF', service: 'ELB' },
+    { name: 'Lambda Functions', count: inventory.lambdaCount,       iconName: '/icons/aws-lambda-function.svg', iconColor: '#4D27AA', service: 'Lambda' },
+    { name: 'EBS Volumes',      count: inventory.ebsCount,          iconName: '/icons/aws-ebs-volume.svg',      iconColor: '#3F8624', service: 'EBS' },
+    { name: 'Route53 Zones',    count: inventory.route53Count,      iconName: '/icons/aws-route53-zone.svg',    iconColor: '#4D27AA', service: 'Route53' },
+    { name: 'Load Balancers',   count: inventory.loadBalancerCount, iconName: '/icons/aws-alb.svg',             iconColor: '#4D27AA', service: 'ELB' },
     { name: 'ECS Clusters',     count: inventory.ecsCount,          iconName: 'simple-icons:amazonecs',               iconColor: '#FF9900', service: 'ECS' },
     { name: 'EKS Clusters',     count: inventory.eksCount,          iconName: 'simple-icons:amazoneks',               iconColor: '#FF9900', service: 'EKS' },
     { name: 'Lightsail',        count: inventory.lightsailCount,    iconName: 'simple-icons:amazonlightsail',         iconColor: '#FF9900', service: 'Lightsail' },
