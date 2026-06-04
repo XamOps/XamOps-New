@@ -6,8 +6,10 @@ import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.XamOpsRightsizingRecommendation;
 import org.springframework.stereotype.Service;
 
+import java.time.Year;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,6 +22,10 @@ public class MonthlyDigestEmailBuilder {
             List<Map<String, Object>> diskRecommendations,
             String accountName,
             String dateRange) {
+
+        securityFindings    = Objects.requireNonNullElse(securityFindings, List.of());
+        ec2Recommendations  = Objects.requireNonNullElse(ec2Recommendations, List.of());
+        diskRecommendations = Objects.requireNonNullElse(diskRecommendations, List.of());
 
         StringBuilder sb = new StringBuilder();
 
@@ -57,9 +63,10 @@ public class MonthlyDigestEmailBuilder {
     }
 
     private void appendStatsStrip(StringBuilder sb, FinOpsReportDto report) {
-        double mtd       = report.getKpis().getMonthToDateSpend();
-        double lastMonth = report.getKpis().getLastMonthSpend();
-        double savings   = report.getKpis().getPotentialSavings();
+        FinOpsReportDto.Kpis kpis = report.getKpis();
+        double mtd       = kpis != null ? kpis.getMonthToDateSpend()  : 0.0;
+        double lastMonth = kpis != null ? kpis.getLastMonthSpend()    : 0.0;
+        double savings   = kpis != null ? kpis.getPotentialSavings()  : 0.0;
 
         String deltaHtml = "";
         if (lastMonth > 0) {
@@ -244,7 +251,7 @@ public class MonthlyDigestEmailBuilder {
         sb.append("<div style='display:inline-block;background:#000000;color:#ffffff;font-size:11px;font-weight:900;letter-spacing:2px;padding:5px 16px;border-radius:6px;margin-bottom:10px;'>XAMOPS</div><br>");
         sb.append("<p style='color:rgba(0,0,0,0.35);font-size:12px;margin:0 0 3px;'>Cloud Cost Management &amp; FinOps Platform</p>");
         sb.append("<p style='color:rgba(0,0,0,0.20);font-size:11px;margin:8px 0 0;padding-top:8px;border-top:1px solid rgba(0,0,0,0.05);'>");
-        sb.append("&copy; 2026 XamOps &nbsp;&middot;&nbsp; Sent automatically on the 30th of each month &nbsp;&middot;&nbsp; This is an automated report. Please do not reply to this email.");
+        sb.append("&copy; ").append(Year.now().getValue()).append(" XamOps &nbsp;&middot;&nbsp; Sent automatically on the 30th of each month &nbsp;&middot;&nbsp; This is an automated report. Please do not reply to this email.");
         sb.append("</p></div>");
     }
 
@@ -272,6 +279,6 @@ public class MonthlyDigestEmailBuilder {
 
     private String escapeHtml(String s) {
         if (s == null) return "";
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
     }
 }

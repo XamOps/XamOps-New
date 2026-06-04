@@ -120,6 +120,25 @@ class MonthlyDigestEmailBuilderTest {
     }
 
     @Test
+    void resizeRowShowsInstanceAndRecommendation() {
+        XamOpsRightsizingRecommendation rec = mock(XamOpsRightsizingRecommendation.class);
+        when(rec.getInstanceId()).thenReturn("i-0abc1234");
+        when(rec.getCurrentInstance()).thenReturn("m5.2xlarge");
+        when(rec.getIntelRecommendation()).thenReturn("m5.large");
+        when(rec.getApproxCostSavings()).thenReturn("$420");
+        when(rec.getRegion()).thenReturn("us-east-1");
+
+        FinOpsReportDto report = buildReport(0, 0, 0);
+        String html = builder.build(report, List.of(), List.of(rec), List.of(),
+                "prod-main", "June 2026");
+
+        assertThat(html).contains("i-0abc1234");
+        assertThat(html).contains("m5.2xlarge");
+        assertThat(html).contains("m5.large");
+        assertThat(html).contains("$420");
+    }
+
+    @Test
     void diskRowAbsentWhenNoDiskRecommendations() {
         FinOpsReportDto report = buildReport(0, 0, 0);
 
