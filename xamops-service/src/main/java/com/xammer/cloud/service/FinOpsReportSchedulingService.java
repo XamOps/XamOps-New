@@ -33,17 +33,20 @@ public class FinOpsReportSchedulingService {
     private final GcpCostService gcpCostService;
     private final EmailService emailService;
     private final FinOpsReportEmailBuilder emailBuilder;
+    private final EbsDiskRightsizingService ebsDiskRightsizingService;
 
     public FinOpsReportSchedulingService(FinOpsReportScheduleRepository scheduleRepository,
             CostService costService,
             GcpCostService gcpCostService,
             EmailService emailService,
-            FinOpsReportEmailBuilder emailBuilder) {
+            FinOpsReportEmailBuilder emailBuilder,
+            EbsDiskRightsizingService ebsDiskRightsizingService) {
         this.scheduleRepository = scheduleRepository;
         this.costService = costService;
         this.gcpCostService = gcpCostService;
         this.emailService = emailService;
         this.emailBuilder = emailBuilder;
+        this.ebsDiskRightsizingService = ebsDiskRightsizingService;
     }
 
     // Scheduled report time: 6:00 PM IST (12:30 UTC)
@@ -279,6 +282,28 @@ public class FinOpsReportSchedulingService {
                 String subject = String.format("Your %s FinOps Report - %s (%s)", frequency, accountName, dateRange);
                 String htmlBody = emailBuilder.buildProfessionalReportEmail(reportData, accountName, frequency, dateRange, account.getProvider());
                 logger.debug("Generated HTML email body with {} characters", htmlBody != null ? htmlBody.length() : 0);
+
+                // Append disk health section for AWS accounts that have agent data
+                if ("AWS".equals(account.getProvider())) {
+                    try {
+                        List<Map<String, Object>> allVolumes = ebsDiskRightsizingService.getVolumes(accountId, false);
+                        List<Map<String, Object>> flaggedVolumes = allVolumes.stream()
+                                .filter(v -> v.containsKey("usedPercent"))
+                                .filter(v -> {
+                                    double up = ((Number) v.get("usedPercent")).doubleValue();
+                                    int sz    = ((Number) v.get("sizeGb")).intValue();
+                                    return up > 80.0 || (up < 25.0 && sz >= 20);
+                                })
+                                .collect(Collectors.toList());
+                        String diskHtml = emailBuilder.buildDiskHealthSection(flaggedVolumes);
+                        if (!diskHtml.isEmpty()) {
+                            htmlBody = htmlBody.replace("</body>", diskHtml + "</body>");
+                        }
+                    } catch (Exception e) {
+                        logger.warn("[FinOpsReport] Could not inject disk health section for account {}: {}",
+                                accountId, e.getMessage());
+                    }
+                }
 
                 // --- STEP 3: Send email to unique recipients for this account ---
                 // Group schedules by email to avoid sending duplicate emails to the same recipient
