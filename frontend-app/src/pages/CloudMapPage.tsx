@@ -84,6 +84,7 @@ const CloudMapPage: React.FC = () => {
     loadingGraph,
     graphError,
     loadGraph,
+    loadAllGraphs,
     blueprints,
     selectedBlueprintId,
     savingBlueprint,
@@ -101,8 +102,7 @@ const CloudMapPage: React.FC = () => {
     if (mode === 'live' && accountId) {
       fetchAwsVpcs(accountId).then(vpcsData => {
         if (vpcsData.length > 0) {
-          setSelectedVpcValue('ALL');
-          // Load graph handled separately
+          setSelectedVpcValue('__ALL__');
         }
       }).catch(err => {
         console.error('Error loading VPCs:', err);
@@ -445,8 +445,12 @@ const CloudMapPage: React.FC = () => {
   const handleVpcChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     setSelectedVpcValue(value);
-    loadGraph(value);
-  }, [setSelectedVpcValue, loadGraph]);
+    if (value === '__ALL__') {
+      loadAllGraphs();
+    } else {
+      loadGraph(value);
+    }
+  }, [setSelectedVpcValue, loadGraph, loadAllGraphs]);
 
   /**
    * Handle blueprint selection change
@@ -471,7 +475,7 @@ const CloudMapPage: React.FC = () => {
     if (!name) return;
 
     try {
-      const graphData = JSON.stringify(cyRef.current.json().elements);
+      const graphData = JSON.stringify(cyRef.current.elements().jsons());
       await saveBlueprint(name, graphData);
       alert('Design saved successfully!');
     } catch (error) {
