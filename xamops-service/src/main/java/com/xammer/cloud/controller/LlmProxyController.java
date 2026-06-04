@@ -61,9 +61,10 @@ public class LlmProxyController {
             return proxyService.proxyRequest(trackingKey, subPath, method, headers, body, agentName);
 
         } catch (RuntimeException e) {
-            logger.error("Proxy error: {}", e.getMessage());
-            return ResponseEntity.badRequest()
-                    .body("{\"error\":\"" + e.getMessage() + "\"}");
+            // Mitigation for CWE-209: Avoid leaking internal details via e.getMessage()
+            logger.error("Proxy error: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("{\"error\":\"An unexpected error occurred while processing the proxy request.\"}");
         }
     }
 }
