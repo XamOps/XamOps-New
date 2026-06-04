@@ -24,6 +24,7 @@ import CloudMapTopbarControls from '../components/CloudMap/CloudMapTopbarControl
 import EnhancedDesignPalette from '../components/CloudMap/EnhancedDesignPalette';
 import type { IconData } from '../components/CloudMap/IconPicker';
 import {
+  ALL_VPCS_VALUE,
   NODE_TYPE_DATA,
   TAILWIND_COLORS,
   AWS_ICONS,
@@ -102,7 +103,7 @@ const CloudMapPage: React.FC = () => {
     if (mode === 'live' && accountId) {
       fetchAwsVpcs(accountId).then(vpcsData => {
         if (vpcsData.length > 0) {
-          setSelectedVpcValue('__ALL__');
+          setSelectedVpcValue(ALL_VPCS_VALUE);
         }
       }).catch(err => {
         console.error('Error loading VPCs:', err);
@@ -445,12 +446,12 @@ const CloudMapPage: React.FC = () => {
   const handleVpcChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     setSelectedVpcValue(value);
-    if (value === '__ALL__') {
-      loadAllGraphs();
+    if (value === ALL_VPCS_VALUE) {
+      loadAllGraphs(awsVpcs);
     } else {
       loadGraph(value);
     }
-  }, [setSelectedVpcValue, loadGraph, loadAllGraphs]);
+  }, [setSelectedVpcValue, loadGraph, loadAllGraphs, awsVpcs]);
 
   /**
    * Handle blueprint selection change

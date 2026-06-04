@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { ALL_VPCS_VALUE } from '../types/cloudmap';
 import type { VPC, GraphElement, Blueprint } from '../types/cloudmap';
 
 interface UseCloudMapOptions {
@@ -186,7 +187,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
 
       // Default: load all VPCs merged on one canvas
       if (data.length > 0) {
-        setSelectedVpcValue('__ALL__');
+        setSelectedVpcValue(ALL_VPCS_VALUE);
         await loadAllGraphs(data);
       } else {
         setSelectedVpcValue('');

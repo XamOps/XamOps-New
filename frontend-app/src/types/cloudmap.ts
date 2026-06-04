@@ -4,6 +4,8 @@
  * Type definitions for the CloudMap network visualization feature
  */
 
+export const ALL_VPCS_VALUE = '__ALL__';
+
 export interface VPC {
   id: string;
   name: string;
