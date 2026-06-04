@@ -94,7 +94,7 @@ class MonthlyDigestServiceTest {
         CloudAccount account = awsAccount("bad-account", 1L);
         when(cloudAccountRepository.findByProvider("AWS")).thenReturn(List.of(account));
         when(finOpsService.getFinOpsReport(eq("bad-account"), eq(false), anyString(), anyString()))
-                .thenThrow(new RuntimeException("AWS error"));
+                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("AWS error")));
 
         service.runDigest();
 

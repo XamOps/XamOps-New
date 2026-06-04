@@ -64,11 +64,13 @@ public class MonthlyDigestService {
         List<CloudAccount> awsAccounts = cloudAccountRepository.findByProvider("AWS");
         logger.info("[MonthlyDigest] Found {} AWS accounts to process", awsAccounts.size());
 
+        String monthLabel = today.format(DateTimeFormatter.ofPattern("MMMM yyyy"));
+
         for (CloudAccount account : awsAccounts) {
             String accountId   = account.getProviderAccountId();
             String accountName = account.getAccountName();
             try {
-                processAccount(account, accountId, accountName, start, end, dateRange);
+                processAccount(account, accountId, accountName, start, end, dateRange, monthLabel);
             } catch (Exception e) {
                 logger.warn("[MonthlyDigest] Failed to process account {}: {}", accountId, e.getMessage());
             }
@@ -78,16 +80,20 @@ public class MonthlyDigestService {
     }
 
     private void processAccount(CloudAccount account, String accountId, String accountName,
-                                String start, String end, String dateRange) throws Exception {
+                                String start, String end, String dateRange, String monthLabel) throws Exception {
         logger.info("[MonthlyDigest] Processing account {}", accountId);
 
         FinOpsReportDto report = finOpsService.getFinOpsReport(accountId, false, start, end).join();
+        if (report == null) {
+            logger.warn("[MonthlyDigest] No FinOps data for account {}, skipping", accountId);
+            return;
+        }
         List<AwsSecurityFinding> security = awsSecurityHubService.getSecurityFindings(accountId, false).join();
         List<XamOpsRightsizingRecommendation> ec2Recs = xamOpsRightsizingService.getLiveRecommendations(accountId, false);
         List<Map<String, Object>> diskRecs = ebsDiskRightsizingService.getRecommendations(accountId, false);
 
         String subject = String.format("Your Monthly Cloud Digest — %s — %s",
-                accountName, monthLabel(dateRange));
+                accountName, monthLabel);
         String htmlBody = emailBuilder.build(report, security, ec2Recs, diskRecs, accountName, dateRange);
 
         List<String> recipients = resolveRecipients(account);
@@ -116,16 +122,5 @@ public class MonthlyDigestService {
                 .collect(Collectors.toList());
     }
 
-    private String monthLabel(String dateRange) {
-        // Extract "June 2026" from "June 1 – June 30, 2026"
-        String[] parts = dateRange.split("–");
-        if (parts.length == 2) {
-            String endPart = parts[1].trim();
-            String[] dateParts = endPart.split(" ");
-            if (dateParts.length >= 3) {
-                return dateParts[0] + " " + dateParts[2].replace(",", "");
-            }
-        }
-        return dateRange;
-    }
+
 }
