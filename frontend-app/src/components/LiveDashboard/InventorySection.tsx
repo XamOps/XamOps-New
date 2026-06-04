@@ -52,14 +52,14 @@ const InventorySection: React.FC<InventorySectionProps> = ({ inventory, isLoadin
     { name: 'EC2 Instances',    count: inventory.ec2Count,          iconName: 'simple-icons:amazonec2',               iconColor: '#FF9900', service: 'EC2' },
     { name: 'S3 Buckets',       count: inventory.s3Count,           iconName: 'simple-icons:amazons3',                iconColor: '#FF9900', service: 'S3' },
     { name: 'RDS Databases',    count: inventory.rdsCount,          iconName: 'simple-icons:amazonrds',               iconColor: '#527FFF', service: 'RDS' },
-    { name: 'VPC Networks',     count: inventory.vpcCount,          iconName: 'simple-icons:amazondocumentdb',        iconColor: '#8C4FFF', service: 'VPC' },
+    { name: 'VPC Networks',     count: inventory.vpcCount,          iconName: 'mdi:lan',                              iconColor: '#8C4FFF', service: 'VPC' },
     { name: 'Lambda Functions', count: inventory.lambdaCount,       iconName: 'simple-icons:awslambda',               iconColor: '#FF9900', service: 'Lambda' },
-    { name: 'EBS Volumes',      count: inventory.ebsCount,          iconName: 'simple-icons:amazondynamodb',          iconColor: '#527FFF', service: 'EBS' },
+    { name: 'EBS Volumes',      count: inventory.ebsCount,          iconName: 'mdi:harddisk',                         iconColor: '#527FFF', service: 'EBS' },
     { name: 'Route53 Zones',    count: inventory.route53Count,      iconName: 'simple-icons:amazonroute53',           iconColor: '#8C4FFF', service: 'Route53' },
     { name: 'Load Balancers',   count: inventory.loadBalancerCount, iconName: 'simple-icons:awselasticloadbalancing', iconColor: '#8C4FFF', service: 'ELB' },
     { name: 'ECS Clusters',     count: inventory.ecsCount,          iconName: 'simple-icons:amazonecs',               iconColor: '#FF9900', service: 'ECS' },
     { name: 'EKS Clusters',     count: inventory.eksCount,          iconName: 'simple-icons:amazoneks',               iconColor: '#FF9900', service: 'EKS' },
-    { name: 'Lightsail',        count: inventory.lightsailCount,    iconName: 'simple-icons:amazonwebservices',       iconColor: '#FF9900', service: 'Lightsail' },
+    { name: 'Lightsail',        count: inventory.lightsailCount,    iconName: 'simple-icons:amazonlightsail',         iconColor: '#FF9900', service: 'Lightsail' },
     { name: 'Amplify Apps',     count: inventory.amplifyCount,      iconName: 'simple-icons:awsamplify',              iconColor: '#FF9900', service: 'Amplify' },
   ];
 
