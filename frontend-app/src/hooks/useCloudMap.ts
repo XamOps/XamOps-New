@@ -25,6 +25,7 @@ interface UseCloudMapReturn {
   loadingGraph: boolean;
   graphError: string | null;
   loadGraph: (vpcValue: string) => Promise<void>;
+  loadAllGraphs: (vpcsData?: VPC[]) => Promise<void>;
 
   // Design Mode
   blueprints: Blueprint[];
@@ -73,6 +74,93 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
   }, [mode]);
 
   /**
+   * Load and merge graph data for all VPCs into a single canvas
+   */
+  const loadAllGraphs = useCallback(async (vpcsData?: VPC[]) => {
+    if (!accountId) {
+      setGraphError('No account selected');
+      return;
+    }
+
+    const list = vpcsData ?? vpcs;
+    if (list.length === 0) {
+      setGraphElements([]);
+      return;
+    }
+
+    setLoadingGraph(true);
+    setGraphError(null);
+
+    try {
+      const results = await Promise.all(
+        list.map(async (vpc) => {
+          try {
+            const response = await fetch(
+              `/api/xamops/cloudmap/graph?${new URLSearchParams({ accountId: accountId!, vpcId: vpc.id, region: vpc.region }).toString()}`,
+              { credentials: 'include' }
+            );
+            if (!response.ok) return [] as GraphElement[];
+            const data = await response.json();
+            return Array.isArray(data) ? (data as GraphElement[]) : [];
+          } catch {
+            return [] as GraphElement[];
+          }
+        })
+      );
+
+      const merged: GraphElement[] = [];
+
+      list.forEach((vpc, i) => {
+        const elements = results[i];
+        const prefix = `${vpc.id}::`;
+
+        // Synthetic compound root node for this VPC
+        merged.push({
+          group: 'nodes',
+          data: {
+            id: `${prefix}vpc-root`,
+            label: `${vpc.name} (${vpc.region})`,
+            type: 'VPC',
+          },
+        });
+
+        elements.forEach((el) => {
+          const isEdge = el.group === 'edges';
+          if (isEdge) {
+            merged.push({
+              ...el,
+              data: {
+                ...el.data,
+                id: `${prefix}${el.data.id}`,
+                source: `${prefix}${(el.data as any).source}`,
+                target: `${prefix}${(el.data as any).target}`,
+              },
+            });
+          } else {
+            const nd = el.data as any;
+            merged.push({
+              ...el,
+              data: {
+                ...nd,
+                id: `${prefix}${nd.id}`,
+                parent: nd.parent ? `${prefix}${nd.parent}` : `${prefix}vpc-root`,
+              },
+            });
+          }
+        });
+      });
+
+      setGraphElements(merged);
+    } catch (error) {
+      console.error('Error loading all VPC graphs:', error);
+      setGraphError(error instanceof Error ? error.message : 'Failed to load all VPC graphs');
+      setGraphElements([]);
+    } finally {
+      setLoadingGraph(false);
+    }
+  }, [accountId, vpcs]);
+
+  /**
    * Load VPCs for the selected account
    */
   const loadVpcs = async () => {
@@ -96,15 +184,11 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
       const data = await response.json();
       setVpcs(data);
 
-      // Auto-select first VPC if available
+      // Default: load all VPCs merged on one canvas
       if (data.length > 0) {
-        const firstVpc = data[0];
-        const vpcValue = `${firstVpc.id}|${firstVpc.region}`;
-        setSelectedVpcValue(vpcValue);
-        // Auto-load graph for first VPC
-        await loadGraph(vpcValue);
+        setSelectedVpcValue('__ALL__');
+        await loadAllGraphs(data);
       } else {
-        // No VPCs found, load global resources
         setSelectedVpcValue('');
         await loadGraph('');
       }
@@ -170,7 +254,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
       }
 
       const data = await response.json();
-      setBlueprints(data);
+      setBlueprints(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error loading blueprints:', error);
       setBlueprints([]);
@@ -199,7 +283,11 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
       setSelectedBlueprintId(blueprint.id);
 
       if (blueprint.graphData) {
-        const elements = JSON.parse(blueprint.graphData);
+        const parsed = JSON.parse(blueprint.graphData);
+        // Handle legacy object format {nodes:[...], edges:[...]} from cy.json().elements
+        const elements = Array.isArray(parsed)
+          ? parsed
+          : [...(parsed.nodes || []), ...(parsed.edges || [])];
         setGraphElements(elements);
       } else {
         setGraphElements([]);
@@ -303,6 +391,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     loadingGraph,
     graphError,
     loadGraph,
+    loadAllGraphs,
 
     // Design Mode
     blueprints,
