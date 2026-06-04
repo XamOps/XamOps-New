@@ -74,6 +74,12 @@ public class CspBillingConfigController {
             .orElse(ResponseEntity.notFound().build());
     }
 
+    @PostMapping("/sync-all")
+    public ResponseEntity<String> syncAll() {
+        ingestionService.ingestAll();
+        return ResponseEntity.ok("Sync triggered for all CSP-managed accounts");
+    }
+
     private CspBillingConfigDto toDtoWithoutKey(CspBillingConfig config) {
         CspBillingConfigDto dto = new CspBillingConfigDto();
         dto.setId(config.getId());
