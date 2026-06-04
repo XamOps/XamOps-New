@@ -75,15 +75,15 @@ const Section: React.FC<{
   badge?: React.ReactNode;
   children: React.ReactNode;
 }> = ({ icon, color, title, subtitle, badge, children }) => (
-  <section className="bg-white rounded-lg border border-[#d0d7de] overflow-hidden">
-    <div className="px-6 py-4 border-b border-[#e8ecf0] flex items-center justify-between">
+  <section className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] overflow-hidden">
+    <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
       <div className="flex items-center gap-3">
         <div className={`w-8 h-8 rounded-md ${color} flex items-center justify-center`}>
           <i className={`fas ${icon} text-white text-sm`}></i>
         </div>
         <div>
-          <h3 className="text-[13px] font-semibold text-[#1a1f2e]">{title}</h3>
-          {subtitle && <p className="text-[11px] text-[#57606a] mt-0.5">{subtitle}</p>}
+          <h3 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{title}</h3>
+          {subtitle && <p className="text-[11px] text-[rgba(0,0,0,0.5)] mt-0.5">{subtitle}</p>}
         </div>
       </div>
       {badge}
@@ -275,8 +275,8 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
   if (!autoscalerData) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="w-16 h-16 rounded-lg bg-[#f6f8fa] border border-[#e8ecf0] flex items-center justify-center mb-5">
-          <i className="fas fa-robot text-2xl text-[#8b949e]"></i>
+        <div className="w-16 h-16 rounded-lg bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] flex items-center justify-center mb-5">
+          <i className="fas fa-robot text-2xl text-[rgba(0,0,0,0.4)]"></i>
         </div>
         <h3 className="text-xl font-bold text-gray-800 mb-2">XamOps Automation Agent Not Installed</h3>
         <p className="text-sm text-gray-500 max-w-md mb-6">
@@ -297,8 +297,8 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
   if (!autoscalerData.autoscalingEnabled) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="w-16 h-16 rounded-lg bg-[#f6f8fa] border border-[#e8ecf0] flex items-center justify-center mb-5">
-          <i className="fas fa-robot text-2xl text-[#2f4bde]"></i>
+        <div className="w-16 h-16 rounded-lg bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] flex items-center justify-center mb-5">
+          <i className="fas fa-robot text-2xl text-[rgba(0,0,0,0.88)]"></i>
         </div>
         <h3 className="text-xl font-bold text-gray-800 mb-2">Autoscaling is Not Enabled</h3>
         <p className="text-sm text-gray-500 max-w-md mb-2">
@@ -380,7 +380,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
       )}
 
       {/* ═══ 1. AGENT STATUS BANNER ═════════════════════════════════════════ */}
-      <section className="bg-white rounded-lg border border-[#d0d7de] p-6">
+      <section className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
 
           {/* Title + overall health */}
@@ -390,12 +390,12 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-[14px] font-semibold text-[#1a1f2e]">XamOps Automation Agent</h2>
+                <h2 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">XamOps Automation Agent</h2>
                 <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${allHealthy ? 'bg-[#dafbe1] text-[#1a7f37]' : 'bg-[#ffebe9] text-[#cf222e]'}`}>
                   {allHealthy ? 'All Systems Healthy' : 'Degraded'}
                 </span>
               </div>
-              <p className="text-[11px] text-[#57606a] mt-0.5">
+              <p className="text-[11px] text-[rgba(0,0,0,0.5)] mt-0.5">
                 v{agentStatus.agentVersion} · Last sync {timeSince(agentStatus.lastSyncAt)} · Syncs every 15s
               </p>
             </div>
@@ -429,7 +429,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
         </div>
 
         {/* Component status grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-5 border-t border-[#e8ecf0]">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-5 border-t border-[rgba(0,0,0,0.06)]">
           {[
             { label: 'Agent', key: 'agentHealthy', icon: 'fa-satellite-dish' },
             { label: 'Cluster Controller', key: 'clusterControllerHealthy', icon: 'fa-cogs' },
@@ -441,7 +441,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
               <div key={comp.key} className={`rounded-md p-3 border ${healthy ? 'bg-[#dafbe1] border-[#aceebb]' : 'bg-[#ffebe9] border-[rgba(255,129,130,0.4)]'}`}>
                 <div className="flex items-center gap-2 mb-1">
                   <i className={`fas ${comp.icon} text-xs ${healthy ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}></i>
-                  <span className="text-[11px] font-medium text-[#57606a]">{comp.label}</span>
+                  <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">{comp.label}</span>
                 </div>
                 <div className={`text-[11px] font-semibold ${healthy ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}>
                   {healthy ? 'Healthy' : 'Offline'}
@@ -472,10 +472,10 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
             value: `${kpis.spotRatio}%`, unit: '', suffix: 'via XamOps Spot'
           },
         ].map(card => (
-          <div key={card.label} className="bg-white rounded-lg border border-[#d0d7de] px-5 py-4">
-            <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">{card.label}</div>
-            <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">{card.value}</div>
-            <div className="text-[11px] text-[#8b949e] mt-1">{card.suffix}</div>
+          <div key={card.label} className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] px-5 py-4">
+            <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">{card.label}</div>
+            <div className="text-[26px] font-semibold leading-none text-[rgba(0,0,0,0.88)]">{card.value}</div>
+            <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">{card.suffix}</div>
           </div>
         ))}
       </div>
@@ -487,15 +487,15 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
           { label: 'Avg Memory Utilization', value: kpis.avgNodeUtilizationMemory, color: 'bg-blue-500' },
           { label: 'Managed Nodes', value: null, display: `${kpis.totalManagedNodes} nodes`, color: 'bg-gray-700' },
         ].map(m => (
-          <div key={m.label} className="bg-white rounded-lg border border-[#d0d7de] p-4">
+          <div key={m.label} className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] p-4">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-[11px] font-medium text-[#57606a]">{m.label}</span>
-              <span className="text-[11px] font-semibold text-[#1a1f2e]">{m.display ?? `${m.value}%`}</span>
+              <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">{m.label}</span>
+              <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)]">{m.display ?? `${m.value}%`}</span>
             </div>
             {m.value !== null && (
-              <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+              <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all bg-[#2f4bde]"
+                  className="h-full rounded-full transition-all bg-[rgba(0,0,0,0.88)]"
                   style={{ width: `${m.value}%` }}
                 />
               </div>

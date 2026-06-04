@@ -305,9 +305,9 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                                 : cpuUsageMillicores > 0 ? `(${Math.round(cpuUsageMillicores)}m)` : ''}
                             </span>
                           </div>
-                          <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                          <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
                             <div className="h-full rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, cpuDisplayPct)}%`, background: cpuDisplayPct >= 80 ? '#cf222e' : cpuDisplayPct >= 60 ? '#9a6700' : '#2f4bde' }}
+                              style={{ width: `${Math.min(100, cpuDisplayPct)}%`, background: cpuDisplayPct >= 80 ? '#cf222e' : cpuDisplayPct >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)' }}
                             />
                           </div>
                         </div>
@@ -315,20 +315,20 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                         {/* Memory Usage (falls back to Requests% when Prometheus usage unavailable) */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-semibold text-[#57606a] flex items-center gap-1.5">
+                            <span className="font-semibold text-[rgba(0,0,0,0.5)] flex items-center gap-1.5">
                               <i className="fas fa-memory text-[11px]"></i>
                               {memDisplayIsReq ? 'Memory (req-based)' : 'Memory Usage'}
                             </span>
-                            <span className="font-semibold text-sm" style={{ color: memDisplayPct >= 80 ? '#cf222e' : memDisplayPct >= 60 ? '#9a6700' : '#1a1f2e' }}>
+                            <span className="font-semibold text-sm" style={{ color: memDisplayPct >= 80 ? '#cf222e' : memDisplayPct >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)' }}>
                               {memDisplayPct.toFixed(1)}%{' '}
                               {memDisplayIsReq && memReqMiB > 0
                                 ? `(${Math.round(memReqMiB)} Mi req)`
                                 : memUsageMB > 0 ? `(${Math.round(memUsageMB)} MB)` : ''}
                             </span>
                           </div>
-                          <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                          <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
                             <div className="h-full rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, memDisplayPct)}%`, background: memDisplayPct >= 80 ? '#cf222e' : memDisplayPct >= 60 ? '#9a6700' : '#2f4bde' }}
+                              style={{ width: `${Math.min(100, memDisplayPct)}%`, background: memDisplayPct >= 80 ? '#cf222e' : memDisplayPct >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)' }}
                             />
                           </div>
                         </div>
@@ -336,18 +336,18 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                         {/* CPU Requests — derived from pod requests vs node allocatable */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-semibold text-[#57606a] flex items-center gap-1.5">
+                            <span className="font-semibold text-[rgba(0,0,0,0.5)] flex items-center gap-1.5">
                               <i className="fas fa-chart-line text-[11px]"></i>
                               CPU Requests
                             </span>
-                            <span className="font-semibold text-sm text-[#2f4bde]">
+                            <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
                               {cpuReqPct > 0
                                 ? `${cpuReqPct.toFixed(1)}%${cpuReqMillicores > 0 ? ` (${Math.round(cpuReqMillicores)}m)` : ''}`
                                 : 'N/A'}
                             </span>
                           </div>
-                          <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                            <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-500"
+                          <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                            <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-500"
                               style={{ width: `${Math.min(100, cpuReqPct)}%` }} />
                           </div>
                         </div>
@@ -355,18 +355,18 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                         {/* Memory Requests — derived from pod requests vs node allocatable */}
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-semibold text-[#57606a] flex items-center gap-1.5">
+                            <span className="font-semibold text-[rgba(0,0,0,0.5)] flex items-center gap-1.5">
                               <i className="fas fa-chart-line text-[11px]"></i>
                               Memory Requests
                             </span>
-                            <span className="font-semibold text-sm text-[#2f4bde]">
+                            <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
                               {memReqPct > 0
                                 ? `${memReqPct.toFixed(1)}%${memReqMiB > 0 ? ` (${Math.round(memReqMiB)} Mi)` : ''}`
                                 : 'N/A'}
                             </span>
                           </div>
-                          <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                            <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-500"
+                          <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                            <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-500"
                               style={{ width: `${Math.min(100, memReqPct)}%` }} />
                           </div>
                         </div>
@@ -408,7 +408,7 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
                       }`}>
                       {isHealthy ? '✓' : '!'}
                     </div>
-                    <div className="text-[10px] text-[#8b949e] mt-1.5 font-medium uppercase tracking-wider">
+                    <div className="text-[10px] text-[rgba(0,0,0,0.4)] mt-1.5 font-medium uppercase tracking-wider">
                       {isHealthy ? 'Healthy' : 'Issues'}
                     </div>
                   </div>
@@ -419,9 +419,9 @@ const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
 
           {
             filteredNodes.length === 0 && (
-              <div className="text-center py-12 bg-[#f6f8fa] rounded-lg border border-dashed border-[#d0d7de]">
-                <i className="fas fa-server text-[#8b949e] text-2xl mb-3"></i>
-                <p className="text-[13px] text-[#57606a] font-medium">No nodes found matching the filter</p>
+              <div className="text-center py-12 bg-[rgba(0,0,0,0.02)] rounded-lg border border-dashed border-[rgba(0,0,0,0.12)]">
+                <i className="fas fa-server text-[rgba(0,0,0,0.4)] text-2xl mb-3"></i>
+                <p className="text-[13px] text-[rgba(0,0,0,0.5)] font-medium">No nodes found matching the filter</p>
               </div>
             )
           }

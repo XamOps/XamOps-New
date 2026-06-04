@@ -302,9 +302,9 @@ const EksContainersTab: React.FC<EksContainersTabProps> = ({ eksData }) => {
           </table>
 
           {stateFilteredContainers.length === 0 && (
-            <div className="text-center py-12 bg-[#f6f8fa] rounded-lg border border-dashed border-[#d0d7de] mt-4">
-              <i className="fas fa-filter text-[#8b949e] text-2xl mb-3"></i>
-              <p className="text-[13px] text-[#57606a] font-medium">No containers match your filters</p>
+            <div className="text-center py-12 bg-[rgba(0,0,0,0.02)] rounded-lg border border-dashed border-[rgba(0,0,0,0.12)] mt-4">
+              <i className="fas fa-filter text-[rgba(0,0,0,0.4)] text-2xl mb-3"></i>
+              <p className="text-[13px] text-[rgba(0,0,0,0.5)] font-medium">No containers match your filters</p>
               <button
                 onClick={() => {
                   setContainerSearchQuery('');

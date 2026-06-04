@@ -38,7 +38,7 @@ public class TicketService {
 
     private static final Logger logger = LoggerFactory.getLogger(TicketService.class);
     private static final java.util.List<String> ADMIN_TECHNICAL_EMAILS = java.util.List.of(
-            "shivam@xammer.com", "kartik@xammer.com", "etish@xammer.com");
+            "techtickets@xamops.com");
     private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
 
     @Autowired
