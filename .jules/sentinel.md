@@ -1,0 +1,4 @@
+## 2026-06-05 - Externalizing Hardcoded Secrets in Properties Files
+**Vulnerability:** Numerous hardcoded credentials (database passwords, API keys, encryption secrets, SMTP credentials) were found across `application.properties`, `application-local.properties`, and `application-prod.properties`.
+**Learning:** Credentials were often committed for convenience during development or as default values, leading to significant exposure risk in version control. Some properties also had duplicate definitions at the top and bottom of files.
+**Prevention:** Always use Spring environment variable placeholders `${VAR:CHANGE_ME}` for sensitive values. Never commit actual secrets, even as defaults in local profiles. Implement a pre-commit or CI check to scan for high-entropy strings in configuration files.
