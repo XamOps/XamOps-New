@@ -561,4 +561,5 @@ public class FinOpsReportEmailBuilder {
                 "<span style='display: inline-block; background-color: %s; padding: 6px 12px; border-radius: 6px; color: #ffffff; font-size: 12px; font-weight: 600; margin-left: 10px;'>%s</span>",
                 bgColor, icon);
     }
+
 }

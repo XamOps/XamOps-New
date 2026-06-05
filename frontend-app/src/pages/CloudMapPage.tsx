@@ -28,6 +28,7 @@ import DesignContextMenu from '../components/CloudMap/DesignContextMenu';
 import DesignSaveModal from '../components/CloudMap/DesignSaveModal';
 import Tooltip from '../components/CloudMap/Tooltip';
 import {
+  ALL_VPCS_VALUE,
   NODE_TYPE_DATA,
   TAILWIND_COLORS,
   AWS_ICONS,
@@ -66,11 +67,11 @@ const applyElementStyle = (el: any) => {
     if (s) el.style('curve-style', s);
     if (a) el.style('target-arrow-shape', a);
   } else {
-    const f          = el.data('fillColor');
-    const b          = el.data('borderColor');
-    const sh         = el.data('nodeShape');
-    const fs         = el.data('fontSize');
-    const type       = el.data('type');
+    const f = el.data('fillColor');
+    const b = el.data('borderColor');
+    const sh = el.data('nodeShape');
+    const fs = el.data('fontSize');
+    const type = el.data('type');
     const customIcon = el.data('customIcon');
 
     // AWS icon nodes: transparent background + icon image
@@ -115,8 +116,8 @@ const CloudMapPage: React.FC = () => {
   const [mode, setMode] = useState<CloudMapMode>('live');
 
   // Cytoscape refs
-  const cyRef        = useRef<any>(null);
-  const ehRef        = useRef<any>(null);
+  const cyRef = useRef<any>(null);
+  const ehRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Undo / Redo stacks (JSON snapshots)
@@ -124,44 +125,54 @@ const CloudMapPage: React.FC = () => {
   const redoStack = useRef<string[]>([]);
 
   // Live ref so renderGraph (stable callback) can always call latest snapshot fn
-  const takeSnapshotRef = useRef<() => void>(() => {});
+  const takeSnapshotRef = useRef<() => void>(() => { });
 
   // Inline label editor
   const labelInputRef = useRef<HTMLInputElement>(null);
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  const [infoPanelOpen,    setInfoPanelOpen]    = useState(false);
+  const [infoPanelOpen, setInfoPanelOpen] = useState(false);
   const [selectedNodeData, setSelectedNodeData] = useState<NodeData | null>(null);
-  const [showEmptyState,   setShowEmptyState]   = useState(false);
-  const [messageOverlay,   setMessageOverlay]   = useState<{ show: boolean; title: string }>({ show: false, title: '' });
+  const [showEmptyState, setShowEmptyState] = useState(false);
+  const [messageOverlay, setMessageOverlay] = useState<{ show: boolean; title: string }>({ show: false, title: '' });
   const [selectedVpcValue, setSelectedVpcValue] = useState<string>('');
-  const [showGrid,         setShowGrid]         = useState(true);
-  const [zoomLevel,        setZoomLevel]        = useState(100);
+  const [showGrid, setShowGrid] = useState(true);
+  const [zoomLevel, setZoomLevel] = useState(100);
 
   // Design-mode specific state
   const [selectedElement, setSelectedElement] = useState<ElementProperties | null>(null);
-  const [contextMenu,     setContextMenu]     = useState<{
+  const [contextMenu, setContextMenu] = useState<{
     x: number; y: number; elementId: string; elementType: 'node' | 'edge';
   } | null>(null);
   const [labelEditor, setLabelEditor] = useState<{
     x: number; y: number; elementId: string; value: string;
   } | null>(null);
-  const [showSaveModal,        setShowSaveModal]        = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
   const [currentBlueprintName, setCurrentBlueprintName] = useState('');
-  const [snapToGrid,           setSnapToGrid]           = useState(false);
-  const [showLayoutMenu,       setShowLayoutMenu]       = useState(false);
-  const [selectedCount,        setSelectedCount]        = useState(0);
-  const [drawEdgeMode,         setDrawEdgeMode]         = useState(false);
-  const cdndRef        = useRef<any>(null);
-  const snapToGridRef  = useRef(false);
+  const [snapToGrid, setSnapToGrid] = useState(false);
+  const [showLayoutMenu, setShowLayoutMenu] = useState(false);
+  const [selectedCount, setSelectedCount] = useState(0);
+  const [drawEdgeMode, setDrawEdgeMode] = useState(false);
+  const cdndRef = useRef<any>(null);
+  const snapToGridRef = useRef(false);
   const drawEdgeModeRef = useRef(false);
 
   // Hook
   const {
-    loadingVpcs, vpcError,
-    graphElements, loadingGraph, graphError, loadGraph,
-    blueprints, selectedBlueprintId, savingBlueprint,
-    saveBlueprint, loadBlueprint, clearBlueprint, exportToPng,
+    loadingVpcs,
+    vpcError,
+    graphElements,
+    loadingGraph,
+    graphError,
+    loadGraph,
+    loadAllGraphs,
+    blueprints,
+    selectedBlueprintId,
+    savingBlueprint,
+    saveBlueprint,
+    loadBlueprint,
+    clearBlueprint,
+    exportToPng,
   } = useCloudMap({ accountId, mode });
 
   // ── Snapshot / Undo / Redo ────────────────────────────────────────────────
@@ -173,10 +184,7 @@ const CloudMapPage: React.FC = () => {
     redoStack.current = [];
   }, []);
 
-  // Keep the ref current every render
   useEffect(() => { takeSnapshotRef.current = takeSnapshot; }, [takeSnapshot]);
-
-  // Keep snapToGridRef in sync with state (renderGraph closes over a stale value)
   useEffect(() => { snapToGridRef.current = snapToGrid; }, [snapToGrid]);
   useEffect(() => { drawEdgeModeRef.current = drawEdgeMode; }, [drawEdgeMode]);
 
@@ -203,8 +211,12 @@ const CloudMapPage: React.FC = () => {
   useEffect(() => {
     if (mode === 'live' && accountId) {
       fetchAwsVpcs(accountId).then(vpcsData => {
-        if (vpcsData.length > 0) setSelectedVpcValue('ALL');
-      }).catch(err => console.error('Error loading VPCs:', err));
+        if (vpcsData.length > 0) {
+          setSelectedVpcValue(ALL_VPCS_VALUE);
+        }
+      }).catch(err => {
+        console.error('Error loading VPCs:', err);
+      });
     }
   }, [accountId, mode, fetchAwsVpcs]);
 
@@ -275,19 +287,20 @@ const CloudMapPage: React.FC = () => {
           'background-image': 'none',
         },
       },
-      { selector: 'node[isContainer]', style: {
+      {
+        selector: 'node[isContainer]', style: {
           'background-opacity': 0.08, 'border-width': 2, 'border-style': 'dashed',
           'text-valign': 'top', 'text-halign': 'left', 'font-size': '11px', 'font-weight': 'bold',
           'padding': '40px', 'min-width': '200px', 'min-height': '120px',
           'background-image': 'none',
         }
       },
-      { selector: 'node[containerType="vpc"]',    style: { 'border-color': '#6366f1', 'background-color': '#eef2ff' } },
+      { selector: 'node[containerType="vpc"]', style: { 'border-color': '#6366f1', 'background-color': '#eef2ff' } },
       { selector: 'node[containerType="subnet"]', style: { 'border-color': '#0ea5e9', 'background-color': '#e0f2fe' } },
-      { selector: 'node[containerType="az"]',     style: { 'border-color': '#f97316', 'background-color': '#fff7ed' } },
-      { selector: 'node[containerType="sg"]',     style: { 'border-color': '#ef4444', 'background-color': '#fef2f2' } },
+      { selector: 'node[containerType="az"]', style: { 'border-color': '#f97316', 'background-color': '#fff7ed' } },
+      { selector: 'node[containerType="sg"]', style: { 'border-color': '#ef4444', 'background-color': '#fef2f2' } },
       { selector: 'node[containerType="region"]', style: { 'border-color': '#8b5cf6', 'background-color': '#faf5ff' } },
-      { selector: 'node[type="VPC"]:parent',    style: { 'border-color': '#6366f1', 'background-color': '#eef2ff', 'background-opacity': 0.3 } },
+      { selector: 'node[type="VPC"]:parent', style: { 'border-color': '#6366f1', 'background-color': '#eef2ff', 'background-opacity': 0.3 } },
       { selector: 'node[type="Subnet"]:parent', style: { 'border-color': '#0ea5e9', 'background-color': '#e0f2fe', 'background-opacity': 0.4 } },
       // Shape-type nodes (generic shapes from Shapes tab) — use inline styles applied by applyElementStyle
       {
@@ -327,7 +340,8 @@ const CloudMapPage: React.FC = () => {
         },
       },
       // Edge handles — large enough to click easily
-      { selector: '.eh-handle', style: {
+      {
+        selector: '.eh-handle', style: {
           'background-color': '#667eea',
           'border-color': '#ffffff',
           'border-width': 2,
@@ -339,10 +353,11 @@ const CloudMapPage: React.FC = () => {
           'z-index': 9999,
         }
       },
-      { selector: '.eh-hover',  style: { 'background-color': '#667eea', 'border-width': 3, 'border-color': '#4338ca' } },
+      { selector: '.eh-hover', style: { 'background-color': '#667eea', 'border-width': 3, 'border-color': '#4338ca' } },
       { selector: '.eh-source', style: { 'border-width': 3, 'border-color': '#667eea' } },
       { selector: '.eh-target', style: { 'border-width': 3, 'border-color': '#667eea', 'border-opacity': 1 } },
-      { selector: '.eh-preview, .eh-ghost-edge', style: {
+      {
+        selector: '.eh-preview, .eh-ghost-edge', style: {
           'background-color': '#667eea', 'line-color': '#667eea',
           'target-arrow-color': '#667eea', 'source-arrow-color': '#667eea',
           'line-style': 'dashed',
@@ -356,8 +371,8 @@ const CloudMapPage: React.FC = () => {
         selector: `node[type="${type}"]`,
         style: {
           'background-color': TAILWIND_COLORS[data.color as keyof typeof TAILWIND_COLORS]?.[100] || '#f3f4f6',
-          'border-color':     TAILWIND_COLORS[data.color as keyof typeof TAILWIND_COLORS]?.[500] || '#6b7280',
-          'border-style':     data.style || 'solid',
+          'border-color': TAILWIND_COLORS[data.color as keyof typeof TAILWIND_COLORS]?.[500] || '#6b7280',
+          'border-style': data.style || 'solid',
         },
       });
     }
@@ -372,15 +387,15 @@ const CloudMapPage: React.FC = () => {
     return {
       id: el.id(),
       elementType: isEdge ? 'edge' : 'node',
-      label:       el.data('label')     || '',
-      fillColor:   el.data('fillColor') || (isEdge ? '#9ca3af' : '#f3f4f6'),
+      label: el.data('label') || '',
+      fillColor: el.data('fillColor') || (isEdge ? '#9ca3af' : '#f3f4f6'),
       borderColor: el.data('borderColor') || '#e5e7eb',
-      nodeShape:   el.data('nodeShape') || 'rectangle',
-      edgeStyle:   el.data('edgeStyle') || 'bezier',
-      arrowType:   el.data('arrowType') || 'triangle',
-      fontSize:    el.data('fontSize')  || 11,
-      width:       Math.round(isEdge ? 0 : (el.width()  || 50)),
-      height:      Math.round(isEdge ? 0 : (el.height() || 50)),
+      nodeShape: el.data('nodeShape') || 'rectangle',
+      edgeStyle: el.data('edgeStyle') || 'bezier',
+      arrowType: el.data('arrowType') || 'triangle',
+      fontSize: el.data('fontSize') || 11,
+      width: Math.round(isEdge ? 0 : (el.width() || 50)),
+      height: Math.round(isEdge ? 0 : (el.height() || 50)),
     };
   }, []);
 
@@ -422,7 +437,7 @@ const CloudMapPage: React.FC = () => {
       elements: valid,
       layout: isEditable
         ? { name: 'preset' }
-        : { name: 'dagre', nodeSep: 80, rankDir: 'TB' } as any,
+        : { name: 'dagre', nodeSep: 60, rankSep: 100, rankDir: 'TB', fit: false } as any,
       style: getCytoscapeStyle(),
       wheelSensitivity: 0.2,
     });
@@ -433,14 +448,40 @@ const CloudMapPage: React.FC = () => {
     cy.elements().forEach(applyElementStyle);
     cy.style().update();
 
+    // Multi-VPC grid layout (live mode only) — dagre stacks disconnected VPCs
+    // horizontally; rearrange into a readable grid instead
+    if (!isEditable) {
+      const vpcRoots = cy.nodes('[type="VPC"]');
+      if (vpcRoots.length > 1) {
+        const COLS  = vpcRoots.length > 4 ? 3 : 2;
+        const GAP_X = 120, GAP_Y = 120;
+        let maxW = 0, maxH = 0;
+        vpcRoots.forEach((n: any) => {
+          const bb = n.boundingBox({});
+          maxW = Math.max(maxW, bb.w);
+          maxH = Math.max(maxH, bb.h);
+        });
+        vpcRoots.forEach((n: any, i: number) => {
+          const col = i % COLS, row = Math.floor(i / COLS);
+          const bb = n.boundingBox({});
+          const curCx = (bb.x1 + bb.x2) / 2, curCy = (bb.y1 + bb.y2) / 2;
+          const targetCx = col * (maxW + GAP_X) + maxW / 2;
+          const targetCy = row * (maxH + GAP_Y) + maxH / 2;
+          n.descendants().union(n).shift({ x: targetCx - curCx, y: targetCy - curCy });
+        });
+      }
+      cy.fit(undefined, 50);
+      if (cy.zoom() < 0.55) { cy.zoom(0.55); cy.center(); }
+    }
+
     // Compound drag-and-drop (design mode — allows drop-to-reparent)
     if (isEditable) {
       cdndRef.current = (cy as any).compoundDragAndDrop({
         grabbedNode: (node: any) => !node.data('isContainer'),
-        dropTarget:  (target: any) => target.data('isContainer') === true,
+        dropTarget: (target: any) => target.data('isContainer') === true,
         dropSibling: () => false,
         overThreshold: 10,
-        outThreshold:  10,
+        outThreshold: 10,
       });
     }
 
@@ -448,8 +489,8 @@ const CloudMapPage: React.FC = () => {
     cy.on('dragfree', 'node', (evt: any) => {
       if (!snapToGridRef.current) return;
       const node = evt.target;
-      const pos  = node.position();
-      const G    = 24;
+      const pos = node.position();
+      const G = 24;
       node.position({ x: Math.round(pos.x / G) * G, y: Math.round(pos.y / G) * G });
     });
 
@@ -502,8 +543,8 @@ const CloudMapPage: React.FC = () => {
     // Right-click → context menu
     cy.on('cxttap', 'node, edge', (evt: any) => {
       if (!isEditable) return;
-      const el  = evt.target;
-      const rp  = evt.renderedPosition;
+      const el = evt.target;
+      const rp = evt.renderedPosition;
       const rect = containerRef.current!.getBoundingClientRect();
       setContextMenu({ x: rect.left + rp.x, y: rect.top + rp.y, elementId: el.id(), elementType: el.isEdge() ? 'edge' : 'node' });
     });
@@ -547,10 +588,10 @@ const CloudMapPage: React.FC = () => {
   // ── Message overlay ───────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (loadingVpcs)    { setMessageOverlay({ show: true, title: 'Loading VPCs...' }); return; }
-    if (loadingGraph)   { setMessageOverlay({ show: true, title: 'Loading AWS Topology...' }); return; }
-    if (vpcError)       { setMessageOverlay({ show: true, title: `Error: ${vpcError}` }); return; }
-    if (graphError)     { setMessageOverlay({ show: true, title: `Error: ${graphError}` }); return; }
+    if (loadingVpcs) { setMessageOverlay({ show: true, title: 'Loading VPCs...' }); return; }
+    if (loadingGraph) { setMessageOverlay({ show: true, title: 'Loading AWS Topology...' }); return; }
+    if (vpcError) { setMessageOverlay({ show: true, title: `Error: ${vpcError}` }); return; }
+    if (graphError) { setMessageOverlay({ show: true, title: `Error: ${graphError}` }); return; }
     setMessageOverlay({ show: false, title: '' });
   }, [loadingVpcs, loadingGraph, vpcError, graphError]);
 
@@ -781,8 +822,12 @@ const CloudMapPage: React.FC = () => {
   const handleVpcChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     setSelectedVpcValue(value);
-    loadGraph(value);
-  }, [loadGraph]);
+    if (value === ALL_VPCS_VALUE) {
+      loadAllGraphs(awsVpcs);
+    } else {
+      loadGraph(value);
+    }
+  }, [setSelectedVpcValue, loadGraph, loadAllGraphs, awsVpcs]);
 
   const handleBlueprintChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
@@ -807,7 +852,7 @@ const CloudMapPage: React.FC = () => {
   const handleSaveConfirm = useCallback(async (name: string) => {
     if (!cyRef.current) return;
     try {
-      const graphData = JSON.stringify(cyRef.current.json().elements);
+      const graphData = JSON.stringify(cyRef.current.elements().jsons());
       await saveBlueprint(name, graphData);
       setCurrentBlueprintName(name);
       setShowSaveModal(false);
@@ -848,12 +893,12 @@ const CloudMapPage: React.FC = () => {
     if (!cyRef.current) return;
     takeSnapshotRef.current();
     const opts: Record<string, any> = {
-      dagre_tb:     { name: 'dagre',       rankDir: 'TB', nodeSep: 60, rankSep: 80,  animate: true },
-      dagre_lr:     { name: 'dagre',       rankDir: 'LR', nodeSep: 60, rankSep: 80,  animate: true },
-      fcose:        { name: 'fcose',       animate: true, randomize: false, nodeSeparation: 75, idealEdgeLength: 100 },
-      breadthfirst: { name: 'breadthfirst', directed: true,  animate: true, padding: 20 },
-      circle:       { name: 'breadthfirst', circular: true,  animate: true, padding: 20 },
-      grid:         { name: 'grid',        animate: true, padding: 20 },
+      dagre_tb: { name: 'dagre', rankDir: 'TB', nodeSep: 60, rankSep: 80, animate: true },
+      dagre_lr: { name: 'dagre', rankDir: 'LR', nodeSep: 60, rankSep: 80, animate: true },
+      fcose: { name: 'fcose', animate: true, randomize: false, nodeSeparation: 75, idealEdgeLength: 100 },
+      breadthfirst: { name: 'breadthfirst', directed: true, animate: true, padding: 20 },
+      circle: { name: 'breadthfirst', circular: true, animate: true, padding: 20 },
+      grid: { name: 'grid', animate: true, padding: 20 },
     };
     cyRef.current.layout(opts[name] || opts.dagre_tb).run();
     setShowLayoutMenu(false);
@@ -895,7 +940,7 @@ const CloudMapPage: React.FC = () => {
     let bestArea = Infinity;
     containers.forEach((container: any) => {
       if (container.id() === newNode.id()) return;
-      const bb  = container.boundingBox();
+      const bb = container.boundingBox();
       const pos = newNode.position();
       if (pos.x >= bb.x1 && pos.x <= bb.x2 && pos.y >= bb.y1 && pos.y <= bb.y2) {
         const area = (bb.x2 - bb.x1) * (bb.y2 - bb.y1);
@@ -940,18 +985,18 @@ const CloudMapPage: React.FC = () => {
     );
     if (nodes.length < 3) return;
     takeSnapshotRef.current();
-    const arr   = nodes.toArray();
+    const arr = nodes.toArray();
     const first = arr[0];
-    const last  = arr[arr.length - 1];
+    const last = arr[arr.length - 1];
     const total = axis === 'h'
       ? last.position('x') - first.position('x')
       : last.position('y') - first.position('y');
-    const step     = total / (arr.length - 1);
+    const step = total / (arr.length - 1);
     const startVal = axis === 'h' ? first.position('x') : first.position('y');
     arr.forEach((n: any, i: number) => {
       if (i === 0 || i === arr.length - 1) return;
       if (axis === 'h') n.position('x', startVal + step * i);
-      else              n.position('y', startVal + step * i);
+      else n.position('y', startVal + step * i);
     });
   }, []);
 
@@ -998,7 +1043,7 @@ const CloudMapPage: React.FC = () => {
     if (mode !== 'design' || !cyRef.current) return;
     e.preventDefault();
 
-    const type        = e.dataTransfer.getData('type');
+    const type = e.dataTransfer.getData('type');
     const iconDataStr = e.dataTransfer.getData('iconData');
     const shapeDataStr = e.dataTransfer.getData('shapeData');
 
@@ -1008,10 +1053,10 @@ const CloudMapPage: React.FC = () => {
     if (!rect) return;
 
     const zoom = cyRef.current.zoom();
-    const pan  = cyRef.current.pan();
-    const pos  = {
-      x: (e.clientX - rect.left  - pan.x) / zoom,
-      y: (e.clientY - rect.top   - pan.y) / zoom,
+    const pan = cyRef.current.pan();
+    const pos = {
+      x: (e.clientX - rect.left - pan.x) / zoom,
+      y: (e.clientY - rect.top - pan.y) / zoom,
     };
 
     takeSnapshotRef.current();
@@ -1019,17 +1064,17 @@ const CloudMapPage: React.FC = () => {
     if (type === 'generic-shape' && shapeDataStr) {
       const shape: GenericShape = JSON.parse(shapeDataStr);
       const nodeData: any = {
-        id:          'node-' + Date.now(),
-        label:       shape.defaultLabel ?? shape.label,
-        type:        'shape',
-        nodeShape:   shape.cytoscapeShape,
-        fillColor:   shape.fillColor   !== 'transparent' ? shape.fillColor   : undefined,
-        borderColor: shape.borderColor !== 'none'        ? shape.borderColor : undefined,
+        id: 'node-' + Date.now(),
+        label: shape.defaultLabel ?? shape.label,
+        type: 'shape',
+        nodeShape: shape.cytoscapeShape,
+        fillColor: shape.fillColor !== 'transparent' ? shape.fillColor : undefined,
+        borderColor: shape.borderColor !== 'none' ? shape.borderColor : undefined,
       };
       if (shape.isContainer) {
-        nodeData.isContainer   = true;
+        nodeData.isContainer = true;
         nodeData.containerType = shape.containerType;
-        nodeData.type          = 'container';
+        nodeData.type = 'container';
       }
       const newNode = cyRef.current.add({ group: 'nodes', data: nodeData, position: pos });
       if (shape.isContainer) {
@@ -1081,23 +1126,23 @@ const CloudMapPage: React.FC = () => {
   const handleShapeSelect = (shape: GenericShape) => {
     if (mode !== 'design' || !cyRef.current) return;
     takeSnapshotRef.current();
-    const pos      = getCanvasCenter();
+    const pos = getCanvasCenter();
     const nodeData: any = {
-      id:          'node-' + Date.now(),
-      label:       shape.defaultLabel ?? shape.label,
-      type:        'shape',
-      nodeShape:   shape.cytoscapeShape,
-      fillColor:   shape.fillColor   !== 'transparent' ? shape.fillColor   : undefined,
-      borderColor: shape.borderColor !== 'none'        ? shape.borderColor : undefined,
+      id: 'node-' + Date.now(),
+      label: shape.defaultLabel ?? shape.label,
+      type: 'shape',
+      nodeShape: shape.cytoscapeShape,
+      fillColor: shape.fillColor !== 'transparent' ? shape.fillColor : undefined,
+      borderColor: shape.borderColor !== 'none' ? shape.borderColor : undefined,
     };
     if (shape.isContainer) {
-      nodeData.isContainer   = true;
+      nodeData.isContainer = true;
       nodeData.containerType = shape.containerType;
-      nodeData.type          = 'container';
+      nodeData.type = 'container';
     }
     const newNode = cyRef.current.add({
       group: 'nodes',
-      data:  nodeData,
+      data: nodeData,
       position: { x: pos.x + Math.random() * 40 - 20, y: pos.y + Math.random() * 40 - 20 },
     });
     if (shape.isContainer) {
@@ -1317,12 +1362,12 @@ const CloudMapPage: React.FC = () => {
                   {showLayoutMenu && (
                     <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-2xl border border-gray-100 py-1.5 z-[200] min-w-[160px]">
                       {[
-                        { id: 'dagre_tb',     label: 'Hierarchical ↓',  icon: 'fa-arrow-down' },
-                        { id: 'dagre_lr',     label: 'Hierarchical →',  icon: 'fa-arrow-right' },
-                        { id: 'fcose',        label: 'Organic',         icon: 'fa-circle-nodes' },
-                        { id: 'breadthfirst', label: 'Tree',            icon: 'fa-sitemap' },
-                        { id: 'circle',       label: 'Circle',          icon: 'fa-circle-dot' },
-                        { id: 'grid',         label: 'Grid',            icon: 'fa-th' },
+                        { id: 'dagre_tb', label: 'Hierarchical ↓', icon: 'fa-arrow-down' },
+                        { id: 'dagre_lr', label: 'Hierarchical →', icon: 'fa-arrow-right' },
+                        { id: 'fcose', label: 'Organic', icon: 'fa-circle-nodes' },
+                        { id: 'breadthfirst', label: 'Tree', icon: 'fa-sitemap' },
+                        { id: 'circle', label: 'Circle', icon: 'fa-circle-dot' },
+                        { id: 'grid', label: 'Grid', icon: 'fa-th' },
                       ].map(opt => (
                         <button
                           key={opt.id}
@@ -1351,12 +1396,12 @@ const CloudMapPage: React.FC = () => {
                   <>
                     <div className="toolbar-separator" />
                     {([
-                      { dir: 'left',    icon: 'fa-align-left',    title: 'Align Left' },
-                      { dir: 'hcenter', icon: 'fa-align-center',  title: 'Align Center (H)' },
-                      { dir: 'right',   icon: 'fa-align-right',   title: 'Align Right' },
-                      { dir: 'top',     icon: 'fa-arrows-alt-h',  title: 'Align Top' },
+                      { dir: 'left', icon: 'fa-align-left', title: 'Align Left' },
+                      { dir: 'hcenter', icon: 'fa-align-center', title: 'Align Center (H)' },
+                      { dir: 'right', icon: 'fa-align-right', title: 'Align Right' },
+                      { dir: 'top', icon: 'fa-arrows-alt-h', title: 'Align Top' },
                       { dir: 'vcenter', icon: 'fa-align-justify', title: 'Align Middle (V)' },
-                      { dir: 'bottom',  icon: 'fa-border-bottom', title: 'Align Bottom' },
+                      { dir: 'bottom', icon: 'fa-border-bottom', title: 'Align Bottom' },
                     ] as const).map(b => (
                       <Tooltip key={b.dir} text={b.title}>
                         <button className="toolbar-button" onClick={() => alignNodes(b.dir)}>

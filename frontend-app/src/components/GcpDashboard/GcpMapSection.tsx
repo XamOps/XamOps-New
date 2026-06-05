@@ -172,6 +172,14 @@ const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, 
                                         <circle r={22 / zoom} fill={color} fillOpacity={0.15} />
                                         <circle r={14 / zoom} fill={color} fillOpacity={0.30} />
                                         <circle r={8 / zoom} fill={color} stroke="#fff" strokeWidth={2.5 / zoom} style={{ cursor: 'pointer' }} />
+                                        <rect x={-44 / zoom} y={13 / zoom} width={88 / zoom} height={16 / zoom} rx={3 / zoom} fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.1)" strokeWidth={0.5 / zoom} />
+                                        <text
+                                            textAnchor="middle"
+                                            y={25 / zoom}
+                                            style={{ fontSize: 11 / zoom, fill: '#111827', fontFamily: 'inherit', fontWeight: 700, pointerEvents: 'none' }}
+                                        >
+                                            {region.region}
+                                        </text>
                                     </Marker>
                                 );
                             })}

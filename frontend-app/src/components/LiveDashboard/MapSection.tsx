@@ -108,6 +108,15 @@ const MapSection: React.FC<MapSectionProps> = ({ regionStatus, isLoading }) => {
                   <circle r={14} fill={color} fillOpacity={0.30} />
                   {/* Solid centre dot with stroke ring */}
                   <circle r={8} fill={color} stroke="#fff" strokeWidth={2.5} />
+                  {/* Region name label — white pill for readability on dotted map */}
+                  <rect x={-44} y={13} width={88} height={16} rx={3} fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.1)" strokeWidth={0.5} />
+                  <text
+                    textAnchor="middle"
+                    y={25}
+                    style={{ fontSize: 11, fill: '#111827', fontFamily: 'inherit', fontWeight: 700, pointerEvents: 'none' }}
+                  >
+                    {r.regionName ?? r.regionId}
+                  </text>
                 </Marker>
               );
             })}

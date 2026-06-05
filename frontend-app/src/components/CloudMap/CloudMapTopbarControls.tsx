@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { ALL_VPCS_VALUE } from '../../types/cloudmap';
 import type { CloudMapMode } from '../../types/cloudmap';
 
 interface VPC {
@@ -94,9 +95,9 @@ const CloudMapTopbarControls: React.FC<CloudMapTopbarControlsProps> = ({
                         onChange={onVpcChange}
                         className="px-3 py-1.5 text-xs font-medium bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     >
-                        {loadingVpcs && <option value="">Loading...</option>}
-                        {!loadingVpcs && vpcs.length === 0 && <option value="">No VPCs found</option>}
-                        {!loadingVpcs && vpcs.length > 0 && vpcs.map((vpc) => (
+                        <option value={ALL_VPCS_VALUE}>All VPCs</option>
+                        {loadingVpcs && <option value="" disabled>Loading...</option>}
+                        {!loadingVpcs && vpcs.map((vpc) => (
                             <option key={vpc.id} value={`${vpc.id}|${vpc.region}`}>
                                 {vpc.name} ({vpc.id} - {vpc.region})
                             </option>

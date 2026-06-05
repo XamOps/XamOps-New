@@ -12,33 +12,34 @@ interface WasteResourceGroupProps {
 }
 
 const SERVICE_ICONS: Record<string, string> = {
-  'EC2 Instance': 'mdi:server',
-  'EBS Volume': 'mdi:harddisk',
-  'RDS Instance': 'mdi:database',
-  'Lambda': 'mdi:function',
-  'S3 Bucket': 'mdi:bucket',
-  'Load Balancer': 'mdi:scale-balance',
-  'Auto Scaling Group': 'mdi:auto-fix',
-  'VPC': 'mdi:network',
-  'Security Group': 'mdi:shield-lock-outline',
-  'Route 53 Zone': 'mdi:dns',
+  'EC2 Instance':        'mdi:server',
+  'EBS Volume':          '/icons/aws-ebs-volume.svg',
+  'RDS Instance':        'mdi:database',
+  'Lambda':              '/icons/aws-lambda-function.svg',
+  'S3 Bucket':           'mdi:bucket',
+  'Load Balancer':       '/icons/aws-alb.svg',
+  'Auto Scaling Group':  '/icons/aws-ec2-autoscaling.svg',
+  'VPC':                 'mdi:lan',
+  'Security Group':      'mdi:shield-lock-outline',
+  'Route 53 Zone':       '/icons/aws-route53-zone.svg',
   'ElastiCache Cluster': 'mdi:lightning-bolt',
-  'DynamoDB Table': 'mdi:table',
-  'ECR Repository': 'mdi:docker',
-  'CloudTrail': 'mdi:clipboard-text-clock',
-  'Certificate Manager': 'mdi:certificate-outline',
-  'CloudWatch Log Group': 'mdi:chart-line',
-  'SNS Topic': 'mdi:bell-outline',
-  'SQS Queue': 'mdi:tray-full',
-  'Elastic IP': 'mdi:ip-network',
-  'Snapshot': 'mdi:camera',
-  'AMI': 'mdi:disc',
-  'ENI': 'mdi:ethernet',
-  'EKS Cluster': 'mdi:kubernetes',
-  'ECS Cluster': 'mdi:docker',
-  'DB Snapshot': 'mdi:database-clock',
-  'Log Group': 'mdi:text-box-outline',
-  'EFS File System': 'mdi:folder-network',
+  'DynamoDB Table':      'mdi:table',
+  'ECR Repository':      'mdi:package-variant-closed',
+  'CloudTrail':          'mdi:clipboard-text-clock',
+  'Certificate Manager': '/icons/aws-certificate-manager.svg',
+  'CloudWatch Log Group':'/icons/aws-cloudwatch-logs.svg',
+  'SNS Topic':           '/icons/aws-sns-topic.svg',
+  'EventBridge':         '/icons/aws-eventbridge.svg',
+  'SQS Queue':           '/icons/aws-sqs-queue.svg',
+  'Elastic IP':          'mdi:ip-network',
+  'Snapshot':            '/icons/ebs-snapshot.svg',
+  'AMI':                 'mdi:disc',
+  'ENI':                 'mdi:ethernet',
+  'EKS Cluster':         'mdi:kubernetes',
+  'ECS Cluster':         'mdi:layers-triple',
+  'DB Snapshot':         '/icons/ebs-snapshot.svg',
+  'Log Group':           '/icons/aws-cloudwatch-logs.svg',
+  'EFS File System':     '/icons/aws-efs.svg',
 };
 
 const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
@@ -130,7 +131,9 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
           <div className="w-8 h-8 rounded-lg flex items-center justify-center border border-[rgba(0,0,0,0.08)]" style={{ backgroundColor: '#DC262608' }}>
-            <Icon icon={icon} width={16} color="#DC2626" />
+            {icon.startsWith('/')
+              ? <img src={icon} width={16} height={16} style={{ objectFit: 'contain' }} />
+              : <Icon icon={icon} width={16} color="#DC2626" />}
           </div>
           <div>
             <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">{serviceType}</p>
