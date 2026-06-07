@@ -63,8 +63,9 @@ public class ObservabilityController {
             ObservabilityConfig config = openObserveService.provisionTenant(client);
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
             logger.error("getConfig failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while fetching configuration."));
         }
     }
 
@@ -83,8 +84,9 @@ public class ObservabilityController {
             ObservabilityConfig config = openObserveService.updateConfig(clientId, retentionDays);
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
             logger.error("updateConfig failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while updating configuration."));
         }
     }
 
@@ -98,8 +100,9 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.getOverviewStats(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
             logger.error("getOverview failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while fetching overview stats."));
         }
     }
 
@@ -114,8 +117,9 @@ public class ObservabilityController {
                     openObserveService.listStreams(userDetails.getClientId(), providerAccountId);
             return ResponseEntity.ok(streams);
         } catch (Exception e) {
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
             logger.error("listStreams failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while listing streams."));
         }
     }
 
@@ -131,8 +135,9 @@ public class ObservabilityController {
             Map<String, Object> result = openObserveService.searchLogs(userDetails.getClientId(), params);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
             logger.error("searchLogs failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while searching logs."));
         }
     }
 
@@ -148,8 +153,9 @@ public class ObservabilityController {
             Map<String, Object> result = openObserveService.getLogHistogram(userDetails.getClientId(), params);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
             logger.error("getLogHistogram failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while fetching log histogram."));
         }
     }
 
@@ -170,8 +176,9 @@ public class ObservabilityController {
                     userDetails.getClientId(), providerAccountId, query, start, end, step);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
             logger.error("queryMetrics failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while querying metrics."));
         }
     }
 
@@ -185,8 +192,9 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.getClusters(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
             logger.error("getClusters failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while fetching clusters."));
         }
     }
 
@@ -201,7 +209,9 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateFluentBitConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("generateFluentBitConfig failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("An unexpected error occurred while generating fluent-bit config.");
         }
     }
 
@@ -214,7 +224,9 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateHelmValues(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("getHelmValues failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("An unexpected error occurred while generating helm values.");
         }
     }
 
@@ -227,7 +239,9 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateOtelCollectorConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("getOtelConfig failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("An unexpected error occurred while generating otel config.");
         }
     }
 
@@ -244,7 +258,9 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateHelmEksCommand(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("getHelmEksCommand failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("An unexpected error occurred while generating helm-eks command.");
         }
     }
 
@@ -261,7 +277,9 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateEc2OtelConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("getEc2OtelConfig failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("An unexpected error occurred while generating ec2-otel config.");
         }
     }
 
@@ -278,7 +296,9 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateGceOtelConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("getGceOtelConfig failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("An unexpected error occurred while generating gce-otel config.");
         }
     }
 
@@ -295,7 +315,9 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateAgentSecret(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("getAgentSecret failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("An unexpected error occurred while generating agent secret.");
         }
     }
 
@@ -317,7 +339,9 @@ public class ObservabilityController {
             String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             return ResponseEntity.ok().header("Content-Type", "text/plain").body(content);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("getAgentManifest failed for {}: {}", file, e.getMessage());
+            return ResponseEntity.internalServerError().body("An unexpected error occurred while serving agent manifest.");
         }
     }
 
@@ -331,7 +355,9 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.listAlerts(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("listAlerts failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while listing alerts."));
         }
     }
 
@@ -344,7 +370,9 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.createAlert(userDetails.getClientId(), providerAccountId, body));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("createAlert failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while creating alert."));
         }
     }
 
@@ -359,7 +387,9 @@ public class ObservabilityController {
             openObserveService.deleteAlert(userDetails.getClientId(), providerAccountId, streamType, streamName, alertName);
             return ResponseEntity.ok(Map.of("deleted", true));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("deleteAlert failed for {}: {}", alertName, e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while deleting alert."));
         }
     }
 
@@ -375,7 +405,9 @@ public class ObservabilityController {
             openObserveService.toggleAlert(userDetails.getClientId(), providerAccountId, streamType, streamName, alertName, enable);
             return ResponseEntity.ok(Map.of("enabled", enable));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("toggleAlert failed for {}: {}", alertName, e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while toggling alert."));
         }
     }
 
@@ -389,7 +421,9 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.listDestinations(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("listDestinations failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while listing alert destinations."));
         }
     }
 
@@ -402,7 +436,9 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.saveDestination(userDetails.getClientId(), providerAccountId, body));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("saveDestination failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while saving alert destination."));
         }
     }
 
@@ -415,7 +451,9 @@ public class ObservabilityController {
             openObserveService.deleteDestination(userDetails.getClientId(), providerAccountId, name);
             return ResponseEntity.ok(Map.of("deleted", true));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            logger.error("deleteDestination failed for {}: {}", name, e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", "An unexpected error occurred while deleting alert destination."));
         }
     }
 

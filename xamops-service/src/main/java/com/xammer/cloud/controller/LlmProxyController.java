@@ -27,7 +27,7 @@ public class LlmProxyController {
 
     @RequestMapping(value = "/**",
                     method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE})
-    public ResponseEntity<String> proxyRequest(
+    public ResponseEntity<?> proxyRequest(
             HttpServletRequest request,
             @RequestBody(required = false) String body) {
         try {
@@ -35,7 +35,7 @@ public class LlmProxyController {
             String trackingKey = request.getHeader(TRACKING_HEADER);
             if (trackingKey == null || trackingKey.isBlank()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body("{\"error\":\"Missing X-XamOps-Key header. Get your tracking key from the XamOps AIOps dashboard.\"}");
+                        .body(java.util.Map.of("error", "Missing X-XamOps-Key header. Get your tracking key from the XamOps AIOps dashboard."));
             }
 
             // Extract sub-path after /api/llm-proxy
@@ -61,9 +61,11 @@ public class LlmProxyController {
             return proxyService.proxyRequest(trackingKey, subPath, method, headers, body, agentName);
 
         } catch (RuntimeException e) {
+            // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+            // The actual exception message is logged for internal debugging.
             logger.error("Proxy error: {}", e.getMessage());
             return ResponseEntity.badRequest()
-                    .body("{\"error\":\"" + e.getMessage() + "\"}");
+                    .body(java.util.Map.of("error", "An error occurred while processing the proxy request."));
         }
     }
 }
