@@ -71,7 +71,9 @@ public class GlobalExceptionHandler {
 
         Map<String, Object> body = new HashMap<>();
         body.put("timestamp", new Date());
-        body.put("message", "An unexpected error occurred: " + ex.getMessage());
+        // CWE-209 Mitigation: Return a generic error message to the client to avoid leaking internal implementation details.
+        // The actual exception message is logged above for internal debugging.
+        body.put("message", "An unexpected error occurred while processing your request. Please contact support if the issue persists.");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(body);
