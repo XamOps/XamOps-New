@@ -6,6 +6,7 @@ import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -24,6 +25,12 @@ public class DataInitializer implements CommandLineRunner {
     private final ClientRepository clientRepository;
     private final UserRepository userRepository;
     private final @Lazy PasswordEncoder passwordEncoder;
+
+    @Value("${app.default.superadmin.password}")
+    private String defaultSuperAdminPassword;
+
+    @Value("${app.default.demo.password}")
+    private String defaultDemoPassword;
 
     public DataInitializer(ClientRepository clientRepository, UserRepository userRepository, @Lazy PasswordEncoder passwordEncoder) {
         this.clientRepository = clientRepository;
@@ -48,8 +55,9 @@ public class DataInitializer implements CommandLineRunner {
         createSuperAdminIfMissing(defaultClient);
 
         // 3. Seed demo users (always, not gated on DB being empty)
-        createDemoUserIfMissing("Xammer Admin", "demo.xamops@xammer.in", "password", "ROLE_XAMOPS", defaultClient);
-        createDemoUserIfMissing("Xammer BillOps", "demo.billops@xammer.in", "password", "ROLE_BILLOPS_ADMIN", defaultClient);
+        // Sentinel: Use externalized default passwords instead of hardcoded strings (CWE-259)
+        createDemoUserIfMissing("Xammer Admin", "demo.xamops@xammer.in", defaultDemoPassword, "ROLE_XAMOPS", defaultClient);
+        createDemoUserIfMissing("Xammer BillOps", "demo.billops@xammer.in", defaultDemoPassword, "ROLE_BILLOPS_ADMIN", defaultClient);
     }
 
     private void createSuperAdminIfMissing(Client client) {
@@ -58,12 +66,14 @@ public class DataInitializer implements CommandLineRunner {
             logger.info("Creating Default SuperAdmin User...");
             User superAdmin = new User();
             superAdmin.setUsername("superadmin");
-            superAdmin.setPassword(passwordEncoder.encode("SuperAdmin@123")); // Default Password
+            // Sentinel: Use externalized superadmin password (CWE-259)
+            superAdmin.setPassword(passwordEncoder.encode(defaultSuperAdminPassword));
             superAdmin.setRole("ROLE_SUPER_ADMIN");
             superAdmin.setClient(client);
             superAdmin.setEmail("superadmin@xamops.com");
             userRepository.save(superAdmin);
-            logger.info(">>> SUPERADMIN CREATED | User: superadmin | Pass: SuperAdmin@123 <<<");
+            // Sentinel: Removed plain-text password logging (CWE-312)
+            logger.info(">>> SUPERADMIN CREATED | User: superadmin <<<");
         }
     }
 
