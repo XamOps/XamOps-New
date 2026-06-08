@@ -612,22 +612,6 @@ const CloudListPage: React.FC = () => {
     return iconMap[serviceType] || 'default-icon.png';
   };
 
-  /**
-   * Get state badge class
-   */
-  const getStateClass = (state: string): string => {
-    const s = (state || '').toLowerCase();
-    if (['running', 'available', 'active', 'in-use', 'issued'].includes(s)) {
-      return 'bg-green-100 text-green-800 border-green-200';
-    }
-    if (['stopped', 'terminated', 'deleting', 'inactive', 'expired'].includes(s)) {
-      return 'bg-red-100 text-red-800 border-red-200';
-    }
-    if (['pending', 'stopping', 'pending_validation'].includes(s)) {
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    }
-    return 'bg-gray-100 text-gray-800 border-gray-200';
-  };
 
   // Initialize WebSocket and load data
   useEffect(() => {
@@ -690,15 +674,15 @@ const CloudListPage: React.FC = () => {
   // Topbar Integration
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-4">
-        <div className="flex items-center space-x-2 bg-white/50 px-3 py-1.5 rounded-lg border border-slate-200/50 backdrop-blur-sm">
-          <div className={`w-2 h-2 rounded-full ${statusColor === 'green' ? 'bg-green-500 animate-pulse' : statusColor === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
-          <span className="text-xs font-medium text-slate-600">{statusMessage}</span>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.03)] rounded-lg border border-[rgba(0,0,0,0.08)]">
+          <div className={`w-1.5 h-1.5 rounded-full ${statusColor === 'green' ? 'bg-green-500 animate-pulse' : statusColor === 'yellow' ? 'bg-amber-400' : 'bg-red-500'}`}></div>
+          <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">{statusMessage}</span>
         </div>
         <button
           onClick={() => loadInitialResources(true)}
           disabled={isRefreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+          className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-xs font-bold rounded-xl hover:bg-black transition-all disabled:opacity-50"
         >
           <i className={`fas fa-sync-alt ${isRefreshing ? 'animate-spin' : ''}`}></i>
           <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
@@ -708,23 +692,34 @@ const CloudListPage: React.FC = () => {
     return () => clearActions();
   }, [setActions, clearActions, isRefreshing, statusMessage, statusColor, loadInitialResources]);
 
-  return (
-    <main className="cloudlist-page flex-1 flex flex-col overflow-hidden" style={{ minHeight: '100vh', background: '#f8fafc' }}>
-      {/* Header */}
-      {/* Content */}
+  const getStateBadge = (state: string) => {
+    const s = (state || '').toLowerCase();
+    if (['running', 'available', 'active', 'in-use', 'issued'].includes(s))
+      return 'bg-[#16A34A14] text-[#16A34A] border border-[#16A34A20]';
+    if (['stopped', 'terminated', 'deleting', 'inactive', 'expired'].includes(s))
+      return 'bg-[#DC262614] text-[#DC2626] border border-[#DC262620]';
+    if (['pending', 'stopping', 'pending_validation'].includes(s))
+      return 'bg-[#D9770614] text-[#D97706] border border-[#D9770620]';
+    return 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border border-[rgba(0,0,0,0.08)]';
+  };
 
-      {/* Content */}
+  return (
+    <main className="flex-1 flex flex-col overflow-hidden bg-white">
       <div className="flex-1 overflow-y-auto p-8">
+
         {/* Filters */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 mb-8 border border-gray-200/50 shadow-lg">
-          <div className="flex flex-wrap items-center justify-between gap-6">
-            <div className="flex items-center space-x-4 flex-1">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-4 mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3 flex-1 flex-wrap">
+              {/* Region select */}
               <div className="relative">
-                <i className="fas fa-globe absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[rgba(0,0,0,0.3)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" />
+                </svg>
                 <select
                   value={selectedRegion}
                   onChange={(e) => setSelectedRegion(e.target.value)}
-                  className="cloudlist-select pl-10 pr-4 py-3 rounded-xl border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 min-w-[200px]"
+                  className="pl-9 pr-8 py-2 text-[13px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white text-[rgba(0,0,0,0.88)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] min-w-[180px] appearance-none"
                 >
                   <option value="">All Regions</option>
                   {allRegions.map(region => (
@@ -732,23 +727,30 @@ const CloudListPage: React.FC = () => {
                   ))}
                 </select>
               </div>
-              <div className="relative flex-1 min-w-[350px]">
-                <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+
+              {/* Search */}
+              <div className="relative flex-1 min-w-[280px]">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[rgba(0,0,0,0.3)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search resources by name or ID..."
-                  className="cloudlist-input w-full pl-12 pr-4 py-3 rounded-xl border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                  placeholder="Search by name or ID…"
+                  className="w-full pl-9 pr-4 py-2 text-[13px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
                 />
               </div>
+
               {/* Label filter */}
               <div className="relative">
-                <i className="fas fa-tag absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[rgba(0,0,0,0.3)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
                 <select
                   value={filterLabelId}
                   onChange={(e) => setFilterLabelId(e.target.value)}
-                  className="cloudlist-select pl-10 pr-4 py-3 rounded-xl border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 min-w-[180px]"
+                  className="pl-9 pr-8 py-2 text-[13px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white text-[rgba(0,0,0,0.88)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)] min-w-[160px] appearance-none"
                 >
                   <option value="">All Labels</option>
                   {allLabels.map(l => (
@@ -757,413 +759,398 @@ const CloudListPage: React.FC = () => {
                 </select>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <p className="text-sm text-gray-600 font-medium">
-                Showing {totalResourceCount} resources from {allGroups.length} services
+
+            <div className="flex items-center gap-3">
+              <p className="text-[12px] text-[rgba(0,0,0,0.4)] font-medium whitespace-nowrap">
+                {totalResourceCount} resources · {allGroups.length} services
               </p>
               <button
                 onClick={exportData}
-                className="cloudlist-btn-primary px-6 py-3 text-sm font-semibold text-white rounded-xl shadow-md hover:shadow-lg"
+                className="flex items-center gap-2 px-4 py-2 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.03)] transition-colors"
               >
-                <i className="fas fa-file-excel mr-2"></i>Export Data
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export
               </button>
             </div>
           </div>
         </div>
 
-        {/* Bulk assign bar — appears when resources are checked */}
+        {/* Bulk assign bar */}
         {selectedResources.size > 0 && (
-          <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-3 mb-4 text-sm">
-            <span className="font-semibold text-indigo-700">{selectedResources.size} selected</span>
+          <div className="flex items-center gap-3 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-xl px-5 py-3 mb-4">
+            <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{selectedResources.size} selected</span>
             <select
               value={bulkLabelId}
               onChange={e => setBulkLabelId(e.target.value)}
-              className="border border-indigo-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              className="border border-[rgba(0,0,0,0.12)] rounded-lg px-3 py-1.5 text-[13px] bg-white text-[rgba(0,0,0,0.88)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
             >
-              <option value="">Assign label...</option>
+              <option value="">Assign label…</option>
               {allLabels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
             <button
               onClick={handleBulkAssign}
               disabled={!bulkLabelId}
-              className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+              className="px-4 py-1.5 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-lg hover:bg-black disabled:opacity-40 transition-colors"
             >
               Apply
             </button>
             <button
               onClick={() => setSelectedResources(new Set())}
-              className="ml-auto text-xs text-indigo-500 hover:text-indigo-700"
+              className="ml-auto text-[12px] text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.88)] transition-colors"
             >
-              Clear selection
+              Clear
             </button>
           </div>
         )}
 
         {/* Resource List */}
         {isLoading ? (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {[1, 2, 3, 4].map(i => (
-              <Skeleton key={i} variant="rounded" height={96} className="w-full shadow-sm" />
+              <Skeleton key={i} variant="rounded" height={72} className="w-full" />
             ))}
           </div>
         ) : filteredGroups.length === 0 ? (
-          <div className="cloudlist-empty-state text-center py-20 px-8 rounded-2xl">
-            <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-              <i className={`fas ${statusColor === 'yellow' ? 'fa-hourglass-half' : 'fa-search-minus'} text-white text-2xl`}></i>
+          <div className="text-center py-20 bg-white border border-[rgba(0,0,0,0.08)] rounded-xl">
+            <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-[rgba(0,0,0,0.25)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={statusColor === 'yellow' ? "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" : "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"} />
+              </svg>
             </div>
-            <h3 className="text-xl font-bold text-gray-800 mb-2">
-              {!selectedAccountId ? 'No Account Selected' : statusColor === 'yellow' ? 'Fetching Resources from AWS' : 'No Resources Found'}
-            </h3>
-            <p className="text-gray-600 mb-4">
+            <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">
+              {!selectedAccountId ? 'No Account Selected' : statusColor === 'yellow' ? 'Fetching Resources…' : 'No Resources Found'}
+            </p>
+            <p className="text-[13px] text-[rgba(0,0,0,0.4)] mb-5 max-w-sm mx-auto">
               {!selectedAccountId
-                ? 'Please use the sidebar to select a cloud account to view its resources.'
+                ? 'Select a cloud account from the sidebar to view resources.'
                 : statusColor === 'yellow'
-                  ? 'The backend is currently fetching resources from AWS. This may take 2-5 minutes for the first time. Please click the Refresh button after a few moments.'
-                  : 'No cloud resources were found for the selected account. Try clicking the Refresh button to fetch resources from AWS.'}
+                  ? 'The backend is fetching from AWS. This may take 2–5 minutes. Click Refresh when ready.'
+                  : 'No resources found for this account. Click Refresh to fetch from AWS.'}
             </p>
             {selectedAccountId && statusColor !== 'yellow' && (
               <button
                 onClick={() => loadInitialResources(true)}
                 disabled={isRefreshing}
-                className="px-6 py-3 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-5 py-2 text-[13px] font-semibold text-white bg-[rgba(0,0,0,0.88)] rounded-lg hover:bg-black disabled:opacity-50 transition-colors"
               >
                 <i className={`fas fa-sync-alt mr-2 ${isRefreshing ? 'animate-spin' : ''}`}></i>
-                {isRefreshing ? 'Fetching from AWS...' : 'Fetch Resources from AWS'}
+                {isRefreshing ? 'Fetching…' : 'Fetch from AWS'}
               </button>
             )}
           </div>
         ) : (
           <>
-            <div className="space-y-6">
+            <div className="space-y-3">
               {filteredGroups.map((group, index) => (
                 <AnimatedItem key={group.serviceType} index={index} delay={index * 0.04}>
-                <div
-                  className="cloudlist-service-group rounded-2xl shadow-lg border border-gray-200/50"
-                  style={group.resources.some(r => openPopoverResourceId === r.id)
-                    ? { overflow: 'visible', zIndex: 200, position: 'relative' }
-                    : { overflow: 'hidden' }}
-                >
-                  {/* Service Header */}
                   <div
-                    className="flex items-center justify-between p-6 cursor-pointer"
-                    onClick={() => toggleGroup(group.serviceType)}
+                    className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm"
+                    style={group.resources.some(r => openPopoverResourceId === r.id)
+                      ? { overflow: 'visible', zIndex: 200, position: 'relative' }
+                      : { overflow: 'hidden' }}
                   >
-                    <div className="flex items-center space-x-4 flex-1">
-                      <i className={`fas fa-chevron-right text-gray-400 w-5 text-center transition-all duration-200 ${expandedGroups.has(group.serviceType) ? 'rotate-90' : ''}`}></i>
-                      <div className="cloudlist-service-icon w-12 h-12 flex items-center justify-center rounded-xl">
-                        <img src={`/icons/${getServiceIcon(group.serviceType)}`} alt={group.serviceType} className="w-full h-full rounded-xl object-cover" />
+                    {/* Service Header */}
+                    <div
+                      className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors"
+                      onClick={() => toggleGroup(group.serviceType)}
+                    >
+                      <div className="flex items-center gap-4 flex-1">
+                        <svg
+                          className={`w-3.5 h-3.5 text-[rgba(0,0,0,0.3)] transition-transform duration-200 flex-shrink-0 ${expandedGroups.has(group.serviceType) ? 'rotate-90' : ''}`}
+                          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                        </svg>
+                        <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-[rgba(0,0,0,0.03)] flex-shrink-0">
+                          <img src={`/icons/${getServiceIcon(group.serviceType)}`} alt={group.serviceType} className="w-6 h-6 object-contain" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">{group.serviceType}</p>
+                          <p className="text-[11px] text-[rgba(0,0,0,0.35)] uppercase tracking-wide">AWS Service</p>
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <h3 className="font-bold text-gray-800 text-lg">{group.serviceType}</h3>
-                        <p className="text-sm text-gray-600">AWS Service</p>
-                      </div>
-                      <div className="cloudlist-resource-counter text-sm font-bold px-4 py-2 rounded-full">
+                      <span className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] bg-[rgba(0,0,0,0.05)] px-3 py-1 rounded-full tabular-nums">
                         {group.resources.length}
-                      </div>
+                      </span>
                     </div>
-                  </div>
 
-                  {/* Resources */}
-                  {expandedGroups.has(group.serviceType) && (
-                    <div className="bg-gradient-to-r from-gray-50/30 to-gray-100/30 backdrop-blur-sm">
-                      {group.resources.map(resource => {
-                        const hasDetails = resource.details && Object.keys(resource.details).length > 0;
-                        const isExpanded = expandedResources.has(resource.id);
+                    {/* Resources Table */}
+                    {expandedGroups.has(group.serviceType) && (
+                      <div className="border-t border-[rgba(0,0,0,0.06)]">
+                        {/* Table header */}
+                        <div className="grid grid-cols-12 items-center px-5 py-2 bg-[rgba(0,0,0,0.02)]">
+                          <div className="col-span-1"></div>
+                          <div className="col-span-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Name / ID</div>
+                          <div className="col-span-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Region</div>
+                          <div className="col-span-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">State</div>
+                          <div className="col-span-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)]">Labels</div>
+                          <div className="col-span-1"></div>
+                        </div>
 
-                        const resourceLabels = labelMap[resource.id] ?? [];
-                        const isSelected = selectedResources.has(resource.id);
+                        {group.resources.map(resource => {
+                          const hasDetails = resource.details && Object.keys(resource.details).length > 0;
+                          const isExpanded = expandedResources.has(resource.id);
+                          const resourceLabels = labelMap[resource.id] ?? [];
+                          const isSelected = selectedResources.has(resource.id);
 
-                        return (
-                          <div
-                            key={resource.id}
-                            className="cloudlist-resource-row border-t border-gray-200/50"
-                            style={openPopoverResourceId === resource.id ? { overflow: 'visible', zIndex: 100, position: 'relative' } : undefined}
-                          >
-                            {/* Resource Header */}
+                          return (
                             <div
-                              className="grid grid-cols-12 items-center p-6 pl-12 text-sm hover:bg-white/50 transition-all duration-200 cursor-pointer"
-                              onClick={() => selectedAccountId && handleRowExpand(resource, selectedAccountId.split(',')[0])}
+                              key={resource.id}
+                              className="border-t border-[rgba(0,0,0,0.06)]"
+                              style={openPopoverResourceId === resource.id ? { overflow: 'visible', zIndex: 100, position: 'relative' } : undefined}
                             >
-                              {/* Checkbox — stops row expand on click */}
-                              <div className="col-span-1 flex items-center" onClick={e => e.stopPropagation()}>
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => toggleResourceSelection(resource.id)}
-                                  className="w-4 h-4 rounded accent-indigo-600 cursor-pointer"
-                                />
-                              </div>
-
-                              {/* Name / ID */}
-                              <div className="col-span-4 flex items-center space-x-3">
-                                <i className={`fas fa-chevron-right text-gray-400 w-4 text-center transition-all duration-200 ${isExpanded ? 'rotate-90' : ''}`}></i>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center space-x-2">
-                                    <p className="font-bold text-gray-800 truncate">{resource.name || 'N/A'}</p>
-                                    <div className="w-1 h-1 bg-gray-400 rounded-full flex-shrink-0"></div>
-                                    <p className="font-mono text-xs text-gray-500 truncate">{resource.id || 'N/A'}</p>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Region */}
-                              <div className="col-span-2 flex items-center space-x-2">
-                                <i className="fas fa-map-marker-alt text-gray-400 text-xs"></i>
-                                <span className="font-semibold text-gray-600 text-xs">{resource.region || 'Global'}</span>
-                              </div>
-
-                              {/* State */}
-                              <div className="col-span-2">
-                                <span className={`cloudlist-state-badge px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full capitalize ${getStateClass(resource.state)}`}>
-                                  {resource.state || 'Unknown'}
-                                </span>
-                              </div>
-
-                              {/* Labels */}
+                              {/* Resource row */}
                               <div
-                                className="col-span-2 flex items-center gap-1 flex-wrap overflow-visible"
-                                onClick={e => e.stopPropagation()}
+                                className="grid grid-cols-12 items-center px-5 py-3 hover:bg-[rgba(0,0,0,0.015)] transition-colors cursor-pointer"
+                                onClick={() => selectedAccountId && handleRowExpand(resource, selectedAccountId.split(',')[0])}
                               >
-                                {resourceLabels.map(lbl => (
-                                  <LabelBadge
-                                    key={lbl.id}
-                                    label={lbl}
-                                    onRemove={() => handleRemoveBadgeLabel(resource, lbl)}
+                                {/* Checkbox */}
+                                <div className="col-span-1 flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleResourceSelection(resource.id)}
+                                    className="w-3.5 h-3.5 rounded border-[rgba(0,0,0,0.2)] cursor-pointer accent-black"
                                   />
-                                ))}
-                                <div className="relative">
-                                  <button
-                                    type="button"
-                                    onClick={() => setOpenPopoverResourceId(
-                                      openPopoverResourceId === resource.id ? null : resource.id
-                                    )}
-                                    className="w-5 h-5 flex items-center justify-center rounded-full border border-gray-300 text-gray-400 hover:border-indigo-400 hover:text-indigo-500 text-xs transition-colors"
-                                    title="Assign label"
+                                  <svg
+                                    className={`w-3 h-3 text-[rgba(0,0,0,0.3)] transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
                                   >
-                                    +
-                                  </button>
-                                  {openPopoverResourceId === resource.id && selectedAccountId && (
-                                    <LabelAssignPopover
-                                      accountId={selectedAccountId.split(',')[0]}
-                                      resource={{ resourceId: resource.id, resourceType: resource.type, resourceName: resource.name ?? undefined, region: resource.region }}
-                                      assignedLabels={resourceLabels}
-                                      allLabels={allLabels}
-                                      onChanged={handleLabelMapChange}
-                                      onClose={() => setOpenPopoverResourceId(null)}
-                                      onLabelCreated={label => setAllLabels(prev => [...prev, label])}
-                                    />
-                                  )}
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                  </svg>
                                 </div>
 
+                                {/* Name / ID */}
+                                <div className="col-span-4 min-w-0 pr-3">
+                                  <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] truncate">{resource.name || 'N/A'}</p>
+                                  <p className="font-mono text-[11px] text-[rgba(0,0,0,0.35)] truncate">{resource.id || 'N/A'}</p>
+                                </div>
+
+                                {/* Region */}
+                                <div className="col-span-2">
+                                  <span className="text-[12px] text-[rgba(0,0,0,0.5)]">{resource.region || 'Global'}</span>
+                                </div>
+
+                                {/* State */}
+                                <div className="col-span-2">
+                                  <span className={`inline-flex px-2.5 py-0.5 text-[11px] font-semibold rounded-full capitalize ${getStateBadge(resource.state)}`}>
+                                    {resource.state || 'Unknown'}
+                                  </span>
+                                </div>
+
+                                {/* Labels */}
+                                <div
+                                  className="col-span-2 flex items-center gap-1 flex-wrap overflow-visible"
+                                  onClick={e => e.stopPropagation()}
+                                >
+                                  {resourceLabels.map(lbl => (
+                                    <LabelBadge key={lbl.id} label={lbl} onRemove={() => handleRemoveBadgeLabel(resource, lbl)} />
+                                  ))}
+                                  <div className="relative">
+                                    <button
+                                      type="button"
+                                      onClick={() => setOpenPopoverResourceId(openPopoverResourceId === resource.id ? null : resource.id)}
+                                      className="w-5 h-5 flex items-center justify-center rounded-full border border-[rgba(0,0,0,0.15)] text-[rgba(0,0,0,0.35)] hover:border-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.88)] text-xs transition-colors"
+                                      title="Assign label"
+                                    >+</button>
+                                    {openPopoverResourceId === resource.id && selectedAccountId && (
+                                      <LabelAssignPopover
+                                        accountId={selectedAccountId.split(',')[0]}
+                                        resource={{ resourceId: resource.id, resourceType: resource.type, resourceName: resource.name ?? undefined, region: resource.region }}
+                                        assignedLabels={resourceLabels}
+                                        allLabels={allLabels}
+                                        onChanged={handleLabelMapChange}
+                                        onClose={() => setOpenPopoverResourceId(null)}
+                                        onLabelCreated={label => setAllLabels(prev => [...prev, label])}
+                                      />
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Info indicator */}
+                                <div className="col-span-1 flex justify-end">
+                                  {hasDetails && (
+                                    <svg className="w-3.5 h-3.5 text-[rgba(0,0,0,0.2)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                  )}
+                                </div>
                               </div>
 
-                              {/* Details / expand indicator */}
-                              <div className="col-span-1 text-right">
-                                <button className="cloudlist-btn-secondary px-3 py-1.5 text-xs font-semibold rounded-lg hover:bg-gray-100 transition-all">
-                                  <i className="fas fa-info-circle"></i>
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Expanded drill-down: details + connected resources */}
-                            {isExpanded && (
-                              <div className="text-sm text-gray-700 bg-gray-50/50 border-t border-gray-200">
-                                {/* Resource Details */}
-                                {hasDetails && (
-                                  <div className="p-6 pl-24">
-                                    <h4 className="font-semibold text-base mb-3">Resource Details:</h4>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      {Object.entries(resource.details).map(([key, value]) => (
-                                        <div key={key} className="flex items-center">
-                                          <span className="font-medium text-gray-600 mr-2">
-                                            {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:
-                                          </span>
-                                          <span>{value !== null && value !== undefined ? String(value) : 'N/A'}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Connected Resources */}
-                                <div className={`px-6 pb-6 ${hasDetails ? 'pt-0 border-t border-gray-200/60' : 'pt-6'} pl-24`}>
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <i className="fas fa-link text-indigo-400 text-xs" />
-                                    <h4 className="font-semibold text-base text-gray-800">Connected Resources</h4>
-                                  </div>
-
-                                  {connectedCache[resource.id] === 'loading' && (
-                                    <div className="flex items-center gap-2 py-4 text-sm text-gray-500">
-                                      <i className="fas fa-spinner fa-spin text-indigo-400" />
-                                      Discovering connected resources…
-                                    </div>
-                                  )}
-
-                                  {connectedCache[resource.id] === 'error' && (
-                                    <div className="flex items-center gap-2 py-4 text-sm text-red-500">
-                                      <i className="fas fa-exclamation-circle" />
-                                      Failed to load connected resources.
-                                    </div>
-                                  )}
-
-                                  {Array.isArray(connectedCache[resource.id]) && (connectedCache[resource.id] as ConnectedResource[]).length === 0 && (
-                                    <p className="text-sm text-gray-400 italic py-2">No connected resources found.</p>
-                                  )}
-
-                                  {Array.isArray(connectedCache[resource.id]) && (connectedCache[resource.id] as ConnectedResource[]).length > 0 && (() => {
-                                    const connected = connectedCache[resource.id] as ConnectedResource[];
-                                    const sourceLabels = labelMap[resource.id] ?? [];
-                                    const TYPE_META: Record<string, { icon: string; bg: string; text: string }> = {
-                                      'EBS Volume':    { icon: 'fa-hdd',          bg: 'bg-orange-100', text: 'text-orange-600' },
-                                      'Elastic IP':    { icon: 'fa-globe',         bg: 'bg-blue-100',   text: 'text-blue-600'   },
-                                      'Load Balancer': { icon: 'fa-balance-scale', bg: 'bg-purple-100', text: 'text-purple-600' },
-                                      'EC2 Instance':  { icon: 'fa-server',        bg: 'bg-indigo-100', text: 'text-indigo-600' },
-                                      'NAT Gateway':   { icon: 'fa-network-wired', bg: 'bg-teal-100',   text: 'text-teal-600'   },
-                                      'RDS Instance':  { icon: 'fa-database',      bg: 'bg-green-100',  text: 'text-green-600'  },
-                                    };
-                                    const DEFAULT_META = { icon: 'fa-cube', bg: 'bg-gray-100', text: 'text-gray-600' };
-                                    const untaggedCount = connected.filter(r => (labelMap[r.id] ?? r.labels ?? []).length === 0).length;
-
-                                    return (
-                                      <div className="space-y-2">
-                                        {/* Summary row */}
-                                        <div className="flex items-center justify-between text-xs text-gray-500 pb-2 border-b border-gray-200">
-                                          <span>
-                                            <span className="font-semibold text-gray-700">{connected.length}</span> resource{connected.length !== 1 ? 's' : ''} found
-                                            {untaggedCount > 0 && <span className="ml-2 text-amber-600 font-medium">· {untaggedCount} untagged</span>}
-                                          </span>
-                                          {sourceLabels.length > 0 && (
-                                            <button
-                                              type="button"
-                                              disabled={applyingAllFor === resource.id || untaggedCount === 0}
-                                              onClick={async () => {
-                                                if (!selectedAccountId) return;
-                                                setApplyingAllFor(resource.id);
-                                                try {
-                                                  for (const cr of connected) {
-                                                    const crLabels = labelMap[cr.id] ?? cr.labels ?? [];
-                                                    const currentIds = new Set(crLabels.map((l: ResourceLabel) => l.id));
-                                                    for (const lbl of sourceLabels.filter((l: ResourceLabel) => !currentIds.has(l.id))) {
-                                                      await assignLabel({ accountId: selectedAccountId.split(',')[0], labelId: lbl.id, resources: [{ resourceId: cr.id, resourceType: cr.type, resourceName: cr.name ?? undefined, region: cr.region }] });
-                                                      handleLabelMapChange(cr.id, [...crLabels, lbl]);
-                                                    }
-                                                  }
-                                                } finally {
-                                                  setApplyingAllFor(null);
-                                                }
-                                              }}
-                                              className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                                            >
-                                              {applyingAllFor === resource.id
-                                                ? <><i className="fas fa-spinner fa-spin" /> Applying…</>
-                                                : <><i className="fas fa-tags" /> Apply parent labels to untagged</>}
-                                            </button>
-                                          )}
-                                        </div>
-
-                                        {/* Connected resource rows */}
-                                        {connected.map(cr => {
-                                          const meta = TYPE_META[cr.type] ?? DEFAULT_META;
-                                          const crLabels: ResourceLabel[] = labelMap[cr.id] ?? cr.labels ?? [];
-                                          const popKey = `${resource.id}::${cr.id}`;
-                                          return (
-                                            <div key={cr.id} className="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-indigo-100 hover:bg-indigo-50/30 transition-colors">
-                                              {/* Type icon */}
-                                              <div className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg ${meta.bg}`}>
-                                                <i className={`fas ${meta.icon} ${meta.text} text-xs`} />
-                                              </div>
-                                              {/* Info */}
-                                              <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                  <span className="font-semibold text-gray-800 text-xs truncate max-w-[180px]">{cr.name ?? cr.id}</span>
-                                                  <span className="font-mono text-xs text-gray-400 truncate max-w-[140px]">{cr.id}</span>
-                                                  <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">{cr.type}</span>
-                                                  <span className="text-xs text-gray-400">{cr.region}</span>
-                                                </div>
-                                                {cr.details && Object.keys(cr.details).length > 0 && (
-                                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                    {Object.entries(cr.details).map(([k, v]) => v ? (
-                                                      <span key={k} className="text-xs text-gray-500">
-                                                        <span className="text-gray-400">{k}:</span> {v}
-                                                      </span>
-                                                    ) : null)}
-                                                  </div>
-                                                )}
-                                                {/* Labels + add */}
-                                                <div className="flex items-center gap-1 mt-1.5 flex-wrap" onClick={e => e.stopPropagation()}>
-                                                  {crLabels.length === 0
-                                                    ? <span className="text-xs text-gray-400 italic">No labels</span>
-                                                    : crLabels.map((lbl: ResourceLabel) => (
-                                                        <LabelBadge
-                                                          key={lbl.id}
-                                                          label={lbl}
-                                                          onRemove={() => handleLabelMapChange(cr.id, crLabels.filter((l: ResourceLabel) => l.id !== lbl.id))}
-                                                        />
-                                                      ))
-                                                  }
-                                                  <div className="relative">
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => setOpenConnectedPopoverId(openConnectedPopoverId === popKey ? null : popKey)}
-                                                      className="w-5 h-5 flex items-center justify-center rounded-full border border-gray-300 text-gray-400 hover:border-indigo-400 hover:text-indigo-500 text-xs transition-colors"
-                                                      title="Assign label"
-                                                    >+</button>
-                                                    {openConnectedPopoverId === popKey && selectedAccountId && (
-                                                      <LabelAssignPopover
-                                                        accountId={selectedAccountId.split(',')[0]}
-                                                        resource={{ resourceId: cr.id, resourceType: cr.type, resourceName: cr.name ?? undefined, region: cr.region }}
-                                                        assignedLabels={crLabels}
-                                                        allLabels={allLabels}
-                                                        onChanged={handleLabelMapChange}
-                                                        onClose={() => setOpenConnectedPopoverId(null)}
-                                                        onLabelCreated={lbl => setAllLabels(prev => [...prev, lbl])}
-                                                      />
-                                                    )}
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
+                              {/* Expanded panel */}
+                              {isExpanded && (
+                                <div className="border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
+                                  {/* Resource Details */}
+                                  {hasDetails && (
+                                    <div className="px-8 py-4 pl-14">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)] mb-3">Resource Details</p>
+                                      <div className="grid grid-cols-2 gap-x-8 gap-y-1.5">
+                                        {Object.entries(resource.details).map(([key, value]) => (
+                                          <div key={key} className="flex items-baseline gap-2">
+                                            <span className="text-[12px] text-[rgba(0,0,0,0.4)] shrink-0">
+                                              {key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}
+                                            </span>
+                                            <span className="text-[12px] font-medium text-[rgba(0,0,0,0.88)] truncate">
+                                              {value !== null && value !== undefined ? String(value) : '—'}
+                                            </span>
+                                          </div>
+                                        ))}
                                       </div>
-                                    );
-                                  })()}
+                                    </div>
+                                  )}
+
+                                  {/* Connected Resources */}
+                                  <div className={`px-8 pb-4 pl-14 ${hasDetails ? 'border-t border-[rgba(0,0,0,0.06)] pt-4' : 'pt-4'}`}>
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.35)] mb-3">Connected Resources</p>
+
+                                    {connectedCache[resource.id] === 'loading' && (
+                                      <div className="flex items-center gap-2 py-3 text-[13px] text-[rgba(0,0,0,0.4)]">
+                                        <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                        Discovering connected resources…
+                                      </div>
+                                    )}
+
+                                    {connectedCache[resource.id] === 'error' && (
+                                      <p className="text-[13px] text-[#DC2626] py-2">Failed to load connected resources.</p>
+                                    )}
+
+                                    {Array.isArray(connectedCache[resource.id]) && (connectedCache[resource.id] as ConnectedResource[]).length === 0 && (
+                                      <p className="text-[13px] text-[rgba(0,0,0,0.35)] italic py-2">No connected resources found.</p>
+                                    )}
+
+                                    {Array.isArray(connectedCache[resource.id]) && (connectedCache[resource.id] as ConnectedResource[]).length > 0 && (() => {
+                                      const connected = connectedCache[resource.id] as ConnectedResource[];
+                                      const sourceLabels = labelMap[resource.id] ?? [];
+                                      const untaggedCount = connected.filter(r => (labelMap[r.id] ?? r.labels ?? []).length === 0).length;
+
+                                      return (
+                                        <div className="space-y-1.5">
+                                          {/* Summary */}
+                                          <div className="flex items-center justify-between text-[12px] text-[rgba(0,0,0,0.4)] pb-2 border-b border-[rgba(0,0,0,0.06)]">
+                                            <span>
+                                              <span className="font-semibold text-[rgba(0,0,0,0.88)]">{connected.length}</span> resource{connected.length !== 1 ? 's' : ''}
+                                              {untaggedCount > 0 && <span className="ml-2 text-amber-600 font-medium">· {untaggedCount} untagged</span>}
+                                            </span>
+                                            {sourceLabels.length > 0 && (
+                                              <button
+                                                type="button"
+                                                disabled={applyingAllFor === resource.id || untaggedCount === 0}
+                                                onClick={async () => {
+                                                  if (!selectedAccountId) return;
+                                                  setApplyingAllFor(resource.id);
+                                                  try {
+                                                    for (const cr of connected) {
+                                                      const crLabels = labelMap[cr.id] ?? cr.labels ?? [];
+                                                      const currentIds = new Set(crLabels.map((l: ResourceLabel) => l.id));
+                                                      for (const lbl of sourceLabels.filter((l: ResourceLabel) => !currentIds.has(l.id))) {
+                                                        await assignLabel({ accountId: selectedAccountId.split(',')[0], labelId: lbl.id, resources: [{ resourceId: cr.id, resourceType: cr.type, resourceName: cr.name ?? undefined, region: cr.region }] });
+                                                        handleLabelMapChange(cr.id, [...crLabels, lbl]);
+                                                      }
+                                                    }
+                                                  } finally { setApplyingAllFor(null); }
+                                                }}
+                                                className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-bold rounded-lg bg-[rgba(0,0,0,0.88)] text-white hover:bg-black disabled:opacity-40 transition-colors"
+                                              >
+                                                {applyingAllFor === resource.id
+                                                  ? <><svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Applying…</>
+                                                  : 'Apply labels to untagged'}
+                                              </button>
+                                            )}
+                                          </div>
+
+                                          {/* Connected rows */}
+                                          {connected.map(cr => {
+                                            const crLabels: ResourceLabel[] = labelMap[cr.id] ?? cr.labels ?? [];
+                                            const popKey = `${resource.id}::${cr.id}`;
+                                            return (
+                                              <div key={cr.id} className="flex items-start gap-3 p-3 rounded-lg border border-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+                                                <div className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-md bg-[rgba(0,0,0,0.04)]">
+                                                  <svg className="w-3.5 h-3.5 text-[rgba(0,0,0,0.4)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+                                                  </svg>
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                  <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] truncate max-w-[200px]">{cr.name ?? cr.id}</span>
+                                                    <span className="font-mono text-[11px] text-[rgba(0,0,0,0.35)] truncate max-w-[160px]">{cr.id}</span>
+                                                    <span className="text-[11px] bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] px-1.5 py-0.5 rounded-full">{cr.type}</span>
+                                                    <span className="text-[11px] text-[rgba(0,0,0,0.3)]">{cr.region}</span>
+                                                  </div>
+                                                  {cr.details && Object.keys(cr.details).length > 0 && (
+                                                    <div className="flex items-center gap-3 mt-1 flex-wrap">
+                                                      {Object.entries(cr.details).map(([k, v]) => v ? (
+                                                        <span key={k} className="text-[11px] text-[rgba(0,0,0,0.4)]">
+                                                          <span className="text-[rgba(0,0,0,0.25)]">{k}:</span> {v}
+                                                        </span>
+                                                      ) : null)}
+                                                    </div>
+                                                  )}
+                                                  <div className="flex items-center gap-1 mt-1.5 flex-wrap" onClick={e => e.stopPropagation()}>
+                                                    {crLabels.length === 0
+                                                      ? <span className="text-[11px] text-[rgba(0,0,0,0.3)] italic">No labels</span>
+                                                      : crLabels.map((lbl: ResourceLabel) => (
+                                                          <LabelBadge key={lbl.id} label={lbl} onRemove={() => handleLabelMapChange(cr.id, crLabels.filter((l: ResourceLabel) => l.id !== lbl.id))} />
+                                                        ))
+                                                    }
+                                                    <div className="relative">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => setOpenConnectedPopoverId(openConnectedPopoverId === popKey ? null : popKey)}
+                                                        className="w-5 h-5 flex items-center justify-center rounded-full border border-[rgba(0,0,0,0.15)] text-[rgba(0,0,0,0.35)] hover:border-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.88)] text-xs transition-colors"
+                                                        title="Assign label"
+                                                      >+</button>
+                                                      {openConnectedPopoverId === popKey && selectedAccountId && (
+                                                        <LabelAssignPopover
+                                                          accountId={selectedAccountId.split(',')[0]}
+                                                          resource={{ resourceId: cr.id, resourceType: cr.type, resourceName: cr.name ?? undefined, region: cr.region }}
+                                                          assignedLabels={crLabels}
+                                                          allLabels={allLabels}
+                                                          onChanged={handleLabelMapChange}
+                                                          onClose={() => setOpenConnectedPopoverId(null)}
+                                                          onLabelCreated={lbl => setAllLabels(prev => [...prev, lbl])}
+                                                        />
+                                                      )}
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </AnimatedItem>
               ))}
             </div>
 
-            {/* Load More Button */}
+            {/* Load More */}
             {hasNextPage && (
               <div className="text-center py-8">
                 <button
                   onClick={loadMoreResources}
                   disabled={isLoadingMore}
-                  className="cloudlist-btn-secondary px-8 py-3 text-sm font-semibold rounded-xl hover:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2.5 text-[13px] font-semibold text-[rgba(0,0,0,0.88)] border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.03)] transition-colors disabled:opacity-50"
                 >
-                  {isLoadingMore ? (
-                    <>
-                      <span>Loading...</span>
-                      <div className="loading-spinner inline-block ml-2"></div>
-                    </>
-                  ) : (
-                    <span>Load More</span>
-                  )}
+                  {isLoadingMore ? 'Loading…' : 'Load More'}
                 </button>
               </div>
             )}
           </>
         )}
       </div>
-
     </main>
   );
 };

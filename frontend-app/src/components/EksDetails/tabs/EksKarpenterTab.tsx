@@ -62,7 +62,7 @@ const EksKarpenterTab: React.FC<{ eksData: any }> = ({ eksData }) => {
               <i className="fas fa-dharmachakra text-blue-500 text-3xl"></i>
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">Karpenter Installed</h3>
-            <p className="text-[#57606a] text-sm max-w-md mx-auto">
+            <p className="text-[rgba(0,0,0,0.5)] text-sm max-w-md mx-auto">
               Karpenter controller is running but no Karpenter-managed nodes have been provisioned yet.
               Current nodes are managed by your EKS managed node group.
             </p>
@@ -70,12 +70,12 @@ const EksKarpenterTab: React.FC<{ eksData: any }> = ({ eksData }) => {
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
               <span className="text-sm font-semibold text-green-700">Controller Running — {karpenterController.name}</span>
             </div>
-            <div className="mt-5 p-4 bg-[#f6f8fa] border border-[#e8ecf0] rounded-lg max-w-lg mx-auto text-left">
-              <p className="text-xs font-semibold text-[#1a1f2e] mb-2">To enable Karpenter provisioning:</p>
-              <ul className="text-xs text-[#57606a] space-y-1.5 list-disc list-inside">
-                <li>Create a <code className="bg-white border border-[#d0d7de] px-1 rounded">NodePool</code> resource to define provisioning rules</li>
-                <li>Create an <code className="bg-white border border-[#d0d7de] px-1 rounded">EC2NodeClass</code> with your AMI and subnet settings</li>
-                <li>Karpenter-provisioned nodes (with <code className="bg-white border border-[#d0d7de] px-1 rounded">karpenter.sh/nodepool</code> labels) will appear here automatically</li>
+            <div className="mt-5 p-4 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-lg max-w-lg mx-auto text-left">
+              <p className="text-xs font-semibold text-[rgba(0,0,0,0.88)] mb-2">To enable Karpenter provisioning:</p>
+              <ul className="text-xs text-[rgba(0,0,0,0.5)] space-y-1.5 list-disc list-inside">
+                <li>Create a <code className="bg-white border border-[rgba(0,0,0,0.12)] px-1 rounded">NodePool</code> resource to define provisioning rules</li>
+                <li>Create an <code className="bg-white border border-[rgba(0,0,0,0.12)] px-1 rounded">EC2NodeClass</code> with your AMI and subnet settings</li>
+                <li>Karpenter-provisioned nodes (with <code className="bg-white border border-[rgba(0,0,0,0.12)] px-1 rounded">karpenter.sh/nodepool</code> labels) will appear here automatically</li>
               </ul>
             </div>
           </div>

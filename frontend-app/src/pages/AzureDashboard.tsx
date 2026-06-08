@@ -204,7 +204,7 @@ const AzureDashboard: React.FC = () => {
 
       {/* Main Grid: Map & Inventory (3:2) */}
       <RevealSection>
-        <div className="grid gap-6 lg:grid-cols-5">
+        <div className="grid gap-6 lg:grid-cols-5" style={{ height: '460px' }}>
           {widgetVisibility.map && dashboardData && (
             <AzureMapSection
               regionStatus={dashboardData.regionStatus || []}

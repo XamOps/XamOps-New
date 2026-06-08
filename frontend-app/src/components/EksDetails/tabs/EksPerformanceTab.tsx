@@ -97,33 +97,33 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
 
       {/* ── KPI Strip ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">ACTIVE NODES</div>
-          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">{readyNodes.length}</div>
-          <div className="text-[11px] text-[#8b949e] mt-1">{podDensity} pods/node avg</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">ACTIVE NODES</div>
+          <div className="text-[26px] font-semibold leading-none text-[rgba(0,0,0,0.88)]">{readyNodes.length}</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">{podDensity} pods/node avg</div>
         </div>
-        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">RUNNING PODS</div>
-          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">{runningPods}</div>
-          <div className="text-[11px] text-[#8b949e] mt-1">of {totalPods} total</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">RUNNING PODS</div>
+          <div className="text-[26px] font-semibold leading-none text-[rgba(0,0,0,0.88)]">{runningPods}</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">of {totalPods} total</div>
         </div>
-        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">CPU USAGE</div>
-          <div className={`text-[26px] font-semibold leading-none ${cpuUsagePercent >= 80 ? 'text-[#cf222e]' : cpuUsagePercent >= 60 ? 'text-[#9a6700]' : 'text-[#1a1f2e]'}`}>{cpuUsagePercent.toFixed(0)}%</div>
-          <div className="text-[11px] text-[#8b949e] mt-1">{usedCpuCores} / {totalCpuCores} cores</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">CPU USAGE</div>
+          <div className={`text-[26px] font-semibold leading-none ${cpuUsagePercent >= 80 ? 'text-[#cf222e]' : cpuUsagePercent >= 60 ? 'text-[#9a6700]' : 'text-[rgba(0,0,0,0.88)]'}`}>{cpuUsagePercent.toFixed(0)}%</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">{usedCpuCores} / {totalCpuCores} cores</div>
         </div>
-        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">MEMORY USAGE</div>
-          <div className={`text-[26px] font-semibold leading-none ${memoryUsagePercent >= 80 ? 'text-[#cf222e]' : memoryUsagePercent >= 60 ? 'text-[#9a6700]' : 'text-[#1a1f2e]'}`}>{memoryUsagePercent.toFixed(0)}%</div>
-          <div className="text-[11px] text-[#8b949e] mt-1">{usedMemoryGB} / {totalMemoryGB} GB</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">MEMORY USAGE</div>
+          <div className={`text-[26px] font-semibold leading-none ${memoryUsagePercent >= 80 ? 'text-[#cf222e]' : memoryUsagePercent >= 60 ? 'text-[#9a6700]' : 'text-[rgba(0,0,0,0.88)]'}`}>{memoryUsagePercent.toFixed(0)}%</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">{usedMemoryGB} / {totalMemoryGB} GB</div>
         </div>
       </div>
 
       {/* ── Resource Utilization Gauges ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold text-[#1a1f2e]">CPU Utilization</span>
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">CPU Utilization</span>
             <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
               style={cpuUsagePercent >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
                 : cpuUsagePercent >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
@@ -134,36 +134,36 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
           <div className="flex items-center gap-6">
             <DonutGauge pct={cpuUsagePercent} color={getCpuColor()} size={140} strokeWidth={12}>
               <span className="text-[26px] font-semibold" style={{ color: getCpuColor() }}>{cpuUsagePercent.toFixed(0)}</span>
-              <span className="text-[11px] text-[#8b949e]">%</span>
+              <span className="text-[11px] text-[rgba(0,0,0,0.4)]">%</span>
             </DonutGauge>
             <div className="flex-1 space-y-3">
               <div>
-                <div className="flex justify-between text-[11px] text-[#8b949e] mb-1">
-                  <span>Used</span><span className="font-semibold text-[#1a1f2e]">{Math.round(cpuUsageMillicores)}m / {Math.round(cpuCapacityMillicores)}m</span>
+                <div className="flex justify-between text-[11px] text-[rgba(0,0,0,0.4)] mb-1">
+                  <span>Used</span><span className="font-semibold text-[rgba(0,0,0,0.88)]">{Math.round(cpuUsageMillicores)}m / {Math.round(cpuCapacityMillicores)}m</span>
                 </div>
-                <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                  <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-700" style={{ width: `${cpuUsagePercent}%` }} />
+                <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                  <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-700" style={{ width: `${cpuUsagePercent}%` }} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div className="border border-[#d0d7de] rounded-lg p-3">
-                  <div className="text-[11px] text-[#8b949e] mb-1">Cores Used</div>
-                  <div className="text-[20px] font-semibold text-[#1a1f2e]">{usedCpuCores}</div>
-                  <div className="text-[11px] text-[#8b949e]">of {totalCpuCores}</div>
+                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Cores Used</div>
+                  <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{usedCpuCores}</div>
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)]">of {totalCpuCores}</div>
                 </div>
-                <div className="border border-[#d0d7de] rounded-lg p-3">
-                  <div className="text-[11px] text-[#8b949e] mb-1">Avg / Node</div>
-                  <div className="text-[20px] font-semibold text-[#1a1f2e]">{avgNodeCpuUsage}%</div>
-                  <div className="text-[11px] text-[#8b949e]">average</div>
+                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Avg / Node</div>
+                  <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{avgNodeCpuUsage}%</div>
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)]">average</div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold text-[#1a1f2e]">Memory Utilization</span>
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Memory Utilization</span>
             <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
               style={memoryUsagePercent >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
                 : memoryUsagePercent >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
@@ -174,27 +174,27 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
           <div className="flex items-center gap-6">
             <DonutGauge pct={memoryUsagePercent} color={getMemoryColor()} size={140} strokeWidth={12}>
               <span className="text-[26px] font-semibold" style={{ color: getMemoryColor() }}>{memoryUsagePercent.toFixed(0)}</span>
-              <span className="text-[11px] text-[#8b949e]">%</span>
+              <span className="text-[11px] text-[rgba(0,0,0,0.4)]">%</span>
             </DonutGauge>
             <div className="flex-1 space-y-3">
               <div>
-                <div className="flex justify-between text-[11px] text-[#8b949e] mb-1">
-                  <span>Used</span><span className="font-semibold text-[#1a1f2e]">{formatBytes(memoryUsageBytes)} / {formatBytes(memoryCapacityBytes)}</span>
+                <div className="flex justify-between text-[11px] text-[rgba(0,0,0,0.4)] mb-1">
+                  <span>Used</span><span className="font-semibold text-[rgba(0,0,0,0.88)]">{formatBytes(memoryUsageBytes)} / {formatBytes(memoryCapacityBytes)}</span>
                 </div>
-                <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                  <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-700" style={{ width: `${memoryUsagePercent}%` }} />
+                <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                  <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-700" style={{ width: `${memoryUsagePercent}%` }} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div className="border border-[#d0d7de] rounded-lg p-3">
-                  <div className="text-[11px] text-[#8b949e] mb-1">Used</div>
-                  <div className="text-[20px] font-semibold text-[#1a1f2e]">{usedMemoryGB} GB</div>
-                  <div className="text-[11px] text-[#8b949e]">consumed</div>
+                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Used</div>
+                  <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{usedMemoryGB} GB</div>
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)]">consumed</div>
                 </div>
-                <div className="border border-[#d0d7de] rounded-lg p-3">
-                  <div className="text-[11px] text-[#8b949e] mb-1">Avg / Node</div>
-                  <div className="text-[20px] font-semibold text-[#1a1f2e]">{avgNodeMemUsage}%</div>
-                  <div className="text-[11px] text-[#8b949e]">average</div>
+                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Avg / Node</div>
+                  <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{avgNodeMemUsage}%</div>
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)]">average</div>
                 </div>
               </div>
             </div>
@@ -203,13 +203,13 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
       </div>
 
       {/* ── Node Resource Breakdown ── */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
-          <span className="text-sm font-semibold text-[#1a1f2e]">Node Resource Breakdown</span>
-          <span className="ml-2 text-[11px] text-[#8b949e]">{readyNodes.length} active nodes</span>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Node Resource Breakdown</span>
+          <span className="ml-2 text-[11px] text-[rgba(0,0,0,0.4)]">{readyNodes.length} active nodes</span>
         </div>
 
-        <div className="divide-y divide-[#e8ecf0]">
+        <div className="divide-y divide-[rgba(0,0,0,0.06)]">
           {readyNodes.map((node: any, index: number) => {
             const cpuReqPercent = node.cpuRequestsPercent != null ? node.cpuRequestsPercent
               : (node.cpuCapacity ? (node.cpuRequests / (node.cpuCapacity * 1000)) * 100 : 0);
@@ -218,13 +218,13 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
             const cpu = node.cpuUsagePercent || 0;
             const mem = node.memoryUsagePercent || 0;
             const cpuMillicoresNode = Math.round(node.cpuUsageMillicores || 0);
-            const cpuColor = cpu >= 80 ? '#cf222e' : cpu >= 60 ? '#9a6700' : '#2f4bde';
-            const memColor = mem >= 80 ? '#cf222e' : mem >= 60 ? '#9a6700' : '#2f4bde';
+            const cpuColor = cpu >= 80 ? '#cf222e' : cpu >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)';
+            const memColor = mem >= 80 ? '#cf222e' : mem >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)';
 
             return (
-              <div key={index} className="px-5 py-4 hover:bg-[#f6f8fa] transition-colors">
+              <div key={index} className="px-5 py-4 hover:bg-[rgba(0,0,0,0.02)] transition-colors">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="font-mono text-[13px] font-semibold text-[#1a1f2e]">{node.nodeName}</span>
+                  <span className="font-mono text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{node.nodeName}</span>
                   <div className="flex items-center gap-2">
                     <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
                       style={cpu >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
@@ -245,18 +245,18 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
                   {[
                     { label: 'CPU Usage', pct: cpu, val: `${cpuMillicoresNode}m`, color: cpuColor },
                     { label: 'Mem Usage', pct: mem, val: `${Math.round(node.memoryUsageGb || 0)} GB`, color: memColor },
-                    { label: 'CPU Requests', pct: cpuReqPercent, val: node.cpuRequests > 0 ? `${Math.round(node.cpuRequests)}m` : null, color: '#2f4bde' },
-                    { label: 'Mem Requests', pct: memReqPercent, val: node.memoryRequests > 0 ? `${Math.round(node.memoryRequests)} MB` : null, color: '#2f4bde' },
+                    { label: 'CPU Requests', pct: cpuReqPercent, val: node.cpuRequests > 0 ? `${Math.round(node.cpuRequests)}m` : null, color: 'rgba(0,0,0,0.88)' },
+                    { label: 'Mem Requests', pct: memReqPercent, val: node.memoryRequests > 0 ? `${Math.round(node.memoryRequests)} MB` : null, color: 'rgba(0,0,0,0.88)' },
                   ].map((bar, bi) => (
                     <div key={bi}>
                       <div className="flex items-center justify-between text-[11px] mb-1">
-                        <span className="text-[#8b949e]">{bar.label}</span>
+                        <span className="text-[rgba(0,0,0,0.4)]">{bar.label}</span>
                         <span className="font-semibold" style={{ color: bar.color }}>{(bar.pct || 0).toFixed(1)}%</span>
                       </div>
-                      <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, bar.pct)}%`, background: bar.color }} />
                       </div>
-                      {bar.val && <div className="text-[11px] text-[#8b949e] mt-0.5">{bar.val}</div>}
+                      {bar.val && <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">{bar.val}</div>}
                     </div>
                   ))}
                 </div>
@@ -266,7 +266,7 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
 
           {readyNodes.length === 0 && (
             <div className="py-14 text-center">
-              <p className="text-[13px] text-[#57606a]">No active node metrics available</p>
+              <p className="text-[13px] text-[rgba(0,0,0,0.5)]">No active node metrics available</p>
             </div>
           )}
         </div>
@@ -274,7 +274,7 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
 
       {/* ── Performance Insights ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center text-center">
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center text-center">
           <DonutGauge
             pct={Number(efficiencyScore)}
             color={Number(efficiencyScore) >= 60 ? '#1a7f37' : Number(efficiencyScore) >= 40 ? '#9a6700' : '#cf222e'}
@@ -284,8 +284,8 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
               {efficiencyScore}%
             </span>
           </DonutGauge>
-          <div className="text-sm font-semibold text-[#1a1f2e] mt-3">Resource Efficiency</div>
-          <div className="text-[11px] text-[#8b949e] mt-0.5">Avg CPU + memory utilization</div>
+          <div className="text-sm font-semibold text-[rgba(0,0,0,0.88)] mt-3">Resource Efficiency</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">Avg CPU + memory utilization</div>
           <span className="mt-3 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
             style={Number(efficiencyScore) >= 60 ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
               : Number(efficiencyScore) >= 40 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
@@ -294,39 +294,39 @@ const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
           </span>
         </div>
 
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center text-center">
-          <div className="text-[26px] font-semibold text-[#1a1f2e] mt-4">{podDensity}</div>
-          <div className="text-[11px] text-[#8b949e]">pods/node avg</div>
-          <div className="text-sm font-semibold text-[#1a1f2e] mt-2">Pod Density</div>
-          <div className="text-[11px] text-[#8b949e] mt-0.5 mb-3">Workload distribution</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center text-center">
+          <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] mt-4">{podDensity}</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)]">pods/node avg</div>
+          <div className="text-sm font-semibold text-[rgba(0,0,0,0.88)] mt-2">Pod Density</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5 mb-3">Workload distribution</div>
           <div className="grid grid-cols-2 gap-2 w-full">
-            <div className="border border-[#d0d7de] rounded-lg p-3">
-              <div className="text-[11px] text-[#8b949e]">Total</div>
-              <div className="text-[20px] font-semibold text-[#1a1f2e]">{totalPods}</div>
+            <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
+              <div className="text-[11px] text-[rgba(0,0,0,0.4)]">Total</div>
+              <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{totalPods}</div>
             </div>
-            <div className="border border-[#d0d7de] rounded-lg p-3">
-              <div className="text-[11px] text-[#8b949e]">Running</div>
+            <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
+              <div className="text-[11px] text-[rgba(0,0,0,0.4)]">Running</div>
               <div className="text-[20px] font-semibold text-[#1a7f37]">{runningPods}</div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center text-center">
-          <div className="text-sm font-semibold text-[#1a1f2e] mt-2">Allocation Status</div>
-          <div className="text-[11px] text-[#8b949e] mt-0.5 mb-3">{isOptimal ? 'Resources in optimal 40–75% band' : 'Resources outside optimal range'}</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center text-center">
+          <div className="text-sm font-semibold text-[rgba(0,0,0,0.88)] mt-2">Allocation Status</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5 mb-3">{isOptimal ? 'Resources in optimal 40–75% band' : 'Resources outside optimal range'}</div>
           <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border mb-4"
             style={isOptimal ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
               : { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }}>
             {isOptimal ? 'Optimized' : 'Needs Tuning'}
           </span>
           <div className="grid grid-cols-2 gap-2 w-full">
-            <div className="border border-[#d0d7de] rounded-lg p-3">
-              <div className="text-[11px] font-medium uppercase text-[#8b949e]">CPU</div>
-              <div className="text-[20px] font-semibold" style={{ color: cpuUsagePercent >= 80 ? '#cf222e' : '#1a1f2e' }}>{cpuUsagePercent.toFixed(0)}%</div>
+            <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
+              <div className="text-[11px] font-medium uppercase text-[rgba(0,0,0,0.4)]">CPU</div>
+              <div className="text-[20px] font-semibold" style={{ color: cpuUsagePercent >= 80 ? '#cf222e' : 'rgba(0,0,0,0.88)' }}>{cpuUsagePercent.toFixed(0)}%</div>
             </div>
-            <div className="border border-[#d0d7de] rounded-lg p-3">
-              <div className="text-[11px] font-medium uppercase text-[#8b949e]">Memory</div>
-              <div className="text-[20px] font-semibold" style={{ color: memoryUsagePercent >= 80 ? '#cf222e' : '#1a1f2e' }}>{memoryUsagePercent.toFixed(0)}%</div>
+            <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
+              <div className="text-[11px] font-medium uppercase text-[rgba(0,0,0,0.4)]">Memory</div>
+              <div className="text-[20px] font-semibold" style={{ color: memoryUsagePercent >= 80 ? '#cf222e' : 'rgba(0,0,0,0.88)' }}>{memoryUsagePercent.toFixed(0)}%</div>
             </div>
           </div>
         </div>

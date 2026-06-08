@@ -134,10 +134,10 @@ const EksDiagnosticsPanel: React.FC<{ dashboard: any }> = ({ dashboard: d }) => 
 
       {expanded && (
         <div className="p-5 space-y-5">
-          <p className="text-[12px] text-[#57606a]">
+          <p className="text-[12px] text-[rgba(0,0,0,0.5)]">
             Each row shows whether the backend is actually returning that field in the dashboard API response.
-            <strong className="text-[#1a1f2e]"> Red = backend not sending it</strong> (backend/agent fix needed).
-            <strong className="text-[#1a1f2e]"> Green = data present</strong> (frontend should be rendering it).
+            <strong className="text-[rgba(0,0,0,0.88)]"> Red = backend not sending it</strong> (backend/agent fix needed).
+            <strong className="text-[rgba(0,0,0,0.88)]"> Green = data present</strong> (frontend should be rendering it).
           </p>
 
           {groups.map(group => {
@@ -146,7 +146,7 @@ const EksDiagnosticsPanel: React.FC<{ dashboard: any }> = ({ dashboard: d }) => 
             return (
               <div key={group}>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[11px] font-bold text-[#57606a] uppercase tracking-wider">{group}</span>
+                  <span className="text-[11px] font-bold text-[rgba(0,0,0,0.5)] uppercase tracking-wider">{group}</span>
                   {groupMissing > 0 && (
                     <span className="text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
                       {groupMissing} missing
@@ -166,14 +166,14 @@ const EksDiagnosticsPanel: React.FC<{ dashboard: any }> = ({ dashboard: d }) => 
                     >
                       <i className={`fas ${f.present ? 'fa-check-circle text-[#1a7f37]' : 'fa-times-circle text-[#cf222e]'} text-sm flex-shrink-0 mt-0.5`}></i>
                       <div className="flex-1 min-w-0">
-                        <div className="text-[11px] font-mono font-semibold text-[#1a1f2e]">{f.label}</div>
+                        <div className="text-[11px] font-mono font-semibold text-[rgba(0,0,0,0.88)]">{f.label}</div>
                         {f.count !== undefined && (
-                          <div className="text-[10px] text-[#57606a] mt-0.5">
+                          <div className="text-[10px] text-[rgba(0,0,0,0.5)] mt-0.5">
                             {typeof f.count === 'number' ? f.count : f.count}
                           </div>
                         )}
                         {rawField === f.label && (
-                          <pre className="text-[10px] text-[#1a1f2e] mt-2 bg-white/80 rounded p-2 overflow-auto max-h-32 border border-[#d0d7de] whitespace-pre-wrap break-all">
+                          <pre className="text-[10px] text-[rgba(0,0,0,0.88)] mt-2 bg-white/80 rounded p-2 overflow-auto max-h-32 border border-[rgba(0,0,0,0.12)] whitespace-pre-wrap break-all">
                             {getRawValue(f.label)}
                           </pre>
                         )}

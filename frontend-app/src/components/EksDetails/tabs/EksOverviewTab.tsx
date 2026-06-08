@@ -24,7 +24,7 @@ const DonutGauge: React.FC<DonutGaugeProps> = ({
   value,
   size = 140,
   strokeWidth = 12,
-  trackColor = '#e8ecf0',
+  trackColor = 'rgba(0,0,0,0.06)',
   arcColor,
   label,
   sublabel,
@@ -48,12 +48,12 @@ const DonutGauge: React.FC<DonutGaugeProps> = ({
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-2xl font-semibold leading-none" style={{ color: textColor }}>{Math.round(filled)}</span>
-          <span className="text-[11px] text-[#8b949e] leading-none mt-0.5">/100</span>
+          <span className="text-[11px] text-[rgba(0,0,0,0.4)] leading-none mt-0.5">/100</span>
         </div>
       </div>
       <div className="text-center mt-2">
-        <div className="text-sm font-semibold text-[#1a1f2e]">{label}</div>
-        {sublabel && <div className="text-[11px] text-[#8b949e] mt-0.5">{sublabel}</div>}
+        <div className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">{label}</div>
+        {sublabel && <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">{sublabel}</div>}
       </div>
     </div>
   );
@@ -69,7 +69,7 @@ interface SmallGaugeProps {
 }
 
 const SmallGauge: React.FC<SmallGaugeProps> = ({
-  value, size = 100, arcColor, trackColor = '#e8ecf0', strokeWidth = 10, centerLabel,
+  value, size = 100, arcColor, trackColor = 'rgba(0,0,0,0.06)', strokeWidth = 10, centerLabel,
 }) => {
   const r = (size - strokeWidth) / 2;
   const circ = 2 * Math.PI * r;
@@ -92,7 +92,7 @@ const SmallGauge: React.FC<SmallGaugeProps> = ({
 };
 
 const UsageBar: React.FC<{ pct: number; color: string }> = ({ pct, color }) => (
-  <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden w-full">
+  <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden w-full">
     <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, pct)}%`, backgroundColor: color }} />
   </div>
 );
@@ -136,9 +136,9 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
   const namespaceUtilization: any[] = dashboard.namespaceUtilization || [];
   const warningEvents = (dashboard.k8sEvents || []).filter((e: any) => e.type === 'Warning').slice(0, 5);
 
-  const gaugeColor = (score: number) => score >= 70 ? '#2f4bde' : score >= 40 ? '#9a6700' : '#cf222e';
-  const cpuGaugeColor = cpuPct >= 80 ? '#cf222e' : cpuPct >= 60 ? '#9a6700' : '#2f4bde';
-  const memGaugeColor = memPct >= 80 ? '#cf222e' : memPct >= 60 ? '#9a6700' : '#2f4bde';
+  const gaugeColor = (score: number) => score >= 70 ? 'rgba(0,0,0,0.88)' : score >= 40 ? '#9a6700' : '#cf222e';
+  const cpuGaugeColor = cpuPct >= 80 ? '#cf222e' : cpuPct >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)';
+  const memGaugeColor = memPct >= 80 ? '#cf222e' : memPct >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)';
   const maxCpuPod = topCpuPods.length > 0 ? Math.max(...topCpuPods.map((p: any) => p.cpuMillicores || 0)) : 1;
   const maxMemPod = topMemoryPods.length > 0 ? Math.max(...topMemoryPods.map((p: any) => p.memoryMB || 0)) : 1;
 
@@ -146,19 +146,19 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
     <div className="space-y-5">
 
       {/* Section 1 — Cluster Intelligence */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
-          <span className="text-sm font-semibold text-[#1a1f2e]">Cluster Intelligence</span>
-          <span className="text-[11px] text-[#8b949e]">Composite scores across resource, cost and security dimensions</span>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Cluster Intelligence</span>
+          <span className="text-[11px] text-[rgba(0,0,0,0.4)]">Composite scores across resource, cost and security dimensions</span>
         </div>
         <div className="p-5">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-center">
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center">
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center">
               <DonutGauge value={clusterHealthScore} size={140} strokeWidth={13}
                 arcColor={healthScoreColor || gaugeColor(clusterHealthScore)}
                 label="Overall Health" sublabel={healthScoreLabel} valueColor={healthScoreColor || gaugeColor(clusterHealthScore)} />
             </div>
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center">
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center">
               <DonutGauge value={resourceScore} size={140} strokeWidth={13}
                 arcColor={gaugeColor(resourceScore)} label="Efficiency Score" sublabel="CPU + Memory balance" valueColor={gaugeColor(resourceScore)} />
               <span className="mt-3 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
@@ -168,7 +168,7 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                 Resource Efficiency
               </span>
             </div>
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center">
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center">
               <DonutGauge value={costScore} size={140} strokeWidth={13}
                 arcColor={gaugeColor(costScore)} label="Cost Score" sublabel="Spend vs utilization" valueColor={gaugeColor(costScore)} />
               <span className="mt-3 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
@@ -178,7 +178,7 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                 Cost Optimization
               </span>
             </div>
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 flex flex-col items-center">
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center">
               <DonutGauge value={securityScore} size={140} strokeWidth={13}
                 arcColor={gaugeColor(securityScore)} label="Security Score" sublabel="Events + vulnerabilities" valueColor={gaugeColor(securityScore)} />
               <span className="mt-3 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
@@ -195,39 +195,39 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
       {/* Section 2 — Cost & Resource Utilization */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
         {/* Cost */}
-        <div className="lg:col-span-3 bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
-            <span className="text-sm font-semibold text-[#1a1f2e]">Cost &amp; Savings</span>
+        <div className="lg:col-span-3 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Cost &amp; Savings</span>
           </div>
           <div className="p-5 flex flex-col gap-4">
             <div className="flex items-end gap-6">
               <div>
-                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">TODAY</div>
-                <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">${dailyCost.toFixed(2)}</div>
-                <div className="text-[11px] text-[#8b949e] mt-1">per day</div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">TODAY</div>
+                <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">${dailyCost.toFixed(2)}</div>
+                <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">per day</div>
               </div>
               <div>
-                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">MONTHLY EST.</div>
-                <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">${monthlyCost.toFixed(0)}</div>
-                <div className="text-[11px] text-[#8b949e] mt-1">30-day estimate</div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">MONTHLY EST.</div>
+                <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">${monthlyCost.toFixed(0)}</div>
+                <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">30-day estimate</div>
               </div>
             </div>
 
             {potentialSavings.affectedNodes > 0 && (
-              <div className="rounded-lg border border-[#e8ecf0] p-4 bg-[#f6f8fa]">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-2">SAVINGS OPPORTUNITY</div>
+              <div className="rounded-lg border border-[rgba(0,0,0,0.06)] p-4 bg-[rgba(0,0,0,0.02)]">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-2">SAVINGS OPPORTUNITY</div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">${potentialSavings.daily.toFixed(2)}</div>
-                    <div className="text-[11px] text-[#8b949e] mt-1">per day</div>
+                    <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">per day</div>
                   </div>
                   <div>
                     <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">${potentialSavings.monthly.toFixed(0)}</div>
-                    <div className="text-[11px] text-[#8b949e] mt-1">per month</div>
+                    <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">per month</div>
                   </div>
                   <div>
                     <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">{potentialSavings.affectedNodes}</div>
-                    <div className="text-[11px] text-[#8b949e] mt-1">nodes affected</div>
+                    <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">nodes affected</div>
                   </div>
                 </div>
               </div>
@@ -235,18 +235,18 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
 
             {(dashboard.costMetrics?.nodeCosts || []).length > 0 && (
               <div>
-                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-2">NODE COST BREAKDOWN</div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-2">NODE COST BREAKDOWN</div>
                 <div className="space-y-2">
                   {(dashboard.costMetrics.nodeCosts as any[]).slice(0, 4).map((node: any, i: number) => (
                     <div key={i} className="flex items-center gap-3">
-                      <div className="text-[11px] text-[#57606a] w-32 truncate font-mono">{node.nodeName?.split('.')[0] || node.instanceType}</div>
+                      <div className="text-[11px] text-[rgba(0,0,0,0.5)] w-32 truncate font-mono">{node.nodeName?.split('.')[0] || node.instanceType}</div>
                       <div className="flex-1">
-                        <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                          <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-1000"
+                        <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                          <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-1000"
                             style={{ width: `${Math.min(100, (node.dailyCost / (dailyCost || 1)) * 100)}%` }} />
                         </div>
                       </div>
-                      <div className="text-[11px] font-semibold text-[#1a1f2e] w-14 text-right">${node.dailyCost?.toFixed(2)}/d</div>
+                      <div className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)] w-14 text-right">${node.dailyCost?.toFixed(2)}/d</div>
                     </div>
                   ))}
                 </div>
@@ -256,25 +256,25 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
         </div>
 
         {/* Resource Utilization */}
-        <div className="lg:col-span-2 bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
-            <span className="text-sm font-semibold text-[#1a1f2e]">Resource Utilization</span>
+        <div className="lg:col-span-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Resource Utilization</span>
           </div>
           <div className="p-5 flex flex-col gap-5">
             <div className="flex flex-col items-center gap-2">
               <SmallGauge value={cpuPct} size={110} arcColor={cpuGaugeColor} strokeWidth={11} centerLabel={`${cpuPct.toFixed(0)}%`} />
               <div className="text-center">
-                <div className="text-sm font-semibold text-[#1a1f2e]">CPU Utilization</div>
-                <div className="text-[11px] text-[#8b949e] mt-0.5">{cpuMillicores}m / {cpuCapMillicores}m millicores</div>
+                <div className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">CPU Utilization</div>
+                <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">{cpuMillicores}m / {cpuCapMillicores}m millicores</div>
               </div>
               <div className="w-full"><UsageBar pct={cpuPct} color={cpuGaugeColor} /></div>
             </div>
-            <div className="border-t border-[#e8ecf0]" />
+            <div className="border-t border-[rgba(0,0,0,0.06)]" />
             <div className="flex flex-col items-center gap-2">
               <SmallGauge value={memPct} size={110} arcColor={memGaugeColor} strokeWidth={11} centerLabel={`${memPct.toFixed(0)}%`} />
               <div className="text-center">
-                <div className="text-sm font-semibold text-[#1a1f2e]">Memory Utilization</div>
-                <div className="text-[11px] text-[#8b949e] mt-0.5">{memGB} GB / {memCapGB} GB</div>
+                <div className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Memory Utilization</div>
+                <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">{memGB} GB / {memCapGB} GB</div>
               </div>
               <div className="w-full"><UsageBar pct={memPct} color={memGaugeColor} /></div>
             </div>
@@ -283,16 +283,16 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
       </div>
 
       {/* Section 3 — Node Fleet */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
-          <span className="text-sm font-semibold text-[#1a1f2e]">Node Fleet</span>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Node Fleet</span>
         </div>
         <div className="p-5">
           <div className="flex flex-col md:flex-row gap-6">
             <div className="flex items-center gap-5 flex-shrink-0">
               <div>
-                <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">{totalNodes}</div>
-                <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mt-1">TOTAL NODES</div>
+                <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">{totalNodes}</div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mt-1">TOTAL NODES</div>
               </div>
               <div className="flex flex-col gap-2">
                 <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
@@ -308,48 +308,48 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
               </div>
             </div>
 
-            <div className="hidden md:block w-px bg-[#e8ecf0] self-stretch" />
+            <div className="hidden md:block w-px bg-[rgba(0,0,0,0.06)] self-stretch" />
 
             <div className="flex flex-col gap-2 flex-shrink-0 justify-center">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e]">CAPACITY TYPE</div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)]">CAPACITY TYPE</div>
               <div className="flex gap-3">
                 {spotNodes > 0 && (
-                  <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
-                    <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">{spotNodes}</div>
-                    <div className="text-[11px] text-[#8b949e] mt-1">Spot</div>
+                  <div className="border border-[rgba(0,0,0,0.12)] rounded-lg px-4 py-3">
+                    <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">{spotNodes}</div>
+                    <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">Spot</div>
                   </div>
                 )}
-                <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
-                  <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">{onDemandNodes}</div>
-                  <div className="text-[11px] text-[#8b949e] mt-1">On-Demand</div>
+                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg px-4 py-3">
+                  <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">{onDemandNodes}</div>
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">On-Demand</div>
                 </div>
               </div>
             </div>
 
-            <div className="hidden md:block w-px bg-[#e8ecf0] self-stretch" />
+            <div className="hidden md:block w-px bg-[rgba(0,0,0,0.06)] self-stretch" />
 
             <div className="flex flex-col gap-2 justify-center">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e]">POD DISTRIBUTION</div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)]">POD DISTRIBUTION</div>
               <div className="flex gap-3 flex-wrap">
-                <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
+                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg px-4 py-3">
                   <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">{runningPods}</div>
-                  <div className="text-[11px] text-[#8b949e] mt-1">Running</div>
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">Running</div>
                 </div>
                 {pendingPods > 0 && (
-                  <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
+                  <div className="border border-[rgba(0,0,0,0.12)] rounded-lg px-4 py-3">
                     <div className="text-[26px] font-semibold text-[#9a6700] leading-none">{pendingPods}</div>
-                    <div className="text-[11px] text-[#8b949e] mt-1">Pending</div>
+                    <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">Pending</div>
                   </div>
                 )}
                 {failedPods > 0 && (
-                  <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
+                  <div className="border border-[rgba(0,0,0,0.12)] rounded-lg px-4 py-3">
                     <div className="text-[26px] font-semibold text-[#cf222e] leading-none">{failedPods}</div>
-                    <div className="text-[11px] text-[#8b949e] mt-1">Failed</div>
+                    <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">Failed</div>
                   </div>
                 )}
-                <div className="border border-[#d0d7de] rounded-lg px-4 py-3">
-                  <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none">{totalPodsCount}</div>
-                  <div className="text-[11px] text-[#8b949e] mt-1">Total</div>
+                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg px-4 py-3">
+                  <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">{totalPodsCount}</div>
+                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">Total</div>
                 </div>
               </div>
             </div>
@@ -359,14 +359,14 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
 
       {/* Section 4 — Top Resource Consumers */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
-            <span className="text-sm font-semibold text-[#1a1f2e]">Top CPU Pods</span>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Top CPU Pods</span>
           </div>
           <div className="p-5">
             {topCpuPods.length === 0 ? (
               <div className="py-10 text-center">
-                <div className="text-[13px] text-[#57606a]">No CPU metrics yet — data appears after first agent push</div>
+                <div className="text-[13px] text-[rgba(0,0,0,0.5)]">No CPU metrics yet — data appears after first agent push</div>
               </div>
             ) : (
               <div className="space-y-3">
@@ -376,14 +376,14 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                     <div key={i} className="flex items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-[13px] font-mono font-semibold text-[#1a1f2e] truncate max-w-[140px]">{pod.name}</span>
-                          <span className="text-[11px] text-[#8b949e] truncate max-w-[80px]">{pod.namespace}</span>
+                          <span className="text-[13px] font-mono font-semibold text-[rgba(0,0,0,0.88)] truncate max-w-[140px]">{pod.name}</span>
+                          <span className="text-[11px] text-[rgba(0,0,0,0.4)] truncate max-w-[80px]">{pod.namespace}</span>
                         </div>
-                        <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                          <div className="h-full rounded-full bg-[#2f4bde] transition-all duration-1000" style={{ width: `${barPct}%` }} />
+                        <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                          <div className="h-full rounded-full bg-[rgba(0,0,0,0.88)] transition-all duration-1000" style={{ width: `${barPct}%` }} />
                         </div>
                       </div>
-                      <div className="text-[11px] font-semibold text-[#1a1f2e] w-14 text-right flex-shrink-0">{pod.cpuMillicores}m</div>
+                      <div className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)] w-14 text-right flex-shrink-0">{pod.cpuMillicores}m</div>
                     </div>
                   );
                 })}
@@ -392,14 +392,14 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
           </div>
         </div>
 
-        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
-            <span className="text-sm font-semibold text-[#1a1f2e]">Top Memory Pods</span>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Top Memory Pods</span>
           </div>
           <div className="p-5">
             {topMemoryPods.length === 0 ? (
               <div className="py-10 text-center">
-                <div className="text-[13px] text-[#57606a]">No memory metrics yet — data appears after first agent push</div>
+                <div className="text-[13px] text-[rgba(0,0,0,0.5)]">No memory metrics yet — data appears after first agent push</div>
               </div>
             ) : (
               <div className="space-y-3">
@@ -412,14 +412,14 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                     <div key={i} className="flex items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-[13px] font-mono font-semibold text-[#1a1f2e] truncate max-w-[140px]">{pod.name}</span>
-                          <span className="text-[11px] text-[#8b949e] truncate max-w-[80px]">{pod.namespace}</span>
+                          <span className="text-[13px] font-mono font-semibold text-[rgba(0,0,0,0.88)] truncate max-w-[140px]">{pod.name}</span>
+                          <span className="text-[11px] text-[rgba(0,0,0,0.4)] truncate max-w-[80px]">{pod.namespace}</span>
                         </div>
-                        <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                          <div className="h-full rounded-full bg-[#2f4bde] transition-all duration-1000" style={{ width: `${barPct}%` }} />
+                        <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                          <div className="h-full rounded-full bg-[rgba(0,0,0,0.88)] transition-all duration-1000" style={{ width: `${barPct}%` }} />
                         </div>
                       </div>
-                      <div className="text-[11px] font-semibold text-[#1a1f2e] w-16 text-right flex-shrink-0">{displayMem}</div>
+                      <div className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)] w-16 text-right flex-shrink-0">{displayMem}</div>
                     </div>
                   );
                 })}
@@ -430,30 +430,30 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
       </div>
 
       {/* Section 5 — Namespace Utilization */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
-          <span className="text-sm font-semibold text-[#1a1f2e]">Namespace Utilization</span>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Namespace Utilization</span>
         </div>
         <div className="p-5">
           {namespaceUtilization.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
-              <div className="w-12 h-12 rounded-full bg-[#f6f8fa] border border-[#d0d7de] flex items-center justify-center mb-3">
-                <i className="fas fa-satellite-dish text-[#8b949e] text-lg"></i>
+              <div className="w-12 h-12 rounded-full bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.12)] flex items-center justify-center mb-3">
+                <i className="fas fa-satellite-dish text-[rgba(0,0,0,0.4)] text-lg"></i>
               </div>
-              <div className="text-[13px] font-semibold text-[#57606a]">No namespace data yet</div>
-              <div className="text-[11px] text-[#8b949e] mt-1">
-                Data appears after first agent push with <span className="font-mono bg-[#f6f8fa] px-1 rounded border border-[#d0d7de]">COLLECTOR_PROMETHEUS_METRICS=true</span>
+              <div className="text-[13px] font-semibold text-[rgba(0,0,0,0.5)]">No namespace data yet</div>
+              <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">
+                Data appears after first agent push with <span className="font-mono bg-[rgba(0,0,0,0.02)] px-1 rounded border border-[rgba(0,0,0,0.12)]">COLLECTOR_PROMETHEUS_METRICS=true</span>
               </div>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-[#f6f8fa] border-b border-[#d0d7de]">
-                    <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Namespace</th>
-                    <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e] w-48">CPU Usage</th>
-                    <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e] w-48">Memory Usage</th>
-                    <th className="px-5 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-[#8b949e] w-20">Pods</th>
+                  <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.12)]">
+                    <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Namespace</th>
+                    <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)] w-48">CPU Usage</th>
+                    <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)] w-48">Memory Usage</th>
+                    <th className="px-5 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)] w-20">Pods</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -461,34 +461,34 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                     const cpuNs = ns.cpuUsagePct || 0;
                     const memNs = ns.memUsagePct || 0;
                     return (
-                      <tr key={i} className="border-b border-[#e8ecf0] hover:bg-[#f6f8fa] transition-colors">
+                      <tr key={i} className="border-b border-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.02)] transition-colors">
                         <td className="px-5 py-2.5">
-                          <span className="text-[13px] font-mono font-semibold text-[#1a1f2e]">{ns.namespace}</span>
+                          <span className="text-[13px] font-mono font-semibold text-[rgba(0,0,0,0.88)]">{ns.namespace}</span>
                         </td>
                         <td className="px-5 py-2.5">
                           <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                              <div className="h-full rounded-full bg-[#2f4bde] transition-all" style={{ width: `${Math.min(100, cpuNs)}%` }} />
+                            <div className="flex-1 h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-[rgba(0,0,0,0.88)] transition-all" style={{ width: `${Math.min(100, cpuNs)}%` }} />
                             </div>
                             <span className="text-[11px] font-semibold w-10 text-right"
-                              style={{ color: cpuNs > 80 ? '#cf222e' : cpuNs > 60 ? '#9a6700' : '#1a1f2e' }}>
+                              style={{ color: cpuNs > 80 ? '#cf222e' : cpuNs > 60 ? '#9a6700' : 'rgba(0,0,0,0.88)' }}>
                               {cpuNs.toFixed(0)}%
                             </span>
                           </div>
                         </td>
                         <td className="px-5 py-2.5">
                           <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                              <div className="h-full rounded-full bg-[#2f4bde] transition-all" style={{ width: `${Math.min(100, memNs)}%` }} />
+                            <div className="flex-1 h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-[rgba(0,0,0,0.88)] transition-all" style={{ width: `${Math.min(100, memNs)}%` }} />
                             </div>
                             <span className="text-[11px] font-semibold w-10 text-right"
-                              style={{ color: memNs > 80 ? '#cf222e' : memNs > 60 ? '#9a6700' : '#1a1f2e' }}>
+                              style={{ color: memNs > 80 ? '#cf222e' : memNs > 60 ? '#9a6700' : 'rgba(0,0,0,0.88)' }}>
                               {memNs.toFixed(0)}%
                             </span>
                           </div>
                         </td>
                         <td className="px-5 py-2.5 text-center">
-                          <span className="text-[13px] font-semibold text-[#1a1f2e]">{ns.podCount || 0}</span>
+                          <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{ns.podCount || 0}</span>
                         </td>
                       </tr>
                     );
@@ -502,9 +502,9 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
 
       {/* Section 6 — Quick Wins (hidden) */}
       {/* {quickWins && quickWins.length > 0 && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
-            <span className="text-sm font-semibold text-[#1a1f2e]">Quick Wins</span>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Quick Wins</span>
             <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
               style={{ color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }}>
               {quickWins.length} action{quickWins.length !== 1 ? 's' : ''}
@@ -517,31 +517,31 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                 : win.type === 'cost' ? { color: '#9a6700', bg: '#fff8c5', border: 'rgba(212,167,44,0.4)' }
                 : { color: '#0550ae', bg: '#ddf4ff', border: 'rgba(84,174,255,0.4)' };
               return (
-                <div key={index} className="flex items-start gap-4 p-4 border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] transition-colors">
-                  <div className="w-9 h-9 rounded-lg border border-[#d0d7de] flex items-center justify-center flex-shrink-0 bg-[#f6f8fa]">
-                    <i className={`fas ${win.icon} text-[#57606a] text-sm`}></i>
+                <div key={index} className="flex items-start gap-4 p-4 border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+                  <div className="w-9 h-9 rounded-lg border border-[rgba(0,0,0,0.12)] flex items-center justify-center flex-shrink-0 bg-[rgba(0,0,0,0.02)]">
+                    <i className={`fas ${win.icon} text-[rgba(0,0,0,0.5)] text-sm`}></i>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h4 className="text-sm font-semibold text-[#1a1f2e]">{win.title}</h4>
+                      <h4 className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">{win.title}</h4>
                       <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
                         style={{ color: severityStyle.color, background: severityStyle.bg, borderColor: severityStyle.border }}>
                         {win.type}
                       </span>
                     </div>
-                    <p className="text-[11px] text-[#57606a] mb-3 leading-relaxed">{win.impact}</p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.5)] mb-3 leading-relaxed">{win.impact}</p>
                     <div className="flex gap-2 flex-wrap">
                       {win.actions.map((action: string, i: number) => (
                         <button key={i}
                           className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${i === 0
-                            ? 'bg-[#2f4bde] text-white hover:bg-[#1e3ac8]'
-                            : 'bg-white text-[#57606a] hover:bg-[#f6f8fa] border border-[#d0d7de]'}`}>
+                            ? 'bg-[rgba(0,0,0,0.88)] text-white hover:bg-[#1e3ac8]'
+                            : 'bg-white text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.12)]'}`}>
                           {action}
                         </button>
                       ))}
                     </div>
                   </div>
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-[#f6f8fa] border border-[#d0d7de] text-[11px] font-semibold text-[#57606a]">
+                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.12)] text-[11px] font-semibold text-[rgba(0,0,0,0.5)]">
                     {index + 1}
                   </div>
                 </div>
@@ -553,9 +553,9 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
 
       {/* Section 7 — Cluster Events */}
       {warningEvents.length > 0 && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
-            <span className="text-sm font-semibold text-[#1a1f2e]">Cluster Events</span>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Cluster Events</span>
             <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
               style={{ color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
               {warningEvents.length} warning{warningEvents.length !== 1 ? 's' : ''}
@@ -576,7 +576,7 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                 } catch { return ts; }
               };
               return (
-                <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-[#e8ecf0] hover:bg-[#f6f8fa] transition-colors">
+                <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.02)] transition-colors">
                   <div className="flex-shrink-0 mt-0.5">
                     <i className="fas fa-circle-exclamation text-[#cf222e] text-sm"></i>
                   </div>
@@ -584,10 +584,10 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-[11px] font-semibold text-[#cf222e] font-mono">{event.reason || 'Warning'}</span>
                       {objKind && (
-                        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[#f6f8fa] border border-[#d0d7de] text-[#57606a]">{objKind}</span>
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.5)]">{objKind}</span>
                       )}
                       {objName && (
-                        <span className="text-[11px] text-[#1a1f2e] font-mono font-semibold truncate max-w-[240px]" title={objName}>{objName}</span>
+                        <span className="text-[11px] text-[rgba(0,0,0,0.88)] font-mono font-semibold truncate max-w-[240px]" title={objName}>{objName}</span>
                       )}
                       {objNs && (
                         <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold border"
@@ -596,12 +596,12 @@ const EksOverviewTab: React.FC<EksOverviewTabProps> = ({ eksData }) => {
                         </span>
                       )}
                       {(event.count || 0) > 1 && (
-                        <span className="text-[11px] font-semibold text-[#57606a] ml-auto flex-shrink-0">×{event.count}</span>
+                        <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.5)] ml-auto flex-shrink-0">×{event.count}</span>
                       )}
                     </div>
-                    <p className="text-[11px] text-[#57606a] leading-snug mb-1">{event.message}</p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.5)] leading-snug mb-1">{event.message}</p>
                     {(firstTime || lastTime) && (
-                      <div className="flex items-center gap-3 mt-1 text-[10px] text-[#8b949e]">
+                      <div className="flex items-center gap-3 mt-1 text-[10px] text-[rgba(0,0,0,0.4)]">
                         {firstTime && <span>First: {formatTime(firstTime)}</span>}
                         {lastTime && <span>Last: {formatTime(lastTime)}</span>}
                       </div>

@@ -217,33 +217,33 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
 
       {/* ── KPI Strip ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">TODAY'S SPEND</div>
-          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">${dailyCost.toFixed(2)}</div>
-          <div className="text-[11px] text-[#8b949e] mt-1">per day · ${hourlyRate.toFixed(4)}/hr</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">TODAY'S SPEND</div>
+          <div className="text-[26px] font-semibold leading-none text-[rgba(0,0,0,0.88)]">${dailyCost.toFixed(2)}</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">per day · ${hourlyRate.toFixed(4)}/hr</div>
         </div>
-        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">MONTHLY EST.</div>
-          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">${monthlyCost.toFixed(0)}</div>
-          <div className="text-[11px] text-[#8b949e] mt-1">30-day projection</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">MONTHLY EST.</div>
+          <div className="text-[26px] font-semibold leading-none text-[rgba(0,0,0,0.88)]">${monthlyCost.toFixed(0)}</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">30-day projection</div>
         </div>
-        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">POTENTIAL SAVINGS</div>
-          <div className={`text-[26px] font-semibold leading-none ${totalSavings > 0 ? 'text-[#1a7f37]' : 'text-[#1a1f2e]'}`}>${totalSavings.toFixed(0)}</div>
-          <div className="text-[11px] text-[#8b949e] mt-1">per month identified</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">POTENTIAL SAVINGS</div>
+          <div className={`text-[26px] font-semibold leading-none ${totalSavings > 0 ? 'text-[#1a7f37]' : 'text-[rgba(0,0,0,0.88)]'}`}>${totalSavings.toFixed(0)}</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">per month identified</div>
         </div>
-        <div className="bg-white border border-[#d0d7de] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[#8b949e] mb-1">ACTIVE NAMESPACES</div>
-          <div className="text-[26px] font-semibold leading-none text-[#1a1f2e]">{namespaceCosts.length}</div>
-          <div className="text-[11px] text-[#8b949e] mt-1">{sortedNodes.length} nodes running</div>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">ACTIVE NAMESPACES</div>
+          <div className="text-[26px] font-semibold leading-none text-[rgba(0,0,0,0.88)]">{namespaceCosts.length}</div>
+          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">{sortedNodes.length} nodes running</div>
         </div>
       </div>
 
       {/* ── Namespace Cost Breakdown ── */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
-          <span className="text-sm font-semibold text-[#1a1f2e]">Namespace Cost Breakdown</span>
-          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border border-[#d0d7de] text-[#57606a]">
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Namespace Cost Breakdown</span>
+          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.5)]">
             ${totalNsCost.toFixed(2)}/day · {namespaceCosts.length} namespaces
           </span>
         </div>
@@ -256,18 +256,18 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
               <div key={ns.namespace}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-[#8b949e] font-mono w-4">{idx + 1}</span>
-                    <span className="font-mono text-[13px] font-semibold text-[#1a1f2e]">{ns.namespace}</span>
-                    <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold border border-[#d0d7de] text-[#57606a]">{ns.podCount} pods</span>
+                    <span className="text-[11px] text-[rgba(0,0,0,0.4)] font-mono w-4">{idx + 1}</span>
+                    <span className="font-mono text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{ns.namespace}</span>
+                    <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.5)]">{ns.podCount} pods</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-[#8b949e]">{costPct.toFixed(1)}%</span>
-                    <span className="text-[13px] font-semibold text-[#1a1f2e]">${(ns.dailyCost || 0).toFixed(2)}<span className="text-[11px] text-[#8b949e] font-normal">/day</span></span>
-                    <span className="text-[11px] text-[#8b949e] w-16 text-right">${((ns.dailyCost || 0) * 30).toFixed(0)}/mo</span>
+                    <span className="text-[11px] text-[rgba(0,0,0,0.4)]">{costPct.toFixed(1)}%</span>
+                    <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">${(ns.dailyCost || 0).toFixed(2)}<span className="text-[11px] text-[rgba(0,0,0,0.4)] font-normal">/day</span></span>
+                    <span className="text-[11px] text-[rgba(0,0,0,0.4)] w-16 text-right">${((ns.dailyCost || 0) * 30).toFixed(0)}/mo</span>
                   </div>
                 </div>
-                <div className="h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden ml-6">
-                  <div className="h-full bg-[#2f4bde] rounded-full transition-all duration-700"
+                <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden ml-6">
+                  <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-700"
                     style={{ width: `${Math.max(costPct, 0.5)}%` }} />
                 </div>
               </div>
@@ -275,32 +275,32 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
           })}
           {namespaceCosts.length === 0 && (
             <div className="py-12 text-center">
-              <i className="fas fa-layer-group text-[#8b949e] text-3xl mb-3"></i>
-              <p className="text-[13px] text-[#57606a]">No namespace cost data available</p>
+              <i className="fas fa-layer-group text-[rgba(0,0,0,0.4)] text-3xl mb-3"></i>
+              <p className="text-[13px] text-[rgba(0,0,0,0.5)]">No namespace cost data available</p>
             </div>
           )}
         </div>
 
         {namespaceCosts.length > itemsPerPage && (
-          <div className="px-5 py-3 bg-[#f6f8fa] border-t border-[#e8ecf0] flex items-center justify-between">
-            <span className="text-[11px] text-[#8b949e]">
+          <div className="px-5 py-3 bg-[rgba(0,0,0,0.02)] border-t border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+            <span className="text-[11px] text-[rgba(0,0,0,0.4)]">
               {namespacePage * itemsPerPage + 1}–{Math.min((namespacePage + 1) * itemsPerPage, namespaceCosts.length)} of {namespaceCosts.length}
             </span>
             <div className="flex gap-2">
               <button onClick={() => setNamespacePage(p => Math.max(0, p - 1))} disabled={namespacePage === 0}
-                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Previous</button>
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[rgba(0,0,0,0.88)]">Previous</button>
               <button onClick={() => setNamespacePage(p => p + 1)} disabled={(namespacePage + 1) * itemsPerPage >= namespaceCosts.length}
-                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Next</button>
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[rgba(0,0,0,0.88)]">Next</button>
             </div>
           </div>
         )}
       </div>
 
       {/* ── Node Fleet Cost ── */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-[#e8ecf0]">
-          <span className="text-sm font-semibold text-[#1a1f2e]">Node Fleet Cost</span>
-          <span className="ml-2 text-[11px] text-[#8b949e]">{sortedNodes.length} nodes · by daily spend</span>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Node Fleet Cost</span>
+          <span className="ml-2 text-[11px] text-[rgba(0,0,0,0.4)]">{sortedNodes.length} nodes · by daily spend</span>
         </div>
 
         <div className="p-5">
@@ -310,26 +310,26 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
               const isSpot = node.capacityType === 'spot';
               const instanceType = node.instanceType || dashboard.nodes?.find((n: any) => n.name === node.nodeName)?.instanceType || 'Unknown';
               return (
-                <div key={i} className="bg-white border border-[#d0d7de] rounded-lg p-4 hover:bg-[#f6f8fa] transition-colors">
+                <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-4 hover:bg-[rgba(0,0,0,0.02)] transition-colors">
                   <div className="flex items-start justify-between mb-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-mono font-semibold text-[#1a1f2e] truncate">{node.nodeName}</p>
-                      <p className="text-[11px] text-[#8b949e] mt-0.5">{instanceType}</p>
+                      <p className="text-[13px] font-mono font-semibold text-[rgba(0,0,0,0.88)] truncate">{node.nodeName}</p>
+                      <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">{instanceType}</p>
                     </div>
                     {node.capacityType && (
                       <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ml-2 flex-shrink-0"
                         style={isSpot
                           ? { color: '#0550ae', background: '#ddf4ff', borderColor: 'rgba(84,174,255,0.4)' }
-                          : { color: '#57606a', background: '#f6f8fa', borderColor: '#d0d7de' }}>
+                          : { color: 'rgba(0,0,0,0.5)', background: 'rgba(0,0,0,0.02)', borderColor: 'rgba(0,0,0,0.12)' }}>
                         {isSpot ? 'Spot' : 'On-Demand'}
                       </span>
                     )}
                   </div>
 
-                  <div className="text-[26px] font-semibold text-[#1a1f2e] leading-none mb-1">
-                    ${(node.dailyCost || 0).toFixed(2)}<span className="text-[13px] text-[#8b949e] font-normal">/day</span>
+                  <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] leading-none mb-1">
+                    ${(node.dailyCost || 0).toFixed(2)}<span className="text-[13px] text-[rgba(0,0,0,0.4)] font-normal">/day</span>
                   </div>
-                  <p className="text-[11px] text-[#8b949e] mb-3">${((node.dailyCost || 0) * 30).toFixed(0)}/mo · ${(node.hourlyRate || 0).toFixed(4)}/hr</p>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-3">${((node.dailyCost || 0) * 30).toFixed(0)}/mo · ${(node.hourlyRate || 0).toFixed(4)}/hr</p>
 
                   <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
                     style={isReady
@@ -344,30 +344,30 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
 
           {sortedNodes.length === 0 && (
             <div className="py-10 text-center col-span-3">
-              <p className="text-[13px] text-[#57606a]">No node cost data available</p>
+              <p className="text-[13px] text-[rgba(0,0,0,0.5)]">No node cost data available</p>
             </div>
           )}
         </div>
 
           {sortedNodes.length > nodeItemsPerPage && (
-            <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#e8ecf0]">
-              <span className="text-[11px] text-[#8b949e]">
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-[rgba(0,0,0,0.06)]">
+              <span className="text-[11px] text-[rgba(0,0,0,0.4)]">
                 {nodePage * nodeItemsPerPage + 1}–{Math.min((nodePage + 1) * nodeItemsPerPage, sortedNodes.length)} of {sortedNodes.length}
               </span>
               <div className="flex gap-2">
                 <button onClick={() => setNodePage(p => Math.max(0, p - 1))} disabled={nodePage === 0}
-                  className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Previous</button>
+                  className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[rgba(0,0,0,0.88)]">Previous</button>
                 <button onClick={() => setNodePage(p => p + 1)} disabled={(nodePage + 1) * nodeItemsPerPage >= sortedNodes.length}
-                  className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Next</button>
+                  className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[rgba(0,0,0,0.88)]">Next</button>
               </div>
             </div>
           )}
       </div>
 
       {/* ── Workload Cost Ranking ── */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between flex-wrap gap-3">
-          <span className="text-sm font-semibold text-[#1a1f2e]">Workload Cost Ranking</span>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between flex-wrap gap-3">
+          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Workload Cost Ranking</span>
           <div className="flex items-center gap-1">
             {[
               { key: 'deployments', label: 'Deployments', count: deploymentCosts.length },
@@ -376,7 +376,7 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
             ].map(tab => (
               <button key={tab.key}
                 onClick={() => { setWorkloadTab(tab.key as any); setDeploymentPage(0); setDaemonSetPage(0); setStatefulSetPage(0); }}
-                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${workloadTab === tab.key ? 'bg-[#2f4bde] text-white' : 'bg-white text-[#57606a] border border-[#d0d7de] hover:bg-[#f6f8fa]'}`}>
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${workloadTab === tab.key ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-white text-[rgba(0,0,0,0.5)] border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.02)]'}`}>
                 {tab.label} <span className="opacity-70">({tab.count})</span>
               </button>
             ))}
@@ -385,13 +385,13 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
 
         <table className="w-full">
           <thead>
-            <tr className="bg-[#f6f8fa] border-b border-[#d0d7de]">
-              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">#</th>
-              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Workload</th>
-              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Namespace</th>
-              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Usage share</th>
-              <th className="px-5 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Daily</th>
-              <th className="px-5 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-[#8b949e]">Monthly</th>
+            <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.12)]">
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">#</th>
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Workload</th>
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Namespace</th>
+              <th className="px-5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Usage share</th>
+              <th className="px-5 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Daily</th>
+              <th className="px-5 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Monthly</th>
             </tr>
           </thead>
           <tbody>
@@ -399,25 +399,25 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
               const rank = activeWorkloadPage * itemsPerPage + i + 1;
               const costShare = (wl.dailyCost / Math.max(maxWorkloadCost, 0.01)) * 100;
               return (
-                <tr key={i} className="border-b border-[#e8ecf0] hover:bg-[#f6f8fa] transition-colors">
-                  <td className="px-5 py-2.5 text-[11px] text-[#8b949e] font-mono">{rank}</td>
+                <tr key={i} className="border-b border-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+                  <td className="px-5 py-2.5 text-[11px] text-[rgba(0,0,0,0.4)] font-mono">{rank}</td>
                   <td className="px-5 py-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-[13px] font-semibold text-[#1a1f2e] truncate max-w-[180px]">{wl.name}</span>
-                      <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold border border-[#d0d7de] text-[#57606a]">{wl.kind}</span>
+                      <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] truncate max-w-[180px]">{wl.name}</span>
+                      <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.5)]">{wl.kind}</span>
                     </div>
                   </td>
-                  <td className="px-5 py-2.5 text-[13px] font-mono text-[#57606a]">{wl.namespace}</td>
+                  <td className="px-5 py-2.5 text-[13px] font-mono text-[rgba(0,0,0,0.5)]">{wl.namespace}</td>
                   <td className="px-5 py-2.5 w-36">
                     <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1.5 bg-[#e8ecf0] rounded-full overflow-hidden">
-                        <div className="h-full bg-[#2f4bde] rounded-full" style={{ width: `${costShare}%` }} />
+                      <div className="flex-1 h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                        <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full" style={{ width: `${costShare}%` }} />
                       </div>
-                      <span className="text-[11px] text-[#8b949e] w-8">{wl.podCount}p</span>
+                      <span className="text-[11px] text-[rgba(0,0,0,0.4)] w-8">{wl.podCount}p</span>
                     </div>
                   </td>
-                  <td className="px-5 py-2.5 text-right text-[13px] font-semibold text-[#1a1f2e]">${(wl.dailyCost || 0).toFixed(2)}</td>
-                  <td className="px-5 py-2.5 text-right text-[11px] text-[#8b949e]">${(wl.monthlyCost || 0).toFixed(0)}</td>
+                  <td className="px-5 py-2.5 text-right text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">${(wl.dailyCost || 0).toFixed(2)}</td>
+                  <td className="px-5 py-2.5 text-right text-[11px] text-[rgba(0,0,0,0.4)]">${(wl.monthlyCost || 0).toFixed(0)}</td>
                 </tr>
               );
             })}
@@ -425,19 +425,19 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
         </table>
         {activeWorkloads.length === 0 && (
           <div className="py-10 text-center">
-            <p className="text-[13px] text-[#57606a]">No {workloadTab} cost data available</p>
+            <p className="text-[13px] text-[rgba(0,0,0,0.5)]">No {workloadTab} cost data available</p>
           </div>
         )}
         {activeWorkloads.length > itemsPerPage && (
-          <div className="px-5 py-3 bg-[#f6f8fa] border-t border-[#e8ecf0] flex items-center justify-between">
-            <span className="text-[11px] text-[#8b949e]">
+          <div className="px-5 py-3 bg-[rgba(0,0,0,0.02)] border-t border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+            <span className="text-[11px] text-[rgba(0,0,0,0.4)]">
               {activeWorkloadPage * itemsPerPage + 1}–{Math.min((activeWorkloadPage + 1) * itemsPerPage, activeWorkloads.length)} of {activeWorkloads.length}
             </span>
             <div className="flex gap-2">
               <button onClick={() => setActiveWorkloadPage(p => Math.max(0, p - 1))} disabled={activeWorkloadPage === 0}
-                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Previous</button>
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[rgba(0,0,0,0.88)]">Previous</button>
               <button onClick={() => setActiveWorkloadPage(p => p + 1)} disabled={(activeWorkloadPage + 1) * itemsPerPage >= activeWorkloads.length}
-                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[#d0d7de] rounded-lg hover:bg-[#f6f8fa] disabled:opacity-40 text-[#1a1f2e]">Next</button>
+                className="px-3 py-1.5 text-[12px] font-semibold bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 text-[rgba(0,0,0,0.88)]">Next</button>
             </div>
           </div>
         )}
@@ -445,9 +445,9 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
 
       {/* ── Savings Opportunities (hidden) ── */}
       {/* {recommendations.length > 0 && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[#e8ecf0] flex items-center justify-between">
-            <span className="text-sm font-semibold text-[#1a1f2e]">Savings Opportunities</span>
+        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Savings Opportunities</span>
             <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
               style={{ color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
               ${totalSavings.toFixed(0)}/mo potential
@@ -462,32 +462,32 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
                 ? { color: '#9a6700', bg: '#fff8c5', border: 'rgba(212,167,44,0.4)' }
                 : { color: '#0550ae', bg: '#ddf4ff', border: 'rgba(84,174,255,0.4)' };
               return (
-                <div key={rec.id} className="border border-[#d0d7de] rounded-lg p-4 hover:bg-[#f6f8fa] transition-colors">
+                <div key={rec.id} className="border border-[rgba(0,0,0,0.12)] rounded-lg p-4 hover:bg-[rgba(0,0,0,0.02)] transition-colors">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h4 className="text-sm font-semibold text-[#1a1f2e]">{rec.title}</h4>
+                        <h4 className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">{rec.title}</h4>
                         <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
                           style={{ color: prioStyle.color, background: prioStyle.bg, borderColor: prioStyle.border }}>
                           {rec.priority} priority
                         </span>
                       </div>
-                      <p className="text-[13px] text-[#57606a] mb-1">{rec.description}</p>
-                      <p className="text-[13px] font-semibold text-[#1a1f2e]">{rec.impact}</p>
+                      <p className="text-[13px] text-[rgba(0,0,0,0.5)] mb-1">{rec.description}</p>
+                      <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{rec.impact}</p>
                     </div>
                     {rec.savingsEstimate > 0 && (
                       <div className="text-right flex-shrink-0">
                         <div className="text-[26px] font-semibold text-[#1a7f37] leading-none">${rec.savingsEstimate.toFixed(0)}</div>
-                        <div className="text-[11px] text-[#8b949e]">/month</div>
+                        <div className="text-[11px] text-[rgba(0,0,0,0.4)]">/month</div>
                       </div>
                     )}
                   </div>
                   <button onClick={() => setShowRecommendationInfo(showRecommendationInfo === rec.id ? null : rec.id)}
-                    className="text-[12px] text-[#2f4bde] hover:underline">
+                    className="text-[12px] text-[rgba(0,0,0,0.88)] hover:underline">
                     {showRecommendationInfo === rec.id ? '▲' : '▼'} How is this calculated?
                   </button>
                   {showRecommendationInfo === rec.id && (
-                    <div className="mt-2 p-3 bg-[#f6f8fa] rounded-lg border border-[#d0d7de] text-[11px] text-[#57606a]">
+                    <div className="mt-2 p-3 bg-[rgba(0,0,0,0.02)] rounded-lg border border-[rgba(0,0,0,0.12)] text-[11px] text-[rgba(0,0,0,0.5)]">
                       {rec.basisExplanation}
                     </div>
                   )}

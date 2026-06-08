@@ -86,50 +86,39 @@ const EksDetailsPage: React.FC = () => {
     setTitle(clusterName);
 
     setActions(
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <Link
           to={`/cloudk8s?accountIds=${accountId}`}
-          className="w-10 h-10 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-gray-500 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-sm"
+          className="w-9 h-9 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl flex items-center justify-center text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.88)] hover:border-[rgba(0,0,0,0.25)] transition-all"
           title="Back to Clusters"
         >
-          <i className="fas fa-arrow-left"></i>
+          <i className="fas fa-arrow-left text-xs"></i>
         </Link>
 
-        {/* Sync Status - Simplified for Topbar */}
-        <div className="hidden md:flex flex-col items-end mr-2">
-          <div className="flex items-center gap-1.5 text-[10px] text-gray-400 font-medium whitespace-nowrap">
-            <i className="fas fa-code-branch"></i> v{version} | <i className="fas fa-map-marker-alt"></i> {region}
+        <div className="hidden md:flex flex-col items-end">
+          <div className="flex items-center gap-1.5 text-[10px] text-[rgba(0,0,0,0.35)] font-medium whitespace-nowrap">
+            <i className="fas fa-code-branch"></i> v{version} · <i className="fas fa-map-marker-alt"></i> {region}
           </div>
-          <div className="text-[10px] text-gray-600 font-semibold">
-            Last synced: {getTimeSince(lastUpdateTimestamp)}
+          <div className="text-[10px] text-[rgba(0,0,0,0.5)] font-semibold">
+            Synced: {getTimeSince(lastUpdateTimestamp)}
           </div>
         </div>
 
-        {/* Right-Sizing button hidden until ready
-        <Link
-          to={`/k8s-rightsizing?name=${clusterName}&accountId=${accountId}`}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-green-200 transition-all active:scale-95"
-        >
-          <i className="fas fa-chart-line"></i>
-          <span>Right-Sizing</span>
-        </Link>
-        */}
-
         <button
           onClick={() => setShowIntegrationGuide(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 text-xs font-bold rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all active:scale-95"
+          className="flex items-center gap-2 px-4 py-2 bg-white text-[rgba(0,0,0,0.6)] text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.03)] transition-all"
         >
-          <i className="fas fa-book"></i>
+          <i className="fas fa-book text-xs"></i>
           <span>Guide</span>
         </button>
 
         <button
           onClick={syncInBackground}
           disabled={isSyncing}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
+          className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-xs font-bold rounded-xl hover:bg-black transition-all disabled:opacity-50"
         >
           <i className={clsx('fas fa-sync-alt', isSyncing && 'animate-spin')}></i>
-          <span>{isSyncing ? 'Syncing...' : 'Sync Data'}</span>
+          <span>{isSyncing ? 'Syncing…' : 'Sync Data'}</span>
         </button>
       </div>
     );
@@ -142,13 +131,13 @@ const EksDetailsPage: React.FC = () => {
   // Handle invalid params
   if (!clusterName || !accountId) {
     return (
-      <main className="eks-details-page flex-1 flex items-center justify-center min-h-screen">
+      <main className="flex-1 flex items-center justify-center min-h-screen bg-white">
         <div className="text-center p-8">
-          <div className="w-20 h-20 bg-red-900/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-500/30">
-            <i className="fas fa-exclamation-triangle text-red-400 text-3xl"></i>
+          <div className="w-16 h-16 bg-[rgba(220,38,38,0.06)] rounded-xl flex items-center justify-center mx-auto mb-4 border border-[rgba(220,38,38,0.15)]">
+            <i className="fas fa-exclamation-triangle text-[#DC2626] text-2xl"></i>
           </div>
-          <h3 className="text-xl font-bold text-gray-100 mb-2">Missing Parameters</h3>
-          <p className="text-gray-400">
+          <h3 className="text-[18px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">Missing Parameters</h3>
+          <p className="text-[13px] text-[rgba(0,0,0,0.4)]">
             Required parameters missing: {!clusterName && 'clusterName'} {!accountId && 'accountId'}
           </p>
         </div>
@@ -157,7 +146,7 @@ const EksDetailsPage: React.FC = () => {
   }
 
   return (
-    <main className="eks-details-page flex-1 flex flex-col min-h-screen bg-[#f6f8fa]" style={{ fontFamily: "'Inter', sans-serif" }}>
+    <main className="eks-details-page flex-1 flex flex-col min-h-screen bg-white" style={{ fontFamily: "'Inter', sans-serif" }}>
       <div className="p-6 space-y-4 w-full">
         {/* Old Header Removed */}
 
