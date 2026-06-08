@@ -41,6 +41,26 @@ logs/
 *.html.bak
 *.html.tmp
 *.disabled
+*.bak
+*.backup
+*.rd
+
+# Vite dev cache
+frontend-app/vite.config.*.mjs
+frontend-app/vite.config.ts.timestamp-*
+
+# Temp/scratch files
+tmpclaude-*
+=
+resolve
+threads.txt
+cookies.txt
+last_logs.txt
+risp_response.json
+find_dups.*
+TestClass.java
+test-actions-history.html
+verify-tenant-isolation.bat
 
 # macOS
 .DS_Store

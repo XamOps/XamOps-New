@@ -24,7 +24,7 @@ public class CloudsitterEmailBuilder {
         String accentColor = isStart ? "#10b981" : "#f59e0b";
         String accentLight = isStart ? "#d1fae5" : "#fef3c7";
         String accentText  = isStart ? "#065f46" : "#92400e";
-        String icon        = isStart ? "▶" : "■";
+        String icon        = isStart ? EmailIcons.play(24) : EmailIcons.stop(24);
         String actionLabel = isStart ? "Started" : "Stopped";
         String reasonText  = isStart
                 ? "The schedule indicates this instance should be <strong>running</strong> at this hour."
@@ -44,7 +44,7 @@ public class CloudsitterEmailBuilder {
                "<table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.08)\">" +
 
                // Header
-               "<tr><td style=\"background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:28px 36px\">" +
+               "<tr><td style=\"background:#000000;padding:28px 36px\">" +
                "<table width=\"100%\"><tr>" +
                "<td><span style=\"font-size:22px;font-weight:700;color:#fff;letter-spacing:-.5px\">XamOps</span>" +
                "<span style=\"font-size:13px;color:rgba(255,255,255,.75);margin-left:8px\">CloudSitter</span></td>" +
@@ -56,7 +56,7 @@ public class CloudsitterEmailBuilder {
                "<tr><td style=\"padding:28px 36px 0\">" +
                "<div style=\"background:" + accentLight + ";border-left:4px solid " + accentColor + ";border-radius:6px;" +
                "padding:14px 18px;display:flex;align-items:center\">" +
-               "<span style=\"font-size:24px;margin-right:12px\">" + icon + "</span>" +
+               "<span style=\"margin-right:12px;vertical-align:middle;\">" + icon + "</span>" +
                "<div>" +
                "<div style=\"font-size:18px;font-weight:700;color:" + accentText + "\">" +
                "Instance " + actionLabel + "</div>" +

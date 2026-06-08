@@ -1,0 +1,31 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]: XAMOPS
+  - generic [ref=e5]: ✓
+  - heading "Report Schedule Confirmed" [level=1] [ref=e6]
+  - paragraph [ref=e7]: Your FinOps report has been scheduled successfully
+  - paragraph [ref=e8]: Hello,
+  - paragraph [ref=e9]: "Great news! Your automated FinOps report has been set up successfully. Here are the details of your schedule:"
+  - generic [ref=e10]:
+    - generic [ref=e11]:
+      - generic [ref=e12]: ☁
+      - paragraph [ref=e13]: Cloud Account
+      - paragraph [ref=e14]: Acme Corp
+      - paragraph [ref=e15]: "123456789012"
+      - generic [ref=e17]: AWS
+    - generic [ref=e18]:
+      - generic [ref=e19]: ✉
+      - paragraph [ref=e20]: Recipient Email
+      - paragraph [ref=e21]: admin@acme.com
+    - generic [ref=e22]:
+      - generic [ref=e23]: 📅
+      - paragraph [ref=e24]: Report Frequency
+      - paragraph [ref=e25]: Weekly
+      - paragraph [ref=e26]: Reports sent every Friday at 6:00 PM IST
+  - paragraph [ref=e28]:
+    - strong [ref=e29]: What's next?
+    - text: You will receive your first report at the next scheduled time. Each report will include a detailed breakdown of your cloud costs by service and region.
+  - paragraph [ref=e30]:
+    - generic [ref=e31]: XAMOPS
+  - paragraph [ref=e32]: Cloud Cost Management & FinOps Platform
+  - paragraph [ref=e34]: © 2026 XamOps. All rights reserved.
+  - paragraph [ref=e35]: Schedule created on June 08, 2026

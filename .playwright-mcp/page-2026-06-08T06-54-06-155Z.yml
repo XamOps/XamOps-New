@@ -1,0 +1,25 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]: XAMOPS
+  - generic [ref=e4]: 🌟
+  - heading "Budget Created" [level=1] [ref=e5]
+  - paragraph [ref=e6]: Your new budget has been set up and is now active.
+  - heading "Budget Details" [level=2] [ref=e7]
+  - text: Budget Name Monthly AWS Spend Account Acme Corp (123456789012) Limit
+  - strong [ref=e8]: $5000.00 USD
+  - text: Actual Spend $1200.00 Forecasted $4800.00 Period Monthly (resets on the 1st)
+  - generic [ref=e9]:
+    - heading "What happens next?" [level=3] [ref=e10]
+    - paragraph [ref=e11]:
+      - text: XamOps will monitor your spend against this budget and alert you at
+      - strong [ref=e12]: 50%
+      - text: ","
+      - strong [ref=e13]: 80%
+      - text: ", and"
+      - strong [ref=e14]: 100%
+      - text: of the limit. You will also receive a forecasted overage warning before you actually exceed the budget.
+  - link "View Budget in XamOps" [ref=e15] [cursor=pointer]:
+    - /url: "#"
+  - generic [ref=e16]: XAMOPS
+  - paragraph [ref=e17]: Cloud Cost Management & FinOps Platform
+  - paragraph [ref=e19]: © 2026 XamOps. All rights reserved.
+  - paragraph [ref=e20]: Sent on June 08, 2026 · You are receiving this because you created a budget alert.

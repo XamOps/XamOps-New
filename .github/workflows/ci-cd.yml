@@ -86,7 +86,6 @@ jobs:
 
       - name: Run tests
         run: mvn test -B --no-transfer-progress -pl billops -am
-        continue-on-error: true
 
       - name: Upload test reports
         if: always()
@@ -272,7 +271,6 @@ jobs:
 
       - name: Run tests
         run: mvn test -B --no-transfer-progress -pl xamops-service -am
-        continue-on-error: true
 
       - name: Upload test reports
         if: always()
@@ -462,8 +460,8 @@ jobs:
 
       - name: Run tests
         working-directory: frontend-app
-        run: npm test -- --watchAll=false --passWithNoTests
-        continue-on-error: true
+        run: npm test
+        continue-on-error: false
 
   frontend-docker-push:
     name: "[frontend-app] Build & Push Docker Image"

@@ -34,6 +34,11 @@ class SreInvestigationServiceTest {
             mock(AwsClientProvider.class),
             "http://openobserve:5080"
         );
+        // Self-injection field (used for @Async proxy) is null in unit tests.
+        // Set it to a mock so createInvestigation() can call self.runInvestigationAsync()
+        // without actually executing the async investigation flow.
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                service, "self", mock(SreInvestigationService.class));
     }
 
     @Test

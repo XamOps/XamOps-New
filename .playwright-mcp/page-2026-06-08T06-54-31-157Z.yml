@@ -1,0 +1,39 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]: XAMOPS
+    - generic [ref=e4]: AWS
+  - heading "Weekly Cost Report" [level=1] [ref=e5]
+  - paragraph [ref=e6]: Acme Corp
+  - generic [ref=e7]:
+    - paragraph [ref=e8]: Total Cost
+    - paragraph [ref=e9]: $2,211.10
+  - generic [ref=e10]:
+    - paragraph [ref=e11]: Services
+    - paragraph [ref=e12]: "5"
+  - generic [ref=e13]:
+    - paragraph [ref=e14]: Regions
+    - paragraph [ref=e15]: "4"
+  - paragraph [ref=e17]:
+    - strong [ref=e18]: "Report Period:"
+    - text: Jun 1 – Jun 8, 2026 |
+    - strong [ref=e19]: "Generated:"
+    - text: June 08, 2026
+  - heading "Cost Breakdown by Service & Region" [level=2] [ref=e20]
+  - text: Service Region Cost (USD) EC2 us-east-1 $1,240.50 RDS ap-south-1 $680.20 S3 us-west-2 $145.90 Lambda eu-west-1 $89.40 CloudFront us-east-1 $55.10 Total $2,211.10
+  - generic [ref=e21]:
+    - heading "Top Spending Services" [level=3] [ref=e22]
+    - generic [ref=e23]:
+      - generic [ref=e24]: EC2
+      - generic [ref=e25]: $1,240.50 (56.1%)
+    - generic [ref=e28]:
+      - generic [ref=e29]: RDS
+      - generic [ref=e30]: $680.20 (30.8%)
+    - generic [ref=e33]:
+      - generic [ref=e34]: S3
+      - generic [ref=e35]: $145.90 (6.6%)
+  - paragraph [ref=e38]:
+    - generic [ref=e39]: XAMOPS
+  - paragraph [ref=e40]: Cloud Cost Management & FinOps Platform
+  - paragraph [ref=e41]: Optimize your cloud spend with intelligent insights
+  - paragraph [ref=e43]: © 2026 XamOps. All rights reserved.
+  - paragraph [ref=e44]: This is an automated report. Please do not reply to this email.

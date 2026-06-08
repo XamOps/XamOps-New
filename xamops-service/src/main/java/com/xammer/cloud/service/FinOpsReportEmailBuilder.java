@@ -83,14 +83,14 @@ public class FinOpsReportEmailBuilder {
         // --- HEADER ---
         sb.append("<tr>");
         sb.append(
-                "<td style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 40px 30px 40px;'>");
+                "<td style='background: #000000; padding: 40px 40px 30px 40px;'>");
         sb.append("<table role='presentation' style='width: 100%;'>");
         sb.append("<tr>");
         sb.append("<td>");
         // Logo/Brand
         sb.append("<div style='margin-bottom: 20px;'>");
         sb.append(
-                "<span style='display: inline-block; background-color: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 8px; color: #ffffff; font-size: 14px; font-weight: 600; letter-spacing: 1px;'>XAMOPS</span>");
+                "<span style='display: inline-block; background: #ffffff; color: #000000; padding: 5px 14px; border-radius: 6px; font-size: 11px; font-weight: 900; letter-spacing: 2px;'>XAMOPS</span>");
         if (providerBadge != null) {
             sb.append(providerBadge);
         }
@@ -156,7 +156,7 @@ public class FinOpsReportEmailBuilder {
 
         // Report Period Info
         sb.append(
-                "<div style='background-color: #f8fafc; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; border-left: 4px solid #667eea;'>");
+                "<div style='background-color: #f8fafc; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; border-left: 4px solid #000000;'>");
         sb.append("<p style='margin: 0; color: #475569; font-size: 14px;'>");
         sb.append("<strong style='color: #1e293b;'>Report Period:</strong> ").append(dateRange);
         sb.append(" &nbsp;|&nbsp; <strong style='color: #1e293b;'>Generated:</strong> ").append(generatedDate);
@@ -168,7 +168,7 @@ public class FinOpsReportEmailBuilder {
             sb.append(
                     "<div style='text-align: center; padding: 40px 20px; background-color: #f8fafc; border-radius: 12px;'>");
             sb.append(
-                    "<p style='margin: 0; color: #6b7280; font-size: 16px;'>📊 No cost data found for this period.</p>");
+                    "<p style='margin: 0; color: #6b7280; font-size: 16px;'><span style='vertical-align:middle;'>" + EmailIcons.barChart(16) + "</span> No cost data found for this period.</p>");
             sb.append("</div>");
         } else {
             // Section Title
@@ -181,7 +181,7 @@ public class FinOpsReportEmailBuilder {
 
             // Table Header
             sb.append("<thead>");
-            sb.append("<tr style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);'>");
+            sb.append("<tr style='background: #000000;'>");
             sb.append(
                     "<th style='padding: 14px 16px; text-align: left; color: #ffffff; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;'>Service</th>");
             sb.append(
@@ -260,7 +260,7 @@ public class FinOpsReportEmailBuilder {
                             sb.append(
                                     "<div style='background-color: #e5e7eb; border-radius: 4px; height: 8px; overflow: hidden;'>");
                             sb.append(
-                                    "<div style='background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); width: ")
+                                    "<div style='background: #000000; width: ")
                                     .append(barWidth).append("%; height: 100%; border-radius: 4px;'></div>");
                             sb.append("</div>");
                             sb.append("</td>");
@@ -284,7 +284,7 @@ public class FinOpsReportEmailBuilder {
         // Logo
         sb.append("<p style='margin: 0 0 12px 0;'>");
         sb.append(
-                "<span style='display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 8px 20px; border-radius: 6px; color: #ffffff; font-size: 14px; font-weight: 700; letter-spacing: 1px;'>XAMOPS</span>");
+                "<span style='display: inline-block; background: #000000; color: #ffffff; padding: 5px 14px; border-radius: 6px; font-size: 11px; font-weight: 900; letter-spacing: 2px;'>XAMOPS</span>");
         sb.append("</p>");
         sb.append(
                 "<p style='margin: 0 0 8px 0; color: #6b7280; font-size: 13px;'>Cloud Cost Management & FinOps Platform</p>");
@@ -355,16 +355,16 @@ public class FinOpsReportEmailBuilder {
         // --- HEADER ---
         sb.append("<tr>");
         sb.append(
-                "<td style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 40px 30px 40px; text-align: center;'>");
+                "<td style='background: #000000; padding: 40px 40px 30px 40px; text-align: center;'>");
         // Logo/Brand
         sb.append("<div style='margin-bottom: 20px;'>");
         sb.append(
-                "<span style='display: inline-block; background-color: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 8px; color: #ffffff; font-size: 14px; font-weight: 600; letter-spacing: 1px;'>XAMOPS</span>");
+                "<span style='display: inline-block; background: #ffffff; color: #000000; padding: 5px 14px; border-radius: 6px; font-size: 11px; font-weight: 900; letter-spacing: 2px;'>XAMOPS</span>");
         sb.append("</div>");
         // Success Icon
         sb.append("<div style='margin-bottom: 16px;'>");
         sb.append(
-                "<span style='display: inline-block; background-color: rgba(255,255,255,0.2); width: 64px; height: 64px; border-radius: 50%; line-height: 64px; font-size: 32px;'>&#10003;</span>");
+                "<span style='display: inline-flex; align-items: center; justify-content: center; background-color: rgba(255,255,255,0.2); width: 64px; height: 64px; border-radius: 50%; color: #ffffff;'>" + EmailIcons.check(32) + "</span>");
         sb.append("</div>");
         // Title
         sb.append(
@@ -393,7 +393,7 @@ public class FinOpsReportEmailBuilder {
         sb.append("<table role='presentation' style='width: 100%;'><tr>");
         sb.append("<td style='width: 40px; vertical-align: top;'>");
         sb.append(
-                "<span style='display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 36px; height: 36px; border-radius: 8px; text-align: center; line-height: 36px; color: #ffffff; font-size: 16px;'>&#9729;</span>");
+                "<span style='display: inline-flex; align-items: center; justify-content: center; background: #000000; width: 36px; height: 36px; border-radius: 8px; color: #ffffff;'>" + EmailIcons.cloud(16) + "</span>");
         sb.append("</td>");
         sb.append("<td style='padding-left: 12px;'>");
         sb.append(
@@ -414,7 +414,7 @@ public class FinOpsReportEmailBuilder {
         sb.append("<table role='presentation' style='width: 100%;'><tr>");
         sb.append("<td style='width: 40px; vertical-align: top;'>");
         sb.append(
-                "<span style='display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 36px; height: 36px; border-radius: 8px; text-align: center; line-height: 36px; color: #ffffff; font-size: 16px;'>&#9993;</span>");
+                "<span style='display: inline-flex; align-items: center; justify-content: center; background: #000000; width: 36px; height: 36px; border-radius: 8px; color: #ffffff;'>" + EmailIcons.envelope(16) + "</span>");
         sb.append("</td>");
         sb.append("<td style='padding-left: 12px;'>");
         sb.append(
@@ -430,7 +430,7 @@ public class FinOpsReportEmailBuilder {
         sb.append("<table role='presentation' style='width: 100%;'><tr>");
         sb.append("<td style='width: 40px; vertical-align: top;'>");
         sb.append(
-                "<span style='display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 36px; height: 36px; border-radius: 8px; text-align: center; line-height: 36px; color: #ffffff; font-size: 16px;'>&#128197;</span>");
+                "<span style='display: inline-flex; align-items: center; justify-content: center; background: #000000; width: 36px; height: 36px; border-radius: 8px; color: #ffffff;'>" + EmailIcons.calendar(16) + "</span>");
         sb.append("</td>");
         sb.append("<td style='padding-left: 12px;'>");
         sb.append(
@@ -447,8 +447,8 @@ public class FinOpsReportEmailBuilder {
 
         // Info Box
         sb.append(
-                "<div style='background-color: #eff6ff; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; border-left: 4px solid #667eea;'>");
-        sb.append("<p style='margin: 0; color: #1e40af; font-size: 14px;'>");
+                "<div style='background-color: #f1f5f9; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; border-left: 4px solid #000000;'>");
+        sb.append("<p style='margin: 0; color: #1e293b; font-size: 14px;'>");
         sb.append(
                 "<strong>What's next?</strong> You will receive your first report at the next scheduled time. Each report will include a detailed breakdown of your cloud costs by service and region.");
         sb.append("</p>");
@@ -466,7 +466,7 @@ public class FinOpsReportEmailBuilder {
         // Logo
         sb.append("<p style='margin: 0 0 12px 0;'>");
         sb.append(
-                "<span style='display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 8px 20px; border-radius: 6px; color: #ffffff; font-size: 14px; font-weight: 700; letter-spacing: 1px;'>XAMOPS</span>");
+                "<span style='display: inline-block; background: #000000; color: #ffffff; padding: 5px 14px; border-radius: 6px; font-size: 11px; font-weight: 900; letter-spacing: 2px;'>XAMOPS</span>");
         sb.append("</p>");
         sb.append(
                 "<p style='margin: 0 0 8px 0; color: #6b7280; font-size: 13px;'>Cloud Cost Management & FinOps Platform</p>");

@@ -1,25 +1,22 @@
 package com.xammer.cloud.repository;
 
 import com.xammer.cloud.domain.CspBillingConfig;
-import com.xammer.cloud.websocket.CloudShellSocketHandler;
-import com.xammer.cloud.config.CloudShellWebSocketConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.context.annotation.ComponentScan;
-import org.springframework.context.annotation.FilterType;
+import org.springframework.test.context.ContextConfiguration;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DataJpaTest(excludeAutoConfiguration = {},
-        includeFilters = {},
-        excludeFilters = @ComponentScan.Filter(
-                type = FilterType.ASSIGNABLE_TYPE,
-                classes = {CloudShellSocketHandler.class, CloudShellWebSocketConfig.class}
-        ))
+@DataJpaTest
+@ContextConfiguration(classes = JpaSliceTestConfig.class)
+@org.springframework.test.context.TestPropertySource(properties = {
+        "spring.autoconfigure.exclude=",
+        "spring.flyway.enabled=false"
+})
 class CspBillingConfigRepositoryTest {
 
     @Autowired
