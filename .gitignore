@@ -10,6 +10,12 @@ frontend-app/tsc_output*.txt
 /xamops-service/target/
 *.jar
 
+# Go binaries
+xamops-agent/agent
+xamops-autoscaler/autoscaler
+**/agent
+**/autoscaler
+
 # Ignore node_modules
 /frontend-app/node_modules/
 node_modules/
