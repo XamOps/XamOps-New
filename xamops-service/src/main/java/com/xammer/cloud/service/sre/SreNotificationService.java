@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.SreInvestigation;
 import com.xammer.cloud.domain.SreNotification;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.SreNotificationRepository;
+import com.xammer.cloud.service.EmailIcons;
 import com.xammer.cloud.service.EmailService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,9 +67,9 @@ public class SreNotificationService {
             + "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>"
             + "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>"
             + "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>"
-            + "<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;'>"
-            + "<div style='margin-bottom:16px;'><span style='display:inline-block;background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>"
-            + "<div style='font-size:40px;margin-bottom:14px;'>&#128269;</div>"
+            + "<tr><td style='background:#000000;padding:40px;'>"
+            + "<div style='margin-bottom:16px;'><span style='display:inline-block;background:#ffffff;color:#000000;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>"
+            + "<div style='margin-bottom:14px;color:#ffffff;'>" + EmailIcons.search(40) + "</div>"
             + "<h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>SRE Investigation Complete</h1>"
             + "<p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Root cause analysis is ready</p>"
             + "</td></tr>"
@@ -82,10 +83,10 @@ public class SreNotificationService {
             + "<p style='margin:0 0 20px;color:#374151;font-size:14px;line-height:1.6;'>" + summary + "</p>"
             + "<h3 style='margin:0 0 8px;color:#1e293b;font-size:14px;font-weight:700;'>Root Cause</h3>"
             + "<p style='margin:0 0 20px;color:#374151;font-size:14px;line-height:1.6;'>" + rootCause + "</p>"
-            + "<a href='#' style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:11px 22px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;'>View Full Report in XamOps</a>"
+            + "<a href='#' style='display:inline-block;background:#000000;color:#fff;padding:11px 22px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;'>View Full Report in XamOps</a>"
             + "</td></tr>"
             + "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>"
-            + "<span style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>"
+            + "<span style='display:inline-block;background:#000000;padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>"
             + "<p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>"
             + "<p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>"
             + "</td></tr>"

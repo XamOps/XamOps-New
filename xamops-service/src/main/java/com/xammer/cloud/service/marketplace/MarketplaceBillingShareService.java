@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.MarketplaceAccount;
 import com.xammer.cloud.domain.MarketplacePayerAccount;
 import com.xammer.cloud.repository.MarketplaceAccountRepository;
 import com.xammer.cloud.repository.MarketplacePayerAccountRepository;
+import com.xammer.cloud.service.EmailIcons;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.FileStorageService;
 import lombok.extern.slf4j.Slf4j;
@@ -122,9 +123,9 @@ public class MarketplaceBillingShareService {
                "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>" +
                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>" +
                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>" +
-               "<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;'>" +
-               "  <div style='margin-bottom:16px;'><span style='display:inline-block;background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>" +
-               "  <div style='font-size:40px;margin-bottom:14px;'>&#128190;</div>" +
+               "<tr><td style='background:#000000;padding:40px;'>" +
+               "  <div style='margin-bottom:16px;'><span style='display:inline-block;background:#ffffff;color:#000000;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>" +
+               "  <div style='margin-bottom:14px;color:#ffffff;'>" + EmailIcons.download(40) + "</div>" +
                "  <h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>AWS Billing Data Ready</h1>" +
                "  <p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Your billing CSV is available for download</p>" +
                "</td></tr>" +
@@ -156,10 +157,10 @@ public class MarketplaceBillingShareService {
                // Download button
                "<div style='text-align:center;margin:32px 0'>" +
                "<a href='" + downloadUrl + "' " +
-                  "style='display:inline-block;background:#6366f1;color:#ffffff;" +
+                  "style='display:inline-block;background:#000000;color:#ffffff;" +
                          "padding:14px 40px;border-radius:6px;text-decoration:none;" +
                          "font-weight:700;font-size:15px;letter-spacing:0.025em'>" +
-                  "&#8595;&nbsp; Download Billing CSV" +
+                  "<span style='vertical-align:middle;margin-right:6px;'>" + EmailIcons.download(16) + "</span>Download Billing CSV" +
                "</a>" +
                "</div>" +
 
@@ -167,7 +168,7 @@ public class MarketplaceBillingShareService {
                "<div style='background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;" +
                        "padding:12px 16px;margin:20px 0'>" +
                "<p style='margin:0;color:#92400e;font-size:13px'>" +
-                       "&#9888;&nbsp; <strong>This link expires in 48 hours.</strong> " +
+                       "<span style='vertical-align:middle;margin-right:4px;'>" + EmailIcons.warning(16) + "</span><strong>This link expires in 48 hours.</strong> " +
                        "Please download your file before it expires. " +
                        "If you need a new link, contact your account manager.</p>" +
                "</div>" +
@@ -177,7 +178,7 @@ public class MarketplaceBillingShareService {
                        "(e.g. hours, GB) and can be opened in Microsoft Excel or Google Sheets.</p>" +
                "</td></tr>" +
                "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>" +
-               "  <span style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>" +
+               "  <span style='display:inline-block;background:#000000;padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>" +
                "  <p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>" +
                "  <p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>" +
                "</td></tr>" +
