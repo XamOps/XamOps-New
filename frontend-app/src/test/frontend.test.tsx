@@ -11,10 +11,8 @@
  * Uses Vitest + React Testing Library.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import React from 'react';
+import { describe, it, expect } from 'vitest';
+import { render } from '@testing-library/react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. MaintenancePage — no providers needed, pure static render
@@ -165,7 +163,7 @@ describe('cost aggregation utilities', () => {
   ];
 
   it('sums a numeric field across items', () => {
-    expect(sumField(savings, 'amount')).toBe(225);
+    expect(sumField(savings as any, 'amount')).toBe(225);
   });
 
   it('sum of empty array is 0', () => {
