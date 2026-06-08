@@ -1,0 +1,28 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]: XAMOPS
+  - img [ref=e5]
+  - heading "Budget Exceeded" [level=1] [ref=e7]
+  - paragraph [ref=e8]:
+    - text: Your actual spend has
+    - strong [ref=e9]: exceeded your budget limit
+    - text: for this month.
+  - heading "Budget Details" [level=2] [ref=e10]
+  - text: Budget Name Monthly AWS Spend Account Acme Corp (123456789012) Limit
+  - strong [ref=e11]: $5000.00 USD
+  - text: Actual Spend $1200.00 Forecasted $4800.00 Period Monthly (resets on the 1st)
+  - generic [ref=e13]:
+    - generic [ref=e14]: 24.0% used
+    - generic [ref=e15]:
+      - text: "Spent:"
+      - strong [ref=e16]: $1200.00
+      - text: "/ Limit:"
+      - strong [ref=e17]: $5000.00
+  - generic [ref=e20]:
+    - heading "Recommended Action" [level=3] [ref=e21]
+    - paragraph [ref=e22]: Review recent deployments and resource changes. Consider cleaning up unused resources or adjusting your budget limit.
+  - link "Review in XamOps FinOps" [ref=e23] [cursor=pointer]:
+    - /url: "#"
+  - generic [ref=e24]: XAMOPS
+  - paragraph [ref=e25]: Cloud Cost Management & FinOps Platform
+  - paragraph [ref=e27]: © 2026 XamOps. All rights reserved.
+  - paragraph [ref=e28]: Sent on June 08, 2026 · You are receiving this because you created a budget alert.

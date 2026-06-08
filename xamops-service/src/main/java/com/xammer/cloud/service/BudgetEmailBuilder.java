@@ -15,7 +15,7 @@ import java.time.format.DateTimeFormatter;
 @Service
 public class BudgetEmailBuilder {
 
-    private static final String PRIMARY_GRADIENT = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+    private static final String PRIMARY_GRADIENT = "#000000";
 
     // Threshold level colors
     private static final String INFO_COLOR    = "#2563eb";
@@ -33,7 +33,7 @@ public class BudgetEmailBuilder {
         String subject = "Budget Created: " + budget.getBudgetName();
 
         return buildWrapper(subject,
-                headerSection(PRIMARY_GRADIENT, "&#127775;", "Budget Created",
+                headerSection(PRIMARY_GRADIENT, EmailIcons.trendingUp(44), "Budget Created",
                         "Your new budget has been set up and is now active."),
                 summarySection(budget, accountName, accountId),
                 infoBox(INFO_COLOR, INFO_BG,
@@ -60,25 +60,25 @@ public class BudgetEmailBuilder {
         String bodyLine;
 
         if (thresholdPct >= 100) {
-            gradientColor = "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)";
+            gradientColor = PRIMARY_GRADIENT;
             badgeBg = DANGER_BG; badgeColor = DANGER_COLOR;
-            icon = "&#128680;"; // siren
+            icon = EmailIcons.alertCircle(44);
             title = isForecasted ? "Budget Forecast: Overspend Expected" : "Budget Exceeded";
             bodyLine = isForecasted
                     ? "AWS forecasts your spend will <strong>exceed 100%</strong> of your budget before the month ends."
                     : "Your actual spend has <strong>exceeded your budget limit</strong> for this month.";
         } else if (thresholdPct >= 80) {
-            gradientColor = "linear-gradient(135deg, #d97706 0%, #92400e 100%)";
+            gradientColor = PRIMARY_GRADIENT;
             badgeBg = WARNING_BG; badgeColor = WARNING_COLOR;
-            icon = "&#9888;"; // warning
+            icon = EmailIcons.warning(44);
             title = isForecasted ? "Budget Forecast: 80% Warning" : "Budget Alert: 80% Reached";
             bodyLine = isForecasted
                     ? "AWS forecasts your spend will reach <strong>80%</strong> of your budget."
                     : "Your actual spend has reached <strong>80%</strong> of your budget limit.";
         } else {
-            gradientColor = "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)";
+            gradientColor = PRIMARY_GRADIENT;
             badgeBg = INFO_BG; badgeColor = INFO_COLOR;
-            icon = "&#128200;"; // chart
+            icon = EmailIcons.barChart(44);
             title = isForecasted ? "Budget Forecast: 50% Notice" : "Budget Alert: 50% Reached";
             bodyLine = isForecasted
                     ? "AWS forecasts your spend will reach <strong>50%</strong> of your budget."
@@ -114,7 +114,7 @@ public class BudgetEmailBuilder {
         String date = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
         String title = "GCP Budget Created";
         return buildWrapper(title,
-                headerSection("linear-gradient(135deg,#4285f4 0%,#1a73e8 100%)", "&#127975;", title,
+                headerSection(PRIMARY_GRADIENT, EmailIcons.cloud(44), title,
                         "Your new GCP budget is active and monitoring has started."),
                 simpleDetailSection(budgetName, currency + " " + String.format("%.2f", limit), projectId, "GCP Project"),
                 infoBox(INFO_COLOR, INFO_BG,
@@ -132,7 +132,7 @@ public class BudgetEmailBuilder {
         String date = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
         String title = "Azure Budget Created";
         return buildWrapper(title,
-                headerSection("linear-gradient(135deg,#0078d4 0%,#005a9e 100%)", "&#128176;", title,
+                headerSection(PRIMARY_GRADIENT, EmailIcons.dollarSign(44), title,
                         "Your new Azure budget is active and monitoring has started."),
                 simpleDetailSection(budgetName, currency + " " + String.format("%.2f", limit), subscriptionId, "Subscription"),
                 infoBox(INFO_COLOR, INFO_BG,
@@ -164,9 +164,9 @@ public class BudgetEmailBuilder {
     private String headerSection(String gradient, String icon, String title, String subtitle) {
         return "<tr><td style='background:" + gradient + ";padding:40px;'>"
                 + "<div style='margin-bottom:16px;'>"
-                + "<span style='display:inline-block;background:rgba(255,255,255,0.2);padding:7px 16px;border-radius:8px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>"
+                + "<span style='display:inline-block;background:#ffffff;color:#000000;padding:5px 14px;border-radius:6px;font-size:11px;font-weight:900;letter-spacing:2px;'>XAMOPS</span>"
                 + "</div>"
-                + "<div style='font-size:44px;margin-bottom:14px;'>" + icon + "</div>"
+                + "<div style='margin-bottom:14px;color:#ffffff;'>" + icon + "</div>"
                 + "<h1 style='margin:0 0 8px 0;color:#fff;font-size:24px;font-weight:700;'>" + esc(title) + "</h1>"
                 + "<p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>" + subtitle + "</p>"
                 + "</td></tr>";

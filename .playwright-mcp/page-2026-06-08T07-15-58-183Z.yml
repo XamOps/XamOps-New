@@ -1,0 +1,21 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]: XamOps
+    - generic [ref=e4]: CRITICAL
+  - img [ref=e6]
+  - heading "S3 Storage Quota" [level=1] [ref=e7]
+  - paragraph [ref=e8]: S3 · us-west-2
+  - paragraph [ref=e10]: Bucket count approaching account quota limit
+  - text: Account Acme Corp (123456789012) Service S3 Region us-west-2 Alert Type Resource Quota Alerts Severity CRITICAL Usage 95 / 100 (95.0%)
+  - generic [ref=e11]:
+    - heading "Recommended Action" [level=3] [ref=e12]
+    - paragraph [ref=e13]: Your resource usage is approaching the quota limit. Consider requesting a quota increase through the AWS Service Quotas console, or review and clean up unused resources.
+    - link "View in XamOps Dashboard" [ref=e14] [cursor=pointer]:
+      - /url: "#"
+  - generic [ref=e16]: XAMOPS
+  - paragraph [ref=e17]: Cloud Cost Management & Security Platform
+  - paragraph [ref=e18]:
+    - text: Next digest in ~24 hours ·
+    - link "Manage notification settings" [ref=e19] [cursor=pointer]:
+      - /url: "#"
+  - paragraph [ref=e21]: © 2026 XamOps. Generated on June 08, 2026

@@ -4,12 +4,18 @@ import com.xammer.cloud.domain.SreInvestigation;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.test.context.ContextConfiguration;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
+@ContextConfiguration(classes = JpaSliceTestConfig.class)
+@org.springframework.test.context.TestPropertySource(properties = {
+        "spring.autoconfigure.exclude=",
+        "spring.flyway.enabled=false"
+})
 class SreInvestigationRepositoryTest {
 
     @Autowired

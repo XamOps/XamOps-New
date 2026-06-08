@@ -19,8 +19,9 @@
     <properties>
         <java.version>17</java.version>
         <spring-cloud.version>2021.0.5</spring-cloud.version>
-        <aws.java.sdk.version>2.20.0</aws.java.sdk.version>
+        <aws.java.sdk.version>2.44.14</aws.java.sdk.version>
         <gcp.libraries.bom.version>26.34.0</gcp.libraries.bom.version>
+        <flyway.version>9.22.3</flyway.version>
     </properties>
 
     <modules>

@@ -14,8 +14,8 @@ import java.util.stream.Collectors;
 public class AlertEmailBuilder {
 
     // ── Brand ──────────────────────────────────────────────────────────────────
-    private static final String BRAND_GRADIENT   = "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)";
-    private static final String BRAND_ACCENT     = "#6d28d9";
+    private static final String BRAND_GRADIENT   = "#000000";
+    private static final String BRAND_ACCENT     = "#000000";
 
     // ── Severity colours ───────────────────────────────────────────────────────
     private static final String CRITICAL_COLOR   = "#dc2626";
@@ -28,11 +28,6 @@ public class AlertEmailBuilder {
     private static final String OK_BG            = "#ecfdf5";
     private static final String OK_BORDER        = "#6ee7b7";
 
-    // ── Icons ─────────────────────────────────────────────────────────────────
-    private static final String QUOTA_ICON    = "&#128200;";
-    private static final String ANOMALY_ICON  = "&#128176;";
-    private static final String SECURITY_ICON = "&#128737;";
-    private static final String ALERT_ICON    = "&#9888;&#65039;";
 
     // ─────────────────────────────────────────────────────────────────────────
     // Public API
@@ -96,7 +91,7 @@ public class AlertEmailBuilder {
                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td>" +
                // Logo pill
                "<div style='margin-bottom:20px;'>" +
-               "<span style='display:inline-block;background:rgba(255,255,255,0.18);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span>" +
+               "<span style='display:inline-block;background:#ffffff;color:#000000;padding:5px 14px;border-radius:6px;font-size:11px;font-weight:900;letter-spacing:2px;text-transform:uppercase;'>XamOps</span>" +
                "</div>" +
                // Title
                "<h1 style='margin:0 0 6px;color:#fff;font-size:26px;font-weight:700;letter-spacing:-0.5px;'>Alert Digest</h1>" +
@@ -130,17 +125,17 @@ public class AlertEmailBuilder {
         return "<tr><td style='padding:0 40px;'>" +
                "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;margin-top:-16px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.06);'>" +
                "<tr>" +
-               summaryCell(QUOTA_ICON,   "Quota Alerts",      quota) +
+               summaryCell(EmailIcons.barChart(22),   "Quota Alerts",      quota) +
                summaryDivider() +
-               summaryCell(ANOMALY_ICON, "Cost Anomalies",    anomaly) +
+               summaryCell(EmailIcons.dollarSign(22), "Cost Anomalies",    anomaly) +
                summaryDivider() +
-               summaryCell(SECURITY_ICON,"Security Findings", security) +
+               summaryCell(EmailIcons.shield(22),     "Security Findings", security) +
                "</tr></table></td></tr>";
     }
 
     private String summaryCell(String icon, String label, long count) {
         return "<td style='padding:20px;text-align:center;width:33%;'>" +
-               "<div style='font-size:22px;margin-bottom:6px;'>" + icon + "</div>" +
+               "<div style='margin-bottom:6px;color:#374151;'>" + icon + "</div>" +
                "<div style='color:#1e293b;font-size:22px;font-weight:700;'>" + count + "</div>" +
                "<div style='color:#64748b;font-size:12px;font-weight:500;margin-top:2px;text-transform:uppercase;letter-spacing:0.5px;'>" + esc(label) + "</div>" +
                "</td>";
@@ -167,7 +162,7 @@ public class AlertEmailBuilder {
         StringBuilder sb = new StringBuilder();
         sb.append("<div style='margin-bottom:28px;'>");
         sb.append("<div style='display:flex;align-items:center;margin-bottom:12px;'>");
-        sb.append("<span style='font-size:18px;margin-right:8px;'>" + icon + "</span>");
+        sb.append("<span style='margin-right:8px;vertical-align:middle;color:#374151;'>" + icon + "</span>");
         sb.append("<h3 style='margin:0;color:#1e293b;font-size:15px;font-weight:700;'>" + esc(title) + " <span style='color:#64748b;font-weight:500;'>(" + alerts.size() + ")</span></h3>");
         sb.append("</div>");
 
@@ -222,11 +217,10 @@ public class AlertEmailBuilder {
     // ─────────────────────────────────────────────────────────────────────────
 
     private String singleAlertHeader(AlertDto alert) {
-        String bg   = statusGradient(alert.getStatus());
         String icon = typeIcon(alert.getType());
-        return "<tr><td style='background:" + bg + ";padding:40px 40px 32px;'>" +
+        return "<tr><td style='background:#000000;padding:40px 40px 32px;'>" +
                "<div style='margin-bottom:16px;'>" +
-               "<span style='display:inline-block;background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span>" +
+               "<span style='display:inline-block;background:#ffffff;color:#000000;padding:5px 14px;border-radius:6px;font-size:11px;font-weight:900;letter-spacing:2px;text-transform:uppercase;'>XamOps</span>" +
                "<span style='display:inline-block;background:rgba(255,255,255,0.3);padding:5px 12px;border-radius:6px;color:#fff;font-size:11px;font-weight:600;margin-left:8px;'>" + esc(alert.getStatus()) + "</span>" +
                "</div>" +
                "<div style='font-size:40px;margin-bottom:14px;'>" + icon + "</div>" +
@@ -356,22 +350,13 @@ public class AlertEmailBuilder {
         };
     }
 
-    private String statusGradient(String s) {
-        if (s == null) return BRAND_GRADIENT;
-        return switch (s.toUpperCase()) {
-            case "CRITICAL", "HIGH" -> "linear-gradient(135deg,#dc2626 0%,#991b1b 100%)";
-            case "WARNING"          -> "linear-gradient(135deg,#d97706 0%,#92400e 100%)";
-            default                 -> BRAND_GRADIENT;
-        };
-    }
-
     private String typeIcon(String type) {
-        if (type == null) return ALERT_ICON;
+        if (type == null) return EmailIcons.warning(18);
         return switch (type.toUpperCase()) {
-            case "QUOTA"    -> QUOTA_ICON;
-            case "ANOMALY"  -> ANOMALY_ICON;
-            case "SECURITY" -> SECURITY_ICON;
-            default         -> ALERT_ICON;
+            case "QUOTA"    -> EmailIcons.barChart(18);
+            case "ANOMALY"  -> EmailIcons.dollarSign(18);
+            case "SECURITY" -> EmailIcons.shield(18);
+            default         -> EmailIcons.warning(18);
         };
     }
 

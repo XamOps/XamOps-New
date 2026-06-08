@@ -1,0 +1,53 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]: XamOps
+  - heading "Alert Digest" [level=1] [ref=e4]
+  - paragraph [ref=e5]: Acme Corp
+  - paragraph [ref=e6]: "123456789012"
+  - generic [ref=e7]:
+    - generic [ref=e8]: "3"
+    - generic [ref=e9]: Total
+  - generic [ref=e10]:
+    - generic [ref=e11]: "2"
+    - generic [ref=e12]: Critical
+  - generic [ref=e13]:
+    - generic [ref=e14]: "1"
+    - generic [ref=e15]: Warnings
+  - paragraph [ref=e16]: June 08, 2026
+  - generic [ref=e17]: 📈
+  - generic [ref=e18]: "1"
+  - generic [ref=e19]: Quota Alerts
+  - generic [ref=e20]: 💰
+  - generic [ref=e21]: "1"
+  - generic [ref=e22]: Cost Anomalies
+  - generic [ref=e23]: 🛡
+  - generic [ref=e24]: "1"
+  - generic [ref=e25]: Security Findings
+  - generic [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]: 📈
+      - heading "Resource Quota Alerts (1)" [level=3] [ref=e29]
+    - text: Alert Service Region Usage Severity EC2 vCPU Quota
+    - text: Usage at 87% of limit EC2 us-east-1
+    - generic [ref=e30]: 87 / 100 (87.0%)
+    - generic [ref=e32]: WARNING
+  - generic [ref=e33]:
+    - generic [ref=e34]:
+      - generic [ref=e35]: 🛡
+      - heading "Security Findings (1)" [level=3] [ref=e36]
+    - text: Alert Service Region Severity IAM Policy Too Permissive
+    - text: Policy allows *:* on all resources IAM global
+    - generic [ref=e37]: HIGH
+  - generic [ref=e38]:
+    - generic [ref=e39]:
+      - generic [ref=e40]: 💰
+      - heading "Cost Anomalies (1)" [level=3] [ref=e41]
+    - text: Alert Service Region Severity Cost Spike Detected
+    - text: $1,240 above expected daily spend RDS ap-south-1
+    - generic [ref=e42]: CRITICAL
+  - generic [ref=e44]: XAMOPS
+  - paragraph [ref=e45]: Cloud Cost Management & Security Platform
+  - paragraph [ref=e46]:
+    - text: Next digest in ~24 hours ·
+    - link "Manage notification settings" [ref=e47] [cursor=pointer]:
+      - /url: "#"
+  - paragraph [ref=e49]: © 2026 XamOps. Generated on June 08, 2026

@@ -14,7 +14,7 @@ import java.time.format.DateTimeFormatter;
 public class CapacityNotificationEmailBuilder {
 
     // XamOps Brand Colors
-    private static final String PRIMARY_GRADIENT = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+    private static final String PRIMARY_GRADIENT = "#000000";
     private static final String WARNING_COLOR = "#d97706";
     private static final String WARNING_BG = "#fffbeb";
     private static final String CRITICAL_COLOR = "#dc2626";
@@ -23,13 +23,13 @@ public class CapacityNotificationEmailBuilder {
     private static final String INFO_BG = "#e0f2fe";
 
     // Icons
-    private static final String CAPACITY_ICON = "&#128202;"; // Chart increasing
-    private static final String WARNING_ICON = "&#9888;";    // Warning sign
-    private static final String CLOCK_ICON = "&#128337;";    // Clock
-    private static final String EXTEND_ICON = "&#128260;";   // Extension icon
-    private static final String SUCCESS_ICON = "&#9989;";    // Check mark
-    private static final String ROCKET_ICON = "&#128640;";   // Rocket
-    private static final String MONEY_ICON = "&#128176;";    // Money bag
+    private static final String CAPACITY_ICON = EmailIcons.barChart(48);
+    private static final String WARNING_ICON  = EmailIcons.warning(48);
+    private static final String CLOCK_ICON    = EmailIcons.clock(20);
+    private static final String EXTEND_ICON   = EmailIcons.maximize(16);
+    private static final String SUCCESS_ICON  = EmailIcons.checkCircle(16);
+    private static final String ROCKET_ICON   = EmailIcons.rocket(48);
+    private static final String MONEY_ICON    = EmailIcons.dollarSign(20);
 
     /**
      * Build HTML email for capacity threshold notification.
@@ -175,9 +175,7 @@ public class CapacityNotificationEmailBuilder {
                                      Double consumptionPercent,
                                      Integer thresholdPercent,
                                      Boolean wasExtended) {
-        String bgColor = thresholdPercent >= 90 ? "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)" :
-                        thresholdPercent >= 80 ? "linear-gradient(135deg, #d97706 0%, #92400e 100%)" :
-                        PRIMARY_GRADIENT;
+        String bgColor = PRIMARY_GRADIENT;
         String statusText = thresholdPercent >= 90 ? "CRITICAL" : "WARNING";
         String icon = thresholdPercent >= 90 ? WARNING_ICON : CAPACITY_ICON;
 
@@ -186,12 +184,12 @@ public class CapacityNotificationEmailBuilder {
                 "<table role='presentation' style='width: 100%;'><tr><td>" +
                 // Brand
                 "<div style='margin-bottom: 20px;'>" +
-                "<span style='display: inline-block; background-color: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 8px; color: #ffffff; font-size: 14px; font-weight: 600; letter-spacing: 1px;'>XAMOPS</span>" +
+                "<span style='display: inline-block; background: #ffffff; color: #000000; padding: 5px 14px; border-radius: 6px; font-size: 11px; font-weight: 900; letter-spacing: 2px;'>XAMOPS</span>" +
                 "<span style='display: inline-block; background-color: rgba(255,255,255,0.3); padding: 6px 12px; border-radius: 6px; color: #ffffff; font-size: 12px; font-weight: 600; margin-left: 10px;'>" + statusText + "</span>" +
                 (wasExtended ? "<span style='display: inline-block; background-color: rgba(255,255,255,0.3); padding: 6px 12px; border-radius: 6px; color: #ffffff; font-size: 12px; font-weight: 600; margin-left: 10px;'>" + EXTEND_ICON + " EXTENDED</span>" : "") +
                 "</div>" +
                 // Alert Icon and Title
-                "<div style='font-size: 48px; margin-bottom: 16px;'>" + icon + "</div>" +
+                "<div style='margin-bottom: 16px; color: #ffffff;'>" + icon + "</div>" +
                 "<h1 style='margin: 0 0 8px 0; color: #ffffff; font-size: 26px; font-weight: 700;'>Capacity " + thresholdPercent + "% Threshold Reached</h1>" +
                 "<p style='margin: 0; color: rgba(255,255,255,0.9); font-size: 16px; font-weight: 500;'>" + escapeHtml(capacity.getPolicyName()) + "</p>" +
                 "<p style='margin: 8px 0 0 0; color: rgba(255,255,255,0.85); font-size: 15px;'>" + escapeHtml(capacity.getInstanceType()) + " | " + escapeHtml(capacity.getRegionZoneId()) + "</p>" +
@@ -320,11 +318,11 @@ public class CapacityNotificationEmailBuilder {
 
     private String getPurchaseHeader(CapacityDescriptionResponse capacity) {
         return "<tr>" +
-                "<td style='background: linear-gradient(135deg, #059669 0%, #047857 100%); padding: 40px 40px 30px 40px;'>" +
+                "<td style='background: #000000; padding: 40px 40px 30px 40px;'>" +
                 "<table role='presentation' style='width: 100%;'><tr><td>" +
                 // Brand
                 "<div style='margin-bottom: 20px;'>" +
-                "<span style='display: inline-block; background-color: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 8px; color: #ffffff; font-size: 14px; font-weight: 600; letter-spacing: 1px;'>XAMOPS</span>" +
+                "<span style='display: inline-block; background: #ffffff; color: #000000; padding: 5px 14px; border-radius: 6px; font-size: 11px; font-weight: 900; letter-spacing: 2px;'>XAMOPS</span>" +
                 "<span style='display: inline-block; background-color: rgba(255,255,255,0.3); padding: 6px 12px; border-radius: 6px; color: #ffffff; font-size: 12px; font-weight: 600; margin-left: 10px;'>" + SUCCESS_ICON + " PURCHASED</span>" +
                 "</div>" +
                 // Success Icon and Title
@@ -442,10 +440,10 @@ public class CapacityNotificationEmailBuilder {
 
     private String getDeployedHeader(CapacityDescriptionResponse capacity) {
         return "<tr>" +
-                "<td style='background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 40px 40px 30px 40px;'>" +
+                "<td style='background: #000000; padding: 40px 40px 30px 40px;'>" +
                 "<table role='presentation' style='width: 100%;'><tr><td>" +
                 "<div style='margin-bottom: 20px;'>" +
-                "<span style='display: inline-block; background-color: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 8px; color: #ffffff; font-size: 14px; font-weight: 600; letter-spacing: 1px;'>XAMOPS</span>" +
+                "<span style='display: inline-block; background: #ffffff; color: #000000; padding: 5px 14px; border-radius: 6px; font-size: 11px; font-weight: 900; letter-spacing: 2px;'>XAMOPS</span>" +
                 "<span style='display: inline-block; background-color: rgba(255,255,255,0.3); padding: 6px 12px; border-radius: 6px; color: #ffffff; font-size: 12px; font-weight: 600; margin-left: 10px;'>" + SUCCESS_ICON + " DEPLOYED</span>" +
                 "</div>" +
                 "<div style='font-size: 48px; margin-bottom: 16px;'>" + ROCKET_ICON + "</div>" +

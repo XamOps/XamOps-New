@@ -1,0 +1,25 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]: XAMOPS
+  - img [ref=e5]
+  - heading "Azure Budget Created" [level=1] [ref=e7]
+  - paragraph [ref=e8]: Your new Azure budget is active and monitoring has started.
+  - heading "Budget Details" [level=2] [ref=e9]
+  - text: Budget Name Azure Monthly Spend Limit
+  - strong [ref=e10]: USD 6000.00
+  - text: Subscription sub-0abc1234-5678 Period Monthly (resets on the 1st)
+  - generic [ref=e11]:
+    - heading "What happens next?" [level=3] [ref=e12]
+    - paragraph [ref=e13]:
+      - text: XamOps will monitor your Azure spend against this budget and alert you at
+      - strong [ref=e14]: 50%
+      - text: ","
+      - strong [ref=e15]: 80%
+      - text: ", and"
+      - strong [ref=e16]: 100%
+      - text: of the limit.
+  - link "View Budget in XamOps" [ref=e17] [cursor=pointer]:
+    - /url: "#"
+  - generic [ref=e18]: XAMOPS
+  - paragraph [ref=e19]: Cloud Cost Management & FinOps Platform
+  - paragraph [ref=e21]: © 2026 XamOps. All rights reserved.
+  - paragraph [ref=e22]: Sent on June 08, 2026 · You are receiving this because you created a budget alert.

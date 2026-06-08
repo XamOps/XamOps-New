@@ -333,15 +333,15 @@ public class TeamUserService {
                 "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>" +
                 "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td style='padding:32px 16px;'>" +
                 "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>" +
-                "<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;'>" +
-                "<div style='margin-bottom:16px;'><span style='display:inline-block;background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;color:#fff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>" +
-                "<div style='font-size:40px;margin-bottom:14px;'>&#127881;</div>" +
+                "<tr><td style='background:#000000;padding:40px;'>" +
+                "<div style='margin-bottom:16px;'><span style='display:inline-block;background:#ffffff;color:#000000;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;'>XamOps</span></div>" +
+                "<div style='margin-bottom:14px;color:#ffffff;'>" + EmailIcons.userCheck(40) + "</div>" +
                 "<h1 style='margin:0 0 6px;color:#fff;font-size:24px;font-weight:700;'>Welcome to XamOps!</h1>" +
                 "<p style='margin:0;color:rgba(255,255,255,0.85);font-size:15px;'>Your Cloud Management Platform</p>" +
                 "</td></tr>" +
                 "<tr><td style='padding:32px 40px;'>" +
                 "<p style='margin:0 0 20px;color:#374151;font-size:15px;'>You have been added as a team member by <strong>" + createdBy + "</strong>. Below are your login credentials:</p>" +
-                "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid #667eea;border-radius:10px;padding:20px 24px;margin-bottom:20px;'>" +
+                "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid #000000;border-radius:10px;padding:20px 24px;margin-bottom:20px;'>" +
                 "<h3 style='margin:0 0 14px;color:#1e293b;font-size:14px;font-weight:700;'>Your Login Credentials</h3>" +
                 "<div style='margin-bottom:12px;'><span style='display:inline-block;color:#64748b;font-size:13px;font-weight:600;width:110px;'>Email (Login)</span><span style='background:#f1f5f9;padding:6px 12px;border-radius:6px;font-family:monospace;font-size:13px;color:#1e293b;'>" + email + "</span></div>" +
                 "<div style='margin-bottom:12px;'><span style='display:inline-block;color:#64748b;font-size:13px;font-weight:600;width:110px;'>Password</span><span style='background:#f1f5f9;padding:6px 12px;border-radius:6px;font-family:monospace;font-size:13px;color:#1e293b;'>" + password + "</span></div>" +
@@ -351,11 +351,11 @@ public class TeamUserService {
                 "<p style='margin:0;color:#92400e;font-size:13px;'><strong>Security Reminder:</strong> Please change your password after your first login.</p>" +
                 "</div>" +
                 "<div style='text-align:center;margin-bottom:8px;'>" +
-                "<a href='https://live.xamops.com/' style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;'>Login to XamOps</a>" +
+                "<a href='https://live.xamops.com/' style='display:inline-block;background:#000000;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;'>Login to XamOps</a>" +
                 "</div>" +
                 "</td></tr>" +
                 "<tr><td style='background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center;'>" +
-                "<span style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>" +
+                "<span style='display:inline-block;background:#000000;padding:7px 18px;border-radius:6px;color:#fff;font-size:13px;font-weight:700;letter-spacing:1px;'>XAMOPS</span>" +
                 "<p style='margin:12px 0 4px;color:#64748b;font-size:12px;'>Cloud Cost Management &amp; Security Platform</p>" +
                 "<p style='margin:0;color:#cbd5e1;font-size:11px;'>&copy; 2026 XamOps. All rights reserved.</p>" +
                 "</td></tr>" +

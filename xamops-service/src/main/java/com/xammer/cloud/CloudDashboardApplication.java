@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration;
 import org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -13,7 +14,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.context.annotation.ComponentScan;
 
 @ComponentScan(basePackages = "com.xammer.cloud")
-@SpringBootApplication(exclude = KafkaAutoConfiguration.class)
+@SpringBootApplication(exclude = {KafkaAutoConfiguration.class, FlywayAutoConfiguration.class})
 @EnableCaching
 @EnableScheduling
 @EnableAsync

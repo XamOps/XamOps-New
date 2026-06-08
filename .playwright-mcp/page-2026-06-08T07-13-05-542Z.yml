@@ -1,0 +1,53 @@
+- table [ref=e2]:
+  - rowgroup [ref=e3]:
+    - row "XamOpsCloudSitter Instance State Change Instance Stopped The schedule indicates this instance should be stopped at this hour. Instance prod-web-01 (i-0abc123def456) Region ap-south-1 Action Stopped Policy Office Hours Timezone Asia/Kolkata Time Jun 8, 2026 at 12:42 pm IST This notification was triggered automatically by the CloudSitter scheduling engine. To manage notifications, update the policy settings in XamOps. © XamOps — Cloud FinOps Platform" [ref=e4]:
+      - cell "XamOpsCloudSitter Instance State Change Instance Stopped The schedule indicates this instance should be stopped at this hour. Instance prod-web-01 (i-0abc123def456) Region ap-south-1 Action Stopped Policy Office Hours Timezone Asia/Kolkata Time Jun 8, 2026 at 12:42 pm IST This notification was triggered automatically by the CloudSitter scheduling engine. To manage notifications, update the policy settings in XamOps. © XamOps — Cloud FinOps Platform" [ref=e5]:
+        - table [ref=e6]:
+          - rowgroup [ref=e7]:
+            - row "XamOpsCloudSitter Instance State Change" [ref=e8]:
+              - cell "XamOpsCloudSitter Instance State Change" [ref=e9]:
+                - table [ref=e10]:
+                  - rowgroup [ref=e11]:
+                    - row "XamOpsCloudSitter Instance State Change" [ref=e12]:
+                      - cell "XamOpsCloudSitter" [ref=e13]
+                      - cell "Instance State Change" [ref=e14]
+            - row "Instance Stopped The schedule indicates this instance should be stopped at this hour." [ref=e15]:
+              - cell "Instance Stopped The schedule indicates this instance should be stopped at this hour." [ref=e16]:
+                - generic [ref=e17]:
+                  - img [ref=e19]
+                  - generic [ref=e21]:
+                    - generic [ref=e22]: Instance Stopped
+                    - generic [ref=e23]:
+                      - text: The schedule indicates this instance should be
+                      - strong [ref=e24]: stopped
+                      - text: at this hour.
+            - row "Instance prod-web-01 (i-0abc123def456) Region ap-south-1 Action Stopped Policy Office Hours Timezone Asia/Kolkata Time Jun 8, 2026 at 12:42 pm IST" [ref=e25]:
+              - cell "Instance prod-web-01 (i-0abc123def456) Region ap-south-1 Action Stopped Policy Office Hours Timezone Asia/Kolkata Time Jun 8, 2026 at 12:42 pm IST" [ref=e26]:
+                - table [ref=e27]:
+                  - rowgroup [ref=e28]:
+                    - row "Instance prod-web-01 (i-0abc123def456)" [ref=e29]:
+                      - cell "Instance" [ref=e30]
+                      - cell "prod-web-01 (i-0abc123def456)" [ref=e31]
+                    - row "Region ap-south-1" [ref=e32]:
+                      - cell "Region" [ref=e33]
+                      - cell "ap-south-1" [ref=e34]
+                    - row "Action Stopped" [ref=e35]:
+                      - cell "Action" [ref=e36]
+                      - cell "Stopped" [ref=e37]
+                    - row "Policy Office Hours" [ref=e38]:
+                      - cell "Policy" [ref=e39]
+                      - cell "Office Hours" [ref=e40]
+                    - row "Timezone Asia/Kolkata" [ref=e41]:
+                      - cell "Timezone" [ref=e42]
+                      - cell "Asia/Kolkata" [ref=e43]
+                    - row "Time Jun 8, 2026 at 12:42 pm IST" [ref=e44]:
+                      - cell "Time" [ref=e45]
+                      - cell "Jun 8, 2026 at 12:42 pm IST" [ref=e46]
+            - row "This notification was triggered automatically by the CloudSitter scheduling engine. To manage notifications, update the policy settings in XamOps. © XamOps — Cloud FinOps Platform" [ref=e47]:
+              - cell "This notification was triggered automatically by the CloudSitter scheduling engine. To manage notifications, update the policy settings in XamOps. © XamOps — Cloud FinOps Platform" [ref=e48]:
+                - paragraph [ref=e49]:
+                  - text: This notification was triggered automatically by the
+                  - strong [ref=e50]: CloudSitter
+                  - text: scheduling engine.
+                  - text: To manage notifications, update the policy settings in XamOps.
+                - paragraph [ref=e51]: © XamOps — Cloud FinOps Platform

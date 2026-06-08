@@ -36,7 +36,7 @@ class OpenSreClientTest {
     void isCompleted_returnsTrueWhenStatusIdleWithValues() {
         ResponseEntity<Map> response = new ResponseEntity<>(
                 Map.of("status", "idle", "values", Map.of("summary", "ok")), HttpStatus.OK);
-        when(restTemplate.exchange(eq("http://localhost:2024/threads/t1/state"), eq(HttpMethod.GET), any(HttpEntity.class), eq(Map.class)))
+        when(restTemplate.exchange(eq("http://localhost:2024/threads/t1"), eq(HttpMethod.GET), any(HttpEntity.class), eq(Map.class)))
             .thenReturn(response);
 
         assertThat(client.isCompleted("t1")).isTrue();
@@ -45,7 +45,7 @@ class OpenSreClientTest {
     @Test
     void isCompleted_returnsFalseWhenStatusBusy() {
         ResponseEntity<Map> response = new ResponseEntity<>(Map.of("status", "busy"), HttpStatus.OK);
-        when(restTemplate.exchange(eq("http://localhost:2024/threads/t1/state"), eq(HttpMethod.GET), any(HttpEntity.class), eq(Map.class)))
+        when(restTemplate.exchange(eq("http://localhost:2024/threads/t1"), eq(HttpMethod.GET), any(HttpEntity.class), eq(Map.class)))
             .thenReturn(response);
 
         assertThat(client.isCompleted("t1")).isFalse();
@@ -55,7 +55,7 @@ class OpenSreClientTest {
     void isCompleted_returnsFalseWhenStatusIdleButEmptyValues() {
         ResponseEntity<Map> response = new ResponseEntity<>(
                 Map.of("status", "idle", "values", Map.of()), HttpStatus.OK);
-        when(restTemplate.exchange(eq("http://localhost:2024/threads/t1/state"), eq(HttpMethod.GET), any(HttpEntity.class), eq(Map.class)))
+        when(restTemplate.exchange(eq("http://localhost:2024/threads/t1"), eq(HttpMethod.GET), any(HttpEntity.class), eq(Map.class)))
             .thenReturn(response);
 
         assertThat(client.isCompleted("t1")).isFalse();
