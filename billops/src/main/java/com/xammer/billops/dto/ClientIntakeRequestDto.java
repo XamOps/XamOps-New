@@ -12,4 +12,5 @@ public class ClientIntakeRequestDto {
     private String address;
     private String notes;
     private List<String> accountIds;
+    private boolean optedOut;
 }

@@ -26,6 +26,7 @@ type Step = 'billing-question' | 'form' | 'success';
 const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
   const [step, setStep] = useState<Step>('billing-question');
   const [submitting, setSubmitting] = useState(false);
+  const [optingOut, setOptingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [accountIds, setAccountIds] = useState<AccountIdEntry[]>([{ key: '1', value: '' }]);
@@ -54,6 +55,23 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
   const handleFieldChange = (field: keyof IntakeForm, value: string) => {
     setForm(prev => ({ ...prev, [field]: value }));
     if (error) setError(null);
+  };
+
+  const handleOptOut = async () => {
+    setOptingOut(true);
+    try {
+      await apiClient.post('/api/billops/admin/client-intake', {
+        name: userName || userEmail || 'Unknown',
+        companyName: '',
+        email: userEmail || '',
+        optedOut: true,
+      });
+    } catch {
+      // best-effort: still close even if request fails
+    } finally {
+      setOptingOut(false);
+      onClose();
+    }
   };
 
   const handleSubmit = async () => {
@@ -128,10 +146,15 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
                 </p>
                 <div className="flex gap-4 mt-8 w-full max-w-xs">
                   <button
-                    onClick={onClose}
-                    className="flex-1 py-3 px-4 border-2 border-gray-200 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 font-semibold rounded-xl transition-all text-sm flex items-center justify-center gap-2"
+                    onClick={handleOptOut}
+                    disabled={optingOut}
+                    className="flex-1 py-3 px-4 border-2 border-gray-200 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 font-semibold rounded-xl transition-all text-sm flex items-center justify-center gap-2 disabled:opacity-60"
                   >
-                    <i className="fas fa-times-circle text-gray-400" />
+                    {optingOut ? (
+                      <i className="fas fa-spinner animate-spin text-gray-400" />
+                    ) : (
+                      <i className="fas fa-times-circle text-gray-400" />
+                    )}
                     No
                   </button>
                   <button

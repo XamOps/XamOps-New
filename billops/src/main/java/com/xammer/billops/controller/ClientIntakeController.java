@@ -55,7 +55,7 @@ public class ClientIntakeController {
                 : ""
         );
         submission.setSubmittedAt(LocalDateTime.now());
-        submission.setStatus("PENDING");
+        submission.setStatus(request.isOptedOut() ? "OPTED_OUT" : "PENDING");
 
         repository.save(submission);
         return ResponseEntity.ok(Map.of("message", "Submitted successfully"));
