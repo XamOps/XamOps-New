@@ -4,8 +4,10 @@ import com.xammer.cloud.config.AwsConfig;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -14,6 +16,7 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 
 import java.io.*;
+import java.security.Principal;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -61,12 +64,30 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        Map<String, String> queryParams = parseQueryParams(session.getUri().getQuery());
-        String accountId = queryParams.get("accountId");
-        String tenantId = queryParams.get("tenantId");
-
         // Initialize session lock for thread-safe message sending
         sessionLocks.put(session.getId(), new Object());
+
+        // SECURE: Authenticate user from session (CWE-306)
+        Principal principal = session.getPrincipal();
+        if (!(principal instanceof Authentication)) {
+            sendMessageSafe(session, "Error: Unauthorized. Please log in.\r\n");
+            session.close();
+            return;
+        }
+
+        Authentication auth = (Authentication) principal;
+        if (!(auth.getPrincipal() instanceof ClientUserDetails)) {
+            sendMessageSafe(session, "Error: Unauthorized. Invalid session.\r\n");
+            session.close();
+            return;
+        }
+        ClientUserDetails userDetails = (ClientUserDetails) auth.getPrincipal();
+
+        Map<String, String> queryParams = parseQueryParams(session.getUri().getQuery());
+        String accountId = queryParams.get("accountId");
+
+        // SECURE: Use tenantId from authenticated userDetails, NOT from query params (CWE-285)
+        String tenantId = userDetails.getTenantId();
 
         if (accountId == null) {
             sendMessageSafe(session, "Error: No accountId provided.\r\n");
@@ -74,19 +95,24 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        if (tenantId != null && !tenantId.equals("null")) {
+        if (tenantId != null) {
             TenantContext.setCurrentTenant(tenantId);
         }
 
         try {
-            log.info("WS Connecting: Session={}, Account={}", session.getId(), accountId);
+            log.info("WS Connecting: Session={}, Account={}, User={}, Tenant={}",
+                session.getId(), accountId, userDetails.getUsername(), tenantId);
 
             // Track session start time
             sessionStartTimes.put(session.getId(), System.currentTimeMillis());
 
             CloudAccount account = findAccount(accountId);
-            if (account == null) {
-                sendMessageSafe(session, "Error: Account not found.\r\n");
+
+            // SECURE: Verify that the account belongs to the user's client (IDOR mitigation - CWE-639)
+            if (account == null || account.getClient() == null || !account.getClient().getId().equals(userDetails.getClientId())) {
+                log.warn("SECURITY ALERT: User {} (Client {}) attempted to access unauthorized Account {} (Tenant {})",
+                        userDetails.getUsername(), userDetails.getClientId(), accountId, tenantId);
+                sendMessageSafe(session, "Error: Account not found or access denied.\r\n");
                 session.close();
                 return;
             }
