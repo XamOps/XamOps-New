@@ -322,15 +322,6 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
                   <i className="fas fa-check-circle text-green-500 text-3xl" />
                 </div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Setup Complete!</h3>
-                <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed max-w-sm">
-                  Your account details have been submitted. Our team will review and activate your account shortly.
-                </p>
-                <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl w-full max-w-sm">
-                  <p className="text-green-700 dark:text-green-400 text-xs font-medium">
-                    <i className="fas fa-envelope mr-1.5" />
-                    You'll receive a confirmation at <strong>{form.email || userEmail}</strong>
-                  </p>
-                </div>
                 <button
                   onClick={onClose}
                   className="mt-6 px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition-all text-sm shadow-md shadow-indigo-200"

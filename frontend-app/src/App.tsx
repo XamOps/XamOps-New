@@ -36,6 +36,7 @@ import UpdateBanner from './components/Shared/UpdateBanner';
 import RouteChangeHandler from './components/Shared/RouteChangeHandler';
 import { CommandPalette } from './components/Shared/CommandPalette';
 import OnboardingModal from './components/OnboardingModal';
+import { apiFetch } from './utils/apiClient';
 import { GooeyToaster } from 'goey-toast';
 import 'goey-toast/styles.css';
 
@@ -328,7 +329,7 @@ const DashboardGuard: React.FC = () => {
     return <Outlet />;
 };
 
-// Onboarding modal controller — shows once per user on first login
+// Onboarding modal controller — shows once per user/org on first login
 const OnboardingController: React.FC = () => {
     const { authReady, userProfile, userRoles, hasAnyRole } = useAuth();
     const [showModal, setShowModal] = React.useState(false);
@@ -338,8 +339,27 @@ const OnboardingController: React.FC = () => {
         // Only trigger for XAMOPS / admin users — BillOps-only users have a separate onboarding path
         const isXamopsUser = hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_ADMIN') || hasAnyRole('ROLE_SUPER_ADMIN');
         if (!isXamopsUser) return;
+
         const key = `xamops_onboarding_v1_${userProfile.id ?? userProfile.email}`;
-        if (!localStorage.getItem(key)) setShowModal(true);
+
+        // Fast path: already marked done in this browser
+        if (localStorage.getItem(key)) return;
+
+        // Backend check: covers different devices, incognito, and org-wide (sub-users)
+        apiFetch('/api/billops/admin/client-intake/has-submitted', { credentials: 'include' })
+            .then(r => r.ok ? r.json() : { submitted: false })
+            .then((data: { submitted: boolean }) => {
+                if (data.submitted) {
+                    // Cache the result locally so we skip the API call next time
+                    localStorage.setItem(key, 'done');
+                } else {
+                    setShowModal(true);
+                }
+            })
+            .catch(() => {
+                // On API error, fall back to showing the modal
+                setShowModal(true);
+            });
     }, [authReady, userProfile, userRoles]);
 
     if (!showModal || !userProfile) return null;

@@ -9,4 +9,6 @@ import java.util.List;
 @Repository
 public interface ClientIntakeRepository extends JpaRepository<ClientIntakeSubmission, Long> {
     List<ClientIntakeSubmission> findAllByOrderBySubmittedAtDesc();
+    boolean existsByEmail(String email);
+    boolean existsByEmailIn(List<String> emails);
 }
