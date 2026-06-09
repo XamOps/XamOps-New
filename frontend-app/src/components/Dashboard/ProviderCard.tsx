@@ -132,9 +132,9 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 p-3 rounded-lg">
+            <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] p-3 rounded-lg">
               <span className="block text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
-                <i className="fas fa-server text-[10px] text-blue-600"></i>
+                <i className="fas fa-server text-[10px] text-[rgba(0,0,0,0.4)]"></i>
                 Resources
               </span>
               <span className="text-lg font-black text-gray-900">
@@ -142,9 +142,9 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
               </span>
             </div>
             {provider === 'Azure' ? (
-              <div className="bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-100 p-3 rounded-lg">
+              <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] p-3 rounded-lg">
                 <span className="block text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
-                  <i className="fas fa-shield-alt text-[10px] text-emerald-600"></i>
+                  <i className="fas fa-shield-alt text-[10px] text-[rgba(0,0,0,0.4)]"></i>
                   Score
                 </span>
                 <span className={`text-lg font-black ${getScoreColor(data.selectedAccount?.securityScore)}`}>
@@ -152,12 +152,12 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
                 </span>
               </div>
             ) : (
-              <div className="bg-gradient-to-br from-red-50 to-rose-50 border border-red-100 p-3 rounded-lg">
+              <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] p-3 rounded-lg">
                 <span className="block text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
-                  <i className="fas fa-bell text-[10px] text-red-600"></i>
+                  <i className="fas fa-bell text-[10px] text-[rgba(0,0,0,0.4)]"></i>
                   Alerts
                 </span>
-                <span className="text-lg font-black text-red-600">
+                <span className="text-lg font-black text-gray-900">
                   {data.selectedAccount?.optimizationSummary?.criticalAlerts || 0}
                 </span>
               </div>
@@ -165,7 +165,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
           </div>
           <button
             onClick={onViewBreakdown}
-            className="w-full mt-auto py-3 text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 rounded-lg shadow-md hover:shadow-lg transition-all transform hover:scale-105"
+            className="w-full mt-auto py-3 text-sm font-bold text-white bg-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.75)] rounded-lg transition-all"
           >
             <i className="fas fa-chart-bar mr-2"></i>View Breakdown
           </button>

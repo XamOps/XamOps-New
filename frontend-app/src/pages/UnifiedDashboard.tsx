@@ -140,12 +140,6 @@ export const UnifiedDashboard: React.FC = () => {
     return 'Critical';
   };
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-emerald-500';
-    if (score >= 50) return 'text-amber-500';
-    return 'text-rose-500';
-  };
-
   // Modal handlers
   const openBreakdown = (provider: string, providerData: typeof awsData) => {
     setViewMode('cost');
@@ -322,7 +316,7 @@ export const UnifiedDashboard: React.FC = () => {
   }, [fetchAll]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-slate-50 font-sans text-slate-800">
+    <div className="flex-1 flex flex-col min-h-screen bg-white font-sans text-slate-800">
       <div id="unified-dashboard-container" className="flex flex-col w-full">
         {/* Notification Toast */}
         {notification && (
@@ -356,18 +350,6 @@ export const UnifiedDashboard: React.FC = () => {
         <main className="flex-1 p-8 space-y-8">
 
           {/* Development Warning - Refined */}
-          <div className="bg-amber-50 border border-amber-200/60 p-4 rounded-xl shadow-sm flex items-start gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
-            <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
-              <i className="fas fa-exclamation-triangle text-lg"></i>
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-amber-800 uppercase tracking-wide mb-1">Preview Environment</h4>
-              <p className="text-sm text-amber-700/80 leading-relaxed">
-                This dashboard is currently in active development. Usage metrics and costs may be simulated.
-              </p>
-            </div>
-          </div>
-
           {/* No Accounts State - Premium Empty State */}
           {!isLoading.summary && summaryData.totalAccounts === 0 && (
             <div className="glass-card p-12 flex flex-col items-center justify-center text-center space-y-6 max-w-2xl mx-auto mt-10">
@@ -388,57 +370,28 @@ export const UnifiedDashboard: React.FC = () => {
           )}
 
           {/* Key Metrics Grid - Premium Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-start">
             <MetricCard
               title="Total MTD Cost"
               value={formatCurrency(getTotalCost())}
-              icon="fas fa-dollar-sign text-blue-600"
-              iconBgColor="bg-blue-50"
-              borderColor="border-l-4 border-blue-500"
+              subtitle={`Forecast: ${formatCurrency(getTotalForecast())}`}
+              icon="fas fa-dollar-sign text-[rgba(0,0,0,0.45)]"
               isLoading={isLoading.summary}
-            >
-              <div className="mt-4 space-y-2">
-                <div className="flex justify-between items-end mb-1">
-                  <span className="text-xs font-semibold text-slate-500">Budget Progress</span>
-                  <span className={`text-xs font-bold ${getBudgetPercent() > 90 ? 'text-rose-600' : 'text-emerald-600'}`}>{getBudgetPercent()}%</span>
-                </div>
-                <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-1000 ${getBudgetPercent() > 90 ? 'bg-rose-500' : 'bg-blue-500'}`}
-                    style={{ width: `${Math.min(getBudgetPercent(), 100)}%` }}
-                  ></div>
-                </div>
-                <div className="flex justify-between items-center text-xs text-slate-400 mt-2">
-                  <span>Forecast: <strong className="text-slate-600">{formatCurrency(getTotalForecast())}</strong></span>
-                </div>
-              </div>
-            </MetricCard>
+            />
 
             <MetricCard
               title="Budget Health"
               value={`${Math.round(getBudgetPercent())}%`}
-              icon={`fas fa-chart-pie ${getBudgetPercent() > 90 ? 'text-rose-500' : 'text-emerald-500'}`}
-              iconBgColor={getBudgetPercent() > 90 ? 'bg-rose-50' : 'bg-emerald-50'}
-              borderColor={`border-l-4 ${getBudgetPercent() > 90 ? 'border-rose-500' : 'border-emerald-500'}`}
+              subtitle={getBudgetPercent() > 100 ? 'Over budget' : 'Within monthly limits'}
+              icon={`fas fa-chart-pie ${getBudgetPercent() > 90 ? 'text-rose-500' : 'text-[rgba(0,0,0,0.45)]'}`}
               isLoading={isLoading.summary}
-            >
-              <div className="mt-4 flex items-center gap-3">
-                <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${getBudgetPercent() > 100 ? 'bg-rose-100/80 text-rose-700' : 'bg-emerald-100/80 text-emerald-700'
-                  }`}>
-                  <i className={`fas ${getBudgetPercent() > 100 ? 'fa-exclamation-circle' : 'fa-check-circle'}`}></i>
-                  {getBudgetPercent() > 100 ? 'Over Budget' : 'Within Limits'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-3 pl-1">Compared to monthly forecast</p>
-            </MetricCard>
+            />
 
             <MetricCard
               title="Active Resources"
               value={formatNumber(summaryData.totalResources)}
               subtitle={`${summaryData.totalAccounts} connected accounts`}
-              icon="fas fa-server text-indigo-600"
-              iconBgColor="bg-indigo-50"
-              borderColor="border-l-4 border-indigo-500"
+              icon="fas fa-server text-[rgba(0,0,0,0.45)]"
               isLoading={isLoading.summary}
               showViewButton={true}
               onViewClick={openResourceBreakdown}
@@ -448,9 +401,7 @@ export const UnifiedDashboard: React.FC = () => {
               title="Potential Savings"
               value={formatCurrency(getTotalSavings())}
               subtitle="Optimization opportunities"
-              icon="fas fa-coins text-amber-500"
-              iconBgColor="bg-amber-50"
-              borderColor="border-l-4 border-amber-500"
+              icon="fas fa-coins text-[rgba(0,0,0,0.45)]"
               isLoading={isLoading.summary}
               showViewButton={true}
               onViewClick={openSavingsBreakdown}
@@ -459,14 +410,12 @@ export const UnifiedDashboard: React.FC = () => {
           </div>
 
           {/* Operational Health Row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-start">
             <MetricCard
               title="Wasted Resources"
               value={getTotalWasteCount()}
               subtitle="Idle or Unused Assets"
-              icon="fas fa-trash text-slate-500"
-              iconBgColor="bg-slate-100"
-              borderColor="border-l-4 border-slate-400"
+              icon="fas fa-trash text-[rgba(0,0,0,0.45)]"
               isLoading={isLoading.summary}
               showViewButton={true}
               onViewClick={openWasteBreakdown}
@@ -476,9 +425,7 @@ export const UnifiedDashboard: React.FC = () => {
               title="Critical Alerts"
               value={getTotalAlertsCount()}
               subtitle="Requires Attention"
-              icon="fas fa-bell text-rose-500"
-              iconBgColor="bg-rose-50"
-              borderColor="border-l-4 border-rose-500"
+              icon="fas fa-bell text-[rgba(0,0,0,0.45)]"
               isLoading={isLoading.summary}
               showViewButton={true}
               onViewClick={openAlertsBreakdown}
@@ -486,75 +433,47 @@ export const UnifiedDashboard: React.FC = () => {
 
             {/* Active Support Tickets Card */}
             <div
-              className="glass-card p-6 flex flex-col justify-between group hover:shadow-lg transition-all duration-300 border-l-4 border-indigo-500 cursor-pointer"
+              className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden group card-hover-lift cursor-pointer"
               onClick={() => navigate('/tickets')}
             >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Active Tickets</h3>
-                  <div className="text-3xl font-black text-slate-800">
-                    {isLoading.tickets ? '...' : ticketCount}
-                  </div>
-                </div>
-                <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110">
-                  <i className="fas fa-ticket-alt"></i>
+              <div className="absolute top-4 right-4">
+                <div className="w-6 h-6 bg-[rgba(0,0,0,0.04)] rounded-md flex items-center justify-center text-[rgba(0,0,0,0.45)]">
+                  <i className="fas fa-ticket-alt text-[10px]"></i>
                 </div>
               </div>
-              {!isLoading.tickets ? (
-                <div className="fade-in">
-                  <p className="text-xs text-slate-500 flex items-center gap-1.5 font-medium">
-                    <i className="fas fa-headset text-indigo-500"></i>
-                    <span>Technical Support cases</span>
-                  </p>
-                </div>
-              ) : (
-                <div className="h-4 bg-slate-100 shimmer rounded w-3/4"></div>
-              )}
+              <div className="pr-8">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Active Tickets</p>
+                <p className="leading-8 mb-1">
+                  <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px', color: 'rgb(10, 10, 10)', fontVariantNumeric: 'tabular-nums' }}>
+                    {isLoading.tickets ? '–' : ticketCount}
+                  </span>
+                </p>
+                <p className="text-[11px] text-[rgba(0,0,0,0.35)] font-medium">Technical Support cases</p>
+              </div>
             </div>
 
             {/* Security Posture Card */}
-            <div className="glass-card p-6 border-l-4 border-emerald-500 group hover:shadow-lg transition-all duration-300">
-              <div className="flex justify-between items-start mb-2">
-                <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider">Security Posture</h3>
-                <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 text-xs">
-                  <i className="fas fa-shield-alt"></i>
+            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden group card-hover-lift">
+              <div className="absolute top-4 right-4">
+                <div className="w-6 h-6 bg-[rgba(0,0,0,0.04)] rounded-md flex items-center justify-center text-[rgba(0,0,0,0.45)]">
+                  <i className="fas fa-shield-alt text-[10px]"></i>
                 </div>
               </div>
-
               {!isLoading.summary ? (
-                <div className="flex items-center gap-4 fade-in mt-2">
-                  <div className="relative w-16 h-16 flex-shrink-0">
-                    <svg className="w-full h-full transform -rotate-90">
-                      <circle cx="32" cy="32" r="28" stroke="#f1f5f9" strokeWidth="6" fill="transparent" />
-                      <circle
-                        cx="32"
-                        cy="32"
-                        r="28"
-                        stroke="currentColor"
-                        strokeWidth="6"
-                        fill="transparent"
-                        className={`transition-all duration-1000 ease-out ${getScoreColor(getAverageSecurityScore())}`}
-                        strokeDasharray="176"
-                        strokeDashoffset={176 - (176 * getAverageSecurityScore()) / 100}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-sm font-bold text-slate-700">{getAverageSecurityScore()}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className={`text-lg font-bold mb-0.5 ${getScoreColor(getAverageSecurityScore())}`}>{getSecurityLabel()}</div>
-                    <div className="text-xs text-slate-400">Compliance Score</div>
-                  </div>
+                <div className="fade-in pr-8">
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Security Posture</p>
+                  <p className="leading-8 mb-1 flex items-baseline gap-0.5">
+                    <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px', color: 'rgb(10, 10, 10)', fontVariantNumeric: 'tabular-nums' }}>
+                      {getAverageSecurityScore()}
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.35)] font-medium">{getSecurityLabel()} · Compliance Score</p>
                 </div>
               ) : (
-                <div className="flex items-center gap-4 animate-pulse mt-4">
-                  <div className="w-14 h-14 rounded-full bg-slate-100"></div>
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 bg-slate-100 rounded w-20"></div>
-                    <div className="h-3 bg-slate-100 rounded w-16"></div>
-                  </div>
+                <div className="animate-pulse pr-8 space-y-3 pt-0.5">
+                  <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] shimmer rounded"></div>
+                  <div className="h-8 w-20 bg-[rgba(0,0,0,0.06)] shimmer rounded"></div>
+                  <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] shimmer rounded"></div>
                 </div>
               )}
             </div>

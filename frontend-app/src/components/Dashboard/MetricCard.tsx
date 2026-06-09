@@ -1,18 +1,10 @@
-/**
- * MetricCard Component
- *
- * Reusable card component for displaying metrics on the dashboard
- * Supports loading states, icons, and custom colors
- */
-
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useState, useEffect, useRef } from 'react';
 
 interface MetricCardProps {
   title: string;
   value: string | number;
   subtitle?: string;
   icon: string;
-  iconBgColor?: string;
   borderColor?: string;
   isLoading?: boolean;
   children?: ReactNode;
@@ -21,57 +13,102 @@ interface MetricCardProps {
   onViewClick?: () => void;
 }
 
+const parseValue = (v: string | number) => {
+  const str = String(v);
+  const m = str.match(/^([^0-9]*)([0-9][0-9,]*\.?[0-9]*)([^0-9]*)$/);
+  if (!m) return { prefix: '', num: 0, suffix: str };
+  return { prefix: m[1], num: parseFloat(m[2].replace(/,/g, '')), suffix: m[3] };
+};
+
 export const MetricCard: React.FC<MetricCardProps> = ({
   title,
   value,
   subtitle,
   icon,
-  iconBgColor = 'from-indigo-100 to-purple-100',
-  borderColor = 'border-l-indigo-500',
   isLoading = false,
   children,
   onClick,
   showViewButton = false,
   onViewClick,
 }) => {
-  const cardClasses = `glass-card rounded-xl p-6 relative group metric-card border-l-4 ${borderColor} ${
-    onClick ? 'cursor-pointer hover:bg-gradient-to-br hover:from-green-50/50 hover:to-emerald-50/50 transition-all' : ''
-  }`;
+  const { prefix, num, suffix } = parseValue(value);
+
+  const animRef = useRef<number | undefined>(undefined);
+  const prevNumRef = useRef(0);
+  const [animCount, setAnimCount] = useState(num);
+
+  useEffect(() => {
+    if (num === prevNumRef.current) return;
+    const from = prevNumRef.current;
+    prevNumRef.current = num;
+
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    if (num === 0) { setAnimCount(0); return; }
+
+    const duration = 1050;
+    const startTime = performance.now();
+
+    const step = (now: number) => {
+      const t = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimCount(from + eased * (num - from));
+      if (t < 1) {
+        animRef.current = requestAnimationFrame(step);
+      } else {
+        setAnimCount(num);
+      }
+    };
+    animRef.current = requestAnimationFrame(step);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+  }, [num]);
+
+  const display = `${prefix}${Math.round(animCount).toLocaleString('en-US')}${suffix}`;
+  const mainPart = display.includes('.') ? display.slice(0, display.lastIndexOf('.')) : display;
+  const decPart  = display.includes('.') ? display.slice(display.lastIndexOf('.')) : '';
 
   return (
-    <div className={cardClasses} onClick={onClick}>
-      <div className="flex justify-between items-center mb-3">
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">{title}</h3>
-        <div className="flex gap-2">
-          {showViewButton && onViewClick && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewClick();
-              }}
-              className="w-8 h-8 rounded-lg bg-gray-50 hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all flex items-center justify-center"
-              title="View Breakdown"
-            >
-              <i className="fas fa-eye text-xs"></i>
-            </button>
-          )}
-          <div className={`w-10 h-10 bg-gradient-to-br ${iconBgColor} rounded-lg flex items-center justify-center`}>
-            <i className={icon}></i>
-          </div>
+    <div
+      className={`bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden group card-hover-lift ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={onClick}
+    >
+      {/* Icons — absolutely positioned so they don't add to flow height */}
+      <div className="absolute top-4 right-4 flex items-center gap-1.5">
+        {showViewButton && onViewClick && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onViewClick(); }}
+            className="w-6 h-6 rounded-md bg-[rgba(0,0,0,0.03)] hover:bg-[rgba(0,0,0,0.07)] text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.6)] transition-all flex items-center justify-center"
+            title="View Breakdown"
+          >
+            <i className="fas fa-eye text-[10px]"></i>
+          </button>
+        )}
+        <div className="w-6 h-6 bg-[rgba(0,0,0,0.04)] rounded-md flex items-center justify-center">
+          <i className={`${icon} text-[10px]`}></i>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="animate-pulse space-y-4">
-          <div className="h-10 w-36 bg-gray-200 shimmer rounded-lg"></div>
-          {children && <div className="h-2 w-full bg-gray-200 shimmer rounded-full"></div>}
+        <div className="animate-pulse space-y-3 pt-0.5">
+          <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] shimmer rounded"></div>
+          <div className="h-8 w-32 bg-[rgba(0,0,0,0.06)] shimmer rounded"></div>
+          <div className="h-2 w-16 bg-[rgba(0,0,0,0.04)] shimmer rounded"></div>
         </div>
       ) : (
-        <div className="fade-in">
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-4xl font-black metric-value">{value}</span>
-          </div>
-          {subtitle && <p className="text-xs text-gray-500 mt-1 font-medium">{subtitle}</p>}
+        <div className="fade-in pr-16">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">
+            {title}
+          </p>
+          <p className="leading-8 mb-1 flex items-baseline gap-0.5">
+            <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px', color: 'rgb(10, 10, 10)', fontVariantNumeric: 'tabular-nums' }}>
+              {mainPart}
+            </span>
+            {decPart && (
+              <span style={{ fontFamily: "'Inter', sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10, 10, 10)' }}>
+                {decPart}
+              </span>
+            )}
+          </p>
+          {subtitle && <p className="text-[11px] text-[rgba(0,0,0,0.35)] font-medium">{subtitle}</p>}
           {children}
         </div>
       )}

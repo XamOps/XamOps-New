@@ -243,15 +243,6 @@ const Topbar: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Theme toggle */}
-                    <button
-                        onClick={toggleTheme}
-                        title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                        className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
-                    >
-                        <i className={`fas ${theme === 'dark' ? 'fa-sun' : 'fa-moon'} text-[13px]`}></i>
-                    </button>
-
                     {/* Divider */}
                     <div className={`w-px h-5 mx-1 ${theme === 'dark' ? 'bg-[rgba(255,255,255,0.12)]' : 'bg-[rgba(0,0,0,0.08)]'}`}></div>
 

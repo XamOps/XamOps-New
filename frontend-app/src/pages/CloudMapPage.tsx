@@ -383,6 +383,9 @@ const CloudMapPage: React.FC = () => {
   const pageFormatBtnRef = useRef<HTMLDivElement>(null);
   const [layoutMenuAnchor, setLayoutMenuAnchor] = useState<{ top: number; left: number } | null>(null);
   const layoutBtnRef = useRef<HTMLDivElement>(null);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState<{ top: number; left: number } | null>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const [canvasViewport, setCanvasViewport] = useState({ zoom: 1, pan: { x: 0, y: 0 } });
 
   // ── Find & Replace ────────────────────────────────────────────────────────
@@ -392,6 +395,8 @@ const CloudMapPage: React.FC = () => {
   // ── Version history ───────────────────────────────────────────────────────
   const [versionHistory, setVersionHistory] = useState<Array<{ id: string; name: string; ts: number; elements: any[] }>>([]);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showSaveVersionModal, setShowSaveVersionModal] = useState(false);
+  const [pendingVersionName, setPendingVersionName] = useState('');
 
   // ── Templates ─────────────────────────────────────────────────────────────
   const [showTemplates, setShowTemplates] = useState(false);
@@ -947,9 +952,9 @@ const CloudMapPage: React.FC = () => {
 
     const cy = cyRef.current;
 
-    // Live mode: plain wheel = pan, Ctrl/Cmd+wheel = zoom
-    // Disable Cytoscape's built-in wheel zoom so we can intercept it cleanly
-    if (!isEditable && containerRef.current) {
+    // Both modes: plain wheel = pan, Ctrl/Cmd+wheel = zoom toward cursor
+    // Disable Cytoscape's built-in wheel zoom and intercept manually
+    if (containerRef.current) {
       if (wheelCleanupRef.current) { wheelCleanupRef.current(); wheelCleanupRef.current = null; }
       cy.userZoomingEnabled(false);
       const container = containerRef.current;
@@ -965,7 +970,7 @@ const CloudMapPage: React.FC = () => {
           const newZoom = Math.max(c.minZoom(), Math.min(c.maxZoom(), c.zoom() * factor));
           c.zoom({ level: newZoom, renderedPosition: { x: e.clientX - rect.left, y: e.clientY - rect.top } });
         } else {
-          // Plain wheel → pan (natural scroll direction)
+          // Plain wheel → pan
           c.panBy({ x: -e.deltaX * 0.8, y: -e.deltaY * 0.8 });
         }
       };
@@ -1520,6 +1525,14 @@ const CloudMapPage: React.FC = () => {
       }
 
       if (e.key === 'Escape') {
+        // Close Find bar if open
+        if (showFind) {
+          setShowFind(false);
+          setFindQuery('');
+          setFindResults([]);
+          setShowReplace(false);
+          return;
+        }
         // Exit freehand mode first
         if (freehandModeRef.current) {
           setFreehandMode(false);
@@ -2042,15 +2055,24 @@ const CloudMapPage: React.FC = () => {
 
   const handleSaveVersion = useCallback(() => {
     if (!cyRef.current) return;
-    const name = window.prompt('Version name:', `v${versionHistory.length + 1} – ${new Date().toLocaleTimeString()}`);
-    if (!name) return;
-    const elements = cyRef.current.elements().map((el: any) => ({
-      group: el.group(),
-      data: el.data(),
-      position: el.isNode() ? el.position() : undefined,
-    }));
-    setVersionHistory(prev => [...prev.slice(-19), { id: Date.now().toString(), name, ts: Date.now(), elements }]);
+    setPendingVersionName(`v${versionHistory.length + 1} – ${new Date().toLocaleTimeString()}`);
+    setShowSaveVersionModal(true);
   }, [versionHistory.length]);
+
+  const handleConfirmSaveVersion = useCallback((name: string) => {
+    if (!cyRef.current || !name.trim()) return;
+    setShowSaveVersionModal(false);
+    // Defer serialization out of the click handler so React can repaint first
+    setTimeout(() => {
+      if (!cyRef.current) return;
+      const elements = cyRef.current.elements().map((el: any) => ({
+        group: el.group(),
+        data: el.data(),
+        position: el.isNode() ? el.position() : undefined,
+      }));
+      setVersionHistory(prev => [...prev.slice(-19), { id: Date.now().toString(), name: name.trim(), ts: Date.now(), elements }]);
+    }, 0);
+  }, []);
 
   const handleReplaceOne = useCallback(() => {
     if (!cyRef.current || findResults.length === 0 || !replaceQuery) return;
@@ -2734,7 +2756,7 @@ ${xmlEdges}
     }, 30);
   }, []);
 
-  // Close layout menu / page format menu / bg picker on outside click
+  // Close layout menu / page format menu / bg picker / more menu on outside click
   useEffect(() => {
     if (!showLayoutMenu) return;
     const close = () => setShowLayoutMenu(false);
@@ -2749,6 +2771,13 @@ ${xmlEdges}
     const t = setTimeout(() => document.addEventListener('mousedown', close), 50);
     return () => { clearTimeout(t); document.removeEventListener('mousedown', close); };
   }, [showPageFormatMenu]);
+
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const close = () => setShowMoreMenu(false);
+    const t = setTimeout(() => document.addEventListener('mousedown', close), 50);
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', close); };
+  }, [showMoreMenu]);
 
   useEffect(() => {
     if (!showBgPicker) return;
@@ -2848,6 +2877,16 @@ ${xmlEdges}
     });
   }, []);
 
+  const handleAlignToGrid = useCallback(() => {
+    if (!cyRef.current) return;
+    takeSnapshotRef.current();
+    const G = 24;
+    cyRef.current.nodes().forEach((n: any) => {
+      const pos = n.position();
+      n.position({ x: Math.round(pos.x / G) * G, y: Math.round(pos.y / G) * G });
+    });
+  }, []);
+
   // ── Topbar ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -2932,10 +2971,12 @@ ${xmlEdges}
 
     const zoom = cyRef.current.zoom();
     const pan = cyRef.current.pan();
-    const pos = {
-      x: (e.clientX - rect.left - pan.x) / zoom,
-      y: (e.clientY - rect.top - pan.y) / zoom,
-    };
+    const rawX = (e.clientX - rect.left - pan.x) / zoom;
+    const rawY = (e.clientY - rect.top - pan.y) / zoom;
+    const G = 24;
+    const pos = snapToGridRef.current
+      ? { x: Math.round(rawX / G) * G, y: Math.round(rawY / G) * G }
+      : { x: rawX, y: rawY };
 
     takeSnapshotRef.current();
 
@@ -3143,352 +3184,242 @@ ${xmlEdges}
           <div className="toolbar">
             {mode === 'design' && (
               <>
-                <Tooltip text="Undo (Ctrl+Z)">
-                  <button
-                    className="toolbar-button"
-                    onClick={undo}
-                    disabled={undoStack.current.length === 0}
-                  >
-                    <i className="fas fa-undo" />
-                  </button>
-                </Tooltip>
-                <Tooltip text="Redo (Ctrl+Y)">
-                  <button
-                    className="toolbar-button"
-                    onClick={redo}
-                    disabled={redoStack.current.length === 0}
-                  >
-                    <i className="fas fa-redo" />
-                  </button>
-                </Tooltip>
-                <div className="toolbar-separator" />
-                <Tooltip text={showGrid ? 'Hide Grid' : 'Show Grid'}>
-                  <button
-                    className={`toolbar-button ${showGrid ? 'toolbar-button-active' : ''}`}
-                    onClick={() => setShowGrid(g => !g)}
-                  >
-                    <i className="fas fa-border-all" />
-                  </button>
-                </Tooltip>
-                <Tooltip text={drawEdgeMode ? 'Stop Drawing (Esc)' : 'Draw Connection'}>
-                  <button
-                    className={`toolbar-button ${drawEdgeMode ? 'toolbar-button-active' : ''}`}
-                    onClick={toggleDrawEdgeMode}
-                  >
-                    <i className="fas fa-bezier-curve" />
-                  </button>
-                </Tooltip>
-                <div className="toolbar-separator" />
-                <Tooltip text="Export as PNG">
-                  <button className="toolbar-button" onClick={handleExportPng}>
-                    <i className="fas fa-image" />
-                  </button>
-                </Tooltip>
-                <Tooltip text="Export as SVG">
-                  <button className="toolbar-button" onClick={handleExportSvg}>
-                    <i className="fas fa-file-export" />
-                  </button>
-                </Tooltip>
-                <Tooltip text="Export as PDF (print)">
-                  <button className="toolbar-button" onClick={handleExportPdf}>
-                    <i className="fas fa-file-pdf" />
-                  </button>
-                </Tooltip>
-                <div className="toolbar-separator" />
-                <Tooltip text={showRulers ? 'Hide Rulers' : 'Show Rulers'}>
-                  <button
-                    className={`toolbar-button ${showRulers ? 'toolbar-button-active' : ''}`}
-                    onClick={() => setShowRulers(v => !v)}
-                  >
-                    <i className="fas fa-ruler-combined" />
-                  </button>
-                </Tooltip>
-                <Tooltip text={sketchMode ? 'Sketch Mode: On (click to disable)' : 'Sketch Mode: Off'}>
-                  <button
-                    className={`toolbar-button ${sketchMode ? 'toolbar-button-active' : ''}`}
-                    onClick={() => setSketchMode(v => !v)}
-                  >
-                    <i className="fas fa-pencil-alt" />
-                  </button>
-                </Tooltip>
-                <Tooltip text={hoverFade ? 'Hover Fade: On (click to disable)' : 'Hover Fade: Off'}>
-                  <button
-                    className={`toolbar-button ${hoverFade ? 'toolbar-button-active' : ''}`}
-                    onClick={() => setHoverFade(v => !v)}
-                  >
-                    <i className="fas fa-eye" />
-                  </button>
-                </Tooltip>
-                <Tooltip text={showCrossings ? 'Crossing Jumps: On — arc bridges drawn where edges cross' : 'Crossing Jumps: Off — enable to show arc bridges at edge intersections'}>
-                  <button
-                    className={`toolbar-button ${showCrossings ? 'toolbar-button-active' : ''}`}
-                    onClick={() => {
-                      const next = !showCrossings;
-                      setShowCrossings(next);
-                      if (next) {
-                        const edgeCount = cyRef.current?.edges().length ?? 0;
-                        if (edgeCount < 2) {
-                          alert('Crossing Jumps enabled!\n\nConnect at least 2 edges that cross each other — arc bridges will appear automatically at every intersection point.');
-                        }
-                      }
-                    }}
-                  >
-                    <i className="fas fa-code-branch" />
-                  </button>
-                </Tooltip>
+                {/* ── HISTORY ── */}
+                <div className="toolbar-group">
+                  <span className="toolbar-group-label">History</span>
+                  <div className="toolbar-group-buttons">
+                    <Tooltip text="Undo (Ctrl+Z)">
+                      <button className="toolbar-button" onClick={undo} disabled={undoStack.current.length === 0}>
+                        <i className="fas fa-undo" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip text="Redo (Ctrl+Y)">
+                      <button className="toolbar-button" onClick={redo} disabled={redoStack.current.length === 0}>
+                        <i className="fas fa-redo" />
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
                 <div className="toolbar-separator" />
 
-                {/* Format painter — active when an element is selected */}
-                {selectedElement && (
-                  <Tooltip text={formatPainterActive ? 'Click target to paste style (Esc to cancel)' : 'Format Painter'}>
-                    <button
-                      className={`toolbar-button ${formatPainterActive ? 'toolbar-button-active' : ''}`}
-                      onClick={activateFormatPainter}
-                    >
-                      <i className="fas fa-paint-brush" />
-                    </button>
-                  </Tooltip>
-                )}
+                {/* ── DRAW ── */}
+                <div className="toolbar-group">
+                  <span className="toolbar-group-label">Draw</span>
+                  <div className="toolbar-group-buttons">
+                    <Tooltip text={showGrid ? 'Hide Grid' : 'Show Grid'}>
+                      <button className={`toolbar-button ${showGrid ? 'toolbar-button-active' : ''}`} onClick={() => setShowGrid(g => !g)}>
+                        <i className="fas fa-border-all" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip text={drawEdgeMode ? 'Stop Drawing Connections (Esc)' : 'Draw Connection — click to enter draw mode, then click nodes to connect'}>
+                      <button className={`toolbar-button ${drawEdgeMode ? 'toolbar-button-active' : ''}`} onClick={toggleDrawEdgeMode}>
+                        <i className="fas fa-bezier-curve" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip text={freehandMode ? 'Freehand Drawing: On (Esc to exit)' : 'Freehand Draw — pencil tool for free-form annotations'}>
+                      <button className={`toolbar-button ${freehandMode ? 'toolbar-button-active' : ''}`} onClick={() => { setFreehandMode(v => !v); setEraserMode(false); }}>
+                        <i className="fas fa-pen" />
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
+                <div className="toolbar-separator" />
 
-                {/* Batch style apply — 2+ nodes selected */}
-                {selectedElement && selectedCount >= 2 && (
-                  <Tooltip text="Apply This Style to All Selected">
-                    <button className="toolbar-button" onClick={handleBatchStyleApply}>
-                      <i className="fas fa-fill-drip" />
-                    </button>
-                  </Tooltip>
-                )}
+                {/* ── INSERT ── */}
+                <div className="toolbar-group">
+                  <span className="toolbar-group-label">Insert</span>
+                  <div className="toolbar-group-buttons">
+                    <Tooltip text="Templates Library — start from a pre-built AWS, flowchart, or network diagram">
+                      <button className="toolbar-button" onClick={() => setShowTemplates(true)}>
+                        <i className="fas fa-th-large" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip text="Import Custom SVG Shape">
+                      <button className={`toolbar-button ${showSvgImport ? 'toolbar-button-active' : ''}`} onClick={() => setShowSvgImport(v => !v)}>
+                        <i className="fas fa-file-code" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip text={showScratchpad ? 'Hide Scratchpad' : 'Scratchpad — clipboard for reusable diagram snippets'}>
+                      <button className={`toolbar-button relative ${showScratchpad ? 'toolbar-button-active' : ''}`} onClick={() => setShowScratchpad(v => !v)}>
+                        <i className="fas fa-clipboard" />
+                        {scratchpadItems.length > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 bg-gray-600 text-white text-[7px] rounded-full flex items-center justify-center px-0.5">
+                            {scratchpadItems.length}
+                          </span>
+                        )}
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
+                <div className="toolbar-separator" />
 
-                {/* Find element (Ctrl+F) */}
-                <Tooltip text="Find Element (Ctrl+F)">
-                  <button
-                    className={`toolbar-button ${showFind ? 'toolbar-button-active' : ''}`}
-                    onClick={() => setShowFind(v => !v)}
-                  >
-                    <i className="fas fa-search" />
-                  </button>
-                </Tooltip>
+                {/* ── VIEW ── */}
+                <div className="toolbar-group">
+                  <span className="toolbar-group-label">View</span>
+                  <div className="toolbar-group-buttons">
+                    <Tooltip text={showRulers ? 'Hide Rulers' : 'Show Rulers — drag from rulers to create guide lines'}>
+                      <button className={`toolbar-button ${showRulers ? 'toolbar-button-active' : ''}`} onClick={() => setShowRulers(v => !v)}>
+                        <i className="fas fa-ruler-combined" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip text={sketchMode ? 'Sketch Mode: On (click to disable)' : 'Sketch Mode — hand-drawn look for wireframing'}>
+                      <button className={`toolbar-button ${sketchMode ? 'toolbar-button-active' : ''}`} onClick={() => setSketchMode(v => !v)}>
+                        <i className="fas fa-pencil-alt" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip text={hoverFade ? 'Hover Fade: On — non-adjacent nodes fade on hover (click to disable)' : 'Hover Fade — fades unrelated nodes when hovering a connection'}>
+                      <button className={`toolbar-button ${hoverFade ? 'toolbar-button-active' : ''}`} onClick={() => setHoverFade(v => !v)}>
+                        <i className="fas fa-eye" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip text={showCrossings ? 'Crossing Jumps: On — arc bridges drawn where edges cross (click to disable)' : 'Crossing Jumps — shows arc bridges where connection lines cross each other'}>
+                      <button
+                        className={`toolbar-button ${showCrossings ? 'toolbar-button-active' : ''}`}
+                        onClick={() => {
+                          const next = !showCrossings;
+                          setShowCrossings(next);
+                          if (next) {
+                            const edgeCount = cyRef.current?.edges().length ?? 0;
+                            if (edgeCount < 2) {
+                              alert('Crossing Jumps enabled!\n\nConnect at least 2 edges that cross each other — arc bridges will appear automatically at every intersection point.');
+                            }
+                          }
+                        }}
+                      >
+                        <i className="fas fa-code-branch" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip text={showMinimap ? 'Hide Minimap' : 'Show Minimap — overview thumbnail in the corner'}>
+                      <button className={`toolbar-button ${showMinimap ? 'toolbar-button-active' : ''}`} onClick={() => setShowMinimap(v => !v)}>
+                        <i className="fas fa-map" />
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
+                <div className="toolbar-separator" />
 
-                {/* Canvas background color */}
-                <div className="relative">
-                  <Tooltip text="Canvas Background">
-                    <button
-                      className={`toolbar-button ${showBgPicker ? 'toolbar-button-active' : ''}`}
-                      onClick={() => setShowBgPicker(v => !v)}
-                    >
-                      <span
-                        className="w-3.5 h-3.5 rounded-sm border border-gray-300 inline-block"
-                        style={{ background: canvasBackground }}
-                      />
-                    </button>
-                  </Tooltip>
+                {/* ── FORMAT ── */}
+                <div className="toolbar-group">
+                  <span className="toolbar-group-label">Format</span>
+                  <div className="toolbar-group-buttons">
+                    {/* Canvas background color */}
+                    <div className="relative">
+                      <Tooltip text="Canvas Background — change canvas colour or set a background image">
+                        <button className={`toolbar-button ${showBgPicker ? 'toolbar-button-active' : ''}`} onClick={() => setShowBgPicker(v => !v)}>
+                          <span className="w-3.5 h-3.5 rounded-sm border border-gray-300 inline-block" style={{ background: canvasBackground }} />
+                        </button>
+                      </Tooltip>
                   {showBgPicker && (
                     <div className="bg-picker-panel absolute top-full left-0 mt-1 z-[300] bg-white rounded-xl shadow-2xl border border-gray-100 p-3 min-w-[180px]">
                       <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-2">Canvas Background</p>
                       <div className="grid grid-cols-5 gap-1.5 mb-2">
                         {['#f8fafc', '#ffffff', '#1e293b', '#0f172a', '#fef9c3', '#f0fdf4', '#eff6ff', '#fdf4ff', '#fff1f2', '#f0fdfa'].map(c => (
-                          <button
-                            key={c}
-                            onClick={() => setCanvasBackground(c)}
+                          <button key={c} onClick={() => setCanvasBackground(c)}
                             className={`w-7 h-7 rounded border-2 transition-transform hover:scale-110 ${canvasBackground === c ? 'border-gray-800' : 'border-transparent'}`}
-                            style={{ background: c, boxShadow: c === '#ffffff' ? 'inset 0 0 0 1px #d1d5db' : undefined }}
-                          />
+                            style={{ background: c, boxShadow: c === '#ffffff' ? 'inset 0 0 0 1px #d1d5db' : undefined }} />
                         ))}
                       </div>
                       <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={canvasBackground}
-                          onChange={(e) => setCanvasBackground(e.target.value)}
-                          className="w-7 h-6 rounded border border-gray-200 cursor-pointer p-0 shrink-0"
-                        />
-                        <input
-                          type="text"
-                          value={canvasBackground}
-                          onChange={(e) => setCanvasBackground(e.target.value)}
-                          className="flex-1 min-w-0 px-2 py-1 text-[11px] border border-gray-200 rounded-md font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
-                        />
+                        <input type="color" value={canvasBackground} onChange={(e) => setCanvasBackground(e.target.value)} className="w-7 h-6 rounded border border-gray-200 cursor-pointer p-0 shrink-0" />
+                        <input type="text" value={canvasBackground} onChange={(e) => setCanvasBackground(e.target.value)} className="flex-1 min-w-0 px-2 py-1 text-[11px] border border-gray-200 rounded-md font-mono focus:outline-none focus:ring-1 focus:ring-gray-400" />
                       </div>
                       <div className="mt-2 border-t border-gray-100 pt-2">
                         <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Background Image</p>
-                        <input
-                          type="url"
-                          value={canvasBackgroundImage}
-                          onChange={(e) => setCanvasBackgroundImage(e.target.value)}
-                          placeholder="Image URL or data URI…"
-                          className="w-full px-2 py-1 text-[10px] border border-gray-200 rounded-md font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 mb-1"
-                        />
+                        <input type="url" value={canvasBackgroundImage} onChange={(e) => setCanvasBackgroundImage(e.target.value)} placeholder="Image URL or data URI…" className="w-full px-2 py-1 text-[10px] border border-gray-200 rounded-md font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 mb-1" />
                         <div className="flex gap-1">
-                          <input
-                            type="file"
-                            id="bg-img-file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              const reader = new FileReader();
-                              reader.onload = (ev) => setCanvasBackgroundImage(ev.target?.result as string);
-                              reader.readAsDataURL(file);
-                            }}
-                          />
-                          <label
-                            htmlFor="bg-img-file"
-                            className="flex-1 text-center py-1 text-[9px] text-gray-500 hover:text-gray-700 rounded border border-gray-200 hover:bg-gray-50 cursor-pointer"
-                          >
-                            Upload
-                          </label>
-                          {canvasBackgroundImage && (
-                            <button
-                              onClick={() => setCanvasBackgroundImage('')}
-                              className="px-2 py-1 text-[9px] text-red-500 hover:bg-red-50 rounded border border-red-200"
-                            >
-                              Clear
-                            </button>
-                          )}
+                          <input type="file" id="bg-img-file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => setCanvasBackgroundImage(ev.target?.result as string); reader.readAsDataURL(file); }} />
+                          <label htmlFor="bg-img-file" className="flex-1 text-center py-1 text-[9px] text-gray-500 hover:text-gray-700 rounded border border-gray-200 hover:bg-gray-50 cursor-pointer">Upload</label>
+                          {canvasBackgroundImage && (<button onClick={() => setCanvasBackgroundImage('')} className="px-2 py-1 text-[9px] text-red-500 hover:bg-red-50 rounded border border-red-200">Clear</button>)}
                         </div>
                       </div>
-                      <button
-                        onClick={() => setShowBgPicker(false)}
-                        className="mt-2 w-full py-1 text-[10px] text-gray-500 hover:text-gray-700 rounded-md border border-gray-200 hover:bg-gray-50"
-                      >Done</button>
+                      <button onClick={() => setShowBgPicker(false)} className="mt-2 w-full py-1 text-[10px] text-gray-500 hover:text-gray-700 rounded-md border border-gray-200 hover:bg-gray-50">Done</button>
                     </div>
                   )}
+                    </div>
+                    {/* Find element */}
+                    <Tooltip text="Find & Replace (Ctrl+F) — search nodes by label">
+                      <button className={`toolbar-button ${showFind ? 'toolbar-button-active' : ''}`} onClick={() => setShowFind(v => !v)}>
+                        <i className="fas fa-search" />
+                      </button>
+                    </Tooltip>
+                    {/* Format painter — visible when an element is selected */}
+                    {selectedElement && (
+                      <Tooltip text={formatPainterActive ? 'Click a target node to paste style (Esc to cancel)' : 'Format Painter — copy style from selected node'}>
+                        <button className={`toolbar-button ${formatPainterActive ? 'toolbar-button-active' : ''}`} onClick={activateFormatPainter}>
+                          <i className="fas fa-paint-brush" />
+                        </button>
+                      </Tooltip>
+                    )}
+                    {selectedElement && selectedCount >= 2 && (
+                      <Tooltip text="Apply This Style to All Selected Nodes">
+                        <button className="toolbar-button" onClick={handleBatchStyleApply}>
+                          <i className="fas fa-fill-drip" />
+                        </button>
+                      </Tooltip>
+                    )}
+                  </div>
                 </div>
-
-                {/* Import Custom SVG Shape */}
-                <Tooltip text="Import Custom SVG Shape">
-                  <button className={`toolbar-button ${showSvgImport ? 'toolbar-button-active' : ''}`} onClick={() => setShowSvgImport(v => !v)}>
-                    <i className="fas fa-file-code" />
-                  </button>
-                </Tooltip>
-
-                {/* Export as draw.io XML */}
-                <Tooltip text="Export as draw.io XML">
-                  <button className="toolbar-button" onClick={handleExportXml}>
-                    <i className="fas fa-code" />
-                  </button>
-                </Tooltip>
-
                 <div className="toolbar-separator" />
 
-                {/* Templates Library */}
-                <Tooltip text="Templates Library">
-                  <button className="toolbar-button" onClick={() => setShowTemplates(true)}>
-                    <i className="fas fa-th-large" />
-                  </button>
-                </Tooltip>
-
-                {/* Freehand Draw */}
-                <Tooltip text={freehandMode ? 'Freehand: On (Esc to exit)' : 'Freehand Draw'}>
-                  <button
-                    className={`toolbar-button ${freehandMode ? 'toolbar-button-active' : ''}`}
-                    onClick={() => { setFreehandMode(v => !v); setEraserMode(false); }}
-                  >
-                    <i className="fas fa-pen" />
-                  </button>
-                </Tooltip>
-
-                {/* Scratchpad */}
-                <Tooltip text={showScratchpad ? 'Hide Scratchpad' : 'Scratchpad'}>
-                  <button className={`toolbar-button relative ${showScratchpad ? 'toolbar-button-active' : ''}`} onClick={() => setShowScratchpad(v => !v)}>
-                    <i className="fas fa-clipboard" />
-                    {scratchpadItems.length > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 bg-gray-600 text-white text-[7px] rounded-full flex items-center justify-center px-0.5">
-                        {scratchpadItems.length}
-                      </span>
-                    )}
-                  </button>
-                </Tooltip>
-
-                {/* Page Format */}
-                <div ref={pageFormatBtnRef}>
-                  <Tooltip text="Page Format">
-                    <button
-                      className={`toolbar-button ${pageFormat !== 'none' ? 'toolbar-button-active' : ''}`}
-                      onClick={() => {
-                        if (!showPageFormatMenu && pageFormatBtnRef.current) {
-                          const r = pageFormatBtnRef.current.getBoundingClientRect();
-                          setPageFormatMenuAnchor({ top: r.bottom + 4, left: r.left });
-                        }
-                        setShowPageFormatMenu(v => !v);
-                      }}
-                    >
-                      <i className="fas fa-file-alt" />
-                    </button>
-                  </Tooltip>
+                {/* ── ⋯ MORE (Page, Export — moved here to prevent toolbar overflow) ── */}
+                <div className="toolbar-group">
+                  <span className="toolbar-group-label">More</span>
+                  <div className="toolbar-group-buttons">
+                    <Tooltip text="More options — Page Format, Versions, Export">
+                      <button
+                        ref={moreBtnRef}
+                        className={`toolbar-button ${showMoreMenu ? 'toolbar-button-active' : ''}`}
+                        onClick={() => {
+                          if (!showMoreMenu && moreBtnRef.current) {
+                            const r = moreBtnRef.current.getBoundingClientRect();
+                            setMoreMenuAnchor({ top: r.bottom + 4, left: r.left });
+                          }
+                          setShowMoreMenu(v => !v);
+                        }}
+                      >
+                        <i className="fas fa-ellipsis-h" />
+                      </button>
+                    </Tooltip>
+                  </div>
                 </div>
-
-                {/* Fit Page */}
-                {pageFormat !== 'none' && (
-                  <Tooltip text="Fit Page to Viewport">
-                    <button className="toolbar-button" onClick={handleFitPage}>
-                      <i className="fas fa-compress-arrows-alt" />
-                    </button>
-                  </Tooltip>
-                )}
-
-                {/* Version History */}
-                <Tooltip text="Save Version Snapshot">
-                  <button className="toolbar-button" onClick={handleSaveVersion}>
-                    <i className="fas fa-history" />
-                  </button>
-                </Tooltip>
-                <Tooltip text={showVersionHistory ? 'Hide Version History' : 'Version History'}>
-                  <button
-                    className={`toolbar-button relative ${showVersionHistory ? 'toolbar-button-active' : ''}`}
-                    onClick={() => setShowVersionHistory(v => !v)}
-                  >
-                    <i className="fas fa-clock" />
-                    {versionHistory.length > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 bg-gray-700 text-white text-[7px] rounded-full flex items-center justify-center px-0.5">
-                        {versionHistory.length}
-                      </span>
-                    )}
-                  </button>
-                </Tooltip>
-
                 <div className="toolbar-separator" />
 
-                {/* Layout menu */}
-                <div ref={layoutBtnRef}>
-                  <Tooltip text="Auto Layout">
-                    <button
-                      className="toolbar-button"
-                      onClick={() => {
-                        if (!showLayoutMenu && layoutBtnRef.current) {
-                          const r = layoutBtnRef.current.getBoundingClientRect();
-                          setLayoutMenuAnchor({ top: r.bottom + 4, left: r.left });
-                        }
-                        setShowLayoutMenu(v => !v);
-                      }}
-                    >
-                      <i className="fas fa-sitemap" />
-                    </button>
-                  </Tooltip>
-                </div>
+                {/* ── ARRANGE ── */}
+                <div className="toolbar-group">
+                  <span className="toolbar-group-label">Arrange</span>
+                  <div className="toolbar-group-buttons">
+                    <div ref={layoutBtnRef}>
+                      <Tooltip text="Auto Layout — automatically arrange all nodes (Hierarchical, Organic, Tree, Grid…)">
+                        <button
+                          className="toolbar-button"
+                          onClick={() => {
+                            if (!showLayoutMenu && layoutBtnRef.current) {
+                              const r = layoutBtnRef.current.getBoundingClientRect();
+                              setLayoutMenuAnchor({ top: r.bottom + 4, left: r.left });
+                            }
+                            setShowLayoutMenu(v => !v);
+                          }}
+                        >
+                          <i className="fas fa-sitemap" />
+                        </button>
+                      </Tooltip>
+                    </div>
+                    <Tooltip text={snapToGrid ? 'Snap to Grid: On — nodes snap to 24px grid when moved or dropped (click to disable)' : 'Snap to Grid — nodes lock to a 24px grid for clean alignment; also applies on drop'}>
 
-                <Tooltip text={snapToGrid ? 'Snap to Grid: On (click to disable)' : 'Snap to Grid: Off (click to enable)'}>
-                  <button
-                    className={`toolbar-button relative ${snapToGrid ? 'toolbar-button-active' : ''}`}
-                    onClick={() => setSnapToGrid(v => !v)}
-                  >
-                    <i className="fas fa-magnet" />
+                      <button className={`toolbar-button relative ${snapToGrid ? 'toolbar-button-active' : ''}`} onClick={() => setSnapToGrid(v => !v)}>
+                        <i className="fas fa-magnet" />
+                        {snapToGrid && (<span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-white" />)}
+                      </button>
+                    </Tooltip>
                     {snapToGrid && (
-                      <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-white" />
+                      <Tooltip text="Align All to Grid — snap every node to the nearest 24px grid point">
+                        <button className="toolbar-button" onClick={handleAlignToGrid}>
+                          <i className="fas fa-border-all" />
+                        </button>
+                      </Tooltip>
                     )}
-                  </button>
-                </Tooltip>
-
-                {/* Minimap toggle */}
-                <Tooltip text={showMinimap ? 'Hide Minimap' : 'Show Minimap'}>
-                  <button
-                    className={`toolbar-button ${showMinimap ? 'toolbar-button-active' : ''}`}
-                    onClick={() => setShowMinimap(v => !v)}
-                  >
-                    <i className="fas fa-map" />
-                  </button>
-                </Tooltip>
+                  </div>
+                </div>
 
                 {/* Multi-select tools — 2+ nodes */}
                 {selectedCount >= 2 && (
@@ -3966,6 +3897,30 @@ ${xmlEdges}
               />
             ))}
 
+            {/* Save version modal — replaces window.prompt to avoid main-thread freeze */}
+            {showSaveVersionModal && createPortal(
+              <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/30 backdrop-blur-[1px]" onClick={() => setShowSaveVersionModal(false)}>
+                <div className="bg-white rounded-xl shadow-2xl border border-gray-100 p-5 w-80" onClick={e => e.stopPropagation()}>
+                  <p className="text-[13px] font-bold text-gray-800 mb-1">Save Version Snapshot</p>
+                  <p className="text-[10px] text-gray-400 mb-3">Give this checkpoint a name so you can find it in Version History.</p>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={pendingVersionName}
+                    onChange={e => setPendingVersionName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleConfirmSaveVersion(pendingVersionName); if (e.key === 'Escape') setShowSaveVersionModal(false); }}
+                    className="w-full px-3 py-2 text-[12px] border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 mb-3"
+                    placeholder="e.g. Before refactor"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setShowSaveVersionModal(false)} className="px-3 py-1.5 text-[11px] text-gray-500 hover:bg-gray-100 rounded-lg">Cancel</button>
+                    <button onClick={() => handleConfirmSaveVersion(pendingVersionName)} className="px-3 py-1.5 text-[11px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold">Save</button>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
+
             {/* Version history panel */}
             {mode === 'design' && showVersionHistory && (
               <div className="absolute top-2 right-2 z-[150] bg-white rounded-xl shadow-2xl border border-gray-100 w-56 overflow-hidden">
@@ -3989,11 +3944,15 @@ ${xmlEdges}
                       <button
                         onClick={() => {
                           if (!cyRef.current) return;
-                          if (!window.confirm('Restore this version? Current canvas will be replaced.')) return;
+                          if (!window.confirm('Restore this version? Current canvas will be replaced.\n\nTip: the current state is pushed to Undo so you can revert.')) return;
                           takeSnapshotRef.current();
-                          cyRef.current.elements().remove();
-                          cyRef.current.add(v.elements);
-                          cyRef.current.elements().forEach((el: any) => applyElementStyle(el));
+                          const els = v.elements;
+                          setTimeout(() => {
+                            if (!cyRef.current) return;
+                            cyRef.current.elements().remove();
+                            cyRef.current.add(els);
+                            cyRef.current.elements().forEach((el: any) => applyElementStyle(el));
+                          }, 0);
                           setShowVersionHistory(false);
                         }}
                         className="text-[9px] text-blue-600 hover:text-blue-800 font-semibold shrink-0"
@@ -4621,6 +4580,68 @@ ${xmlEdges}
               {opt.label}
             </button>
           ))}
+        </div>,
+        document.body,
+      )}
+
+      {/* ⋯ More dropdown — Page and Export groups */}
+      {showMoreMenu && moreMenuAnchor && createPortal(
+        <div
+          className="fixed bg-white rounded-xl shadow-2xl border border-gray-100 py-2 min-w-[200px]"
+          style={{ top: moreMenuAnchor.top, left: moreMenuAnchor.left, zIndex: 9999 }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {/* Export section */}
+          <p className="px-3.5 pt-1 pb-1.5 text-[8px] font-bold text-gray-400 uppercase tracking-wider">Export</p>
+          {[
+            { label: 'Export as PNG',     icon: 'fa-image',       action: handleExportPng },
+            { label: 'Export as SVG',     icon: 'fa-file-export', action: handleExportSvg },
+            { label: 'Export as PDF',     icon: 'fa-file-pdf',    action: handleExportPdf },
+            { label: 'Export as XML',     icon: 'fa-code',        action: handleExportXml },
+          ].map(item => (
+            <button key={item.label}
+              onClick={() => { item.action(); setShowMoreMenu(false); }}
+              className="w-full px-3.5 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5"
+            >
+              <i className={`fas ${item.icon} text-gray-400 w-3.5 text-center`} /> {item.label}
+            </button>
+          ))}
+          <div className="border-t border-gray-100 my-1.5" />
+          {/* Page section */}
+          <p className="px-3.5 pb-1.5 text-[8px] font-bold text-gray-400 uppercase tracking-wider">Page</p>
+          <div ref={pageFormatBtnRef}>
+            <button
+              onClick={() => {
+                if (pageFormatBtnRef.current) {
+                  const r = pageFormatBtnRef.current.getBoundingClientRect();
+                  setPageFormatMenuAnchor({ top: r.top, left: r.right + 4 });
+                }
+                setShowMoreMenu(false);
+                setShowPageFormatMenu(true);
+              }}
+              className="w-full px-3.5 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5"
+            >
+              <i className="fas fa-file-alt text-gray-400 w-3.5 text-center" /> Page Format{pageFormat !== 'none' ? ` (${pageFormat})` : ''}
+            </button>
+          </div>
+          {pageFormat !== 'none' && (
+            <button onClick={() => { handleFitPage(); setShowMoreMenu(false); }}
+              className="w-full px-3.5 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5"
+            >
+              <i className="fas fa-compress-arrows-alt text-gray-400 w-3.5 text-center" /> Fit to Page
+            </button>
+          )}
+          <button onClick={() => { handleSaveVersion(); setShowMoreMenu(false); }}
+            className="w-full px-3.5 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5"
+          >
+            <i className="fas fa-history text-gray-400 w-3.5 text-center" /> Save Version Snapshot
+          </button>
+          <button onClick={() => { setShowVersionHistory(v => !v); setShowMoreMenu(false); }}
+            className={`w-full px-3.5 py-1.5 text-left text-xs hover:bg-gray-50 flex items-center gap-2.5 ${showVersionHistory ? 'text-blue-600' : 'text-gray-700'}`}
+          >
+            <i className={`fas fa-clock w-3.5 text-center ${showVersionHistory ? 'text-blue-500' : 'text-gray-400'}`} />
+            Version History {versionHistory.length > 0 ? `(${versionHistory.length})` : ''}
+          </button>
         </div>,
         document.body,
       )}

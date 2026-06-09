@@ -339,11 +339,12 @@
 .toolbar {
   background: #ffffff;
   border-bottom: 1px solid #e5e7eb;
-  padding: 0 0.5rem;
+  padding: 0 0.375rem;
   display: flex;
-  gap: 2px;
-  align-items: center;
-  height: 40px;
+  gap: 0;
+  align-items: flex-end;
+  height: 48px;
+  padding-bottom: 3px;
   flex-shrink: 0;
   width: 100%;
   min-width: 0;
@@ -355,12 +356,36 @@
 }
 .toolbar::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 
+/* Labeled section group within the toolbar */
+.toolbar-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.toolbar-group-label {
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  white-space: nowrap;
+  line-height: 1;
+  padding-bottom: 1px;
+  user-select: none;
+}
+.toolbar-group-buttons {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
 .toolbar-button {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 0.375rem;
-  padding: 0 0.5rem;
-  font-size: 0.8125rem;
+  padding: 0 0.375rem;
+  font-size: 0.75rem;
   color: #6b7280;
   font-weight: 500;
   transition: all 0.15s ease;
@@ -368,8 +393,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  min-width: 28px;
+  height: 26px;
+  min-width: 26px;
   white-space: nowrap;
 }
 
@@ -560,11 +585,12 @@
 /* ── Toolbar extras ── */
 .toolbar-separator {
   width: 1px;
-  height: 20px;
+  height: 24px;
   background-color: #e5e7eb;
-  margin: 0 3px;
-  align-self: center;
+  margin: 0 2px;
+  align-self: flex-end;
   flex-shrink: 0;
+  margin-bottom: 1px;
 }
 
 .toolbar-button-active {

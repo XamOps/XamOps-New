@@ -237,6 +237,7 @@ const DesignPropertiesPanel: React.FC<Props> = ({
   onMetadataChange,
   onCommentsChange,
 }) => {
+  const [collapsed,        setCollapsed]         = useState(false);
   const [localLabel,       setLocalLabel]       = useState('');
   const [localWidth,       setLocalWidth]        = useState('');
   const [localHeight,      setLocalHeight]       = useState('');
@@ -284,6 +285,23 @@ const DesignPropertiesPanel: React.FC<Props> = ({
 
   const opacityPct = Math.round((selected?.opacity ?? 1) * 100);
 
+  if (collapsed) {
+    return (
+      <div className="w-7 bg-white border-l border-gray-200 flex flex-col items-center shrink-0 z-10 h-full">
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Expand Properties Panel"
+          className="mt-2 w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+        >
+          <i className="fas fa-chevron-left text-[9px]" />
+        </button>
+        <div className="flex-1 flex items-center justify-center">
+          <span className="text-[8px] font-bold text-gray-300 uppercase tracking-widest" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>Properties</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-56 bg-white border-l border-gray-200 flex flex-col h-full shrink-0 z-10 design-props-panel">
       {/* Header */}
@@ -295,38 +313,48 @@ const DesignPropertiesPanel: React.FC<Props> = ({
               : 'Connection Properties'
             : 'Properties'}
         </span>
-        {selected && (
-          <div className="flex gap-1">
-            {/* Lock toggle */}
-            <button
-              onClick={() => onLockToggle(selected.id)}
-              title={selected.locked ? 'Unlock (Ctrl+L)' : 'Lock (Ctrl+L)'}
-              className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
-                selected.locked
-                  ? 'bg-amber-50 text-amber-500 hover:bg-amber-100'
-                  : 'hover:bg-gray-100 text-gray-400 hover:text-gray-600'
-              }`}
-            >
-              <i className={`fas ${selected.locked ? 'fa-lock' : 'fa-unlock'} text-[10px]`} />
-            </button>
-            {selected.elementType === 'node' && (
+        <div className="flex items-center gap-1">
+          {selected && (
+            <>
+              {/* Lock toggle */}
               <button
-                onClick={onDuplicate}
-                title="Duplicate (Ctrl+D)"
-                className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                onClick={() => onLockToggle(selected.id)}
+                title={selected.locked ? 'Unlock (Ctrl+L)' : 'Lock (Ctrl+L)'}
+                className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+                  selected.locked
+                    ? 'bg-amber-50 text-amber-500 hover:bg-amber-100'
+                    : 'hover:bg-gray-100 text-gray-400 hover:text-gray-600'
+                }`}
               >
-                <i className="fas fa-copy text-[10px]" />
+                <i className={`fas ${selected.locked ? 'fa-lock' : 'fa-unlock'} text-[10px]`} />
               </button>
-            )}
-            <button
-              onClick={onDelete}
-              title="Delete (Del)"
-              className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-            >
-              <i className="fas fa-trash text-[10px]" />
-            </button>
-          </div>
-        )}
+              {selected.elementType === 'node' && (
+                <button
+                  onClick={onDuplicate}
+                  title="Duplicate (Ctrl+D)"
+                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <i className="fas fa-copy text-[10px]" />
+                </button>
+              )}
+              <button
+                onClick={onDelete}
+                title="Delete (Del)"
+                className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+              >
+                <i className="fas fa-trash text-[10px]" />
+              </button>
+            </>
+          )}
+          {/* Collapse panel */}
+          <button
+            onClick={() => setCollapsed(true)}
+            title="Collapse Properties Panel"
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-colors"
+          >
+            <i className="fas fa-chevron-right text-[9px]" />
+          </button>
+        </div>
       </div>
 
       {!selected ? (

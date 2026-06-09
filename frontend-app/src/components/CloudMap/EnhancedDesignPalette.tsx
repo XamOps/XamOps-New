@@ -713,6 +713,7 @@ const EnhancedDesignPalette: React.FC<Props> = ({
               placeholder="Search shapes, AWS, GCP, Azure…"
               onKeyDown={e => {
                 if (e.key === '/' && !query) { e.preventDefault(); searchRef.current?.focus(); return; }
+                if (e.key === 'Escape') { e.preventDefault(); setQuery(''); searchRef.current?.blur(); return; }
                 // Enter: add the first search result to the canvas
                 if (e.key === 'Enter' && filteredItems.length > 0) { e.preventDefault(); handleClick(filteredItems[0]); }
               }}

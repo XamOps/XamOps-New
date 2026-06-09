@@ -8,7 +8,7 @@ interface Props {
   delay?: number;
 }
 
-const Tooltip: React.FC<Props> = ({ text, children, position = 'bottom', delay = 400 }) => {
+const Tooltip: React.FC<Props> = ({ text, children, position = 'bottom', delay = 150 }) => {
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState({ x: 0, y: 0 });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -25,9 +25,9 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
     setActions(
       <div className="flex items-center gap-4">
         {/* Sync Status */}
-        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 shadow-sm">
-          <i className="far fa-clock text-indigo-600 text-xs"></i>
-          <span className="text-xs font-medium text-slate-500">
+        <div className="flex items-center gap-2 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-xl px-3 py-1.5">
+          <i className="far fa-clock text-[rgba(0,0,0,0.4)] text-xs"></i>
+          <span className="text-xs font-medium text-[rgba(0,0,0,0.5)]">
             {serverTime ? `Synced: ${serverTime}` : lastUpdatedText}
           </span>
         </div>
@@ -36,9 +36,9 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         {showTourButton && onStartTour && (
           <button
             onClick={onStartTour}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-md hover:shadow-lg rounded-xl transition-all"
+            className="flex items-center gap-1.5 text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors"
           >
-            <i className="fas fa-rocket"></i> App Tour
+            <i className="fas fa-rocket text-[10px]"></i> App Tour
           </button>
         )}
 
@@ -46,9 +46,9 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         <button
           onClick={onRefresh}
           disabled={isLoading}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50"
+          className="flex items-center gap-1.5 text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-40"
         >
-          <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`} />
+          <i className={`fas fa-sync-alt text-[10px] ${isLoading ? 'animate-spin' : ''}`} />
           <span>{isLoading ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
