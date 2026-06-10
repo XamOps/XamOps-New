@@ -248,7 +248,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                           </span>
                         )}
                         <div className={`w-10 h-10 rounded-lg ${provider.bgColor} flex items-center justify-center mb-2`}>
-                          <i className={`${provider.icon} ${provider.color} text-lg`} />
+                          <Icon icon={provider.icon} width={22} height={22} />
                         </div>
                         <p className="font-semibold text-[rgba(0,0,0,0.88)] text-sm">{provider.name}</p>
                         <p className="text-xs text-[rgba(0,0,0,0.5)] mt-0.5">{provider.description}</p>

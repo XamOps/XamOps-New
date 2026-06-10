@@ -16,7 +16,6 @@
 
 import React, { useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Ticker } from '../components/Dashboard/Ticker';
 import { DashboardHeader } from '../components/Dashboard/DashboardHeader';
 import { MetricCard } from '../components/Dashboard/MetricCard';
 import { ProviderCard } from '../components/Dashboard/ProviderCard';
@@ -340,9 +339,6 @@ export const UnifiedDashboard: React.FC = () => {
             </button>
           </div>
         )}
-
-        {/* Ticker - Now glass effect */}
-        <Ticker />
 
         {/* Header - Actions registered via TopbarContext */}
         <DashboardHeader
