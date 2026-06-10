@@ -82,7 +82,8 @@ const KPICard: React.FC<KPICardProps> = ({
   }, []);
 
   const isGood = isSavings ? true : change < 0;
-  const badgeText = `${change >= 0 ? '+' : ''}${Math.abs(change).toFixed(1)}%`;
+  const safeChange = isFinite(change) && !isNaN(change) ? change : null;
+  const badgeText = safeChange === null ? 'N/A' : `${safeChange >= 0 ? '+' : ''}${Math.abs(safeChange).toFixed(1)}%`;
 
   const display = fmt(animCount);
   const mainPart = display.includes('.') ? display.slice(0, display.lastIndexOf('.')) : display;
@@ -140,7 +141,7 @@ const AzureKPISection: React.FC<AzureKPISectionProps> = ({ kpiData, costHistory,
 
   const mtdChange      = lastMonthSpend > 0 ? ((mtdSpend - lastMonthSpend) / lastMonthSpend * 100) : 0;
   const forecastChange = mtdSpend > 0 ? ((forecastedSpend - mtdSpend) / mtdSpend * 100) : 0;
-  const lastMonthChange = costs.length > 2 ? ((lastMonthSpend - costs[costs.length - 3]) / costs[costs.length - 3] * 100) : 0;
+  const lastMonthChange = costs.length > 2 && costs[costs.length - 3] > 0 ? ((lastMonthSpend - costs[costs.length - 3]) / costs[costs.length - 3] * 100) : 0;
 
   if (isLoading) {
     return (
