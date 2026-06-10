@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Value;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +46,8 @@ public class AwsPricingService {
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
+
+    private final ConcurrentHashMap<String, Double> livePriceCache = new ConcurrentHashMap<>();
 
     // --- YOUR STATIC DATA (Required for Calculator) ---
     // Real AWS EC2 On-Demand pricing for us-east-1 (as of 2024)
@@ -195,23 +198,68 @@ public class AwsPricingService {
             return 0.0;
         }
 
-        // Get base price from us-east-1
-        Double basePrice = US_EAST_1_PRICING.get(instanceType.toLowerCase());
+        String cacheKey = instanceType.toLowerCase() + ":" + region;
 
-        if (basePrice == null) {
-            logger.warn("No pricing data available for instance type: {}", instanceType);
-            // Return a conservative estimate based on instance size
-            return estimatePricing(instanceType);
+        // 1. In-memory cache (avoids repeated API calls within the same JVM lifetime)
+        Double cached = livePriceCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
         }
 
-        // Apply regional multiplier
-        Double regionalMultiplier = REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
-        double finalPrice = basePrice * regionalMultiplier;
+        // 2. Static table with regional multiplier (fast path for well-known types)
+        Double basePrice = US_EAST_1_PRICING.get(instanceType.toLowerCase());
+        if (basePrice != null) {
+            double finalPrice = basePrice * REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
+            livePriceCache.put(cacheKey, finalPrice);
+            logger.debug("Pricing for {} in {}: ${}/hour (static table)", instanceType, region, finalPrice);
+            return finalPrice;
+        }
 
-        logger.debug("Pricing for {} in {}: ${}/hour (base: ${}, multiplier: {})",
-                instanceType, region, finalPrice, basePrice, regionalMultiplier);
+        // 3. Live AWS Pricing API for instance types not in the static table
+        try {
+            double livePrice = fetchLiveHourlyCost(instanceType, region);
+            if (livePrice > 0.0) {
+                livePriceCache.put(cacheKey, livePrice);
+                logger.info("Live pricing for {} in {}: ${}/hour", instanceType, region, livePrice);
+                return livePrice;
+            }
+        } catch (Exception e) {
+            logger.warn("Live pricing lookup failed for {} in {}: {}", instanceType, region, e.getMessage());
+        }
 
-        return finalPrice;
+        // 4. Pattern-based estimate as final fallback
+        double estimated = estimatePricing(instanceType);
+        livePriceCache.put(cacheKey, estimated);
+        return estimated;
+    }
+
+    private double fetchLiveHourlyCost(String instanceType, String region) {
+        PricingClient pricingClient = awsClientProvider.getPricingClient();
+        List<Filter> filters = List.of(
+                Filter.builder().field("serviceCode").type(FilterType.TERM_MATCH).value("AmazonEC2").build(),
+                Filter.builder().field("location").type(FilterType.TERM_MATCH).value(regionToLocation(region)).build(),
+                Filter.builder().field("instanceType").type(FilterType.TERM_MATCH).value(instanceType).build(),
+                Filter.builder().field("operatingSystem").type(FilterType.TERM_MATCH).value("Linux").build(),
+                Filter.builder().field("preInstalledSw").type(FilterType.TERM_MATCH).value("NA").build(),
+                Filter.builder().field("tenancy").type(FilterType.TERM_MATCH).value("Shared").build(),
+                Filter.builder().field("capacitystatus").type(FilterType.TERM_MATCH).value("Used").build()
+        );
+
+        GetProductsResponse response = pricingClient.getProducts(
+                GetProductsRequest.builder()
+                        .serviceCode("AmazonEC2")
+                        .filters(filters)
+                        .formatVersion("aws_v1")
+                        .maxResults(1)
+                        .build());
+
+        for (String priceJson : response.priceList()) {
+            Map<String, Object> parsed = simplifyEc2PriceJson(priceJson);
+            if (parsed != null && parsed.get("pricePerHour") instanceof Double) {
+                return (Double) parsed.get("pricePerHour");
+            }
+        }
+        return 0.0;
     }
 
     /**

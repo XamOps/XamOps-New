@@ -568,7 +568,7 @@ public class OptimizationService {
                     .filter(s -> s.startTime().isBefore(ninetyDaysAgo))
                     .map(snapshot -> new DashboardData.WastedResource(snapshot.snapshotId(),
                             getTagName(snapshot.tags(), snapshot.snapshotId()), "Snapshot", regionId,
-                            calculateSnapshotMonthlyCost(snapshot), "Older than 90 days"))
+                            calculateSnapshotMonthlyCost(snapshot, regionId), "Older than 90 days"))
                     .collect(Collectors.toList());
         }, "Old Snapshots");
     }
@@ -577,11 +577,18 @@ public class OptimizationService {
             List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
+            double snapshotGbMonthPrice = pricingService.getEbsSnapshotGbMonthPrice(regionId);
             DescribeImagesRequest imagesRequest = DescribeImagesRequest.builder().owners("self").build();
             return ec2.describeImages(imagesRequest).images().stream()
                     .filter(image -> image.state() != ImageState.AVAILABLE)
-                    .map(image -> new DashboardData.WastedResource(image.imageId(), image.name(), "AMI", regionId, 0.5,
-                            "Deregistered or Failed State"))
+                    .map(image -> {
+                        double monthlyCost = image.blockDeviceMappings().stream()
+                                .filter(bdm -> bdm.ebs() != null && bdm.ebs().volumeSize() != null)
+                                .mapToDouble(bdm -> bdm.ebs().volumeSize() * snapshotGbMonthPrice)
+                                .sum();
+                        return new DashboardData.WastedResource(image.imageId(), image.name(), "AMI", regionId,
+                                monthlyCost, "Deregistered or Failed State");
+                    })
                     .collect(Collectors.toList());
         }, "Deregistered AMIs");
     }
@@ -599,7 +606,7 @@ public class OptimizationService {
                 return List.of();
 
             Instant end = Instant.now();
-            Instant start = end.minus(7, ChronoUnit.DAYS);
+            Instant start = end.minus(30, ChronoUnit.DAYS);
             List<MetricDataQuery> queries = new ArrayList<>();
             for (int i = 0; i < instances.size(); i++) {
                 queries.add(MetricDataQuery.builder().id("rds" + i)
@@ -642,7 +649,9 @@ public class OptimizationService {
                         return isIdle;
                     })
                     .map(lb -> new DashboardData.WastedResource(lb.loadBalancerArn(), lb.loadBalancerName(),
-                            "Load Balancer", regionId, 17.0, "Idle Load Balancer (no targets)"))
+                            "Load Balancer", regionId,
+                            pricingService.getElbHourlyPrice(regionId, lb.typeAsString()) * 730,
+                            "Idle Load Balancer (no targets)"))
                     .collect(Collectors.toList());
         }, "Idle Load Balancers");
     }
@@ -657,7 +666,7 @@ public class OptimizationService {
                 return List.of();
 
             Instant end = Instant.now();
-            Instant start = end.minus(14, ChronoUnit.DAYS);
+            Instant start = end.minus(30, ChronoUnit.DAYS);
             List<MetricDataQuery> queries = new ArrayList<>();
             for (int i = 0; i < clusters.size(); i++) {
                 queries.add(MetricDataQuery.builder().id("eks" + i)
@@ -748,7 +757,8 @@ public class OptimizationService {
             return rds.describeDBSnapshots(r -> r.snapshotType("manual")).dbSnapshots().stream()
                     .filter(snap -> snap.snapshotCreateTime().isBefore(ninetyDaysAgo))
                     .map(snap -> new DashboardData.WastedResource(snap.dbSnapshotIdentifier(),
-                            snap.dbSnapshotIdentifier(), "DB Snapshot", regionId, snap.allocatedStorage() * 0.095,
+                            snap.dbSnapshotIdentifier(), "DB Snapshot", regionId,
+                            snap.allocatedStorage() * pricingService.getRdsSnapshotGbMonthPrice(regionId, snap.engine()),
                             "Older than 90 days"))
                     .collect(Collectors.toList());
         }, "Old DB Snapshots");
@@ -879,7 +889,8 @@ public class OptimizationService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             Instant thirtyDaysAgo = Instant.now().minus(30, ChronoUnit.DAYS);
-            return ec2.describeInstances(r -> r.filters(f -> f.name("instance-state-name").values("stopped")))
+            List<Instance> stoppedInstances = ec2
+                    .describeInstances(r -> r.filters(f -> f.name("instance-state-name").values("stopped")))
                     .reservations().stream()
                     .flatMap(r -> r.instances().stream())
                     .filter(instance -> {
@@ -900,11 +911,31 @@ public class OptimizationService {
                         }
                         return false;
                     })
+                    .collect(Collectors.toList());
+
+            if (stoppedInstances.isEmpty()) {
+                return List.of();
+            }
+
+            // Stopped instances still incur costs for their attached EBS volumes.
+            List<String> volumeIds = stoppedInstances.stream()
+                    .flatMap(i -> i.blockDeviceMappings().stream())
+                    .filter(bdm -> bdm.ebs() != null && bdm.ebs().volumeId() != null)
+                    .map(bdm -> bdm.ebs().volumeId())
+                    .collect(Collectors.toList());
+
+            Map<String, Volume> volumesById = volumeIds.isEmpty() ? Collections.emptyMap()
+                    : ec2.describeVolumes(r -> r.volumeIds(volumeIds)).volumes().stream()
+                            .collect(Collectors.toMap(Volume::volumeId, v -> v));
+
+            return stoppedInstances.stream()
                     .map(instance -> {
-                        // Stopped instances still incur costs for their EBS volumes.
-                        // This is a simplified calculation. A more accurate one would describe the
-                        // volumes.
-                        double monthlyCost = instance.blockDeviceMappings().size() * 5.0; // Assume ~$5/month per volume
+                        double monthlyCost = instance.blockDeviceMappings().stream()
+                                .filter(bdm -> bdm.ebs() != null)
+                                .map(bdm -> volumesById.get(bdm.ebs().volumeId()))
+                                .filter(java.util.Objects::nonNull)
+                                .mapToDouble(v -> calculateEbsMonthlyCost(v, regionId))
+                                .sum();
                         return new DashboardData.WastedResource(instance.instanceId(),
                                 getTagName(instance.tags(), instance.instanceId()), "EC2 Instance", regionId,
                                 monthlyCost, "Stopped for >30 days");
@@ -989,9 +1020,9 @@ public class OptimizationService {
         return volume.size() * gbMonthPrice;
     }
 
-    private double calculateSnapshotMonthlyCost(Snapshot snapshot) {
+    private double calculateSnapshotMonthlyCost(Snapshot snapshot, String region) {
         if (snapshot.volumeSize() != null)
-            return snapshot.volumeSize() * 0.05;
+            return snapshot.volumeSize() * pricingService.getEbsSnapshotGbMonthPrice(region);
         return 0.0;
     }
 
@@ -1045,8 +1076,10 @@ public class OptimizationService {
                             double gbInStandard = bytesInStandard / (1024.0 * 1024 * 1024);
                             if (gbInStandard >= 1.0) {
                                 String name = regionBuckets.get(i);
+                                double standardPrice = pricingService.getS3StorageClassGbMonthPrice(region, "Standard");
+                                double iaPrice = pricingService.getS3StorageClassGbMonthPrice(region, "Standard-IA");
                                 output.add(new DashboardData.WastedResource(name, name, "S3 Bucket", region,
-                                        gbInStandard * (0.023 - 0.0125),
+                                        gbInStandard * (standardPrice - iaPrice),
                                         String.format(
                                                 "%.1f GB in Standard storage - consider Intelligent-Tiering or Standard-IA",
                                                 gbInStandard)));
@@ -1139,8 +1172,9 @@ public class OptimizationService {
                 if (maxConnections == 0.0) {
                     var cluster = clusters.get(i);
                     int nodes = cluster.numCacheNodes() != null ? cluster.numCacheNodes() : 1;
+                    double hourlyPrice = pricingService.getElastiCacheNodeHourlyPrice(regionId, cluster.cacheNodeType());
                     findings.add(new DashboardData.WastedResource(cluster.cacheClusterId(),
-                            cluster.cacheClusterId(), "ElastiCache Cluster", regionId, nodes * 0.034 * 730,
+                            cluster.cacheClusterId(), "ElastiCache Cluster", regionId, nodes * hourlyPrice * 730,
                             "No connections in 90 days - likely idle cluster"));
                 }
             }
@@ -1361,10 +1395,10 @@ public class OptimizationService {
                 .metricDataQueries(metricDataQuery).scanBy(ScanBy.TIMESTAMP_DESCENDING).build();
     }
 
-    // EC2 instances that are technically running but oversized — CPU < 10% avg over
-    // 14 days
-    // on an instance type of xlarge or larger where idle capacity carries real
-    // cost.
+    // EC2 instances that are technically running but oversized — CPU between 3%
+    // and 10% avg over 90 days on an instance type of xlarge or larger, where
+    // idle capacity carries real cost. The >3% floor excludes truly idle
+    // instances, which are already reported by findIdleEc2Instances.
     private CompletableFuture<List<DashboardData.WastedResource>> findOversizedEc2Instances(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
@@ -1388,7 +1422,7 @@ public class OptimizationService {
                 return List.of();
 
             Instant end = Instant.now();
-            Instant start = end.minus(14, ChronoUnit.DAYS);
+            Instant start = end.minus(90, ChronoUnit.DAYS);
             List<MetricDataQuery> queries = new ArrayList<>();
             for (int i = 0; i < instances.size(); i++) {
                 queries.add(MetricDataQuery.builder().id("ec2oc" + i)
@@ -1405,13 +1439,14 @@ public class OptimizationService {
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             for (int i = 0; i < instances.size(); i++) {
                 List<Double> values = results.getOrDefault("ec2oc" + i, List.of());
-                if (!values.isEmpty() && values.stream().allMatch(v -> v < 10.0)) {
+                double avgCpu = values.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+                if (!values.isEmpty() && values.stream().allMatch(v -> v < 10.0) && avgCpu > 3.0) {
                     var inst = instances.get(i);
                     String name = getTagName(inst.tags(), inst.instanceId());
                     double cost = pricingService.getEc2InstanceMonthlyPrice(inst.instanceTypeAsString(), regionId);
                     findings.add(new DashboardData.WastedResource(inst.instanceId(), name,
                             "EC2 Instance", regionId, cost,
-                            "Oversized: CPU < 10% avg over 14 days (" + inst.instanceTypeAsString() + ")"));
+                            "Oversized: CPU 3-10% avg over 90 days (" + inst.instanceTypeAsString() + ")"));
                 }
             }
             return findings;
@@ -1525,8 +1560,9 @@ public class OptimizationService {
                     String name = gw.tags().stream().filter(t -> "Name".equals(t.key()))
                             .map(software.amazon.awssdk.services.ec2.model.Tag::value)
                             .findFirst().orElse(gw.natGatewayId());
+                    double monthlyCost = pricingService.getNatGatewayHourlyPrice(regionId) * 730;
                     findings.add(new DashboardData.WastedResource(gw.natGatewayId(), name,
-                            "NAT Gateway", regionId, 32.40,
+                            "NAT Gateway", regionId, monthlyCost,
                             "Near-zero traffic in 30 days (<1 MB outbound)"));
                 }
             }
@@ -1618,7 +1654,7 @@ public class OptimizationService {
                 return List.of();
 
             Instant end = Instant.now();
-            Instant start = end.minus(14, ChronoUnit.DAYS);
+            Instant start = end.minus(30, ChronoUnit.DAYS);
             List<MetricDataQuery> readQueries = new ArrayList<>();
             List<MetricDataQuery> writeQueries = new ArrayList<>();
             for (int i = 0; i < volumes.size(); i++) {
