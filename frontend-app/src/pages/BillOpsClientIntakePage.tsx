@@ -114,6 +114,7 @@ const BillOpsClientIntakePage: React.FC = () => {
                   <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Company</th>
                   <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Contact</th>
                   <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Account IDs</th>
+                  <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Billing</th>
                   <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Submitted</th>
                   <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
                 </tr>
@@ -132,7 +133,9 @@ const BillOpsClientIntakePage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-5 py-4">
-                      <span className="font-medium text-gray-700 dark:text-gray-300">{s.companyName}</span>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">
+                        {s.companyName || <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      </span>
                     </td>
                     <td className="px-5 py-4">
                       <div className="space-y-0.5">
@@ -166,6 +169,19 @@ const BillOpsClientIntakePage: React.FC = () => {
                         <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>
                       )}
                     </td>
+                    <td className="px-5 py-4">
+                      {s.status === 'OPTED_OUT' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800">
+                          <i className="fas fa-times-circle text-[8px]" />
+                          Not taking
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400 border border-green-200 dark:border-green-800">
+                          <i className="fas fa-check-circle text-[8px]" />
+                          From Xammer
+                        </span>
+                      )}
+                    </td>
                     <td className="px-5 py-4 whitespace-nowrap">
                       <div className="text-xs text-gray-500 dark:text-gray-400">
                         {new Date(s.submittedAt).toLocaleDateString('en-US', {
@@ -179,14 +195,16 @@ const BillOpsClientIntakePage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-5 py-4">
-                      <button
-                        onClick={() => downloadForm(s)}
-                        title="Download as text file"
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-md transition-colors"
-                      >
-                        <i className="fas fa-download text-[9px]" />
-                        Download
-                      </button>
+                      {s.status !== 'OPTED_OUT' && (
+                        <button
+                          onClick={() => downloadForm(s)}
+                          title="Download as text file"
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-md transition-colors"
+                        >
+                          <i className="fas fa-download text-[9px]" />
+                          Download
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

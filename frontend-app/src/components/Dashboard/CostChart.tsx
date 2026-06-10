@@ -339,7 +339,7 @@ export const CostChart: React.FC<CostChartProps> = ({ awsData, gcpData, azureDat
       <div className="flex items-center justify-between mb-8">
         <div>
           <h3 className="text-xl font-bold text-slate-800 flex items-center gap-3">
-            <span className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center text-orange-500 shadow-sm border border-orange-100">
+            <span className="w-10 h-10 rounded-xl bg-[rgba(0,0,0,0.04)] flex items-center justify-center text-[rgba(0,0,0,0.45)] border border-[rgba(0,0,0,0.08)]">
               <i className="fas fa-chart-line"></i>
             </span>
             Spend Velocity

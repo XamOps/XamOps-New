@@ -46,7 +46,7 @@ export const AccountBreakdownModal: React.FC<AccountBreakdownModalProps> = ({
   return (
     <DialogRoot isOpen={show} onClose={onClose} maxWidth="max-w-2xl">
       <DialogPanel
-        title={<><i className="fas fa-layer-group text-indigo-600 mr-2"></i>{provider} Accounts Breakdown</>}
+        title={<><i className="fas fa-layer-group text-[rgba(0,0,0,0.45)] mr-2"></i>{provider} Accounts Breakdown</>}
         onClose={onClose}
         footer={<button onClick={onClose} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">Close</button>}
       >
@@ -93,7 +93,7 @@ export const AccountBreakdownModal: React.FC<AccountBreakdownModalProps> = ({
               <tbody className="bg-white divide-y divide-gray-100">
                 {accountList && accountList.length > 0 ? (
                   accountList.map((acc) => (
-                    <tr key={acc.id} className="hover:bg-indigo-50/50 transition-colors">
+                    <tr key={acc.id} className="hover:bg-[rgba(0,0,0,0.02)] transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-semibold text-gray-900">{acc.name}</div>
                         <div className="text-xs text-gray-500 font-mono">{acc.id}</div>
@@ -117,19 +117,19 @@ export const AccountBreakdownModal: React.FC<AccountBreakdownModalProps> = ({
                       )}
 
                       {viewMode === 'waste' && (
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-orange-600">
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900">
                           {acc.wastedResourceCount ?? 0}
                         </td>
                       )}
 
                       {viewMode === 'alerts' && (
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-red-600">
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900">
                           {acc.activeAlertCount ?? 0}
                         </td>
                       )}
 
                       {viewMode === 'savings' && (
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-green-600">
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900">
                           {formatCurrency(acc.optimizationSummary?.totalPotentialSavings || 0)}
                         </td>
                       )}
@@ -137,7 +137,7 @@ export const AccountBreakdownModal: React.FC<AccountBreakdownModalProps> = ({
                       <td className="px-6 py-4 text-right whitespace-nowrap">
                         <button
                           onClick={() => onSelectAccount(acc.id, viewMode)}
-                          className="text-indigo-600 hover:text-indigo-900 text-xs font-bold border border-indigo-100 px-3 py-1 rounded hover:bg-indigo-50 transition-colors"
+                          className="text-[rgba(0,0,0,0.7)] hover:text-[rgba(0,0,0,0.9)] text-xs font-bold border border-[rgba(0,0,0,0.1)] px-3 py-1 rounded hover:bg-[rgba(0,0,0,0.04)] transition-colors"
                         >
                           Select
                         </button>

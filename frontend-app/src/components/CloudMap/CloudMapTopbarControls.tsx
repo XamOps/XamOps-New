@@ -1,6 +1,6 @@
 /**
  * CloudMap Topbar Controls
- * 
+ *
  * Controls for CloudMap that integrate into the main topbar
  * Includes mode switching, VPC selector, blueprints, and action buttons
  */
@@ -56,44 +56,46 @@ const CloudMapTopbarControls: React.FC<CloudMapTopbarControlsProps> = ({
     savingBlueprint,
 }) => {
     return (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
             {/* Mode Switcher */}
-            <div className="flex bg-gray-100 p-1 rounded-xl shadow-sm">
+            <div className="flex bg-gray-100 p-0.5 rounded-lg">
                 <button
                     onClick={() => onModeSwitch('live')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${mode === 'live'
-                            ? 'bg-white text-indigo-600 shadow-sm'
-                            : 'text-gray-600 hover:text-gray-900'
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${mode === 'live'
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
                         }`}
                 >
-                    <i className="fas fa-network-wired text-sm mr-1.5" />
+                    <i className="fas fa-network-wired text-xs mr-1.5" />
                     Live View
                 </button>
                 <button
                     onClick={() => onModeSwitch('design')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${mode === 'design'
-                            ? 'bg-white text-indigo-600 shadow-sm'
-                            : 'text-gray-600 hover:text-gray-900'
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${mode === 'design'
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
                         }`}
                 >
-                    <i className="fas fa-pencil-ruler text-sm mr-1.5" />
+                    <i className="fas fa-pencil-ruler text-xs mr-1.5" />
                     Design Studio
                 </button>
             </div>
 
+            <div className="w-px h-5 bg-gray-200" />
+
             {/* Live Mode Controls */}
             {mode === 'live' && (
                 <>
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg border border-green-100">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                        <span className="text-xs font-semibold text-green-700">Live</span>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-md border border-emerald-200">
+                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                        <span className="text-xs font-semibold text-emerald-700">Live</span>
                     </div>
 
                     <select
                         id="vpc-selector"
                         value={selectedVpcValue}
                         onChange={onVpcChange}
-                        className="px-3 py-1.5 text-xs font-medium bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        className="px-2.5 py-1.5 text-xs font-medium bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 text-gray-700"
                     >
                         <option value={ALL_VPCS_VALUE}>All VPCs</option>
                         {loadingVpcs && <option value="" disabled>Loading...</option>}
@@ -106,9 +108,9 @@ const CloudMapTopbarControls: React.FC<CloudMapTopbarControlsProps> = ({
 
                     <button
                         onClick={onExportPng}
-                        className="px-3 py-1.5 text-xs font-semibold bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors flex items-center gap-1.5"
+                        className="px-3 py-1.5 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1.5"
                     >
-                        <i className="fas fa-download" />
+                        <i className="fas fa-download text-[10px]" />
                         Export PNG
                     </button>
                 </>
@@ -120,7 +122,7 @@ const CloudMapTopbarControls: React.FC<CloudMapTopbarControlsProps> = ({
                     <select
                         value={selectedBlueprintId || ''}
                         onChange={onBlueprintChange}
-                        className="px-3 py-1.5 text-xs font-medium bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        className="px-2.5 py-1.5 text-xs font-medium bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 text-gray-700 max-w-[180px]"
                     >
                         <option value="">-- New Design --</option>
                         {blueprints.map((bp) => (
@@ -133,17 +135,17 @@ const CloudMapTopbarControls: React.FC<CloudMapTopbarControlsProps> = ({
                     <button
                         onClick={onSaveDesign}
                         disabled={savingBlueprint}
-                        className="px-3 py-1.5 text-xs font-semibold bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                        className="px-3 py-1.5 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
-                        <i className="fas fa-save" />
-                        {savingBlueprint ? 'Saving...' : 'Save'}
+                        <i className="fas fa-save text-[10px]" />
+                        {savingBlueprint ? 'Saving…' : 'Save'}
                     </button>
 
                     <button
                         onClick={onClearCanvas}
-                        className="px-3 py-1.5 text-xs font-semibold bg-rose-500 text-white rounded-lg hover:bg-rose-600 transition-colors flex items-center gap-1.5"
+                        className="px-3 py-1.5 text-xs font-semibold text-red-600 border border-red-200 bg-transparent rounded-lg hover:bg-red-50 transition-colors flex items-center gap-1.5"
                     >
-                        <i className="fas fa-trash" />
+                        <i className="fas fa-trash text-[10px]" />
                         Clear
                     </button>
                 </>
