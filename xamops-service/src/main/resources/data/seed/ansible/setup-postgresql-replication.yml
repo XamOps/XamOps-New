@@ -1,0 +1,71 @@
+---
+# setup-postgresql-replication.yml
+# Installs PostgreSQL and configures streaming replication on a primary node,
+# creating a dedicated replication role and enabling WAL streaming.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}      - Inventory group or host pattern (primary)
+#   {{PG_VERSION}}        - PostgreSQL major version to install
+#   {{REPL_USER}}         - Replication role name
+#   {{REPL_PASSWORD}}     - Replication role password
+#   {{REPLICA_CIDR}}      - CIDR allowed to connect for replication
+#   {{MAX_WAL_SENDERS}}   - Maximum number of WAL sender processes
+- name: Configure PostgreSQL streaming replication primary
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    pg_version: "{{PG_VERSION}}"
+    repl_user: "{{REPL_USER}}"
+    repl_password: "{{REPL_PASSWORD}}"
+    replica_cidr: "{{REPLICA_CIDR}}"
+    max_wal_senders: "{{MAX_WAL_SENDERS}}"
+    pg_conf_dir: "/etc/postgresql/{{ pg_version }}/main"
+
+  tasks:
+    - name: Install PostgreSQL server and client
+      ansible.builtin.apt:
+        name:
+          - "postgresql-{{ pg_version }}"
+          - "postgresql-client-{{ pg_version }}"
+          - python3-psycopg2
+        state: present
+        update_cache: true
+
+    - name: Ensure PostgreSQL is running
+      ansible.builtin.service:
+        name: postgresql
+        state: started
+        enabled: true
+
+    - name: Create replication role
+      become_user: postgres
+      community.postgresql.postgresql_user:
+        name: "{{ repl_user }}"
+        password: "{{ repl_password }}"
+        role_attr_flags: REPLICATION,LOGIN
+
+    - name: Enable WAL streaming settings
+      ansible.builtin.lineinfile:
+        path: "{{ pg_conf_dir }}/postgresql.conf"
+        regexp: "^#?{{ item.key }}\\s*="
+        line: "{{ item.key }} = {{ item.value }}"
+        state: present
+      loop:
+        - { key: "wal_level", value: "replica" }
+        - { key: "max_wal_senders", value: "{{ max_wal_senders }}" }
+        - { key: "listen_addresses", value: "'*'" }
+        - { key: "hot_standby", value: "on" }
+      notify: Restart PostgreSQL
+
+    - name: Allow replica host in pg_hba.conf
+      ansible.builtin.lineinfile:
+        path: "{{ pg_conf_dir }}/pg_hba.conf"
+        line: "host replication {{ repl_user }} {{ replica_cidr }} scram-sha-256"
+        state: present
+      notify: Restart PostgreSQL
+
+  handlers:
+    - name: Restart PostgreSQL
+      ansible.builtin.service:
+        name: postgresql
+        state: restarted

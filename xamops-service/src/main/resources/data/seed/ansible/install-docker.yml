@@ -1,0 +1,71 @@
+---
+# install-docker.yml
+# Installs Docker Engine and the Compose plugin from the official repository and
+# optionally adds a user to the docker group.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}    - Inventory group or host pattern to target
+#   {{DOCKER_USER}}     - User to add to the docker group
+- name: Install Docker Engine
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    docker_user: "{{DOCKER_USER}}"
+
+  tasks:
+    - name: Install prerequisite packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+        update_cache: true
+
+    - name: Create keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Add Docker GPG key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Add Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+
+    - name: Install Docker packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      notify: Restart Docker
+
+    - name: Add user to docker group
+      ansible.builtin.user:
+        name: "{{ docker_user }}"
+        groups: docker
+        append: true
+
+    - name: Ensure Docker is running and enabled
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart Docker
+      ansible.builtin.service:
+        name: docker
+        state: restarted

@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 @RestController
-@RequestMapping("/api/cicd")
+@RequestMapping({"/api/cicd", "/cicd"})
 @CrossOrigin(origins = "*")
 public class CicdController {
 

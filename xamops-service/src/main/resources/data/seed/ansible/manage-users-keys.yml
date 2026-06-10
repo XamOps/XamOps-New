@@ -1,0 +1,45 @@
+---
+# manage-users-keys.yml
+# Creates a system user with sudo access and installs an authorized SSH public
+# key for key-based login.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}    - Inventory group or host pattern to target
+#   {{NEW_USER}}        - Username to create
+#   {{USER_SHELL}}      - Login shell for the user
+#   {{SSH_PUBLIC_KEY}}  - SSH public key to authorize
+- name: Manage system users and SSH keys
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    new_user: "{{NEW_USER}}"
+    user_shell: "{{USER_SHELL}}"
+    ssh_public_key: "{{SSH_PUBLIC_KEY}}"
+
+  tasks:
+    - name: Create user account
+      ansible.builtin.user:
+        name: "{{ new_user }}"
+        shell: "{{ user_shell }}"
+        groups: sudo
+        append: true
+        create_home: true
+
+    - name: Install authorized SSH key
+      ansible.posix.authorized_key:
+        user: "{{ new_user }}"
+        key: "{{ ssh_public_key }}"
+        state: present
+
+    - name: Grant passwordless sudo
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ new_user }}"
+        content: "{{ new_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        mode: "0440"
+        validate: "visudo -cf %s"
+      notify: Log user creation
+
+  handlers:
+    - name: Log user creation
+      ansible.builtin.debug:
+        msg: "User {{ new_user }} configured with sudo and SSH key access."

@@ -5,6 +5,12 @@ import { useDevOpsScripts } from '../hooks/useDevOpsScripts';
 import { DevOpsScript, ScriptCategory } from '../types/devopsInTheBox';
 import { useTopbar } from '../contexts/TopbarContext';
 import { DialogRoot, DialogPanel } from '../components/ui';
+import ScriptCustomizerModal from '../components/DevOpsInTheBox/ScriptCustomizerModal';
+
+/** True when the script body contains at least one {{PLACEHOLDER}} token. */
+function hasPlaceholders(code?: string): boolean {
+  return !!code && /\{\{\s*[A-Za-z0-9_]+\s*\}\}/.test(code);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -18,6 +24,18 @@ const CATEGORY_META: Record<string, { icon: string; iconColor: string; bg: strin
 const DEFAULT_META = { icon: 'mdi:file-code-outline', iconColor: 'rgba(0,0,0,0.4)', bg: 'bg-[rgba(0,0,0,0.03)]', text: 'text-[rgba(0,0,0,0.55)]', border: 'border-[rgba(0,0,0,0.08)]', activeBg: 'bg-[rgba(0,0,0,0.5)]' };
 
 function catMeta(cat: string) { return CATEGORY_META[cat?.toLowerCase()] || DEFAULT_META; }
+
+// Cloud provider icon metadata (iconify mdi set, already used across the app).
+const CLOUD_META: Record<string, { icon: string; color: string; label: string }> = {
+  aws:           { icon: 'mdi:aws',             color: '#FF9900', label: 'AWS' },
+  azure:         { icon: 'mdi:microsoft-azure', color: '#0078D4', label: 'Azure' },
+  gcp:           { icon: 'mdi:google-cloud',    color: '#4285F4', label: 'GCP' },
+  'multi-cloud': { icon: 'mdi:cloud-sync-outline', color: '#6366F1', label: 'Multi-Cloud' },
+};
+
+function cloudMeta(provider: string) {
+  return CLOUD_META[provider?.toLowerCase()] || { icon: 'mdi:cloud-outline', color: 'rgba(0,0,0,0.4)', label: provider };
+}
 
 function getFileName(script: DevOpsScript): string {
   const name = (script.name || 'script').replace(/\s+/g, '-').toLowerCase();
@@ -35,6 +53,7 @@ const DevOpsInTheBoxPage: React.FC = () => {
   const { filteredScripts, isLoading, error, filters, setSearchTerm, setFilterCategory } = useDevOpsScripts();
   const [selectedScript, setSelectedScript] = useState<DevOpsScript | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [customizerOpen, setCustomizerOpen] = useState(false);
 
   const { setActions, clearActions } = useTopbar();
   useEffect(() => {
@@ -163,9 +182,20 @@ const DevOpsInTheBoxPage: React.FC = () => {
                   <div className={`w-10 h-10 ${m.bg} border ${m.border} rounded-lg flex items-center justify-center flex-shrink-0`}>
                     <Icon icon={m.icon} width={18} color={m.iconColor} />
                   </div>
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 ${m.bg} border ${m.border} rounded-full text-[11px] font-semibold ${m.text} capitalize`}>
-                    {script.category}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {(script.cloudProviders ?? []).map(provider => {
+                      const c = cloudMeta(provider);
+                      return (
+                        <span key={provider} title={c.label}
+                          className="w-6 h-6 flex items-center justify-center rounded-md bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.06)]">
+                          <Icon icon={c.icon} width={14} color={c.color} />
+                        </span>
+                      );
+                    })}
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 ${m.bg} border ${m.border} rounded-full text-[11px] font-semibold ${m.text} capitalize`}>
+                      {script.category}
+                    </span>
+                  </div>
                 </div>
                 <h3 className="font-bold text-[rgba(0,0,0,0.88)] text-[14px] mb-1.5 line-clamp-1">{script.name}</h3>
                 <p className="text-[12px] text-[rgba(0,0,0,0.45)] line-clamp-2 mb-4 leading-relaxed">{script.description}</p>
@@ -229,6 +259,13 @@ const DevOpsInTheBoxPage: React.FC = () => {
               onClose={() => setSelectedScript(null)}
               footer={
                 <div className="flex items-center gap-3 w-full">
+                  {hasPlaceholders(selectedScript.code) && (
+                    <button onClick={() => setCustomizerOpen(true)}
+                      className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors">
+                      <Icon icon="mdi:tune-variant" width={14} />
+                      Customize &amp; Copy
+                    </button>
+                  )}
                   <button onClick={downloadScript}
                     className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors">
                     <Icon icon="mdi:download-outline" width={14} />
@@ -257,7 +294,22 @@ const DevOpsInTheBoxPage: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Code Block */}
+                {/* Cloud Providers */}
+                {(selectedScript.cloudProviders ?? []).length > 0 && (
+                  <div className="flex items-center flex-wrap gap-2">
+                    <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-[0.07em] mr-1">Cloud Providers</span>
+                    {selectedScript.cloudProviders.map(provider => {
+                      const c = cloudMeta(provider);
+                      return (
+                        <span key={provider}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-full text-[12px] font-semibold text-[rgba(0,0,0,0.7)]">
+                          <Icon icon={c.icon} width={15} color={c.color} />
+                          {c.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="rounded-xl overflow-hidden border border-[rgba(255,255,255,0.06)]" style={{ background: '#1a1d27' }}>
                   <div className="flex items-center justify-between px-5 py-3 border-b border-[rgba(255,255,255,0.07)]">
                     <span className="text-[12px] font-mono text-[rgba(255,255,255,0.5)]">{getFileName(selectedScript)}</span>
@@ -288,6 +340,15 @@ const DevOpsInTheBoxPage: React.FC = () => {
           );
         })()}
       </DialogRoot>
+
+      {/* Script Customizer Modal */}
+      {selectedScript && (
+        <ScriptCustomizerModal
+          script={selectedScript}
+          isOpen={customizerOpen}
+          onClose={() => setCustomizerOpen(false)}
+        />
+      )}
     </main>
   );
 };

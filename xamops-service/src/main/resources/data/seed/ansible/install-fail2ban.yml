@@ -1,0 +1,55 @@
+---
+# install-fail2ban.yml
+# Installs and configures fail2ban with an SSH jail to ban hosts that exceed a
+# configurable number of failed authentication attempts.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}   - Inventory group or host pattern to target
+#   {{SSH_PORT}}       - SSH port to protect
+#   {{BAN_TIME}}       - Ban duration in seconds
+#   {{FIND_TIME}}      - Window in seconds for counting failures
+#   {{MAX_RETRY}}      - Failed attempts before a ban is applied
+- name: Install and configure fail2ban
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    ssh_port: "{{SSH_PORT}}"
+    ban_time: "{{BAN_TIME}}"
+    find_time: "{{FIND_TIME}}"
+    max_retry: "{{MAX_RETRY}}"
+
+  tasks:
+    - name: Install fail2ban
+      ansible.builtin.apt:
+        name: fail2ban
+        state: present
+        update_cache: true
+
+    - name: Deploy jail.local configuration
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [DEFAULT]
+          bantime = {{ ban_time }}
+          findtime = {{ find_time }}
+          maxretry = {{ max_retry }}
+          backend = systemd
+
+          [sshd]
+          enabled = true
+          port = {{ ssh_port }}
+          filter = sshd
+        mode: "0644"
+      notify: Restart fail2ban
+
+    - name: Ensure fail2ban is running and enabled
+      ansible.builtin.service:
+        name: fail2ban
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted

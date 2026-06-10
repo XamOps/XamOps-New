@@ -1,0 +1,49 @@
+---
+# setup-redis.yml
+# Installs Redis, binds it to a configurable address, sets a password, and tunes
+# the max memory policy for use as a cache.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}      - Inventory group or host pattern to target
+#   {{REDIS_BIND}}        - Address Redis binds to
+#   {{REDIS_PASSWORD}}    - Password required for client connections
+#   {{REDIS_MAXMEMORY}}   - Max memory limit (e.g. 256mb)
+- name: Install and configure Redis
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    redis_bind: "{{REDIS_BIND}}"
+    redis_password: "{{REDIS_PASSWORD}}"
+    redis_maxmemory: "{{REDIS_MAXMEMORY}}"
+
+  tasks:
+    - name: Install Redis server
+      ansible.builtin.apt:
+        name: redis-server
+        state: present
+        update_cache: true
+
+    - name: Configure Redis settings
+      ansible.builtin.lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: "^#?{{ item.key }}\\s"
+        line: "{{ item.key }} {{ item.value }}"
+        state: present
+      loop:
+        - { key: "bind", value: "{{ redis_bind }}" }
+        - { key: "requirepass", value: "{{ redis_password }}" }
+        - { key: "maxmemory", value: "{{ redis_maxmemory }}" }
+        - { key: "maxmemory-policy", value: "allkeys-lru" }
+      notify: Restart Redis
+
+    - name: Ensure Redis is running and enabled
+      ansible.builtin.service:
+        name: redis-server
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart Redis
+      ansible.builtin.service:
+        name: redis-server
+        state: restarted

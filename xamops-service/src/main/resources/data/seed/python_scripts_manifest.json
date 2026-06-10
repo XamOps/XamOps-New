@@ -1,0 +1,416 @@
+{
+  "seedVersion": "1.0.0",
+  "category": "python",
+  "author": "XamOps Team",
+  "defaultStatus": "published",
+  "codeBaseDir": "data/seed/python",
+  "description": "Seed manifest for 26 production-ready Python automation scripts. The bulk-import task (4.6) reads each entry, loads the referenced .py file from the classpath at codeBaseDir/codeFile, and persists a DevOpsScript plus its ScriptParameter rows. Every script uses argparse for its CLI, the relevant cloud SDK (boto3 / azure-sdk / google-cloud) or the standard library, and proper error handling. Customizable values use the {{PARAMETER_NAME}} placeholder syntax embedded in module-level string literals so files remain syntactically valid for py_compile. Covers AWS, Azure, GCP, data processing, and monitoring automation. Implements REQ-2.1.1, REQ-2.1.2, REQ-2.1.3, REQ-2.2.1.",
+  "scripts": [
+    {
+      "name": "EC2 Instance Manager",
+      "codeFile": "ec2-instance-manager.py",
+      "description": "Lists, starts, stops, or reboots EC2 instances in a region using boto3, resolving 'all' or a comma-separated set of instance IDs.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["aws"],
+      "tags": ["aws", "ec2", "compute", "automation", "boto3"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, boto3 installed, and AWS credentials with EC2 describe/start/stop/reboot permissions.",
+      "parameters": [
+        {"name": "AWS_REGION", "label": "AWS Region", "description": "AWS region the instances live in, e.g. us-east-1.", "parameterType": "text", "required": true, "defaultValue": "us-east-1", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "INSTANCE_IDS", "label": "Instance IDs", "description": "Comma-separated instance IDs, or 'all' to target every instance.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 2},
+        {"name": "ACTION", "label": "Action", "description": "Operation to perform on the instances.", "parameterType": "select", "required": true, "defaultValue": "list", "validationRules": {"options": ["list", "start", "stop", "reboot"]}, "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "S3 Lifecycle Management",
+      "codeFile": "s3-lifecycle-management.py",
+      "description": "Applies a lifecycle policy to an S3 bucket: transitions objects to STANDARD_IA after N days and expires them after M days.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["aws"],
+      "tags": ["aws", "s3", "storage", "lifecycle", "cost-optimization", "boto3"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, boto3 installed, and AWS credentials with s3:PutLifecycleConfiguration on the target bucket.",
+      "parameters": [
+        {"name": "AWS_REGION", "label": "AWS Region", "description": "AWS region of the bucket, e.g. us-east-1.", "parameterType": "text", "required": true, "defaultValue": "us-east-1", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "BUCKET_NAME", "label": "S3 Bucket Name", "description": "Target S3 bucket to apply the lifecycle policy to.", "parameterType": "text", "required": true, "defaultValue": "my-app-bucket", "category": "infrastructure", "displayOrder": 2},
+        {"name": "TRANSITION_DAYS", "label": "Transition Days", "description": "Days before objects transition to STANDARD_IA.", "parameterType": "number", "required": true, "defaultValue": "30", "validationRules": {"min": 1, "max": 3650}, "category": "configuration", "displayOrder": 3},
+        {"name": "EXPIRATION_DAYS", "label": "Expiration Days", "description": "Days before objects expire (must exceed transition days).", "parameterType": "number", "required": true, "defaultValue": "365", "validationRules": {"min": 2, "max": 7300}, "category": "configuration", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "CloudWatch Log Analyzer",
+      "codeFile": "cloudwatch-log-analyzer.py",
+      "description": "Scans a CloudWatch Logs log group over a time window, counts events matching a filter pattern, and prints recent matches.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["aws"],
+      "tags": ["aws", "cloudwatch", "logs", "monitoring", "observability", "boto3"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, boto3 installed, and AWS credentials with logs:FilterLogEvents permission.",
+      "parameters": [
+        {"name": "AWS_REGION", "label": "AWS Region", "description": "AWS region of the log group, e.g. us-east-1.", "parameterType": "text", "required": true, "defaultValue": "us-east-1", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "LOG_GROUP", "label": "Log Group", "description": "CloudWatch Logs log group name to scan.", "parameterType": "text", "required": true, "defaultValue": "/aws/lambda/my-function", "category": "configuration", "displayOrder": 2},
+        {"name": "HOURS_BACK", "label": "Hours Back", "description": "How many hours of history to scan.", "parameterType": "number", "required": true, "defaultValue": "24", "validationRules": {"min": 1, "max": 720}, "category": "configuration", "displayOrder": 3},
+        {"name": "FILTER_PATTERN", "label": "Filter Pattern", "description": "CloudWatch filter pattern, e.g. ERROR.", "parameterType": "text", "required": false, "defaultValue": "ERROR", "category": "configuration", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "AWS Unused Resources Finder",
+      "codeFile": "aws-unused-resources-finder.py",
+      "description": "Scans a region for cost-wasting unused resources: unattached EBS volumes, unassociated Elastic IPs, and stopped EC2 instances.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["aws"],
+      "tags": ["aws", "cost-optimization", "ec2", "ebs", "cleanup", "boto3"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, boto3 installed, and AWS credentials with EC2 describe permissions.",
+      "parameters": [
+        {"name": "AWS_REGION", "label": "AWS Region", "description": "AWS region to scan, e.g. us-east-1.", "parameterType": "text", "required": true, "defaultValue": "us-east-1", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1}
+      ]
+    },
+    {
+      "name": "EC2 Cost Report",
+      "codeFile": "ec2-cost-report.py",
+      "description": "Produces an AWS cost report using the Cost Explorer API for a trailing number of days, grouped by service.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["aws"],
+      "tags": ["aws", "cost-explorer", "finops", "reporting", "boto3"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, boto3 installed, Cost Explorer enabled, and credentials with ce:GetCostAndUsage permission.",
+      "parameters": [
+        {"name": "AWS_REGION", "label": "AWS Region", "description": "Region for the Cost Explorer client, e.g. us-east-1.", "parameterType": "text", "required": true, "defaultValue": "us-east-1", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "DAYS_BACK", "label": "Days Back", "description": "Number of trailing days to include in the report.", "parameterType": "number", "required": true, "defaultValue": "30", "validationRules": {"min": 1, "max": 365}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "IAM Key Rotation Auditor",
+      "codeFile": "iam-key-rotation-auditor.py",
+      "description": "Audits IAM users' access keys and flags any active key older than a maximum allowed age to enforce key-rotation policy.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["aws"],
+      "tags": ["aws", "iam", "security", "compliance", "audit", "boto3"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, boto3 installed, and AWS credentials with iam:ListUsers and iam:ListAccessKeys permissions.",
+      "parameters": [
+        {"name": "MAX_KEY_AGE_DAYS", "label": "Max Key Age (days)", "description": "Maximum acceptable access-key age in days before it is flagged.", "parameterType": "number", "required": true, "defaultValue": "90", "validationRules": {"min": 1, "max": 3650}, "category": "security", "displayOrder": 1}
+      ]
+    },
+    {
+      "name": "RDS Snapshot Manager",
+      "codeFile": "rds-snapshot-manager.py",
+      "description": "Creates a manual RDS snapshot for a DB instance and prunes manual snapshots older than a retention window.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["aws"],
+      "tags": ["aws", "rds", "database", "backup", "snapshot", "boto3"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, boto3 installed, and AWS credentials with RDS snapshot create/describe/delete permissions.",
+      "parameters": [
+        {"name": "AWS_REGION", "label": "AWS Region", "description": "AWS region of the DB instance, e.g. us-east-1.", "parameterType": "text", "required": true, "defaultValue": "us-east-1", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "DB_INSTANCE_ID", "label": "DB Instance ID", "description": "RDS DB instance identifier to snapshot.", "parameterType": "text", "required": true, "defaultValue": "my-database", "category": "infrastructure", "displayOrder": 2},
+        {"name": "RETENTION_DAYS", "label": "Retention (days)", "description": "Days to keep manual snapshots before deletion.", "parameterType": "number", "required": true, "defaultValue": "7", "validationRules": {"min": 1, "max": 3650}, "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "S3 Bucket Size Reporter",
+      "codeFile": "s3-bucket-size-reporter.py",
+      "description": "Calculates total object count and size for an S3 bucket, optionally scoped to a key prefix, by paginating over object listings.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["aws"],
+      "tags": ["aws", "s3", "storage", "reporting", "boto3"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, boto3 installed, and AWS credentials with s3:ListBucket permission.",
+      "parameters": [
+        {"name": "AWS_REGION", "label": "AWS Region", "description": "AWS region of the bucket, e.g. us-east-1.", "parameterType": "text", "required": true, "defaultValue": "us-east-1", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "BUCKET_NAME", "label": "S3 Bucket Name", "description": "S3 bucket to measure.", "parameterType": "text", "required": true, "defaultValue": "my-app-bucket", "category": "infrastructure", "displayOrder": 2},
+        {"name": "PREFIX", "label": "Key Prefix", "description": "Optional key prefix to scope the report; empty scans the whole bucket.", "parameterType": "text", "required": false, "defaultValue": "", "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Azure VM Status Checker",
+      "codeFile": "azure-vm-status-checker.py",
+      "description": "Lists virtual machines in a resource group and reports their power state using the Azure SDK and DefaultAzureCredential.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["azure"],
+      "tags": ["azure", "compute", "vm", "monitoring", "azure-sdk"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, azure-identity and azure-mgmt-compute installed, and an authenticated Azure identity with Reader on the resource group.",
+      "parameters": [
+        {"name": "SUBSCRIPTION_ID", "label": "Subscription ID", "description": "Azure subscription ID containing the VMs.", "parameterType": "text", "required": true, "defaultValue": "00000000-0000-0000-0000-000000000000", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "RESOURCE_GROUP", "label": "Resource Group", "description": "Resource group containing the VMs.", "parameterType": "text", "required": true, "defaultValue": "my-resource-group", "category": "infrastructure", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Azure Blob Storage Cleaner",
+      "codeFile": "azure-blob-storage-cleaner.py",
+      "description": "Deletes blobs in an Azure Storage container older than a retention window, with a dry-run mode to preview deletions.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["azure"],
+      "tags": ["azure", "blob-storage", "cleanup", "cost-optimization", "azure-sdk"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, azure-identity and azure-storage-blob installed, and an identity with Storage Blob Data Contributor on the account.",
+      "parameters": [
+        {"name": "STORAGE_ACCOUNT", "label": "Storage Account", "description": "Azure Storage account name.", "parameterType": "text", "required": true, "defaultValue": "mystorageaccount", "category": "infrastructure", "displayOrder": 1},
+        {"name": "CONTAINER_NAME", "label": "Container Name", "description": "Blob container to clean.", "parameterType": "text", "required": true, "defaultValue": "logs", "category": "configuration", "displayOrder": 2},
+        {"name": "RETENTION_DAYS", "label": "Retention (days)", "description": "Delete blobs older than this many days.", "parameterType": "number", "required": true, "defaultValue": "30", "validationRules": {"min": 1, "max": 3650}, "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Azure Resource Group Reporter",
+      "codeFile": "azure-resource-group-reporter.py",
+      "description": "Reports all resources in an Azure resource group grouped by resource type using the Azure Resource Management SDK.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["azure"],
+      "tags": ["azure", "resource-management", "reporting", "inventory", "azure-sdk"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, azure-identity and azure-mgmt-resource installed, and an identity with Reader on the resource group.",
+      "parameters": [
+        {"name": "SUBSCRIPTION_ID", "label": "Subscription ID", "description": "Azure subscription ID.", "parameterType": "text", "required": true, "defaultValue": "00000000-0000-0000-0000-000000000000", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "RESOURCE_GROUP", "label": "Resource Group", "description": "Resource group to report on.", "parameterType": "text", "required": true, "defaultValue": "my-resource-group", "category": "infrastructure", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Azure Cost Reporter",
+      "codeFile": "azure-cost-reporter.py",
+      "description": "Queries Azure Cost Management for actual cost over a trailing period for a subscription and prints a daily cost summary.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["azure"],
+      "tags": ["azure", "cost-management", "finops", "reporting", "azure-sdk"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, azure-identity and azure-mgmt-costmanagement installed, and an identity with Cost Management Reader on the subscription.",
+      "parameters": [
+        {"name": "SUBSCRIPTION_ID", "label": "Subscription ID", "description": "Azure subscription ID to report cost for.", "parameterType": "text", "required": true, "defaultValue": "00000000-0000-0000-0000-000000000000", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "DAYS_BACK", "label": "Days Back", "description": "Number of trailing days to include.", "parameterType": "number", "required": true, "defaultValue": "30", "validationRules": {"min": 1, "max": 365}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "GCP Compute Instance Scheduler",
+      "codeFile": "gcp-compute-instance-scheduler.py",
+      "description": "Starts or stops a Google Compute Engine instance to support cost-saving start/stop schedules via cron or Cloud Scheduler.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["gcp"],
+      "tags": ["gcp", "compute-engine", "scheduling", "cost-optimization", "google-cloud"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, google-cloud-compute installed, and Application Default Credentials with compute.instances start/stop permissions.",
+      "parameters": [
+        {"name": "PROJECT_ID", "label": "Project ID", "description": "GCP project ID containing the instance.", "parameterType": "text", "required": true, "defaultValue": "my-gcp-project", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "GCP_ZONE", "label": "Zone", "description": "Compute Engine zone, e.g. us-central1-a.", "parameterType": "text", "required": true, "defaultValue": "us-central1-a", "category": "infrastructure", "displayOrder": 2},
+        {"name": "INSTANCE_NAME", "label": "Instance Name", "description": "Name of the instance to manage.", "parameterType": "text", "required": true, "defaultValue": "my-instance", "category": "infrastructure", "displayOrder": 3},
+        {"name": "ACTION", "label": "Action", "description": "Operation to perform on the instance.", "parameterType": "select", "required": true, "defaultValue": "stop", "validationRules": {"options": ["start", "stop"]}, "category": "configuration", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "GCP BigQuery Cost Analyzer",
+      "codeFile": "gcp-bigquery-cost-analyzer.py",
+      "description": "Analyzes BigQuery query costs over a trailing period from INFORMATION_SCHEMA.JOBS, estimating cost from bytes billed per user.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["gcp"],
+      "tags": ["gcp", "bigquery", "finops", "cost-analysis", "google-cloud"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "Python 3.8+, google-cloud-bigquery installed, and credentials with BigQuery Job User and access to INFORMATION_SCHEMA.JOBS.",
+      "parameters": [
+        {"name": "PROJECT_ID", "label": "Project ID", "description": "GCP project ID to analyze.", "parameterType": "text", "required": true, "defaultValue": "my-gcp-project", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "DAYS_BACK", "label": "Days Back", "description": "Number of trailing days to analyze.", "parameterType": "number", "required": true, "defaultValue": "7", "validationRules": {"min": 1, "max": 180}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "GCP Cloud Storage Sync",
+      "codeFile": "gcp-cloud-storage-sync.py",
+      "description": "Synchronizes objects from a source GCS bucket to a destination bucket, copying any object missing or changed in the destination.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["gcp"],
+      "tags": ["gcp", "cloud-storage", "sync", "replication", "google-cloud"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, google-cloud-storage installed, and credentials with read on the source and write on the destination bucket.",
+      "parameters": [
+        {"name": "PROJECT_ID", "label": "Project ID", "description": "GCP project ID for the storage client.", "parameterType": "text", "required": true, "defaultValue": "my-gcp-project", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "SOURCE_BUCKET", "label": "Source Bucket", "description": "Source Cloud Storage bucket name.", "parameterType": "text", "required": true, "defaultValue": "source-bucket", "category": "infrastructure", "displayOrder": 2},
+        {"name": "DEST_BUCKET", "label": "Destination Bucket", "description": "Destination Cloud Storage bucket name.", "parameterType": "text", "required": true, "defaultValue": "dest-bucket", "category": "infrastructure", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "GCP Unused Disks Finder",
+      "codeFile": "gcp-unused-disks-finder.py",
+      "description": "Finds unattached (orphaned) persistent disks in a GCP zone that are no longer in use by any instance to reclaim storage cost.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["gcp"],
+      "tags": ["gcp", "compute-engine", "disks", "cost-optimization", "cleanup", "google-cloud"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+, google-cloud-compute installed, and credentials with compute.disks.list permission.",
+      "parameters": [
+        {"name": "PROJECT_ID", "label": "Project ID", "description": "GCP project ID to scan.", "parameterType": "text", "required": true, "defaultValue": "my-gcp-project", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 1},
+        {"name": "GCP_ZONE", "label": "Zone", "description": "Compute Engine zone, e.g. us-central1-a.", "parameterType": "text", "required": true, "defaultValue": "us-central1-a", "category": "infrastructure", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "CSV to JSON Converter",
+      "codeFile": "csv-to-json-converter.py",
+      "description": "Converts a delimited CSV file into a JSON array of objects using the header row as keys, with custom delimiter and pretty-print support.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["data-processing", "csv", "json", "conversion", "etl"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Python 3.8+ (standard library only) and read access to the input CSV file.",
+      "parameters": [
+        {"name": "INPUT_FILE", "label": "Input File", "description": "Path to the input CSV file.", "parameterType": "text", "required": true, "defaultValue": "input.csv", "category": "configuration", "displayOrder": 1},
+        {"name": "OUTPUT_FILE", "label": "Output File", "description": "Path to write the JSON output.", "parameterType": "text", "required": true, "defaultValue": "output.json", "category": "configuration", "displayOrder": 2},
+        {"name": "DELIMITER", "label": "Delimiter", "description": "Field delimiter character, e.g. ',' or ';'.", "parameterType": "text", "required": true, "defaultValue": ",", "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "JSON to CSV Converter",
+      "codeFile": "json-to-csv-converter.py",
+      "description": "Converts a JSON array of flat objects into a CSV file, using the union of all keys as the header with missing values left blank.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["data-processing", "json", "csv", "conversion", "etl"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Python 3.8+ (standard library only) and read access to the input JSON file.",
+      "parameters": [
+        {"name": "INPUT_FILE", "label": "Input File", "description": "Path to the input JSON file (array of objects).", "parameterType": "text", "required": true, "defaultValue": "input.json", "category": "configuration", "displayOrder": 1},
+        {"name": "OUTPUT_FILE", "label": "Output File", "description": "Path to write the CSV output.", "parameterType": "text", "required": true, "defaultValue": "output.csv", "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Log Parser and Aggregator",
+      "codeFile": "log-parser-aggregator.py",
+      "description": "Parses a log file with a configurable regex, aggregates counts by a named capture group, and writes a JSON summary of the most frequent values.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["data-processing", "logging", "regex", "aggregation", "analysis"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+ (standard library only) and read access to the target log file.",
+      "parameters": [
+        {"name": "LOG_PATH", "label": "Log Path", "description": "Path to the log file to parse.", "parameterType": "text", "required": true, "defaultValue": "/var/log/app.log", "category": "configuration", "displayOrder": 1},
+        {"name": "OUTPUT_FILE", "label": "Output File", "description": "Path to write the JSON aggregation summary.", "parameterType": "text", "required": true, "defaultValue": "summary.json", "category": "configuration", "displayOrder": 2},
+        {"name": "LOG_PATTERN", "label": "Log Pattern", "description": "Regex with a named group 'key' to aggregate on.", "parameterType": "text", "required": true, "defaultValue": "(?P<key>\\d{3}) ", "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Batch File Processor",
+      "codeFile": "batch-file-processor.py",
+      "description": "Walks an input directory for files matching a glob pattern, computes a SHA-256 checksum and size for each, and writes a manifest.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["data-processing", "batch", "checksum", "filesystem", "automation"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+ (standard library only) and read access to the input directory plus write access to the output directory.",
+      "parameters": [
+        {"name": "INPUT_DIR", "label": "Input Directory", "description": "Directory containing files to process.", "parameterType": "text", "required": true, "defaultValue": "./input", "category": "configuration", "displayOrder": 1},
+        {"name": "OUTPUT_DIR", "label": "Output Directory", "description": "Directory where the manifest is written.", "parameterType": "text", "required": true, "defaultValue": "./output", "category": "configuration", "displayOrder": 2},
+        {"name": "FILE_PATTERN", "label": "File Pattern", "description": "Glob pattern to match files, e.g. *.txt.", "parameterType": "text", "required": true, "defaultValue": "*.txt", "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "API Endpoint Health Checker",
+      "codeFile": "api-endpoint-health-checker.py",
+      "description": "Performs an HTTP health check against an endpoint, asserting the response status code and measuring latency. Exits non-zero on failure for CI or monitoring.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "http", "health-check", "uptime", "observability"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Python 3.8+ (standard library only) and network access to the target endpoint.",
+      "parameters": [
+        {"name": "API_ENDPOINT", "label": "API Endpoint", "description": "Full URL to check, e.g. https://api.example.com/health.", "parameterType": "text", "required": true, "defaultValue": "https://api.example.com/health", "validationRules": {"pattern": "^https?://.+"}, "category": "networking", "displayOrder": 1},
+        {"name": "TIMEOUT_SECONDS", "label": "Timeout (s)", "description": "Request timeout in seconds.", "parameterType": "number", "required": true, "defaultValue": "5", "validationRules": {"min": 1, "max": 300}, "category": "configuration", "displayOrder": 2},
+        {"name": "EXPECTED_STATUS", "label": "Expected Status", "description": "Expected HTTP status code, e.g. 200.", "parameterType": "number", "required": true, "defaultValue": "200", "validationRules": {"min": 100, "max": 599}, "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Database Connection Validator",
+      "codeFile": "database-connection-validator.py",
+      "description": "Validates connectivity to a database server by opening a TCP socket to the host/port and reporting reachability and latency. Useful as a readiness probe.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "database", "connectivity", "health-check", "readiness"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Python 3.8+ (standard library only) and network access to the database host and port.",
+      "parameters": [
+        {"name": "DB_HOST", "label": "Database Host", "description": "Database hostname or IP.", "parameterType": "text", "required": true, "defaultValue": "localhost", "category": "networking", "displayOrder": 1},
+        {"name": "DB_PORT", "label": "Database Port", "description": "Database TCP port, e.g. 5432.", "parameterType": "number", "required": true, "defaultValue": "5432", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 2},
+        {"name": "DB_NAME", "label": "Database Name", "description": "Database name (informational, included in output).", "parameterType": "text", "required": false, "defaultValue": "appdb", "category": "configuration", "displayOrder": 3},
+        {"name": "DB_USER", "label": "Database User", "description": "Database user (informational, included in output).", "parameterType": "text", "required": false, "defaultValue": "appuser", "category": "configuration", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "SSL Certificate Expiry Checker",
+      "codeFile": "ssl-certificate-expiry-checker.py",
+      "description": "Connects to a host over TLS, reads the server certificate, and reports days until expiry. Exits non-zero if expiry is within a warning threshold.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "ssl", "tls", "security", "certificate", "alerting"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Python 3.8+ (standard library only) and network access to the target host on the TLS port.",
+      "parameters": [
+        {"name": "TARGET_HOST", "label": "Target Host", "description": "Hostname to check, e.g. example.com.", "parameterType": "text", "required": true, "defaultValue": "example.com", "category": "networking", "displayOrder": 1},
+        {"name": "TARGET_PORT", "label": "Target Port", "description": "TLS port, e.g. 443.", "parameterType": "number", "required": true, "defaultValue": "443", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 2},
+        {"name": "WARN_DAYS", "label": "Warn Days", "description": "Warn/fail if the certificate expires within this many days.", "parameterType": "number", "required": true, "defaultValue": "30", "validationRules": {"min": 1, "max": 365}, "category": "security", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Multi-Endpoint Monitor",
+      "codeFile": "multi-endpoint-monitor.py",
+      "description": "Reads a newline-delimited file of URLs and performs an HTTP health check on each, printing a status table and exiting non-zero if any endpoint is down.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "http", "uptime", "health-check", "observability"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+ (standard library only), an endpoints file with one URL per line, and network access to those URLs.",
+      "parameters": [
+        {"name": "ENDPOINTS_FILE", "label": "Endpoints File", "description": "Path to a file with one URL per line.", "parameterType": "text", "required": true, "defaultValue": "endpoints.txt", "category": "configuration", "displayOrder": 1},
+        {"name": "TIMEOUT_SECONDS", "label": "Timeout (s)", "description": "Per-request timeout in seconds.", "parameterType": "number", "required": true, "defaultValue": "5", "validationRules": {"min": 1, "max": 300}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "DNS Record Checker",
+      "codeFile": "dns-record-checker.py",
+      "description": "Resolves DNS records for a domain and prints the results, supporting A and AAAA lookups via the standard library with no external dependencies.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "dns", "networking", "diagnostics", "health-check"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Python 3.8+ (standard library only) and DNS resolution access from the host.",
+      "parameters": [
+        {"name": "DOMAIN_NAME", "label": "Domain Name", "description": "Domain to resolve, e.g. example.com.", "parameterType": "text", "required": true, "defaultValue": "example.com", "category": "networking", "displayOrder": 1},
+        {"name": "RECORD_TYPE", "label": "Record Type", "description": "Record family to query.", "parameterType": "select", "required": true, "defaultValue": "A", "validationRules": {"options": ["A", "AAAA", "ANY"]}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Port Scanner",
+      "codeFile": "port-scanner.py",
+      "description": "Scans a range of TCP ports on a target host and reports which are open. Useful for verifying firewall rules and service exposure on hosts you are authorized to test.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "networking", "security", "port-scan", "diagnostics"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Python 3.8+ (standard library only) and authorization plus network access to scan the target host.",
+      "parameters": [
+        {"name": "TARGET_HOST", "label": "Target Host", "description": "Host to scan, e.g. 10.0.0.5.", "parameterType": "text", "required": true, "defaultValue": "127.0.0.1", "category": "networking", "displayOrder": 1},
+        {"name": "PORT_RANGE", "label": "Port Range", "description": "Inclusive port range as 'start-end', e.g. 1-1024.", "parameterType": "text", "required": true, "defaultValue": "1-1024", "validationRules": {"pattern": "^\\d+-\\d+$"}, "category": "networking", "displayOrder": 2}
+      ]
+    }
+  ]
+}

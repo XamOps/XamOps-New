@@ -1,0 +1,54 @@
+---
+# deploy-docker-compose-app.yml
+# Renders a docker-compose project directory from a Git repository and brings the
+# stack up using the Docker Compose plugin.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}     - Inventory group or host pattern to target
+#   {{REPO_URL}}         - Git repository containing the compose project
+#   {{PROJECT_DIR}}      - Directory to clone the project into
+#   {{COMPOSE_FILE}}     - Compose file name within the project
+#   {{PROJECT_NAME}}     - Docker Compose project name
+- name: Deploy Docker Compose application
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    repo_url: "{{REPO_URL}}"
+    project_dir: "{{PROJECT_DIR}}"
+    compose_file: "{{COMPOSE_FILE}}"
+    project_name: "{{PROJECT_NAME}}"
+
+  tasks:
+    - name: Clone or update compose project
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ project_dir }}"
+        version: main
+        force: true
+      notify: Restart stack
+
+    - name: Pull images
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        project_name: "{{ project_name }}"
+        files:
+          - "{{ compose_file }}"
+        pull: always
+        state: present
+
+    - name: Bring stack up
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        project_name: "{{ project_name }}"
+        files:
+          - "{{ compose_file }}"
+        state: present
+
+  handlers:
+    - name: Restart stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        project_name: "{{ project_name }}"
+        files:
+          - "{{ compose_file }}"
+        state: restarted

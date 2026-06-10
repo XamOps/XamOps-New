@@ -1,0 +1,70 @@
+---
+# install-node-exporter.yml
+# Installs the Prometheus node_exporter as a dedicated systemd service for host
+# metrics collection.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}        - Inventory group or host pattern to target
+#   {{EXPORTER_VERSION}}    - node_exporter version to install
+#   {{EXPORTER_PORT}}       - Port node_exporter listens on
+- name: Install Prometheus node_exporter
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    exporter_version: "{{EXPORTER_VERSION}}"
+    exporter_port: "{{EXPORTER_PORT}}"
+
+  tasks:
+    - name: Create node_exporter system user
+      ansible.builtin.user:
+        name: node_exporter
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+
+    - name: Download node_exporter archive
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ exporter_version }}/node_exporter-{{ exporter_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/node_exporter-{{ exporter_version }}.tar.gz"
+        mode: "0644"
+
+    - name: Extract node_exporter binary
+      ansible.builtin.unarchive:
+        src: "/tmp/node_exporter-{{ exporter_version }}.tar.gz"
+        dest: /usr/local/bin
+        remote_src: true
+        extra_opts:
+          - "--strip-components=1"
+          - "node_exporter-{{ exporter_version }}.linux-amd64/node_exporter"
+
+    - name: Deploy node_exporter systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          After=network.target
+
+          [Service]
+          User=node_exporter
+          ExecStart=/usr/local/bin/node_exporter --web.listen-address=:{{ exporter_port }}
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      notify: Restart node_exporter
+
+    - name: Enable and start node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        state: started
+        enabled: true
+        daemon_reload: true
+
+  handlers:
+    - name: Restart node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        state: restarted
+        daemon_reload: true

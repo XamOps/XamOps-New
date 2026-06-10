@@ -1,0 +1,378 @@
+{
+  "seedVersion": "1.0.0",
+  "category": "ansible",
+  "author": "XamOps Team",
+  "defaultStatus": "published",
+  "codeBaseDir": "data/seed/ansible",
+  "description": "Seed manifest for 21 production-ready Ansible playbooks for configuration management. The bulk-import task (4.6) reads each entry, loads the referenced .yml playbook from the classpath at codeBaseDir/codeFile, and persists a DevOpsScript plus its ScriptParameter rows. Customizable seed values use the UPPERCASE {{PARAMETER_NAME}} placeholder syntax (e.g. {{TARGET_HOSTS}}, {{DOMAIN_NAME}}, {{DB_PASSWORD}}); genuine Ansible runtime variables keep the normal lowercase, spaced Jinja2 form (e.g. {{ domain_name }}) so the two never collide.",
+  "scripts": [
+    {
+      "name": "Install Nginx with SSL",
+      "codeFile": "install-nginx-ssl.yml",
+      "description": "Installs Nginx and Certbot, deploys an HTTPS reverse-proxy server block for a domain, and obtains a Let's Encrypt certificate with automatic HTTP-to-HTTPS redirect.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["server-setup", "nginx", "ssl", "tls", "certbot", "web"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "Debian/Ubuntu host reachable on ports 80/443, a DNS A record pointing the domain at the host, and Ansible control node access.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "web", "category": "infrastructure", "displayOrder": 1},
+        {"name": "DOMAIN_NAME", "label": "Domain Name", "description": "Fully qualified domain name for the HTTPS site.", "parameterType": "text", "required": true, "defaultValue": "example.com", "validationRules": {"pattern": "^[a-zA-Z0-9.-]+$"}, "category": "networking", "displayOrder": 2},
+        {"name": "ADMIN_EMAIL", "label": "Admin Email", "description": "Email used for Let's Encrypt registration and expiry notices.", "parameterType": "text", "required": true, "defaultValue": "admin@example.com", "validationRules": {"pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"}, "category": "configuration", "displayOrder": 3},
+        {"name": "APP_PORT", "label": "Upstream App Port", "description": "Local application port Nginx proxies traffic to.", "parameterType": "number", "required": true, "defaultValue": "3000", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "Set Up PostgreSQL with Replication",
+      "codeFile": "setup-postgresql-replication.yml",
+      "description": "Installs PostgreSQL on a primary node and configures streaming replication: creates a replication role, enables WAL streaming, and authorizes a replica CIDR in pg_hba.conf.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["database", "postgresql", "replication", "high-availability", "server-setup"],
+      "estimatedTimeMinutes": 20,
+      "prerequisites": "Debian/Ubuntu primary host with root access; network reachability from the replica's CIDR. The community.postgresql collection installed on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern for the primary node.", "parameterType": "text", "required": true, "defaultValue": "db_primary", "category": "infrastructure", "displayOrder": 1},
+        {"name": "PG_VERSION", "label": "PostgreSQL Version", "description": "PostgreSQL major version to install (e.g. 16).", "parameterType": "text", "required": true, "defaultValue": "16", "category": "configuration", "displayOrder": 2},
+        {"name": "REPL_USER", "label": "Replication User", "description": "Name of the replication role to create.", "parameterType": "text", "required": true, "defaultValue": "replicator", "category": "security", "displayOrder": 3},
+        {"name": "REPL_PASSWORD", "label": "Replication Password", "description": "Password for the replication role.", "parameterType": "text", "required": true, "defaultValue": "changeMe-repl-pass", "category": "security", "displayOrder": 4},
+        {"name": "REPLICA_CIDR", "label": "Replica CIDR", "description": "CIDR block allowed to connect for replication, e.g. 10.0.0.0/24.", "parameterType": "text", "required": true, "defaultValue": "10.0.0.0/24", "validationRules": {"pattern": "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$"}, "category": "networking", "displayOrder": 5},
+        {"name": "MAX_WAL_SENDERS", "label": "Max WAL Senders", "description": "Maximum number of concurrent WAL sender processes.", "parameterType": "number", "required": true, "defaultValue": "10", "validationRules": {"min": 1, "max": 100}, "category": "configuration", "displayOrder": 6}
+      ]
+    },
+    {
+      "name": "Deploy Node.js App with PM2",
+      "codeFile": "deploy-nodejs-pm2.yml",
+      "description": "Installs Node.js via NodeSource, clones an application from Git, installs production dependencies, and runs it under the PM2 process manager with startup on boot.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["deployment", "nodejs", "pm2", "application", "server-setup"],
+      "estimatedTimeMinutes": 12,
+      "prerequisites": "Debian/Ubuntu host with root access and outbound internet; a reachable Git repository containing a Node.js application.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to deploy to.", "parameterType": "text", "required": true, "defaultValue": "app", "category": "infrastructure", "displayOrder": 1},
+        {"name": "APP_NAME", "label": "Application Name", "description": "PM2 process name for the application.", "parameterType": "text", "required": true, "defaultValue": "my-node-app", "category": "configuration", "displayOrder": 2},
+        {"name": "NODE_VERSION", "label": "Node.js Version", "description": "Node.js major version to install (e.g. 20).", "parameterType": "text", "required": true, "defaultValue": "20", "category": "configuration", "displayOrder": 3},
+        {"name": "REPO_URL", "label": "Repository URL", "description": "Git repository URL to deploy from.", "parameterType": "text", "required": true, "defaultValue": "https://github.com/example/node-app.git", "category": "configuration", "displayOrder": 4},
+        {"name": "APP_DIR", "label": "Deploy Directory", "description": "Filesystem directory to clone and run the app from.", "parameterType": "text", "required": true, "defaultValue": "/opt/my-node-app", "category": "configuration", "displayOrder": 5},
+        {"name": "ENTRY_POINT", "label": "Entry Point", "description": "Application entry script PM2 launches, e.g. dist/server.js.", "parameterType": "text", "required": true, "defaultValue": "dist/server.js", "category": "configuration", "displayOrder": 6}
+      ]
+    },
+    {
+      "name": "Configure Firewall (UFW)",
+      "codeFile": "configure-firewall.yml",
+      "description": "Establishes a deny-by-default UFW firewall baseline, rate-limits SSH, and opens a customizable comma-separated list of additional TCP service ports.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "firewall", "ufw", "networking", "hardening"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Debian/Ubuntu host with root access. Confirm the SSH port before enabling to avoid lockout. community.general collection on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 1},
+        {"name": "SSH_PORT", "label": "SSH Port", "description": "TCP port allowed and rate-limited for SSH access.", "parameterType": "number", "required": true, "defaultValue": "22", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 2},
+        {"name": "ALLOWED_TCP", "label": "Allowed TCP Ports", "description": "Comma-separated extra TCP ports to allow, e.g. 80,443.", "parameterType": "text", "required": false, "defaultValue": "80,443", "category": "networking", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Harden SSH Access",
+      "codeFile": "harden-ssh.yml",
+      "description": "Hardens the OpenSSH daemon: disables root login and password authentication, enforces key-based auth, sets a custom port, limits auth tries, and restricts allowed users with sshd config validation.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "ssh", "hardening", "server-setup"],
+      "estimatedTimeMinutes": 8,
+      "prerequisites": "Root access and a working SSH key for the allowed users. Keep an active session open while applying to avoid lockout.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 1},
+        {"name": "SSH_PORT", "label": "SSH Port", "description": "Port the SSH daemon should listen on.", "parameterType": "number", "required": true, "defaultValue": "22", "validationRules": {"min": 1, "max": 65535}, "category": "security", "displayOrder": 2},
+        {"name": "ALLOWED_USERS", "label": "Allowed Users", "description": "Space-separated list of users permitted to log in via SSH.", "parameterType": "text", "required": true, "defaultValue": "deploy", "category": "security", "displayOrder": 3},
+        {"name": "MAX_AUTH_TRIES", "label": "Max Auth Tries", "description": "Maximum authentication attempts permitted per connection.", "parameterType": "number", "required": true, "defaultValue": "3", "validationRules": {"min": 1, "max": 10}, "category": "security", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "Install and Configure fail2ban",
+      "codeFile": "install-fail2ban.yml",
+      "description": "Installs fail2ban and deploys an SSH jail that bans hosts exceeding a configurable number of failed authentication attempts within a time window.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "fail2ban", "intrusion-prevention", "ssh", "hardening"],
+      "estimatedTimeMinutes": 6,
+      "prerequisites": "Debian/Ubuntu host with root access and systemd (used as the fail2ban backend).",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 1},
+        {"name": "SSH_PORT", "label": "SSH Port", "description": "SSH port the jail protects.", "parameterType": "number", "required": true, "defaultValue": "22", "validationRules": {"min": 1, "max": 65535}, "category": "security", "displayOrder": 2},
+        {"name": "BAN_TIME", "label": "Ban Time (s)", "description": "Ban duration in seconds for offending hosts.", "parameterType": "number", "required": true, "defaultValue": "3600", "validationRules": {"min": 60, "max": 604800}, "category": "security", "displayOrder": 3},
+        {"name": "FIND_TIME", "label": "Find Time (s)", "description": "Window in seconds over which failures are counted.", "parameterType": "number", "required": true, "defaultValue": "600", "validationRules": {"min": 60, "max": 86400}, "category": "security", "displayOrder": 4},
+        {"name": "MAX_RETRY", "label": "Max Retry", "description": "Failed attempts allowed before a ban is applied.", "parameterType": "number", "required": true, "defaultValue": "5", "validationRules": {"min": 1, "max": 20}, "category": "security", "displayOrder": 5}
+      ]
+    },
+    {
+      "name": "Install Prometheus and Grafana",
+      "codeFile": "install-prometheus-grafana.yml",
+      "description": "Deploys Prometheus and Grafana as Docker containers, wiring Grafana with an admin password and Prometheus with a configurable scrape interval and exposed ports.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "prometheus", "grafana", "observability", "docker"],
+      "estimatedTimeMinutes": 12,
+      "prerequisites": "Host with Docker installed and the community.docker collection on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "monitoring", "category": "infrastructure", "displayOrder": 1},
+        {"name": "PROM_PORT", "label": "Prometheus Port", "description": "Host port to expose Prometheus on.", "parameterType": "number", "required": true, "defaultValue": "9090", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 2},
+        {"name": "GRAFANA_PORT", "label": "Grafana Port", "description": "Host port to expose Grafana on.", "parameterType": "number", "required": true, "defaultValue": "3000", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 3},
+        {"name": "GRAFANA_PASSWORD", "label": "Grafana Admin Password", "description": "Initial Grafana admin password.", "parameterType": "text", "required": true, "defaultValue": "changeMe-admin", "category": "security", "displayOrder": 4},
+        {"name": "SCRAPE_INTERVAL", "label": "Scrape Interval", "description": "Global Prometheus scrape interval, e.g. 15s.", "parameterType": "text", "required": true, "defaultValue": "15s", "category": "configuration", "displayOrder": 5}
+      ]
+    },
+    {
+      "name": "Set Up ELK Stack",
+      "codeFile": "setup-elk-stack.yml",
+      "description": "Deploys a single-node ELK stack (Elasticsearch, Logstash, Kibana) using Docker containers on a shared network for centralized log aggregation, with a Kibana readiness check.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "logging", "elk", "elasticsearch", "kibana", "observability"],
+      "estimatedTimeMinutes": 18,
+      "prerequisites": "Host with Docker installed, sufficient memory for Elasticsearch, and the community.docker collection on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "logging", "category": "infrastructure", "displayOrder": 1},
+        {"name": "STACK_VERSION", "label": "Elastic Stack Version", "description": "Elastic stack image version, e.g. 8.13.0.", "parameterType": "text", "required": true, "defaultValue": "8.13.0", "category": "configuration", "displayOrder": 2},
+        {"name": "ES_HEAP_SIZE", "label": "Elasticsearch Heap", "description": "Elasticsearch JVM heap size, e.g. 1g.", "parameterType": "text", "required": true, "defaultValue": "1g", "category": "configuration", "displayOrder": 3},
+        {"name": "KIBANA_PORT", "label": "Kibana Port", "description": "Host port to expose Kibana on.", "parameterType": "number", "required": true, "defaultValue": "5601", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "Configure Alerting Rules",
+      "codeFile": "configure-alerting-rules.yml",
+      "description": "Deploys Prometheus CPU and memory alerting rules and an Alertmanager configuration that routes notifications to a Slack webhook, then reloads Prometheus.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "alerting", "prometheus", "alertmanager", "observability"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "A running Prometheus (with --web.enable-lifecycle) and Alertmanager, plus a Slack incoming webhook URL.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "monitoring", "category": "infrastructure", "displayOrder": 1},
+        {"name": "CPU_THRESHOLD", "label": "CPU Threshold (%)", "description": "CPU usage percentage that triggers an alert.", "parameterType": "number", "required": true, "defaultValue": "85", "validationRules": {"min": 1, "max": 100}, "category": "configuration", "displayOrder": 2},
+        {"name": "MEM_THRESHOLD", "label": "Memory Threshold (%)", "description": "Memory usage percentage that triggers an alert.", "parameterType": "number", "required": true, "defaultValue": "90", "validationRules": {"min": 1, "max": 100}, "category": "configuration", "displayOrder": 3},
+        {"name": "ALERT_FOR_DURATION", "label": "Alert For Duration", "description": "How long a condition must hold before firing, e.g. 5m.", "parameterType": "text", "required": true, "defaultValue": "5m", "category": "configuration", "displayOrder": 4},
+        {"name": "SLACK_WEBHOOK", "label": "Slack Webhook URL", "description": "Slack incoming webhook URL for alert notifications.", "parameterType": "text", "required": true, "defaultValue": "https://hooks.slack.com/services/REPLACE/ME/NOW", "category": "configuration", "displayOrder": 5}
+      ]
+    },
+    {
+      "name": "Deploy Application to Kubernetes",
+      "codeFile": "deploy-app-k8s.yml",
+      "description": "Deploys a containerized application to Kubernetes as a Deployment with a configurable image, replica count, container port, and readiness probe, then waits for rollout.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["kubernetes", "deployment", "k8s", "containers", "application"],
+      "estimatedTimeMinutes": 12,
+      "prerequisites": "A control host with kubectl and a valid kubeconfig, plus the kubernetes.core collection installed on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory host with kubectl/kubeconfig access.", "parameterType": "text", "required": true, "defaultValue": "localhost", "category": "infrastructure", "displayOrder": 1},
+        {"name": "APP_NAME", "label": "Application Name", "description": "Deployment name and pod label selector.", "parameterType": "text", "required": true, "defaultValue": "my-app", "category": "configuration", "displayOrder": 2},
+        {"name": "K8S_NAMESPACE", "label": "Namespace", "description": "Target Kubernetes namespace.", "parameterType": "text", "required": true, "defaultValue": "default", "category": "configuration", "displayOrder": 3},
+        {"name": "CONTAINER_IMAGE", "label": "Container Image", "description": "Fully qualified container image to deploy.", "parameterType": "text", "required": true, "defaultValue": "nginx:latest", "category": "configuration", "displayOrder": 4},
+        {"name": "REPLICAS", "label": "Replicas", "description": "Number of pod replicas to run.", "parameterType": "number", "required": true, "defaultValue": "3", "validationRules": {"min": 1, "max": 100}, "category": "configuration", "displayOrder": 5},
+        {"name": "CONTAINER_PORT", "label": "Container Port", "description": "Port the container listens on.", "parameterType": "number", "required": true, "defaultValue": "80", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 6}
+      ]
+    },
+    {
+      "name": "Configure Ingress and Services",
+      "codeFile": "configure-ingress-services.yml",
+      "description": "Creates a ClusterIP Service and an Ingress resource that routes a hostname to the application service through an ingress controller.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["kubernetes", "ingress", "service", "networking", "k8s"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "A Kubernetes cluster with an ingress controller installed, kubectl/kubeconfig access, and the kubernetes.core collection on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory host with kubectl/kubeconfig access.", "parameterType": "text", "required": true, "defaultValue": "localhost", "category": "infrastructure", "displayOrder": 1},
+        {"name": "APP_NAME", "label": "Application Name", "description": "Service and Ingress resource name and selector.", "parameterType": "text", "required": true, "defaultValue": "my-app", "category": "configuration", "displayOrder": 2},
+        {"name": "K8S_NAMESPACE", "label": "Namespace", "description": "Target Kubernetes namespace.", "parameterType": "text", "required": true, "defaultValue": "default", "category": "configuration", "displayOrder": 3},
+        {"name": "SERVICE_PORT", "label": "Service Port", "description": "Service port exposed inside the cluster.", "parameterType": "number", "required": true, "defaultValue": "80", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 4},
+        {"name": "CONTAINER_PORT", "label": "Container Port", "description": "Target container port behind the service.", "parameterType": "number", "required": true, "defaultValue": "8080", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 5},
+        {"name": "INGRESS_HOST", "label": "Ingress Host", "description": "Hostname routed by the Ingress.", "parameterType": "text", "required": true, "defaultValue": "app.example.com", "validationRules": {"pattern": "^[a-zA-Z0-9.-]+$"}, "category": "networking", "displayOrder": 6},
+        {"name": "INGRESS_CLASS", "label": "Ingress Class", "description": "Ingress class name, e.g. nginx.", "parameterType": "text", "required": true, "defaultValue": "nginx", "category": "networking", "displayOrder": 7}
+      ]
+    },
+    {
+      "name": "Set Up Persistent Volumes",
+      "codeFile": "setup-persistent-volumes.yml",
+      "description": "Provisions a StorageClass and a PersistentVolumeClaim for stateful Kubernetes workloads, with a customizable storage size, access mode, and provisioner.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["kubernetes", "storage", "persistent-volume", "pvc", "k8s"],
+      "estimatedTimeMinutes": 8,
+      "prerequisites": "A Kubernetes cluster with a storage backend, kubectl/kubeconfig access, and the kubernetes.core collection on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory host with kubectl/kubeconfig access.", "parameterType": "text", "required": true, "defaultValue": "localhost", "category": "infrastructure", "displayOrder": 1},
+        {"name": "K8S_NAMESPACE", "label": "Namespace", "description": "Target Kubernetes namespace for the PVC.", "parameterType": "text", "required": true, "defaultValue": "default", "category": "configuration", "displayOrder": 2},
+        {"name": "PVC_NAME", "label": "PVC Name", "description": "Name of the PersistentVolumeClaim.", "parameterType": "text", "required": true, "defaultValue": "data-pvc", "category": "configuration", "displayOrder": 3},
+        {"name": "STORAGE_CLASS", "label": "Storage Class", "description": "StorageClass name to create and reference.", "parameterType": "text", "required": true, "defaultValue": "standard", "category": "infrastructure", "displayOrder": 4},
+        {"name": "STORAGE_SIZE", "label": "Storage Size", "description": "Requested storage size, e.g. 10Gi.", "parameterType": "text", "required": true, "defaultValue": "10Gi", "category": "infrastructure", "displayOrder": 5},
+        {"name": "ACCESS_MODE", "label": "Access Mode", "description": "PVC access mode.", "parameterType": "select", "required": true, "defaultValue": "ReadWriteOnce", "validationRules": {"options": ["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany"]}, "category": "configuration", "displayOrder": 6},
+        {"name": "PROVISIONER", "label": "Provisioner", "description": "StorageClass provisioner, e.g. kubernetes.io/aws-ebs.", "parameterType": "text", "required": true, "defaultValue": "kubernetes.io/aws-ebs", "category": "infrastructure", "displayOrder": 7}
+      ]
+    },
+    {
+      "name": "Install Docker Engine",
+      "codeFile": "install-docker.yml",
+      "description": "Installs Docker Engine and the Compose plugin from the official Docker apt repository and adds a user to the docker group.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["server-setup", "docker", "containers", "installation"],
+      "estimatedTimeMinutes": 6,
+      "prerequisites": "Debian/Ubuntu host with root access and outbound internet connectivity.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 1},
+        {"name": "DOCKER_USER", "label": "Docker User", "description": "User to add to the docker group for non-root access.", "parameterType": "text", "required": true, "defaultValue": "deploy", "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Install and Configure MySQL",
+      "codeFile": "install-mysql.yml",
+      "description": "Installs the MySQL server, sets the root password, and creates an application database and user with privileges scoped to that database.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["database", "mysql", "server-setup", "installation"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "Debian/Ubuntu host with root access and the community.mysql collection on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "db", "category": "infrastructure", "displayOrder": 1},
+        {"name": "ROOT_PASSWORD", "label": "Root Password", "description": "MySQL root password to set.", "parameterType": "text", "required": true, "defaultValue": "changeMe-root", "category": "security", "displayOrder": 2},
+        {"name": "APP_DB_NAME", "label": "Application Database", "description": "Application database name to create.", "parameterType": "text", "required": true, "defaultValue": "appdb", "category": "configuration", "displayOrder": 3},
+        {"name": "APP_DB_USER", "label": "Application DB User", "description": "Application database user to create.", "parameterType": "text", "required": true, "defaultValue": "appuser", "category": "security", "displayOrder": 4},
+        {"name": "APP_DB_PASSWORD", "label": "Application DB Password", "description": "Password for the application database user.", "parameterType": "text", "required": true, "defaultValue": "changeMe-app", "category": "security", "displayOrder": 5}
+      ]
+    },
+    {
+      "name": "Install and Configure Redis",
+      "codeFile": "setup-redis.yml",
+      "description": "Installs Redis, binds it to a configurable address, sets an auth password, and tunes the max memory limit and eviction policy for cache use.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["database", "redis", "cache", "server-setup"],
+      "estimatedTimeMinutes": 6,
+      "prerequisites": "Debian/Ubuntu host with root access.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "cache", "category": "infrastructure", "displayOrder": 1},
+        {"name": "REDIS_BIND", "label": "Bind Address", "description": "Address Redis binds to.", "parameterType": "text", "required": true, "defaultValue": "127.0.0.1", "category": "networking", "displayOrder": 2},
+        {"name": "REDIS_PASSWORD", "label": "Redis Password", "description": "Password required for client connections.", "parameterType": "text", "required": true, "defaultValue": "changeMe-redis", "category": "security", "displayOrder": 3},
+        {"name": "REDIS_MAXMEMORY", "label": "Max Memory", "description": "Max memory limit, e.g. 256mb.", "parameterType": "text", "required": true, "defaultValue": "256mb", "category": "configuration", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "Install Node Exporter",
+      "codeFile": "install-node-exporter.yml",
+      "description": "Installs the Prometheus node_exporter as a dedicated systemd service for host metrics collection on a configurable port.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "prometheus", "node-exporter", "metrics", "observability"],
+      "estimatedTimeMinutes": 6,
+      "prerequisites": "Linux host with systemd, root access, and outbound internet to download the node_exporter release.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 1},
+        {"name": "EXPORTER_VERSION", "label": "Exporter Version", "description": "node_exporter version to install, e.g. 1.8.1.", "parameterType": "text", "required": true, "defaultValue": "1.8.1", "category": "configuration", "displayOrder": 2},
+        {"name": "EXPORTER_PORT", "label": "Exporter Port", "description": "Port node_exporter listens on.", "parameterType": "number", "required": true, "defaultValue": "9100", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Deploy Docker Compose App",
+      "codeFile": "deploy-docker-compose-app.yml",
+      "description": "Clones a docker-compose project from a Git repository, pulls images, and brings the stack up using the Docker Compose plugin.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["deployment", "docker", "docker-compose", "application"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "Host with Docker and the Compose plugin installed, the community.docker collection on the control node, and a reachable compose project repository.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "app", "category": "infrastructure", "displayOrder": 1},
+        {"name": "REPO_URL", "label": "Repository URL", "description": "Git repository containing the compose project.", "parameterType": "text", "required": true, "defaultValue": "https://github.com/example/compose-app.git", "category": "configuration", "displayOrder": 2},
+        {"name": "PROJECT_DIR", "label": "Project Directory", "description": "Directory to clone the compose project into.", "parameterType": "text", "required": true, "defaultValue": "/opt/compose-app", "category": "configuration", "displayOrder": 3},
+        {"name": "COMPOSE_FILE", "label": "Compose File", "description": "Compose file name within the project.", "parameterType": "text", "required": true, "defaultValue": "docker-compose.yml", "category": "configuration", "displayOrder": 4},
+        {"name": "PROJECT_NAME", "label": "Project Name", "description": "Docker Compose project name.", "parameterType": "text", "required": true, "defaultValue": "compose-app", "category": "configuration", "displayOrder": 5}
+      ]
+    },
+    {
+      "name": "Configure NTP and Timezone",
+      "codeFile": "configure-ntp-timezone.yml",
+      "description": "Sets the system timezone and installs chrony for time synchronization against a configurable NTP pool.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["server-setup", "ntp", "chrony", "timezone", "maintenance"],
+      "estimatedTimeMinutes": 4,
+      "prerequisites": "Debian/Ubuntu host with root access and the community.general collection on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 1},
+        {"name": "TIMEZONE", "label": "Timezone", "description": "IANA timezone, e.g. UTC or America/New_York.", "parameterType": "text", "required": true, "defaultValue": "UTC", "category": "configuration", "displayOrder": 2},
+        {"name": "NTP_POOL", "label": "NTP Pool", "description": "NTP pool hostname to synchronize against.", "parameterType": "text", "required": true, "defaultValue": "pool.ntp.org", "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Manage Users and SSH Keys",
+      "codeFile": "manage-users-keys.yml",
+      "description": "Creates a system user with sudo access, installs an authorized SSH public key, and grants passwordless sudo with validated sudoers configuration.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "users", "ssh", "access-management", "server-setup"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Linux host with root access and the ansible.posix collection on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 1},
+        {"name": "NEW_USER", "label": "New User", "description": "Username to create.", "parameterType": "text", "required": true, "defaultValue": "deploy", "category": "security", "displayOrder": 2},
+        {"name": "USER_SHELL", "label": "User Shell", "description": "Login shell for the new user.", "parameterType": "text", "required": true, "defaultValue": "/bin/bash", "category": "configuration", "displayOrder": 3},
+        {"name": "SSH_PUBLIC_KEY", "label": "SSH Public Key", "description": "SSH public key to authorize for the user.", "parameterType": "text", "required": true, "defaultValue": "ssh-ed25519 AAAA... user@host", "category": "security", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "Configure Log Rotation",
+      "codeFile": "setup-logrotate.yml",
+      "description": "Deploys a logrotate configuration for an application log path with daily rotation, compression, and a configurable retention count, validated with a dry run.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "logging", "logrotate", "maintenance"],
+      "estimatedTimeMinutes": 4,
+      "prerequisites": "Debian/Ubuntu host with root access.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 1},
+        {"name": "LOG_PATH", "label": "Log Path Glob", "description": "Glob of log files to rotate, e.g. /var/log/myapp/*.log.", "parameterType": "text", "required": true, "defaultValue": "/var/log/myapp/*.log", "category": "configuration", "displayOrder": 2},
+        {"name": "RETENTION_DAYS", "label": "Retention (copies)", "description": "Number of rotated copies to keep.", "parameterType": "number", "required": true, "defaultValue": "14", "validationRules": {"min": 1, "max": 365}, "category": "configuration", "displayOrder": 3},
+        {"name": "LOG_OWNER", "label": "Log Owner", "description": "Owner:group applied to recreated log files, e.g. www-data www-data.", "parameterType": "text", "required": true, "defaultValue": "root root", "category": "configuration", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "Configure Swap File",
+      "codeFile": "setup-swap.yml",
+      "description": "Creates a swap file of a configurable size, enables it, persists it in fstab, and tunes the vm.swappiness kernel parameter.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["server-setup", "swap", "memory", "performance", "maintenance"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Linux host with root access, sufficient disk space, and the ansible.posix collection on the control node.",
+      "parameters": [
+        {"name": "TARGET_HOSTS", "label": "Target Hosts", "description": "Inventory group or host pattern to run the play against.", "parameterType": "text", "required": true, "defaultValue": "all", "category": "infrastructure", "displayOrder": 1},
+        {"name": "SWAP_SIZE_MB", "label": "Swap Size (MB)", "description": "Swap file size in megabytes.", "parameterType": "number", "required": true, "defaultValue": "2048", "validationRules": {"min": 64, "max": 1048576}, "category": "configuration", "displayOrder": 2},
+        {"name": "SWAPPINESS", "label": "Swappiness", "description": "vm.swappiness value (0-100).", "parameterType": "number", "required": true, "defaultValue": "10", "validationRules": {"min": 0, "max": 100}, "category": "configuration", "displayOrder": 3}
+      ]
+    }
+  ]
+}

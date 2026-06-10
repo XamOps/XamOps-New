@@ -1,0 +1,61 @@
+---
+# setup-swap.yml
+# Creates a swap file of a configurable size, enables it, makes it persistent in
+# fstab, and tunes the swappiness kernel parameter.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}    - Inventory group or host pattern to target
+#   {{SWAP_SIZE_MB}}    - Swap file size in megabytes
+#   {{SWAPPINESS}}      - vm.swappiness value (0-100)
+- name: Configure swap file
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    swap_size_mb: "{{SWAP_SIZE_MB}}"
+    swappiness: "{{SWAPPINESS}}"
+
+  tasks:
+    - name: Create swap file
+      ansible.builtin.command: "fallocate -l {{ swap_size_mb }}M /swapfile"
+      args:
+        creates: /swapfile
+
+    - name: Set swap file permissions
+      ansible.builtin.file:
+        path: /swapfile
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Format swap file
+      ansible.builtin.command: mkswap /swapfile
+      register: mkswap_result
+      changed_when: "'Setting up swapspace' in mkswap_result.stdout"
+      failed_when: mkswap_result.rc != 0 and 'already' not in mkswap_result.stderr
+
+    - name: Enable swap file
+      ansible.builtin.command: swapon /swapfile
+      register: swapon_result
+      changed_when: swapon_result.rc == 0
+      failed_when: false
+
+    - name: Persist swap in fstab
+      ansible.posix.mount:
+        path: none
+        src: /swapfile
+        fstype: swap
+        opts: sw
+        state: present
+
+    - name: Set vm.swappiness
+      ansible.posix.sysctl:
+        name: vm.swappiness
+        value: "{{ swappiness }}"
+        state: present
+        reload: true
+      notify: Report swap
+
+  handlers:
+    - name: Report swap
+      ansible.builtin.command: swapon --show
+      changed_when: false

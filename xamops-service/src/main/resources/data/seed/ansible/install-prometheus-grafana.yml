@@ -1,0 +1,68 @@
+---
+# install-prometheus-grafana.yml
+# Deploys Prometheus and Grafana as Docker containers, wiring Grafana with an
+# admin password and Prometheus with a configurable scrape interval.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}       - Inventory group or host pattern to target
+#   {{PROM_PORT}}          - Host port to expose Prometheus on
+#   {{GRAFANA_PORT}}       - Host port to expose Grafana on
+#   {{GRAFANA_PASSWORD}}   - Grafana admin password
+#   {{SCRAPE_INTERVAL}}    - Global Prometheus scrape interval (e.g. 15s)
+- name: Install Prometheus and Grafana
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    prom_port: "{{PROM_PORT}}"
+    grafana_port: "{{GRAFANA_PORT}}"
+    grafana_password: "{{GRAFANA_PASSWORD}}"
+    scrape_interval: "{{SCRAPE_INTERVAL}}"
+
+  tasks:
+    - name: Ensure Prometheus config directory exists
+      ansible.builtin.file:
+        path: /etc/prometheus
+        state: directory
+        mode: "0755"
+
+    - name: Deploy Prometheus configuration
+      ansible.builtin.copy:
+        dest: /etc/prometheus/prometheus.yml
+        content: |
+          global:
+            scrape_interval: {{ scrape_interval }}
+          scrape_configs:
+            - job_name: prometheus
+              static_configs:
+                - targets: ['localhost:9090']
+        mode: "0644"
+      notify: Restart Prometheus
+
+    - name: Run Prometheus container
+      community.docker.docker_container:
+        name: prometheus
+        image: prom/prometheus:latest
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "{{ prom_port }}:9090"
+        volumes:
+          - /etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+    - name: Run Grafana container
+      community.docker.docker_container:
+        name: grafana
+        image: grafana/grafana:latest
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "{{ grafana_port }}:3000"
+        env:
+          GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_password }}"
+
+  handlers:
+    - name: Restart Prometheus
+      community.docker.docker_container:
+        name: prometheus
+        state: started
+        restart: true

@@ -1,0 +1,76 @@
+---
+# deploy-app-k8s.yml
+# Deploys a containerized application to Kubernetes as a Deployment with a
+# configurable image, replica count, and container port.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}     - Inventory host with kubectl/kubeconfig access
+#   {{APP_NAME}}         - Application name (Deployment + label)
+#   {{K8S_NAMESPACE}}    - Target Kubernetes namespace
+#   {{CONTAINER_IMAGE}}  - Fully qualified container image
+#   {{REPLICAS}}         - Number of pod replicas
+#   {{CONTAINER_PORT}}   - Port the container listens on
+- name: Deploy application to Kubernetes
+  hosts: "{{TARGET_HOSTS}}"
+  vars:
+    app_name: "{{APP_NAME}}"
+    k8s_namespace: "{{K8S_NAMESPACE}}"
+    container_image: "{{CONTAINER_IMAGE}}"
+    replicas: "{{REPLICAS}}"
+    container_port: "{{CONTAINER_PORT}}"
+
+  tasks:
+    - name: Ensure namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ k8s_namespace }}"
+
+    - name: Create or update Deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ app_name }}"
+            namespace: "{{ k8s_namespace }}"
+            labels:
+              app: "{{ app_name }}"
+          spec:
+            replicas: "{{ replicas | int }}"
+            selector:
+              matchLabels:
+                app: "{{ app_name }}"
+            template:
+              metadata:
+                labels:
+                  app: "{{ app_name }}"
+              spec:
+                containers:
+                  - name: "{{ app_name }}"
+                    image: "{{ container_image }}"
+                    ports:
+                      - containerPort: "{{ container_port | int }}"
+                    readinessProbe:
+                      tcpSocket:
+                        port: "{{ container_port | int }}"
+                      initialDelaySeconds: 10
+                      periodSeconds: 10
+      register: deploy_result
+      notify: Wait for rollout
+
+  handlers:
+    - name: Wait for rollout
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: "{{ app_name }}"
+        namespace: "{{ k8s_namespace }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300

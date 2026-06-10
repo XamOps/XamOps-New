@@ -12,12 +12,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 
 @ComponentScan(basePackages = "com.xammer.cloud")
 @SpringBootApplication(exclude = {KafkaAutoConfiguration.class, FlywayAutoConfiguration.class})
 @EnableCaching
 @EnableScheduling
 @EnableAsync
+@EnableJpaAuditing
 public class CloudDashboardApplication {
 
     public static void main(String[] args) {
