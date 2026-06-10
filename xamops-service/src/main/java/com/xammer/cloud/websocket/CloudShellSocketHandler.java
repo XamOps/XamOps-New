@@ -4,8 +4,10 @@ import com.xammer.cloud.config.AwsConfig;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -61,9 +63,26 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        // SENTINEL: SECURITY ENHANCEMENT - Retrieve authenticated principal from session.
+        // This prevents unauthenticated access and cross-tenant impersonation.
+        ClientUserDetails userDetails = null;
+        if (session.getPrincipal() instanceof UsernamePasswordAuthenticationToken) {
+            UsernamePasswordAuthenticationToken auth = (UsernamePasswordAuthenticationToken) session.getPrincipal();
+            if (auth.getPrincipal() instanceof ClientUserDetails) {
+                userDetails = (ClientUserDetails) auth.getPrincipal();
+            }
+        }
+
+        if (userDetails == null) {
+            log.warn("Unauthenticated CloudShell connection attempt blocked: session={}", session.getId());
+            sendMessageSafe(session, "Error: Unauthorized. Please log in to access the terminal.\r\n");
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
+
         Map<String, String> queryParams = parseQueryParams(session.getUri().getQuery());
         String accountId = queryParams.get("accountId");
-        String tenantId = queryParams.get("tenantId");
+        String tenantId = userDetails.getTenantId(); // SENTINEL: Use tenantId from authenticated user, NOT query params
 
         // Initialize session lock for thread-safe message sending
         sessionLocks.put(session.getId(), new Object());
@@ -74,20 +93,24 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        if (tenantId != null && !tenantId.equals("null")) {
+        if (tenantId != null) {
             TenantContext.setCurrentTenant(tenantId);
         }
 
         try {
-            log.info("WS Connecting: Session={}, Account={}", session.getId(), accountId);
+            log.info("WS Connecting: Session={}, User={}, Account={}", session.getId(), userDetails.getUsername(), accountId);
 
             // Track session start time
             sessionStartTimes.put(session.getId(), System.currentTimeMillis());
 
             CloudAccount account = findAccount(accountId);
-            if (account == null) {
-                sendMessageSafe(session, "Error: Account not found.\r\n");
-                session.close();
+
+            // SENTINEL: SECURITY FIX (IDOR) - Validate account ownership against authenticated user's clientId.
+            if (account == null || !account.getClient().getId().equals(userDetails.getClientId())) {
+                log.error("CloudShell Security Violation: User {} attempted to access account {} (belonging to client {})",
+                        userDetails.getUsername(), accountId, (account != null ? account.getClient().getId() : "UNKNOWN"));
+                sendMessageSafe(session, "Error: Account not found or access denied.\r\n");
+                session.close(CloseStatus.POLICY_VIOLATION);
                 return;
             }
 
