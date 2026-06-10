@@ -5,6 +5,7 @@ import {
   Tag, FolderOpen, Key, Database, Copy, Check, Loader2,
   CheckCircle2, ChevronDown, ExternalLink, Terminal,
   BarChart3, Package, Activity, Cpu, AlertCircle, Building2,
+  ShieldAlert,
 } from 'lucide-react';
 import { useCspBillingConfig } from '../../hooks/useCspBillingConfig';
 import { cn } from '../../lib/utils';
@@ -259,6 +260,18 @@ const GCPForm: React.FC = () => {
                   <p className="text-xs text-slate-600 mb-3 leading-relaxed">
                     Open <a href="https://shell.cloud.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-semibold underline underline-offset-2 inline-flex items-center gap-0.5">Google Cloud Shell <ExternalLink className="w-3 h-3" /></a> and run the command below. It enables 62 APIs and creates a service account automatically.
                   </p>
+
+                  {/* Required permission callout */}
+                  <div className="flex items-start gap-2 mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <ShieldAlert className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-800 leading-relaxed">
+                      <strong>Required permission:</strong> Run this as the project's <strong>Owner</strong> (or a user with{' '}
+                      <code className="bg-amber-100 px-1 rounded">Project IAM Admin</code> +{' '}
+                      <code className="bg-amber-100 px-1 rounded">Service Account Admin</code> +{' '}
+                      <code className="bg-amber-100 px-1 rounded">Service Account Key Admin</code> roles). Without this, the
+                      script can't grant the required IAM roles and will stop with an error before producing a key.
+                    </p>
+                  </div>
 
                   {/* Dynamic command block */}
                   <div className="rounded-xl overflow-hidden border border-slate-800/10">

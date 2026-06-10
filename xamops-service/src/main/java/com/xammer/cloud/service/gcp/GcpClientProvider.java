@@ -438,6 +438,48 @@ public class GcpClientProvider {
         });
     }
 
+    /**
+     * Validates that a freshly-supplied service account key actually has
+     * read access to the given project, by making a minimal
+     * resourcemanager.projects.get call (covered by roles/viewer and
+     * roles/browser).
+     *
+     * Catches the case where a service account was created but the IAM
+     * role bindings failed (e.g. the setup script was run by a user
+     * without project IAM-admin permissions) — the key is valid for
+     * authentication but has zero permissions, which would otherwise
+     * connect "successfully" and then silently show no data.
+     *
+     * @return empty if access is confirmed, otherwise an error message
+     *         suitable for showing to the user.
+     */
+    public Optional<String> validateServiceAccountAccess(String serviceAccountKey, String projectId) {
+        try {
+            GoogleCredentials credentials = GoogleCredentials
+                    .fromStream(new ByteArrayInputStream(serviceAccountKey.getBytes()))
+                    .createScoped("https://www.googleapis.com/auth/cloud-platform");
+
+            ProjectsSettings settings = ProjectsSettings.newBuilder()
+                    .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                    .build();
+
+            try (ProjectsClient client = ProjectsClient.create(settings)) {
+                client.getProject("projects/" + projectId);
+            }
+            return Optional.empty();
+        } catch (com.google.api.gax.rpc.PermissionDeniedException e) {
+            return Optional.of("The service account has no IAM permissions on project '" + projectId
+                    + "'. The setup script likely ran without permission to grant IAM roles "
+                    + "(requires Owner or Project IAM Admin) — re-run it with sufficient privileges.");
+        } catch (com.google.api.gax.rpc.NotFoundException e) {
+            return Optional.of("Project '" + projectId
+                    + "' was not found, or the service account cannot see it. Double-check the GCP Project ID.");
+        } catch (Exception e) {
+            log.error("Failed to validate service account access for project {}", projectId, e);
+            return Optional.of("Could not verify the service account credentials: " + e.getMessage());
+        }
+    }
+
     public Optional<SQLAdmin> getSqlAdminClient(String gcpProjectId) {
         try {
             Optional<GoogleCredentials> credsOpt = getCredentials(gcpProjectId);
