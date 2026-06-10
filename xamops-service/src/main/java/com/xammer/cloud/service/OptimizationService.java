@@ -273,16 +273,25 @@ public class OptimizationService {
                                 recommendedCost = Math.max(0, currentCost - savings);
                             }
 
-                            // --- Start of Fix ---
-                            // First, try to get the detailed reason codes.
-                            String reason = r.findingReasonCodes().stream().map(Object::toString)
-                                    .collect(Collectors.joining(", "));
+                            // --- Reason derivation ---
+                            // First, try to get the detailed reason codes from Compute Optimizer.
+                            String reason = r.findingReasonCodes() != null
+                                    ? r.findingReasonCodes().stream()
+                                            .map(Object::toString)
+                                            .filter(s -> s != null && !s.isBlank())
+                                            .collect(Collectors.joining(", "))
+                                    : "";
 
-                            // If there are no detailed codes, fall back to the general finding.
-                            if (reason.isEmpty() && r.finding() != null) {
-                                reason = r.finding().toString();
+                            // If there are no detailed codes, fall back to the general finding,
+                            // and finally to a human-readable default so the UI never shows "null".
+                            if (reason == null || reason.isBlank()) {
+                                if (r.finding() != null && r.finding() != Finding.UNKNOWN_TO_SDK_VERSION) {
+                                    reason = r.finding().toString();
+                                } else {
+                                    reason = "Rightsizing opportunity";
+                                }
                             }
-                            // --- End of Fix ---
+                            // --- End reason derivation ---
 
                             DashboardData.OptimizationRecommendation rec = new DashboardData.OptimizationRecommendation(
                                     "EC2", r.instanceArn().split("/")[1], r.currentInstanceType(),
@@ -295,6 +304,12 @@ public class OptimizationService {
                             }
                             return rec;
                         })
+                        // Drop non-actionable recommendations: AWS sometimes returns the current
+                        // instance type as the "best" ARM64 option with zero savings. These show up
+                        // as "t4g.small -> t4g.small / $0.00" noise rows, so filter them out.
+                        .filter(rec -> rec.getRecommendedType() != null
+                                && !rec.getRecommendedType().equalsIgnoreCase(rec.getCurrentType())
+                                && rec.getEstimatedMonthlySavings() > 0)
                         .forEach(recommendations::add);
 
                 nextToken = response.nextToken();

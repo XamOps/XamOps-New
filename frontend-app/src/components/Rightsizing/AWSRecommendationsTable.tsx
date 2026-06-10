@@ -114,7 +114,9 @@ const AWSRecommendationsTable: React.FC<AWSRecommendationsTableProps> = ({
 
             {/* Reason */}
             <div className="col-span-2 text-[12px] text-[rgba(0,0,0,0.55)] leading-relaxed pr-2">
-              {rec.recommendationReason}
+              {rec.recommendationReason && rec.recommendationReason.toLowerCase() !== 'null'
+                ? rec.recommendationReason
+                : <span className="text-[rgba(0,0,0,0.3)]">Rightsizing opportunity</span>}
             </div>
 
             {/* Action */}
