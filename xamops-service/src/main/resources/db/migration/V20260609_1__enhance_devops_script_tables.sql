@@ -8,6 +8,16 @@
 -- 1. Enhance existing devops_script table
 -- =============================================
 
+-- Ensure base columns exist (table may have been created by Hibernate with a
+-- different/older schema, or these columns may otherwise be missing). These are
+-- referenced later in this migration (indexes, UPDATE, INSERT ... WHERE).
+ALTER TABLE devops_script ADD COLUMN IF NOT EXISTS name VARCHAR(200);
+ALTER TABLE devops_script ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE devops_script ADD COLUMN IF NOT EXISTS category VARCHAR(50);
+ALTER TABLE devops_script ADD COLUMN IF NOT EXISTS code TEXT;
+ALTER TABLE devops_script ADD COLUMN IF NOT EXISTS version VARCHAR(20);
+ALTER TABLE devops_script ADD COLUMN IF NOT EXISTS downloads INTEGER DEFAULT 0;
+
 -- Add new columns to devops_script (if they don't already exist)
 ALTER TABLE devops_script ADD COLUMN IF NOT EXISTS difficulty VARCHAR(50);
 ALTER TABLE devops_script ADD COLUMN IF NOT EXISTS author VARCHAR(100);
