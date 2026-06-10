@@ -1,0 +1,3 @@
+## 2026-06-10 - Enhancing SuperAdminTopBar Accessibility
+**Learning:** Standard form controls like `<select>` should always be explicitly linked to their `<label>` using `id` and `htmlFor` to ensure they are properly announced by screen readers. For icon-only buttons, `aria-label` is essential, and using a consistent `TooltipWrapper` provides a better visual experience than the native `title` attribute.
+**Action:** Use React's `useId` hook to generate stable, unique IDs for label-input associations in all future component enhancements. Always wrap icon-only buttons in the project's `TooltipWrapper` for accessible hints.
