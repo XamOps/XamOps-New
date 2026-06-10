@@ -57,12 +57,25 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
 
   const fetchDisks = useCallback(async (forceRefresh = false) => {
     if (!selectedAccountId) return;
+    const cacheKey = `azure-disks-${selectedAccountId}`;
+    if (!forceRefresh) {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const diskList: AzureDisk[] = JSON.parse(cached);
+          setDisks(diskList);
+          setRecommendations(diskList.filter(d => d.recommendation !== 'NONE'));
+          return;
+        } catch {}
+      }
+    }
     try {
       const url = `/api/azure/disks/volumes/${selectedAccountId}?forceRefresh=${forceRefresh}`;
       const data = await apiClient.get(url);
       const diskList: AzureDisk[] = Array.isArray(data) ? data : [];
       setDisks(diskList);
       setRecommendations(diskList.filter(d => d.recommendation !== 'NONE'));
+      sessionStorage.setItem(cacheKey, JSON.stringify(diskList));
     } catch (err: any) {
       setError(err?.message ?? 'Failed to load Azure disks');
     }
@@ -85,6 +98,7 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
     await apiClient.post(`/api/azure/disks/action/${selectedAccountId}`, {
       diskName, resourceGroup, actionType, targetSizeGb
     });
+    sessionStorage.removeItem(`azure-disks-${selectedAccountId}`);
     await fetchDisks(true);
     await fetchHistory();
   }, [selectedAccountId, fetchDisks, fetchHistory]);

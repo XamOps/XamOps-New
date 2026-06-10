@@ -57,12 +57,25 @@ export function useGcpDiskRightsizingData(selectedAccountId: string | null): Use
 
   const fetchDisks = useCallback(async (forceRefresh = false) => {
     if (!selectedAccountId) return;
+    const cacheKey = `gcp-disks-${selectedAccountId}`;
+    if (!forceRefresh) {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const diskList: GcpDisk[] = JSON.parse(cached);
+          setDisks(diskList);
+          setRecommendations(diskList.filter(d => d.recommendation !== 'NONE'));
+          return;
+        } catch {}
+      }
+    }
     try {
       const url = `/api/gcp/disks/${selectedAccountId}?forceRefresh=${forceRefresh}`;
       const data = await apiClient.get(url);
       const diskList: GcpDisk[] = Array.isArray(data) ? data : [];
       setDisks(diskList);
       setRecommendations(diskList.filter(d => d.recommendation !== 'NONE'));
+      sessionStorage.setItem(cacheKey, JSON.stringify(diskList));
     } catch (err: any) {
       setError(err?.message ?? 'Failed to load GCP disks');
     }
@@ -85,6 +98,7 @@ export function useGcpDiskRightsizingData(selectedAccountId: string | null): Use
     await apiClient.post(`/api/gcp/disks/action/${selectedAccountId}`, {
       diskName, zone, actionType, targetSizeGb
     });
+    sessionStorage.removeItem(`gcp-disks-${selectedAccountId}`);
     await fetchDisks(true);
     await fetchHistory();
   }, [selectedAccountId, fetchDisks, fetchHistory]);
