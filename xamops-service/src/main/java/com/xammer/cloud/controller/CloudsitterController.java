@@ -60,6 +60,14 @@ public class CloudsitterController {
         return ResponseEntity.ok().build();
     }
 
+    @GetMapping("/audit-log")
+    public ResponseEntity<Map<String, Object>> getAuditLog(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(cloudsitterService.getAuditLog(accountId, page, size));
+    }
+
     @GetMapping("/recommendation")
     public ResponseEntity<CloudsitterRecommendationDto> getRecommendation(
             @RequestParam String accountId,
