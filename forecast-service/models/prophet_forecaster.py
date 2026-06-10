@@ -224,6 +224,72 @@ class ProphetForecaster:
             logger.error(f"❌ Forecasting error: {str(e)}", exc_info=True)
             raise
 
+    def forecast_usage(self, data, periods=336):
+        """
+        Forecast hourly resource usage (CPU %) for CloudSitter schedule recommendations.
+
+        Unlike forecast_cost (daily, sparse), this handles continuous hourly data and
+        enables daily_seasonality so intra-day patterns (overnight idle, morning ramp) are captured.
+
+        Returns (forecast_list, trend_direction) where:
+          forecast_list    — [{ds, yhat, yhat_lower, yhat_upper}] for `periods` future hours
+          trend_direction  — "GROWING" | "STABLE" | "DECLINING" based on historical trend slope
+        """
+        df = pd.DataFrame(data)
+        if 'ds' not in df.columns or 'y' not in df.columns:
+            raise ValueError("Data must contain 'ds' and 'y' columns")
+
+        df['ds'] = pd.to_datetime(df['ds'], utc=True).dt.tz_localize(None)  # Prophet needs tz-naive
+        df['y'] = pd.to_numeric(df['y'], errors='coerce').clip(0, 100)
+        df = df.dropna().sort_values('ds').reset_index(drop=True)
+
+        if len(df) < 48:
+            raise ValueError(f"Insufficient data: {len(df)} hourly points (minimum 48 required)")
+
+        data_span_hours = (df['ds'].max() - df['ds'].min()).total_seconds() / 3600
+
+        model = Prophet(
+            yearly_seasonality=False,
+            weekly_seasonality=data_span_hours >= 168,   # need at least 1 week
+            daily_seasonality=True,                      # critical — captures overnight idle patterns
+            interval_width=0.80,
+            changepoint_prior_scale=0.05,                # conservative — usage patterns are stable
+            seasonality_mode='additive',
+            growth='linear'
+        )
+        model.fit(df)
+
+        future = model.make_future_dataframe(periods=periods, freq='H')
+        forecast_df = model.predict(future)
+
+        # Trend direction: compare mean trend of first vs last quarter of historical window
+        hist = forecast_df[forecast_df['ds'] <= df['ds'].max()].copy()
+        trend_direction = "STABLE"
+        if len(hist) >= 48:
+            quarter = max(1, len(hist) // 4)
+            early_trend = hist['trend'].iloc[:quarter].mean()
+            late_trend = hist['trend'].iloc[-quarter:].mean()
+            pct_change = ((late_trend - early_trend) / max(0.1, abs(early_trend))) * 100
+            if pct_change > 5:
+                trend_direction = "GROWING"
+            elif pct_change < -5:
+                trend_direction = "DECLINING"
+
+        now = pd.Timestamp.now()
+        results = []
+        for _, row in forecast_df.iterrows():
+            if row['ds'] > now:
+                results.append({
+                    'ds': row['ds'].isoformat() + 'Z',
+                    'yhat':       round(float(max(0, min(100, row['yhat']))),       2),
+                    'yhat_lower': round(float(max(0, min(100, row['yhat_lower']))), 2),
+                    'yhat_upper': round(float(max(0, min(100, row['yhat_upper']))), 2),
+                })
+                if len(results) >= periods:
+                    break
+
+        return results, trend_direction
+
     def get_forecast_quality_metrics(self, df, forecast_df):
         """Calculate quality metrics for the forecast (optional validation)"""
         try:

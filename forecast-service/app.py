@@ -135,6 +135,47 @@ def forecast_cost():
             'message': f'Internal server error: {str(e)}'
         }), 500
 
+@app.route('/forecast/usage', methods=['POST'])
+def forecast_usage():
+    """Forecast hourly resource usage for CloudSitter schedule recommendations"""
+    start_time = datetime.now()
+    try:
+        request_data = request.get_json()
+        if not request_data or 'data' not in request_data:
+            return jsonify({'status': 'error', 'message': 'Missing required field: data'}), 400
+
+        data = request_data.get('data', [])
+        periods = request_data.get('periods', 336)  # 14 days × 24 h — guarantees full [7][24] coverage
+
+        if len(data) < 48:
+            return jsonify({'status': 'error',
+                            'message': f'Insufficient data: {len(data)} points (minimum 48 required)'}), 400
+
+        logger.info(f"📊 Usage forecast request: {len(data)} hourly points, {periods} periods")
+
+        forecast_result, trend_direction = forecaster.forecast_usage(data=data, periods=periods)
+
+        processing_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"✅ Usage forecast complete: {len(forecast_result)} predictions in {processing_time:.2f}s, trend={trend_direction}")
+
+        return jsonify({
+            'status': 'success',
+            'forecast': forecast_result,
+            'trend_direction': trend_direction,
+            'metadata': {
+                'data_points': len(data),
+                'forecast_periods': periods,
+                'processing_time_seconds': round(processing_time, 2)
+            }
+        }), 200
+
+    except ValueError as ve:
+        return jsonify({'status': 'error', 'message': str(ve)}), 400
+    except Exception as e:
+        logger.error(f"❌ Usage forecast error: {str(e)}", exc_info=True)
+        return jsonify({'status': 'error', 'message': f'Internal server error: {str(e)}'}), 500
+
+
 @app.errorhandler(404)
 def not_found(error):
     logger.warning(f"⚠️ 404: {request.url}")
