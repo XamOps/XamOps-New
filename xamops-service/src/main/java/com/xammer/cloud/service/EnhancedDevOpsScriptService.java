@@ -40,9 +40,8 @@ import java.util.stream.Collectors;
 /**
  * Default implementation of {@link IEnhancedDevOpsScriptService}.
  *
- * <p>Listing/filtering is served from PostgreSQL (which also provides graceful
- * degradation when Elasticsearch is unavailable, per the reliability NFR), while
- * full-text {@link #searchScripts} is delegated to {@link IScriptSearchService}.
+ * <p>Listing/filtering and full-text {@link #searchScripts} are both served from
+ * PostgreSQL and delegated to {@link IScriptSearchService}.
  * Script details and filtered lists are cached in Redis; mutations invalidate
  * the relevant cache entries through {@link DevOpsScriptCacheInvalidationService}.</p>
  *

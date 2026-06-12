@@ -10,9 +10,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Advanced search functionality for DevOps scripts backed by Elasticsearch.
- * Provides full-text search with fuzzy matching, faceted filtering,
- * autocomplete and index maintenance operations.
+ * Advanced search functionality for DevOps scripts, backed by PostgreSQL.
+ * Provides text search, faceted filtering, autocomplete and suggestions.
+ * The index-maintenance methods are retained as no-ops for backward
+ * compatibility (there is no separate search index to maintain).
  *
  * Requirements: REQ-2.3.1 (Full-Text Search), REQ-2.3.2 (Advanced Filtering),
  *               REQ-2.6.1 (Search Performance)

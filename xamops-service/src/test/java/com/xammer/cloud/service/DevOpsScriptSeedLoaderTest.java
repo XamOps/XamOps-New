@@ -25,8 +25,8 @@ import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link DevOpsScriptSeedLoader}. These exercise manifest parsing and
- * idempotency against the real seed manifests on the classpath, with all database and
- * Elasticsearch interactions mocked (no live DB / search cluster required).
+ * idempotency against the real seed manifests on the classpath, with all database
+ * interactions mocked (no live DB required).
  *
  * Requirements: REQ-2.1.1, REQ-2.1.2, REQ-2.1.3, REQ-2.3.1
  */
@@ -41,8 +41,6 @@ class DevOpsScriptSeedLoaderTest {
     @Mock
     private ScriptParameterRepository parameterRepository;
     @Mock
-    private DevOpsScriptIndexingService indexingService;
-    @Mock
     private DataSource dataSource;
 
     private DevOpsScriptSeedLoader loader;
@@ -50,7 +48,7 @@ class DevOpsScriptSeedLoaderTest {
     @BeforeEach
     void setUp() {
         loader = new DevOpsScriptSeedLoader(scriptRepository, parameterRepository,
-                indexingService, dataSource, new ObjectMapper());
+                dataSource, new ObjectMapper());
     }
 
     @Test

@@ -4,7 +4,7 @@ package com.xammer.cloud.dto.devops;
  * Supported cloud providers for DevOps scripts.
  *
  * Each enum constant carries the canonical lowercase code that is persisted on
- * {@code DevOpsScript.cloudProviders} and indexed in Elasticsearch.
+ * {@code DevOpsScript.cloudProviders}.
  *
  * Requirements: REQ-2.1.2 (Multi-Cloud Coverage), REQ-2.1.3 (Script Categorization)
  */

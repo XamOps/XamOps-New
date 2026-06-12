@@ -19,7 +19,7 @@ import java.util.List;
  * tagging, ratings, versioning, multi-cloud support, search integration, user
  * interaction tracking and trending calculation.
  *
- * <p>Search is delegated to {@link IScriptSearchService} (Elasticsearch) and
+ * <p>Search is delegated to {@link IScriptSearchService} (PostgreSQL-backed) and
  * results/details are cached in Redis where appropriate.</p>
  *
  * Requirements: REQ-2.1.1 (Content Volume), REQ-2.1.3 (Categorization),

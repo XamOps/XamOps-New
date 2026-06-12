@@ -28,8 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Bulk-imports the DevOps-in-a-Box seed script library (Task 4.6) and indexes the
- * published scripts in Elasticsearch.
+ * Bulk-imports the DevOps-in-a-Box seed script library (Task 4.6) into PostgreSQL.
  *
  * <p>Loading strategy (idempotent, safe to run on every startup):</p>
  * <ol>
@@ -44,14 +43,11 @@ import java.util.Optional;
  *       whose name does not already exist, the code file is read from the classpath,
  *       a {@code DevOpsScript} is created (version/status/author default from the
  *       manifest), and its {@code ScriptParameter} rows are persisted.</li>
- *   <li>All <b>published</b> scripts are bulk-indexed via
- *       {@link DevOpsScriptIndexingService#bulkIndexScripts(List)} so they are
- *       searchable and filterable.</li>
  * </ol>
  *
  * Idempotency is guarded by script {@code name}: existing scripts are skipped, so
- * duplicates are never created. Elasticsearch failures are caught and logged so a
- * missing/unavailable search cluster never blocks application startup.
+ * duplicates are never created. Search is served directly from PostgreSQL, so no
+ * separate indexing step is required.
  *
  * Requirements: REQ-2.1.1, REQ-2.1.2, REQ-2.1.3, REQ-2.3.1
  */
@@ -78,24 +74,18 @@ public class DevOpsScriptSeedLoader implements CommandLineRunner {
 
     private final DevOpsScriptRepository scriptRepository;
     private final ScriptParameterRepository parameterRepository;
-    private final DevOpsScriptIndexingService indexingService;
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
 
     @Value("${devops.seed.enabled:true}")
     private boolean seedEnabled;
 
-    @Value("${devops.seed.index-on-startup:true}")
-    private boolean indexOnStartup;
-
     public DevOpsScriptSeedLoader(DevOpsScriptRepository scriptRepository,
                                   ScriptParameterRepository parameterRepository,
-                                  DevOpsScriptIndexingService indexingService,
                                   DataSource dataSource,
                                   ObjectMapper objectMapper) {
         this.scriptRepository = scriptRepository;
         this.parameterRepository = parameterRepository;
-        this.indexingService = indexingService;
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
     }
@@ -115,7 +105,7 @@ public class DevOpsScriptSeedLoader implements CommandLineRunner {
     }
 
     /**
-     * Run the full import + indexing pipeline. Exposed (package-private) for tests.
+     * Run the full import pipeline. Exposed (package-private) for tests.
      */
     @Transactional
     public void seedAll() {
@@ -127,10 +117,6 @@ public class DevOpsScriptSeedLoader implements CommandLineRunner {
         long total = scriptRepository.count();
         logger.info("DevOps seed import complete: {} new scripts imported, {} Terraform parameters upserted, {} scripts total in database.",
                 fullImported, terraformParams, total);
-
-        if (indexOnStartup) {
-            indexPublishedScripts();
-        }
     }
 
     // ------------------------------------------------------------------
@@ -330,25 +316,6 @@ public class DevOpsScriptSeedLoader implements CommandLineRunner {
         }
         parameterRepository.saveAll(toSave);
         return toSave.size();
-    }
-
-    // ------------------------------------------------------------------
-    // Elasticsearch indexing
-    // ------------------------------------------------------------------
-
-    private void indexPublishedScripts() {
-        try {
-            List<DevOpsScript> published = scriptRepository.findByStatus(DEFAULT_STATUS);
-            if (published.isEmpty()) {
-                logger.info("No published scripts to index.");
-                return;
-            }
-            int indexed = indexingService.bulkIndexScripts(published);
-            logger.info("Bulk indexed {} published scripts in Elasticsearch.", indexed);
-        } catch (Exception e) {
-            logger.warn("Elasticsearch indexing of seed scripts failed (search cluster unavailable?); "
-                    + "scripts are persisted and can be re-indexed later via reindexAll().", e);
-        }
     }
 
     // ------------------------------------------------------------------

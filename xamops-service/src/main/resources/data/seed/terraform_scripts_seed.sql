@@ -6,10 +6,9 @@
 -- (name, description, difficulty, tags, cloud provider, usage, prereqs)
 -- and uses {{PARAMETER_NAME}} placeholder syntax for customization.
 --
--- This file is SEED CONTENT only. Bulk import + Elasticsearch indexing
--- is orchestrated by Task 4.6 (which reads these rows and calls
--- bulkIndexScripts). Tag and cloud-provider associations are written to
--- the script_tags and script_cloud_providers tables.
+-- This file is SEED CONTENT only. Bulk import is orchestrated by the seed
+-- loader (which reads these rows and persists them). Tag and cloud-provider
+-- associations are written to the script_tags and script_cloud_providers tables.
 --
 -- Conventions:
 --   * version       = '1.0.0'
