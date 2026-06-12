@@ -9,6 +9,7 @@ import { useBillOpsUserNotifications } from '../../hooks/useBillOpsUserNotificat
 import SuperAdminTopBar from './SuperAdminTopBar';
 import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
+import { TooltipWrapper } from '../ui/Tooltip';
 import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
 import { useTheme } from '../../contexts/ThemeContext';
 import { isDemoMode } from '../../demo/demoConfig';
@@ -199,27 +200,32 @@ const Topbar: React.FC = () => {
 
                     {/* Help button */}
                     {onHelpClick && (
-                        <button
-                            onClick={onHelpClick}
-                            className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
-                            aria-label="Open help guide"
-                        >
-                            <i className="fas fa-question-circle text-[13px]"></i>
-                        </button>
+                        <TooltipWrapper tip="Open Help Guide">
+                            <button
+                                onClick={onHelpClick}
+                                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
+                                aria-label="Open Help Guide"
+                            >
+                                <i className="fas fa-question-circle text-[13px]"></i>
+                            </button>
+                        </TooltipWrapper>
                     )}
 
                     {/* Notifications */}
                     {!isBillOpsAdmin && (
                         <div className="relative" ref={notificationRef}>
-                            <button
-                                onClick={toggleNotifications}
-                                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors relative ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
-                            >
-                                <i className="fas fa-bell text-[13px]"></i>
-                                {counts.total > 0 && (
-                                    <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-rose-500 rounded-full ${theme === 'dark' ? 'border border-[#1f1f1f]' : 'border border-white'}`}></span>
-                                )}
-                            </button>
+                            <TooltipWrapper tip="Notifications">
+                                <button
+                                    onClick={toggleNotifications}
+                                    className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors relative ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
+                                    aria-label="Notifications"
+                                >
+                                    <i className="fas fa-bell text-[13px]"></i>
+                                    {counts.total > 0 && (
+                                        <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-rose-500 rounded-full ${theme === 'dark' ? 'border border-[#1f1f1f]' : 'border border-white'}`}></span>
+                                    )}
+                                </button>
+                            </TooltipWrapper>
 
                             {isNotificationOpen && (
                                 <>
