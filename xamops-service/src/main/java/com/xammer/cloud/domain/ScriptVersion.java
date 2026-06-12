@@ -20,7 +20,9 @@ public class ScriptVersion {
     @Column(nullable = false, length = 20)
     private String version;
 
-    @Lob
+    // No @Lob: on PostgreSQL @Lob maps a String to a large-object OID and reads
+    // it via getClob()/getLong(), failing ("Bad value for type long") against a
+    // plain TEXT column. columnDefinition = "TEXT" already gives unbounded storage.
     @Column(columnDefinition = "TEXT", nullable = false)
     private String code;
 

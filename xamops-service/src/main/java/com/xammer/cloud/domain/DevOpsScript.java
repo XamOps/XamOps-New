@@ -27,11 +27,13 @@ public class DevOpsScript {
     @Column(nullable = false, length = 50)
     private String category; // terraform, bash, python, ansible
 
-    @Lob
+    // NOTE: Do NOT use @Lob here. On PostgreSQL, @Lob on a String maps the
+    // column to a large-object OID and reads it via getClob()/getLong(),
+    // which fails with "Bad value for type long" against a plain TEXT column.
+    // columnDefinition = "TEXT" already provides unbounded text storage.
     @Column(columnDefinition = "TEXT", nullable = false)
     private String code;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     @JsonProperty("usage")
     private String usageInstructions;

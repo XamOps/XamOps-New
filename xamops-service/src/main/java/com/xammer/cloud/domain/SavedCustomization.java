@@ -30,7 +30,9 @@ public class SavedCustomization {
     @Column(name = "parameter_values", columnDefinition = "TEXT", nullable = false)
     private String parameterValues; // JSON map of parameter_name -> value
 
-    @Lob
+    // No @Lob: on PostgreSQL @Lob maps a String to a large-object OID and reads
+    // it via getClob()/getLong(), failing ("Bad value for type long") against a
+    // plain TEXT column. columnDefinition = "TEXT" already gives unbounded storage.
     @Column(name = "generated_code", columnDefinition = "TEXT")
     private String generatedCode; // The customized script code
 
