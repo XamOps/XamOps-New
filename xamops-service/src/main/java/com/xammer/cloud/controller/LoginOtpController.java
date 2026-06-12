@@ -28,7 +28,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Random;
+import java.security.SecureRandom;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Arrays;
@@ -66,6 +66,8 @@ public class LoginOtpController {
 
     @Value("${app.frontend.url}")
     private String frontendUrl;
+
+    private static final SecureRandom secureRandom = new SecureRandom();
 
     private static final Set<String> DEMO_EMAILS = new java.util.HashSet<>(Arrays.asList(
             "demo.xamops@xammer.in",
@@ -108,8 +110,8 @@ public class LoginOtpController {
             return authenticateAndRedirect(user, request);
         }
 
-        // Credentials validated — generate and send OTP
-        String otp = String.format("%06d", new Random().nextInt(999999));
+        // Credentials validated — generate and send OTP using cryptographically secure random number generator
+        String otp = String.format("%06d", secureRandom.nextInt(1000000));
         redisCacheService.saveLoginOtp(email, otp);
         redisCacheService.savePreAuthFlag(email);
 
