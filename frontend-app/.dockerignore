@@ -1,0 +1,34 @@
+# Dependencies (reinstalled inside the image via `npm install`)
+node_modules
+
+# Build output (regenerated inside the image via `npm run build`)
+dist
+build
+
+# Version control / CI
+.git
+.gitignore
+.github
+
+# Local env & secrets (never ship into the image)
+.env
+.env.*
+!.env.example
+
+# Logs & caches
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.cache
+.vite
+coverage
+
+# Editor / OS cruft
+.vscode
+.idea
+.DS_Store
+
+# Docker files themselves
+Dockerfile
+.dockerignore

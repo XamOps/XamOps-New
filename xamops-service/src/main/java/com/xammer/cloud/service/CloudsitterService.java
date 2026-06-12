@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -731,7 +732,9 @@ public class CloudsitterService {
         return new int[] { assignmentsProcessed, actionsPerformed };
     }
 
-    public Map<String, Object> getAuditLog(String accountId, int page, int size) {
+    public Map<String, Object> getAuditLog(String accountId, Long clientId, int page, int size) {
+        accountRepo.findByAwsAccountIdAndClientId(accountId, clientId)
+                .orElseThrow(() -> new AccessDeniedException("Account not found: " + accountId));
         Pageable pageable = PageRequest.of(page, Math.min(size, 100));
         Page<CloudsitterAuditLog> result = auditLogRepo.findByAccountIdOrderByTimestampDesc(accountId, pageable);
         Map<String, Object> response = new HashMap<>();

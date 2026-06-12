@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import apiClient from '../utils/apiClient';
 
+// Namespace the cache by tenant/impersonation identity so cached disk data
+// cannot leak across a tenant switch or "login as" session change.
+function getDiskCacheKey(accountId: string): string {
+  const tenantId = sessionStorage.getItem('selectedTenantId') || '';
+  const impersonateUserId = sessionStorage.getItem('impersonateUserId') || '';
+  return `azure-disks-${tenantId}-${impersonateUserId}-${accountId}`;
+}
+
 export interface AzureDisk {
   diskName: string;
   resourceGroup: string;
@@ -57,7 +65,7 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
 
   const fetchDisks = useCallback(async (forceRefresh = false) => {
     if (!selectedAccountId) return;
-    const cacheKey = `azure-disks-${selectedAccountId}`;
+    const cacheKey = getDiskCacheKey(selectedAccountId);
     if (!forceRefresh) {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
@@ -98,7 +106,7 @@ export function useAzureDiskRightsizingData(selectedAccountId: string | null): U
     await apiClient.post(`/api/azure/disks/action/${selectedAccountId}`, {
       diskName, resourceGroup, actionType, targetSizeGb
     });
-    sessionStorage.removeItem(`azure-disks-${selectedAccountId}`);
+    sessionStorage.removeItem(getDiskCacheKey(selectedAccountId));
     await fetchDisks(true);
     await fetchHistory();
   }, [selectedAccountId, fetchDisks, fetchHistory]);

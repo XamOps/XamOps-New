@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import apiClient from '../utils/apiClient';
 
+// Namespace the cache by tenant/impersonation identity so cached disk data
+// cannot leak across a tenant switch or "login as" session change.
+function getDiskCacheKey(accountId: string): string {
+  const tenantId = sessionStorage.getItem('selectedTenantId') || '';
+  const impersonateUserId = sessionStorage.getItem('impersonateUserId') || '';
+  return `gcp-disks-${tenantId}-${impersonateUserId}-${accountId}`;
+}
+
 export interface GcpDisk {
   diskName: string;
   zone: string;
@@ -57,7 +65,7 @@ export function useGcpDiskRightsizingData(selectedAccountId: string | null): Use
 
   const fetchDisks = useCallback(async (forceRefresh = false) => {
     if (!selectedAccountId) return;
-    const cacheKey = `gcp-disks-${selectedAccountId}`;
+    const cacheKey = getDiskCacheKey(selectedAccountId);
     if (!forceRefresh) {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
@@ -98,7 +106,7 @@ export function useGcpDiskRightsizingData(selectedAccountId: string | null): Use
     await apiClient.post(`/api/gcp/disks/action/${selectedAccountId}`, {
       diskName, zone, actionType, targetSizeGb
     });
-    sessionStorage.removeItem(`gcp-disks-${selectedAccountId}`);
+    sessionStorage.removeItem(getDiskCacheKey(selectedAccountId));
     await fetchDisks(true);
     await fetchHistory();
   }, [selectedAccountId, fetchDisks, fetchHistory]);

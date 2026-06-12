@@ -17,6 +17,11 @@ class Config:
     MAX_FORECAST_PERIODS = 365
     MIN_DATA_POINTS = 7
 
+    # Usage forecasting settings (CloudSitter schedule recommendations)
+    MIN_USAGE_DATA_POINTS = 48
+    MAX_USAGE_DATA_POINTS = 24 * 365  # 1 year of hourly data
+    MAX_USAGE_FORECAST_PERIODS = 24 * 30  # 30 days of hourly predictions
+
     # Gunicorn settings
     WORKERS = int(os.getenv('WORKERS', 2))
     THREADS = int(os.getenv('THREADS', 4))

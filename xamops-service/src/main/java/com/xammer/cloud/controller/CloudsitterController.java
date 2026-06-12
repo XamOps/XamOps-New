@@ -5,8 +5,10 @@ import com.xammer.cloud.dto.CloudsitterAssignmentDto;
 import com.xammer.cloud.dto.CloudsitterAssignmentRequest;
 import com.xammer.cloud.dto.CloudsitterPolicyDto;
 import com.xammer.cloud.dto.CloudsitterRecommendationDto;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.CloudsitterService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -64,8 +66,9 @@ public class CloudsitterController {
     public ResponseEntity<Map<String, Object>> getAuditLog(
             @RequestParam String accountId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
-        return ResponseEntity.ok(cloudsitterService.getAuditLog(accountId, page, size));
+            @RequestParam(defaultValue = "50") int size,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        return ResponseEntity.ok(cloudsitterService.getAuditLog(accountId, userDetails.getClientId(), page, size));
     }
 
     @GetMapping("/recommendation")

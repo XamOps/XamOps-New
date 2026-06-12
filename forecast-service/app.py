@@ -147,9 +147,25 @@ def forecast_usage():
         data = request_data.get('data', [])
         periods = request_data.get('periods', 336)  # 14 days × 24 h — guarantees full [7][24] coverage
 
-        if len(data) < 48:
+        if not isinstance(data, list):
+            return jsonify({'status': 'error', 'message': 'Data must be a list'}), 400
+
+        try:
+            periods = int(periods)
+        except (TypeError, ValueError):
+            return jsonify({'status': 'error', 'message': 'periods must be an integer'}), 400
+
+        if periods < 1 or periods > app.config['MAX_USAGE_FORECAST_PERIODS']:
             return jsonify({'status': 'error',
-                            'message': f'Insufficient data: {len(data)} points (minimum 48 required)'}), 400
+                            'message': f'periods must be between 1 and {app.config["MAX_USAGE_FORECAST_PERIODS"]}'}), 400
+
+        if len(data) < app.config['MIN_USAGE_DATA_POINTS']:
+            return jsonify({'status': 'error',
+                            'message': f'Insufficient data: {len(data)} points (minimum {app.config["MIN_USAGE_DATA_POINTS"]} required)'}), 400
+
+        if len(data) > app.config['MAX_USAGE_DATA_POINTS']:
+            return jsonify({'status': 'error',
+                            'message': f'Too much data: {len(data)} points (maximum {app.config["MAX_USAGE_DATA_POINTS"]} allowed)'}), 400
 
         logger.info(f"📊 Usage forecast request: {len(data)} hourly points, {periods} periods")
 
