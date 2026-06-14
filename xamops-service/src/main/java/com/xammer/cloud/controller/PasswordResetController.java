@@ -5,16 +5,20 @@ import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailIcons;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.RedisCacheService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Random;
+import java.security.SecureRandom;
 
 @RestController
 @RequestMapping("/api/auth")
+@Slf4j
 public class PasswordResetController {
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Autowired
     private UserRepository userRepository;
@@ -36,8 +40,8 @@ public class PasswordResetController {
             User user = userRepository.findByEmail(email)
                     .orElseThrow(() -> new RuntimeException("No account found with that email address."));
 
-            // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            // Generate 6-digit OTP using SecureRandom for cryptographic security
+            String otp = String.format("%06d", SECURE_RANDOM.nextInt(1000000));
 
             // Save OTP to Redis keyed by email (expires in 5 minutes)
             redisCacheService.saveOtp(email, otp);
@@ -66,15 +70,16 @@ public class PasswordResetController {
                           + "</td></tr>"
                           + "</table></td></tr></table></body></html>";
 
-            System.out.println(">>> OTP for " + email + ": " + otp);
+            log.info("Password reset OTP generated for email: {}", email);
 
             emailService.sendHtmlEmail(email, subject, body);
 
             return ResponseEntity.ok().body("OTP sent to your email.");
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+            log.error("Failed to send password reset OTP to {}: {}", email, e.getMessage());
+            // CWE-209: Return generic error message to prevent information leakage
+            return ResponseEntity.badRequest().body("Error: An error occurred while processing your request.");
         }
     }
 
@@ -109,10 +114,13 @@ public class PasswordResetController {
 
             redisCacheService.deleteOtp(email);
 
+            log.info("Password successfully reset for email: {}", email);
             return ResponseEntity.ok().body("Password updated successfully.");
 
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Failed to reset password: " + e.getMessage());
+            log.error("Failed to reset password for {}: {}", email, e.getMessage());
+            // CWE-209: Return generic error message to prevent information leakage
+            return ResponseEntity.badRequest().body("Failed to reset password. Please try again.");
         }
     }
 }
