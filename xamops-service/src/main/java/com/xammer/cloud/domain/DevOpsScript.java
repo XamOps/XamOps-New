@@ -2,6 +2,8 @@ package com.xammer.cloud.domain;
 
 import javax.persistence.*;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.hibernate.annotations.Fetch;
+import org.hibernate.annotations.FetchMode;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -42,12 +44,19 @@ public class DevOpsScript {
     private String version;
 
     // Enhanced fields for improvements
-    @ElementCollection
+    // EAGER + SUBSELECT: these collections are read on every script DTO/JSON
+    // response (search, facets, getAllScripts). LAZY caused
+    // LazyInitializationException once the entity is serialized outside the
+    // Hibernate session (e.g. by Jackson or the Redis @Cacheable layer).
+    // SUBSELECT avoids a join-driven cartesian product with cloudProviders.
+    @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SUBSELECT)
     @CollectionTable(name = "script_tags", joinColumns = @JoinColumn(name = "script_id"))
     @Column(name = "tag", length = 50)
     private List<String> tags = new ArrayList<>();
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SUBSELECT)
     @CollectionTable(name = "script_cloud_providers", joinColumns = @JoinColumn(name = "script_id"))
     @Column(name = "provider", length = 20)
     private List<String> cloudProviders = new ArrayList<>();
