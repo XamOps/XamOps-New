@@ -72,7 +72,7 @@ public class SecurityConfig {
                             String auth = request.getHeader("Authorization");
                             return auth != null
                                     && !path.startsWith("/api/llm-proxy/")
-                                    && !path.startsWith("/api/v1/agent/");
+                                    && !isAgentFacingEndpoint(path);
                         })
                         .cors(withDefaults())
                         .csrf(csrf -> csrf.disable())
@@ -206,8 +206,12 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/gcp-alerts"),
                                                                 new AntPathRequestMatcher("/terminal"),
 
-                                                                // XamOps Agent API (authenticates via API key, not session)
-                                                                new AntPathRequestMatcher("/api/v1/agent/**"),
+                                                                // XamOps Agent-facing API (authenticates via global API key)
+                                                                new AntPathRequestMatcher("/api/v1/agent/ingest"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/heartbeat"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/config"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/commands"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/autoscaling-policy"),
 
                                                                 // XamOps Metering API — public:
                                                                 //   /register → AWS Marketplace redirect (no session)
@@ -296,6 +300,14 @@ public class SecurityConfig {
         @Bean
         public PasswordEncoder passwordEncoder() {
                 return new BCryptPasswordEncoder();
+        }
+
+        private boolean isAgentFacingEndpoint(String path) {
+                return path.startsWith("/api/v1/agent/ingest") ||
+                       path.startsWith("/api/v1/agent/heartbeat") ||
+                       path.startsWith("/api/v1/agent/config") ||
+                       path.startsWith("/api/v1/agent/commands") ||
+                       path.startsWith("/api/v1/agent/autoscaling-policy");
         }
 
         @Bean
