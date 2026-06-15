@@ -1225,6 +1225,7 @@ const ObservabilityPage: React.FC = () => {
       fetchStreams();
       fetchConnectedInstances().then(setInstances);
     });
+    return () => setTitle(null);
   }, [setTitle, fetchConfig, fetchOverview, fetchStreams, fetchConnectedInstances]);
 
   return (
