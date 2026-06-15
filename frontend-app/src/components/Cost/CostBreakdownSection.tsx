@@ -107,7 +107,7 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
             callbacks: {
               label: (ctx) => {
                 const total = data.reduce((a, b) => a + b, 0);
-                const pct = ((ctx.parsed / total) * 100).toFixed(1);
+                const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : '0.0';
                 return ` $${ctx.parsed.toFixed(2)}  (${pct}%)`;
               },
             },
@@ -266,7 +266,7 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
                 <tbody>
                   {sortedData.map((item, index) => {
                     const isUntagged = item.name === 'Untagged';
-                    const pct = ((item.amount / totalCost) * 100).toFixed(1);
+                    const pct = totalCost > 0 ? ((item.amount / totalCost) * 100).toFixed(1) : '0.0';
                     return (
                       <tr
                         key={item.name}

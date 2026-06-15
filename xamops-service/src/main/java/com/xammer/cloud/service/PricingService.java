@@ -273,6 +273,250 @@ public class PricingService {
         }
     }
 
+    @Cacheable(value = "natGatewayPrice", key = "#region")
+    public double getNatGatewayHourlyPrice(String region) {
+        double fallback = 0.045;
+        if (useMockData) {
+            return fallback;
+        }
+        logger.info("Fetching live NAT Gateway price for region: {}", region);
+        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+                .build();
+        Filter groupFilter = Filter.builder().field("group").value("NAT Gateway").type("TERM_MATCH").build();
+
+        GetProductsRequest request = GetProductsRequest.builder()
+                .serviceCode("AmazonVPC")
+                .filters(regionFilter, groupFilter)
+                .build();
+        try {
+            GetProductsResponse response = pricingClient.getProducts(request);
+            for (String priceJson : response.priceList()) {
+                JsonNode priceListNode = objectMapper.readTree(priceJson);
+                String usageType = priceListNode.path("product").path("attributes").path("usagetype").asText("");
+                if (usageType.contains("NatGateway-Hours")) {
+                    double price = extractOnDemandPrice(priceListNode);
+                    if (price > 0) {
+                        return price;
+                    }
+                }
+            }
+            logger.warn("No NAT Gateway hourly price found for region {}, using fallback", region);
+        } catch (Exception e) {
+            logger.error("Failed to fetch NAT Gateway price for region {}", region, e);
+        }
+        return fallback;
+    }
+
+    @Cacheable(value = "elbPrice", key = "#region + '-' + #lbType")
+    public double getElbHourlyPrice(String region, String lbType) {
+        double fallback = getElbHourlyFallback(lbType);
+        if (useMockData) {
+            return fallback;
+        }
+        logger.info("Fetching live ELB price for region: {}, type: {}", region, lbType);
+        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+                .build();
+        Filter usageTypeFilter = Filter.builder().field("usagetype").value("LoadBalancerUsage").type("TERM_MATCH")
+                .build();
+        Filter operationFilter = Filter.builder().field("operation").value(mapElbOperation(lbType)).type("TERM_MATCH")
+                .build();
+
+        GetProductsRequest request = GetProductsRequest.builder()
+                .serviceCode("AWSELB")
+                .filters(regionFilter, usageTypeFilter, operationFilter)
+                .build();
+        try {
+            GetProductsResponse response = pricingClient.getProducts(request);
+            for (String priceJson : response.priceList()) {
+                double price = extractOnDemandPrice(objectMapper.readTree(priceJson));
+                if (price > 0) {
+                    return price;
+                }
+            }
+            logger.warn("No ELB price found for type {} in region {}, using fallback", lbType, region);
+        } catch (Exception e) {
+            logger.error("Failed to fetch ELB price for type {} in region {}", lbType, region, e);
+        }
+        return fallback;
+    }
+
+    private String mapElbOperation(String lbType) {
+        if (lbType == null) {
+            return "LoadBalancing:Application";
+        }
+        switch (lbType.toLowerCase()) {
+            case "network":
+                return "LoadBalancing:Network";
+            case "gateway":
+                return "LoadBalancing:Gateway";
+            case "classic":
+                return "LoadBalancing";
+            default:
+                return "LoadBalancing:Application";
+        }
+    }
+
+    private double getElbHourlyFallback(String lbType) {
+        if (lbType == null) {
+            return 0.0225;
+        }
+        switch (lbType.toLowerCase()) {
+            case "gateway":
+                return 0.0125;
+            case "classic":
+                return 0.025;
+            default:
+                return 0.0225;
+        }
+    }
+
+    @Cacheable(value = "ebsSnapshotPrice", key = "#region")
+    public double getEbsSnapshotGbMonthPrice(String region) {
+        double fallback = 0.05;
+        if (useMockData) {
+            return fallback;
+        }
+        logger.info("Fetching live EBS snapshot price for region: {}", region);
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
+        Filter productFamilyFilter = Filter.builder().field("productFamily").value("Storage Snapshot")
+                .type("TERM_MATCH").build();
+
+        GetProductsRequest request = GetProductsRequest.builder()
+                .serviceCode("AmazonEC2")
+                .filters(regionFilter, productFamilyFilter)
+                .build();
+        try {
+            GetProductsResponse response = pricingClient.getProducts(request);
+            if (!response.priceList().isEmpty()) {
+                double price = extractOnDemandPrice(objectMapper.readTree(response.priceList().get(0)));
+                if (price > 0) {
+                    return price;
+                }
+            }
+            logger.warn("No EBS snapshot price found for region {}, using fallback", region);
+        } catch (Exception e) {
+            logger.error("Failed to fetch EBS snapshot price for region {}", region, e);
+        }
+        return fallback;
+    }
+
+    @Cacheable(value = "rdsSnapshotPrice", key = "#region + '-' + #engine")
+    public double getRdsSnapshotGbMonthPrice(String region, String engine) {
+        double fallback = 0.095;
+        if (useMockData) {
+            return fallback;
+        }
+        logger.info("Fetching live RDS snapshot price for region: {}, engine: {}", region, engine);
+        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+                .build();
+        Filter productFamilyFilter = Filter.builder().field("productFamily").value("Storage Snapshot")
+                .type("TERM_MATCH").build();
+        Filter engineFilter = Filter.builder().field("databaseEngine").value(engine).type("TERM_MATCH").build();
+
+        try {
+            GetProductsResponse response = pricingClient.getProducts(GetProductsRequest.builder()
+                    .serviceCode("AmazonRDS")
+                    .filters(regionFilter, productFamilyFilter, engineFilter)
+                    .build());
+            List<String> priceList = response.priceList();
+            if (priceList.isEmpty()) {
+                // Snapshot storage pricing is often engine-agnostic; retry without the engine filter.
+                priceList = pricingClient.getProducts(GetProductsRequest.builder()
+                        .serviceCode("AmazonRDS")
+                        .filters(regionFilter, productFamilyFilter)
+                        .build()).priceList();
+            }
+            if (!priceList.isEmpty()) {
+                double price = extractOnDemandPrice(objectMapper.readTree(priceList.get(0)));
+                if (price > 0) {
+                    return price;
+                }
+            }
+            logger.warn("No RDS snapshot price found for region {}, engine {}, using fallback", region, engine);
+        } catch (Exception e) {
+            logger.error("Failed to fetch RDS snapshot price for region {}, engine {}", region, engine, e);
+        }
+        return fallback;
+    }
+
+    @Cacheable(value = "s3StoragePrice", key = "#region + '-' + #storageClass")
+    public double getS3StorageClassGbMonthPrice(String region, String storageClass) {
+        double fallback = "Standard-IA".equals(storageClass) ? 0.0125 : 0.023;
+        if (useMockData) {
+            return fallback;
+        }
+        logger.info("Fetching live S3 {} price for region: {}", storageClass, region);
+        String volumeType = "Standard-IA".equals(storageClass) ? "Standard - Infrequent Access" : "Standard";
+        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+                .build();
+        Filter volumeTypeFilter = Filter.builder().field("volumeType").value(volumeType).type("TERM_MATCH").build();
+        Filter usageTypeFilter = Filter.builder().field("usagetype").value("TimedStorage-ByteHrs").type("TERM_MATCH")
+                .build();
+
+        GetProductsRequest request = GetProductsRequest.builder()
+                .serviceCode("AmazonS3")
+                .filters(regionFilter, volumeTypeFilter, usageTypeFilter)
+                .build();
+        try {
+            GetProductsResponse response = pricingClient.getProducts(request);
+            if (!response.priceList().isEmpty()) {
+                double price = extractOnDemandPrice(objectMapper.readTree(response.priceList().get(0)));
+                if (price > 0) {
+                    return price;
+                }
+            }
+            logger.warn("No S3 {} price found for region {}, using fallback", storageClass, region);
+        } catch (Exception e) {
+            logger.error("Failed to fetch S3 {} price for region {}", storageClass, region, e);
+        }
+        return fallback;
+    }
+
+    @Cacheable(value = "elastiCachePrice", key = "#region + '-' + #nodeType")
+    public double getElastiCacheNodeHourlyPrice(String region, String nodeType) {
+        double fallback = 0.034;
+        if (useMockData) {
+            return fallback;
+        }
+        logger.info("Fetching live ElastiCache price for region: {}, node type: {}", region, nodeType);
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
+        Filter instanceTypeFilter = Filter.builder().field("instanceType").value(nodeType).type("TERM_MATCH").build();
+
+        GetProductsRequest request = GetProductsRequest.builder()
+                .serviceCode("AmazonElastiCache")
+                .filters(regionFilter, instanceTypeFilter)
+                .build();
+        try {
+            GetProductsResponse response = pricingClient.getProducts(request);
+            if (!response.priceList().isEmpty()) {
+                double price = extractOnDemandPrice(objectMapper.readTree(response.priceList().get(0)));
+                if (price > 0) {
+                    return price;
+                }
+            }
+            logger.warn("No ElastiCache price found for node type {} in region {}, using fallback", nodeType, region);
+        } catch (Exception e) {
+            logger.error("Failed to fetch ElastiCache price for node type {} in region {}", nodeType, region, e);
+        }
+        return fallback;
+    }
+
+    /**
+     * Extracts the first OnDemand price-per-unit (USD) from a Pricing API price-list entry.
+     */
+    private double extractOnDemandPrice(JsonNode priceListNode) {
+        JsonNode onDemandTerms = priceListNode.path("terms").path("OnDemand");
+        Iterator<JsonNode> termElements = onDemandTerms.elements();
+        if (termElements.hasNext()) {
+            JsonNode priceDimensions = termElements.next().path("priceDimensions");
+            Iterator<JsonNode> dimElements = priceDimensions.elements();
+            if (dimElements.hasNext()) {
+                return dimElements.next().path("pricePerUnit").path("USD").asDouble(0.0);
+            }
+        }
+        return 0.0;
+    }
+
     private String getRegionDescription(String regionCode) {
         Map<String, String> regionMap = Map.ofEntries(
                 Map.entry("us-east-1", "US East (N. Virginia)"),

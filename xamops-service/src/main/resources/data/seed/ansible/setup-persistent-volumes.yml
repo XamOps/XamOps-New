@@ -1,0 +1,60 @@
+---
+# setup-persistent-volumes.yml
+# Provisions a StorageClass and a PersistentVolumeClaim for stateful workloads,
+# allowing the storage size and access mode to be customized.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}      - Inventory host with kubectl/kubeconfig access
+#   {{K8S_NAMESPACE}}     - Target Kubernetes namespace
+#   {{PVC_NAME}}          - Name of the PersistentVolumeClaim
+#   {{STORAGE_CLASS}}     - StorageClass name to use
+#   {{STORAGE_SIZE}}      - Requested storage size (e.g. 10Gi)
+#   {{ACCESS_MODE}}       - PVC access mode (e.g. ReadWriteOnce)
+#   {{PROVISIONER}}       - StorageClass provisioner (e.g. kubernetes.io/aws-ebs)
+- name: Set up Kubernetes persistent volumes
+  hosts: "{{TARGET_HOSTS}}"
+  vars:
+    k8s_namespace: "{{K8S_NAMESPACE}}"
+    pvc_name: "{{PVC_NAME}}"
+    storage_class: "{{STORAGE_CLASS}}"
+    storage_size: "{{STORAGE_SIZE}}"
+    access_mode: "{{ACCESS_MODE}}"
+    provisioner: "{{PROVISIONER}}"
+
+  tasks:
+    - name: Create StorageClass
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: "{{ storage_class }}"
+          provisioner: "{{ provisioner }}"
+          reclaimPolicy: Retain
+          volumeBindingMode: WaitForFirstConsumer
+
+    - name: Create PersistentVolumeClaim
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: "{{ pvc_name }}"
+            namespace: "{{ k8s_namespace }}"
+          spec:
+            accessModes:
+              - "{{ access_mode }}"
+            storageClassName: "{{ storage_class }}"
+            resources:
+              requests:
+                storage: "{{ storage_size }}"
+      notify: Verify PVC
+
+  handlers:
+    - name: Verify PVC
+      kubernetes.core.k8s_info:
+        kind: PersistentVolumeClaim
+        name: "{{ pvc_name }}"
+        namespace: "{{ k8s_namespace }}"

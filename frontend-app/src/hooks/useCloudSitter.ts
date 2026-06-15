@@ -11,6 +11,7 @@ import type {
   PolicyAssignment,
   PolicyFormData,
   ViewType,
+  AuditLogEntry,
 } from '../types/cloudsitter';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -65,6 +66,12 @@ export const useCloudSitter = (accountId: string | null) => {
   const [editMode, setEditMode] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragState, setDragState] = useState(true);
+
+  // Audit Log
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditTotalPages, setAuditTotalPages] = useState(0);
+  const [auditPage, setAuditPage] = useState(0);
 
   // Modals
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -515,6 +522,24 @@ export const useCloudSitter = (accountId: string | null) => {
     }
   }, [selectedPolicyId, assignTarget, accountId, loadData]);
 
+  const loadAuditLog = useCallback(async (page = 0) => {
+    if (!accountId) return;
+    setAuditLoading(true);
+    try {
+      const res = await fetch(`/api/xamops/cloudsitter/audit-log?accountId=${accountId}&page=${page}&size=50`);
+      if (res.ok) {
+        const data = await res.json();
+        setAuditLogs(data.content ?? []);
+        setAuditTotalPages(data.totalPages ?? 0);
+        setAuditPage(page);
+      }
+    } catch (e) {
+      console.error('Failed to load audit log:', e);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [accountId]);
+
   // Initialize on mount and account change
   useEffect(() => {
     if (accountId) {
@@ -563,5 +588,10 @@ export const useCloudSitter = (accountId: string | null) => {
     submitAssignment,
     formInstanceTarget,
     applyRecommendationToGrid,
+    auditLogs,
+    auditLoading,
+    auditTotalPages,
+    auditPage,
+    loadAuditLog,
   };
 };

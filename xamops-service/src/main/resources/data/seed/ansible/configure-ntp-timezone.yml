@@ -1,0 +1,46 @@
+---
+# configure-ntp-timezone.yml
+# Sets the system timezone and installs chrony for time synchronization against
+# a configurable NTP pool.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}   - Inventory group or host pattern to target
+#   {{TIMEZONE}}       - IANA timezone (e.g. UTC, America/New_York)
+#   {{NTP_POOL}}       - NTP pool hostname to synchronize against
+- name: Configure NTP and timezone
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    timezone: "{{TIMEZONE}}"
+    ntp_pool: "{{NTP_POOL}}"
+
+  tasks:
+    - name: Set system timezone
+      community.general.timezone:
+        name: "{{ timezone }}"
+
+    - name: Install chrony
+      ansible.builtin.apt:
+        name: chrony
+        state: present
+        update_cache: true
+
+    - name: Configure chrony NTP pool
+      ansible.builtin.lineinfile:
+        path: /etc/chrony/chrony.conf
+        regexp: "^pool "
+        line: "pool {{ ntp_pool }} iburst"
+        state: present
+      notify: Restart chrony
+
+    - name: Ensure chrony is running and enabled
+      ansible.builtin.service:
+        name: chrony
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart chrony
+      ansible.builtin.service:
+        name: chrony
+        state: restarted

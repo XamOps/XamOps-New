@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 // import javax.validation.Valid;
 
 @RestController
-@RequestMapping("/api/cicd/config") // Base path for configuration endpoints
+@RequestMapping({"/api/cicd/config", "/cicd/config"})
 @CrossOrigin(origins = "*")
 public class CicdConfigurationController {
 

@@ -1,0 +1,65 @@
+---
+# install-mysql.yml
+# Installs the MySQL server, sets the root password, and creates an application
+# database and user with privileges scoped to that database.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}      - Inventory group or host pattern to target
+#   {{ROOT_PASSWORD}}     - MySQL root password to set
+#   {{APP_DB_NAME}}       - Application database to create
+#   {{APP_DB_USER}}       - Application database user to create
+#   {{APP_DB_PASSWORD}}   - Password for the application database user
+- name: Install and configure MySQL
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    root_password: "{{ROOT_PASSWORD}}"
+    app_db_name: "{{APP_DB_NAME}}"
+    app_db_user: "{{APP_DB_USER}}"
+    app_db_password: "{{APP_DB_PASSWORD}}"
+
+  tasks:
+    - name: Install MySQL server
+      ansible.builtin.apt:
+        name:
+          - mysql-server
+          - python3-pymysql
+        state: present
+        update_cache: true
+
+    - name: Ensure MySQL is running
+      ansible.builtin.service:
+        name: mysql
+        state: started
+        enabled: true
+
+    - name: Set MySQL root password
+      community.mysql.mysql_user:
+        name: root
+        password: "{{ root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        state: present
+
+    - name: Create application database
+      community.mysql.mysql_db:
+        name: "{{ app_db_name }}"
+        state: present
+        login_user: root
+        login_password: "{{ root_password }}"
+
+    - name: Create application user
+      community.mysql.mysql_user:
+        name: "{{ app_db_user }}"
+        password: "{{ app_db_password }}"
+        priv: "{{ app_db_name }}.*:ALL"
+        host: "%"
+        state: present
+        login_user: root
+        login_password: "{{ root_password }}"
+      notify: Restart MySQL
+
+  handlers:
+    - name: Restart MySQL
+      ansible.builtin.service:
+        name: mysql
+        state: restarted

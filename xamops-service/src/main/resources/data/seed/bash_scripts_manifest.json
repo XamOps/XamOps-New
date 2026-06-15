@@ -1,0 +1,406 @@
+{
+  "seedVersion": "1.0.0",
+  "category": "bash",
+  "author": "XamOps Team",
+  "defaultStatus": "published",
+  "codeBaseDir": "data/seed/bash",
+  "description": "Seed manifest for 26 production-ready Bash automation scripts. The bulk-import task (4.6) reads each entry, loads the referenced .sh file from the classpath at codeBaseDir/codeFile, and persists a DevOpsScript plus its ScriptParameter rows. Customizable values use the {{PARAMETER_NAME}} placeholder syntax.",
+  "scripts": [
+    {
+      "name": "Install Docker Engine",
+      "codeFile": "install-docker.sh",
+      "description": "Installs Docker Engine, CLI, containerd, and the Compose plugin on Debian/Ubuntu hosts with the official repository and a pinnable version.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["server-setup", "docker", "containers", "installation"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Debian/Ubuntu host with root (sudo) access and outbound internet connectivity.",
+      "parameters": [
+        {"name": "DOCKER_VERSION", "label": "Docker Version", "description": "Docker Engine version to pin, or 'latest'.", "parameterType": "text", "required": true, "defaultValue": "latest", "category": "configuration", "displayOrder": 1},
+        {"name": "COMPOSE_VERSION", "label": "Compose Plugin Version", "description": "Docker Compose plugin version expected after install.", "parameterType": "text", "required": false, "defaultValue": "v2.24.5", "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Configure UFW Firewall",
+      "codeFile": "configure-firewall-ufw.sh",
+      "description": "Establishes a deny-by-default UFW firewall baseline, rate-limits SSH, and opens a customizable list of service ports.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "firewall", "networking", "ufw", "hardening"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Debian/Ubuntu host with root access. Confirm the SSH port before enabling to avoid lockout.",
+      "parameters": [
+        {"name": "SSH_PORT", "label": "SSH Port", "description": "TCP port for SSH access (will be rate-limited).", "parameterType": "number", "required": true, "defaultValue": "22", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 1},
+        {"name": "ALLOWED_PORTS", "label": "Additional Allowed Ports", "description": "Space-separated extra ports to open, e.g. '80/tcp 443/tcp'.", "parameterType": "text", "required": false, "defaultValue": "80/tcp 443/tcp", "category": "networking", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "SSH Hardening",
+      "codeFile": "ssh-hardening.sh",
+      "description": "Hardens the SSH daemon: disables root login and password auth, enforces key-based auth, sets a custom port, and restricts access to named users with config validation and rollback.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "ssh", "hardening", "server-setup"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "Root access and a working SSH key for the allowed users. Keep an active session open while testing.",
+      "parameters": [
+        {"name": "SSH_PORT", "label": "SSH Port", "description": "Port the SSH daemon should listen on.", "parameterType": "number", "required": true, "defaultValue": "22", "validationRules": {"min": 1, "max": 65535}, "category": "security", "displayOrder": 1},
+        {"name": "ALLOWED_USERS", "label": "Allowed Users", "description": "Space-separated list of users permitted to log in via SSH.", "parameterType": "text", "required": true, "defaultValue": "deploy", "category": "security", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Collect System Metrics",
+      "codeFile": "collect-system-metrics.sh",
+      "description": "Samples CPU, memory, disk, and load averages and appends them as CSV rows for ingestion by monitoring tooling. Supports one-shot or interval modes.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "metrics", "observability"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Linux host with top, free, and df available.",
+      "parameters": [
+        {"name": "METRICS_OUTPUT", "label": "Metrics Output File", "description": "Path to the CSV file metrics are appended to.", "parameterType": "text", "required": true, "defaultValue": "/var/log/metrics.csv", "category": "configuration", "displayOrder": 1},
+        {"name": "INTERVAL_SECONDS", "label": "Sampling Interval (s)", "description": "Seconds between samples; 0 runs once and exits.", "parameterType": "number", "required": true, "defaultValue": "60", "validationRules": {"min": 0, "max": 86400}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Setup Log Rotation",
+      "codeFile": "setup-log-rotation.sh",
+      "description": "Creates a logrotate configuration for an application log path with daily rotation, compression, and a configurable retention period, validated with a dry run.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "logging", "logrotate", "maintenance"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Root access and logrotate installed.",
+      "parameters": [
+        {"name": "LOG_PATH", "label": "Log Path Glob", "description": "Glob of log files to rotate, e.g. /var/log/myapp/*.log.", "parameterType": "text", "required": true, "defaultValue": "/var/log/myapp/*.log", "category": "configuration", "displayOrder": 1},
+        {"name": "RETENTION_DAYS", "label": "Retention (days)", "description": "Number of rotated copies to keep.", "parameterType": "number", "required": true, "defaultValue": "14", "validationRules": {"min": 1, "max": 365}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Disk Space Alert",
+      "codeFile": "disk-space-alert.sh",
+      "description": "Checks all mounted filesystems and emails an alert for any that exceed a usage threshold. Designed to run from cron.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "disk", "alerting", "cron"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "A configured MTA / 'mail' command for email delivery.",
+      "parameters": [
+        {"name": "THRESHOLD_PERCENT", "label": "Usage Threshold (%)", "description": "Disk usage percentage that triggers an alert.", "parameterType": "number", "required": true, "defaultValue": "85", "validationRules": {"min": 1, "max": 99}, "category": "configuration", "displayOrder": 1},
+        {"name": "ALERT_EMAIL", "label": "Alert Email", "description": "Recipient email address for alerts.", "parameterType": "text", "required": true, "defaultValue": "ops@example.com", "validationRules": {"pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Database Backup to S3",
+      "codeFile": "db-backup-s3.sh",
+      "description": "Dumps a PostgreSQL database, gzip-compresses it, and uploads it to S3 under a timestamped key, cleaning up the local dump afterward.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["aws"],
+      "tags": ["backup", "database", "postgresql", "s3", "aws"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "pg_dump, AWS CLI configured with S3 write access, and DB credentials supplied via PGPASSWORD or ~/.pgpass.",
+      "parameters": [
+        {"name": "DB_NAME", "label": "Database Name", "description": "Name of the database to back up.", "parameterType": "text", "required": true, "defaultValue": "appdb", "category": "configuration", "displayOrder": 1},
+        {"name": "DB_HOST", "label": "Database Host", "description": "Hostname of the PostgreSQL server.", "parameterType": "text", "required": true, "defaultValue": "localhost", "category": "configuration", "displayOrder": 2},
+        {"name": "BACKUP_BUCKET", "label": "S3 Backup Bucket", "description": "Target S3 bucket name for the backup.", "parameterType": "text", "required": true, "defaultValue": "my-db-backups", "category": "infrastructure", "prefillFrom": "cloudAccount", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Filesystem Backup with rsync",
+      "codeFile": "filesystem-backup-rsync.sh",
+      "description": "Performs an incremental filesystem backup with rsync to a local or remote destination, preserving permissions and pruning removed files.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["backup", "rsync", "filesystem", "disaster-recovery"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "rsync installed; SSH key access to the remote host if backing up offsite.",
+      "parameters": [
+        {"name": "SOURCE_PATH", "label": "Source Path", "description": "Directory to back up.", "parameterType": "text", "required": true, "defaultValue": "/var/www", "category": "configuration", "displayOrder": 1},
+        {"name": "DEST_PATH", "label": "Destination Path", "description": "Backup destination directory.", "parameterType": "text", "required": true, "defaultValue": "/backups/www", "category": "configuration", "displayOrder": 2},
+        {"name": "REMOTE_HOST", "label": "Remote Host", "description": "Optional user@host for offsite backup; leave blank for local.", "parameterType": "text", "required": false, "defaultValue": "", "category": "networking", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Automated Backup Scheduling",
+      "codeFile": "schedule-automated-backups.sh",
+      "description": "Idempotently installs or updates a cron entry that runs a backup script on a schedule and logs output to a dedicated file.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["backup", "cron", "scheduling", "automation"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "An executable backup script and crontab available for the running user.",
+      "parameters": [
+        {"name": "BACKUP_SCRIPT", "label": "Backup Script Path", "description": "Absolute path to the backup script to schedule.", "parameterType": "text", "required": true, "defaultValue": "/usr/local/bin/backup.sh", "category": "configuration", "displayOrder": 1},
+        {"name": "CRON_SCHEDULE", "label": "Cron Schedule", "description": "Five-field cron expression, e.g. '0 2 * * *'.", "parameterType": "text", "required": true, "defaultValue": "0 2 * * *", "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Blue-Green Deployment Helper",
+      "codeFile": "blue-green-deploy.sh",
+      "description": "Deploys a containerized app using blue-green strategy: starts a green container, health-checks it, switches over on success, and rolls back on failure.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["deployment", "blue-green", "docker", "zero-downtime"],
+      "estimatedTimeMinutes": 15,
+      "prerequisites": "Docker installed; an app image exposing a health endpoint; a load balancer to switch ports.",
+      "parameters": [
+        {"name": "APP_NAME", "label": "App Image", "description": "Image reference to deploy, e.g. myorg/web:1.4.2.", "parameterType": "text", "required": true, "defaultValue": "myorg/web:latest", "category": "configuration", "displayOrder": 1},
+        {"name": "HEALTH_URL", "label": "Health URL Template", "description": "Health endpoint; use %PORT% as a placeholder for the candidate port.", "parameterType": "text", "required": true, "defaultValue": "http://localhost:%PORT%/health", "category": "configuration", "displayOrder": 2},
+        {"name": "BLUE_PORT", "label": "Blue (Live) Port", "description": "Port currently serving live traffic.", "parameterType": "number", "required": true, "defaultValue": "8080", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 3},
+        {"name": "GREEN_PORT", "label": "Green (New) Port", "description": "Port for the new release.", "parameterType": "number", "required": true, "defaultValue": "8081", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 4}
+      ]
+    },
+    {
+      "name": "Rolling Restart",
+      "codeFile": "rolling-restart.sh",
+      "description": "Restarts a systemd-managed service across multiple logical instances one at a time, waiting for each to become active to minimize downtime.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["deployment", "systemd", "rolling-restart", "high-availability"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Root access and systemd-managed service units.",
+      "parameters": [
+        {"name": "SERVICE_NAME", "label": "Service Name", "description": "Base systemd unit name (use 'name@' for templated units).", "parameterType": "text", "required": true, "defaultValue": "myapp", "category": "configuration", "displayOrder": 1},
+        {"name": "INSTANCES", "label": "Instance IDs", "description": "Space-separated instance identifiers, or blank for a single unit.", "parameterType": "text", "required": false, "defaultValue": "", "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Health Check Automation",
+      "codeFile": "health-check-automation.sh",
+      "description": "Polls an HTTP health endpoint with retries and exponential backoff, exiting zero only when healthy. Suitable for CI gates and cron checks.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["deployment", "monitoring", "health-check", "ci"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "curl available on the host.",
+      "parameters": [
+        {"name": "HEALTH_URL", "label": "Health URL", "description": "Full health endpoint URL to probe.", "parameterType": "text", "required": true, "defaultValue": "https://example.com/healthz", "category": "configuration", "displayOrder": 1},
+        {"name": "MAX_RETRIES", "label": "Max Retries", "description": "Maximum number of attempts before failing.", "parameterType": "number", "required": true, "defaultValue": "5", "validationRules": {"min": 1, "max": 50}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "SSL Certificate Renewal (Let's Encrypt)",
+      "codeFile": "ssl-renew-letsencrypt.sh",
+      "description": "Renews Let's Encrypt certificates via certbot and reloads nginx only when a certificate is actually renewed. Safe to run from cron.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "ssl", "tls", "letsencrypt", "certbot"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Root access, certbot with the nginx plugin, and DNS pointing at this host.",
+      "parameters": [
+        {"name": "DOMAIN_NAME", "label": "Domain Name", "description": "Primary domain for the certificate.", "parameterType": "text", "required": true, "defaultValue": "example.com", "category": "networking", "displayOrder": 1},
+        {"name": "CERT_EMAIL", "label": "Contact Email", "description": "Email for expiry notices and ACME registration.", "parameterType": "text", "required": true, "defaultValue": "admin@example.com", "validationRules": {"pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Security Audit",
+      "codeFile": "security-audit.sh",
+      "description": "Runs a read-only security audit covering users, root-equivalent accounts, sudoers, listening ports, world-writable files, failed logins, and pending security updates, writing a report.",
+      "difficulty": "advanced",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "audit", "compliance", "hardening"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Root access for a complete audit.",
+      "parameters": [
+        {"name": "REPORT_PATH", "label": "Report Path", "description": "File to write the audit report to.", "parameterType": "text", "required": true, "defaultValue": "/var/log/security-audit.txt", "category": "configuration", "displayOrder": 1}
+      ]
+    },
+    {
+      "name": "User Access Management",
+      "codeFile": "user-access-management.sh",
+      "description": "Creates a system user, installs an SSH public key, and optionally grants passwordless sudo with sudoers validation. Idempotent and safe to re-run.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "users", "ssh", "access-management", "iam"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Root access and the user's SSH public key.",
+      "parameters": [
+        {"name": "USERNAME", "label": "Username", "description": "Linux username to create or manage.", "parameterType": "text", "required": true, "defaultValue": "deploy", "validationRules": {"pattern": "^[a-z_][a-z0-9_-]*$"}, "category": "security", "displayOrder": 1},
+        {"name": "SSH_PUBLIC_KEY", "label": "SSH Public Key", "description": "The user's SSH public key (ssh-ed25519 / ssh-rsa ...).", "parameterType": "text", "required": true, "defaultValue": "ssh-ed25519 AAAA... user@host", "category": "security", "displayOrder": 2},
+        {"name": "SUDO_ACCESS", "label": "Grant Sudo", "description": "Whether to grant passwordless sudo.", "parameterType": "select", "required": true, "defaultValue": "no", "validationRules": {"options": [{"value": "yes", "label": "Yes"}, {"value": "no", "label": "No"}]}, "category": "security", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "System Update & Patching",
+      "codeFile": "system-update.sh",
+      "description": "Applies OS package updates non-interactively on Debian/Ubuntu, cleans up unused packages, and optionally reboots when required.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["server-setup", "maintenance", "patching", "updates"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "Debian/Ubuntu host with root access.",
+      "parameters": [
+        {"name": "REBOOT_IF_REQUIRED", "label": "Reboot If Required", "description": "Reboot automatically when updates require it.", "parameterType": "select", "required": true, "defaultValue": "no", "validationRules": {"options": [{"value": "yes", "label": "Yes"}, {"value": "no", "label": "No"}]}, "category": "configuration", "displayOrder": 1}
+      ]
+    },
+    {
+      "name": "Configure Swap File",
+      "codeFile": "configure-swap.sh",
+      "description": "Creates and enables a persistent swap file of a given size and tunes swappiness for server workloads. Idempotent if swap already exists.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["server-setup", "performance", "memory", "swap"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Root access and sufficient free disk space.",
+      "parameters": [
+        {"name": "SWAP_SIZE_GB", "label": "Swap Size (GB)", "description": "Desired swap file size in gigabytes.", "parameterType": "number", "required": true, "defaultValue": "2", "validationRules": {"min": 1, "max": 64}, "category": "configuration", "displayOrder": 1}
+      ]
+    },
+    {
+      "name": "Install & Configure fail2ban",
+      "codeFile": "install-fail2ban.sh",
+      "description": "Installs fail2ban and configures an SSH jail with customizable ban time and retry threshold via a local override that survives package updates.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["security", "fail2ban", "ssh", "intrusion-prevention", "hardening"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Debian/Ubuntu host with root access and systemd.",
+      "parameters": [
+        {"name": "BANTIME", "label": "Ban Time (s)", "description": "How long an offending IP is banned, in seconds.", "parameterType": "number", "required": true, "defaultValue": "3600", "validationRules": {"min": 60, "max": 604800}, "category": "security", "displayOrder": 1},
+        {"name": "MAXRETRY", "label": "Max Retries", "description": "Failed attempts allowed before a ban.", "parameterType": "number", "required": true, "defaultValue": "5", "validationRules": {"min": 1, "max": 20}, "category": "security", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Nginx Reverse Proxy Setup",
+      "codeFile": "nginx-reverse-proxy.sh",
+      "description": "Installs nginx if needed and configures a reverse-proxy virtual host that forwards a domain to an upstream application server with WebSocket support.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["server-setup", "nginx", "reverse-proxy", "networking"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "Root access and an upstream application listening on the target host/port.",
+      "parameters": [
+        {"name": "DOMAIN_NAME", "label": "Domain Name", "description": "Public server name for the virtual host.", "parameterType": "text", "required": true, "defaultValue": "app.example.com", "category": "networking", "displayOrder": 1},
+        {"name": "UPSTREAM_HOST", "label": "Upstream Host", "description": "Host or IP to proxy requests to.", "parameterType": "text", "required": true, "defaultValue": "127.0.0.1", "category": "networking", "displayOrder": 2},
+        {"name": "UPSTREAM_PORT", "label": "Upstream Port", "description": "Port the upstream application listens on.", "parameterType": "number", "required": true, "defaultValue": "3000", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "PostgreSQL Backup & Restore",
+      "codeFile": "postgres-backup-restore.sh",
+      "description": "Backs up or restores a PostgreSQL database using the custom dump format to a local directory, with automatic rotation of old backups.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["backup", "database", "postgresql", "restore"],
+      "estimatedTimeMinutes": 10,
+      "prerequisites": "pg_dump and pg_restore available; database credentials configured.",
+      "parameters": [
+        {"name": "DB_NAME", "label": "Database Name", "description": "Database to back up or restore.", "parameterType": "text", "required": true, "defaultValue": "appdb", "category": "configuration", "displayOrder": 1},
+        {"name": "DB_USER", "label": "Database User", "description": "PostgreSQL user with sufficient privileges.", "parameterType": "text", "required": true, "defaultValue": "postgres", "category": "configuration", "displayOrder": 2},
+        {"name": "BACKUP_DIR", "label": "Backup Directory", "description": "Local directory for dump files.", "parameterType": "text", "required": true, "defaultValue": "/var/backups/pg", "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Service Watchdog",
+      "codeFile": "service-watchdog.sh",
+      "description": "Monitors a systemd service and automatically restarts it if it stops. Runs once (cron) or continuously at an interval.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "systemd", "watchdog", "reliability"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Root access and a systemd-managed service to monitor.",
+      "parameters": [
+        {"name": "SERVICE_NAME", "label": "Service Name", "description": "systemd unit to monitor.", "parameterType": "text", "required": true, "defaultValue": "nginx", "category": "configuration", "displayOrder": 1},
+        {"name": "CHECK_INTERVAL", "label": "Check Interval (s)", "description": "Seconds between checks in loop mode; 0 checks once.", "parameterType": "number", "required": true, "defaultValue": "30", "validationRules": {"min": 0, "max": 3600}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "CPU & Memory Alert",
+      "codeFile": "cpu-memory-alert.sh",
+      "description": "Checks current CPU and memory utilization and posts a JSON alert to a webhook (Slack/Teams/Discord) when thresholds are breached.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "alerting", "webhook", "cpu", "memory"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "curl available and an incoming webhook URL.",
+      "parameters": [
+        {"name": "CPU_THRESHOLD", "label": "CPU Threshold (%)", "description": "CPU usage percent that triggers an alert.", "parameterType": "number", "required": true, "defaultValue": "90", "validationRules": {"min": 1, "max": 100}, "category": "configuration", "displayOrder": 1},
+        {"name": "MEM_THRESHOLD", "label": "Memory Threshold (%)", "description": "Memory usage percent that triggers an alert.", "parameterType": "number", "required": true, "defaultValue": "90", "validationRules": {"min": 1, "max": 100}, "category": "configuration", "displayOrder": 2},
+        {"name": "WEBHOOK_URL", "label": "Webhook URL", "description": "URL to POST the JSON alert payload to.", "parameterType": "text", "required": true, "defaultValue": "https://hooks.example.com/services/XXX", "category": "configuration", "displayOrder": 3}
+      ]
+    },
+    {
+      "name": "Cleanup Old Logs",
+      "codeFile": "cleanup-old-logs.sh",
+      "description": "Deletes log files older than a retention window within a directory tree, guarding against protected paths and reporting reclaimed space.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["monitoring", "logging", "maintenance", "cleanup"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Read/write access to the target log directory.",
+      "parameters": [
+        {"name": "LOG_PATH", "label": "Log Directory", "description": "Directory to scan and clean.", "parameterType": "text", "required": true, "defaultValue": "/var/log/myapp", "category": "configuration", "displayOrder": 1},
+        {"name": "RETENTION_DAYS", "label": "Retention (days)", "description": "Delete files older than this many days.", "parameterType": "number", "required": true, "defaultValue": "30", "validationRules": {"min": 1, "max": 3650}, "category": "configuration", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "Port Connectivity Check",
+      "codeFile": "port-connectivity-check.sh",
+      "description": "Checks TCP connectivity from this host to a target across a set of ports, using nc or a pure-bash /dev/tcp fallback. Exits non-zero on any failure.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["networking", "connectivity", "diagnostics", "troubleshooting"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Network access to the target host.",
+      "parameters": [
+        {"name": "TARGET_HOST", "label": "Target Host", "description": "Hostname or IP to test connectivity to.", "parameterType": "text", "required": true, "defaultValue": "db.internal", "category": "networking", "displayOrder": 1},
+        {"name": "PORTS", "label": "Ports", "description": "Space-separated TCP ports to check.", "parameterType": "text", "required": true, "defaultValue": "5432 6379 443", "category": "networking", "displayOrder": 2}
+      ]
+    },
+    {
+      "name": "NTP Time Synchronization",
+      "codeFile": "ntp-time-sync.sh",
+      "description": "Configures time synchronization with systemd-timesyncd using a custom NTP server and verifies the clock is synchronized.",
+      "difficulty": "beginner",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["server-setup", "ntp", "time-sync", "systemd"],
+      "estimatedTimeMinutes": 3,
+      "prerequisites": "Root access and a systemd-based host.",
+      "parameters": [
+        {"name": "NTP_SERVER", "label": "NTP Server", "description": "NTP server to synchronize against.", "parameterType": "text", "required": true, "defaultValue": "time.cloudflare.com", "category": "networking", "displayOrder": 1}
+      ]
+    },
+    {
+      "name": "Docker Container Deployment",
+      "codeFile": "docker-deploy-container.sh",
+      "description": "Pulls an image and (re)deploys a single container with a restart policy and port mapping, replacing any existing container of the same name and verifying it started.",
+      "difficulty": "intermediate",
+      "version": "1.0.0",
+      "cloudProviders": ["multi-cloud"],
+      "tags": ["deployment", "docker", "containers", "automation"],
+      "estimatedTimeMinutes": 5,
+      "prerequisites": "Docker installed and access to the image registry.",
+      "parameters": [
+        {"name": "IMAGE", "label": "Image", "description": "Image reference to deploy, e.g. nginx:1.25.", "parameterType": "text", "required": true, "defaultValue": "nginx:1.25", "category": "configuration", "displayOrder": 1},
+        {"name": "CONTAINER_NAME", "label": "Container Name", "description": "Name for the running container.", "parameterType": "text", "required": true, "defaultValue": "web", "validationRules": {"pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"}, "category": "configuration", "displayOrder": 2},
+        {"name": "HOST_PORT", "label": "Host Port", "description": "Host port to publish.", "parameterType": "number", "required": true, "defaultValue": "8080", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 3},
+        {"name": "CONTAINER_PORT", "label": "Container Port", "description": "Container port to map to.", "parameterType": "number", "required": true, "defaultValue": "80", "validationRules": {"min": 1, "max": 65535}, "category": "networking", "displayOrder": 4}
+      ]
+    }
+  ]
+}

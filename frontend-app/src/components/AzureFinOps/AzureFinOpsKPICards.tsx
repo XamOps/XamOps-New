@@ -80,7 +80,7 @@ const KPICard: React.FC<KPICardProps> = ({ label, rawValue, icon, iconColor, ico
   }, [rawValue]);
 
   const split = splitValue(formatCurrency(animCount));
-  const hasChange = changePercent != null && !isNaN(changePercent) && changePercent !== 0;
+  const hasChange = changePercent != null && !isNaN(changePercent) && isFinite(changePercent) && changePercent !== 0;
   const isGood = isSavings ? true : (changePercent ?? 0) < 0;
   const badgeText = hasChange ? `${(changePercent ?? 0) >= 0 ? '+' : ''}${Math.abs(changePercent ?? 0).toFixed(1)}%` : '';
 

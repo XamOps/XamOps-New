@@ -1,0 +1,72 @@
+---
+# configure-alerting-rules.yml
+# Deploys Prometheus alerting rules and an Alertmanager configuration that routes
+# notifications to a Slack webhook, then reloads Prometheus.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}        - Inventory group or host pattern to target
+#   {{CPU_THRESHOLD}}       - CPU usage percentage that triggers an alert
+#   {{MEM_THRESHOLD}}       - Memory usage percentage that triggers an alert
+#   {{ALERT_FOR_DURATION}}  - How long a condition must hold before firing (e.g. 5m)
+#   {{SLACK_WEBHOOK}}       - Slack incoming webhook URL for notifications
+- name: Configure Prometheus alerting rules
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    cpu_threshold: "{{CPU_THRESHOLD}}"
+    mem_threshold: "{{MEM_THRESHOLD}}"
+    alert_for_duration: "{{ALERT_FOR_DURATION}}"
+    slack_webhook: "{{SLACK_WEBHOOK}}"
+
+  tasks:
+    - name: Ensure rules directory exists
+      ansible.builtin.file:
+        path: /etc/prometheus/rules
+        state: directory
+        mode: "0755"
+
+    - name: Deploy alerting rules
+      ansible.builtin.copy:
+        dest: /etc/prometheus/rules/alerts.yml
+        content: |
+          groups:
+            - name: host-alerts
+              rules:
+                - alert: HighCpuUsage
+                  expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > {{ cpu_threshold }}
+                  for: {{ alert_for_duration }}
+                  labels:
+                    severity: warning
+                  annotations:
+                    summary: "High CPU usage detected on host"
+                - alert: HighMemoryUsage
+                  expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > {{ mem_threshold }}
+                  for: {{ alert_for_duration }}
+                  labels:
+                    severity: warning
+                  annotations:
+                    summary: "High memory usage detected on host"
+        mode: "0644"
+      notify: Reload Prometheus
+
+    - name: Deploy Alertmanager configuration
+      ansible.builtin.copy:
+        dest: /etc/alertmanager/alertmanager.yml
+        content: |
+          route:
+            receiver: slack
+          receivers:
+            - name: slack
+              slack_configs:
+                - api_url: "{{ slack_webhook }}"
+                  channel: "#alerts"
+                  send_resolved: true
+        mode: "0644"
+      notify: Reload Prometheus
+
+  handlers:
+    - name: Reload Prometheus
+      ansible.builtin.uri:
+        url: "http://localhost:9090/-/reload"
+        method: POST
+        status_code: 200

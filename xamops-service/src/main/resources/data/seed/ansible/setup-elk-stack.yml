@@ -1,0 +1,69 @@
+---
+# setup-elk-stack.yml
+# Deploys a single-node ELK stack (Elasticsearch, Logstash, Kibana) using Docker
+# containers on a shared network for centralized log aggregation.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}     - Inventory group or host pattern to target
+#   {{STACK_VERSION}}    - Elastic stack image version (e.g. 8.13.0)
+#   {{ES_HEAP_SIZE}}     - Elasticsearch JVM heap size (e.g. 1g)
+#   {{KIBANA_PORT}}      - Host port to expose Kibana on
+- name: Set up single-node ELK stack
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    stack_version: "{{STACK_VERSION}}"
+    es_heap_size: "{{ES_HEAP_SIZE}}"
+    kibana_port: "{{KIBANA_PORT}}"
+
+  tasks:
+    - name: Create dedicated Docker network
+      community.docker.docker_network:
+        name: elk
+        state: present
+
+    - name: Run Elasticsearch container
+      community.docker.docker_container:
+        name: elasticsearch
+        image: "docker.elastic.co/elasticsearch/elasticsearch:{{ stack_version }}"
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: elk
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: "-Xms{{ es_heap_size }} -Xmx{{ es_heap_size }}"
+
+    - name: Run Logstash container
+      community.docker.docker_container:
+        name: logstash
+        image: "docker.elastic.co/logstash/logstash:{{ stack_version }}"
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: elk
+
+    - name: Run Kibana container
+      community.docker.docker_container:
+        name: kibana
+        image: "docker.elastic.co/kibana/kibana:{{ stack_version }}"
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: elk
+        published_ports:
+          - "{{ kibana_port }}:5601"
+        env:
+          ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+      notify: Wait for Kibana
+
+  handlers:
+    - name: Wait for Kibana
+      ansible.builtin.uri:
+        url: "http://localhost:{{ kibana_port }}/api/status"
+        status_code: 200
+      register: kibana_status
+      until: kibana_status.status == 200
+      retries: 30
+      delay: 10

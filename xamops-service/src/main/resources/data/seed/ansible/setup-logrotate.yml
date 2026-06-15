@@ -1,0 +1,46 @@
+---
+# setup-logrotate.yml
+# Deploys a logrotate configuration for an application log path with daily
+# rotation, compression, and a configurable retention count.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}     - Inventory group or host pattern to target
+#   {{LOG_PATH}}         - Glob of log files to rotate
+#   {{RETENTION_DAYS}}   - Number of rotated copies to keep
+#   {{LOG_OWNER}}        - Owner:group applied to recreated log files
+- name: Configure log rotation
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    log_path: "{{LOG_PATH}}"
+    retention_days: "{{RETENTION_DAYS}}"
+    log_owner: "{{LOG_OWNER}}"
+
+  tasks:
+    - name: Ensure logrotate is installed
+      ansible.builtin.apt:
+        name: logrotate
+        state: present
+        update_cache: true
+
+    - name: Deploy logrotate configuration
+      ansible.builtin.copy:
+        dest: /etc/logrotate.d/xamops-app
+        content: |
+          {{ log_path }} {
+              daily
+              rotate {{ retention_days }}
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+              create 0640 {{ log_owner }}
+          }
+        mode: "0644"
+      notify: Validate logrotate
+
+  handlers:
+    - name: Validate logrotate
+      ansible.builtin.command: logrotate -d /etc/logrotate.d/xamops-app
+      changed_when: false

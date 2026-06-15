@@ -1,0 +1,78 @@
+---
+# install-nginx-ssl.yml
+# Installs Nginx and configures an HTTPS server block with a Let's Encrypt
+# certificate obtained via Certbot.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}  - Inventory group or host pattern to target
+#   {{DOMAIN_NAME}}   - Fully qualified domain name for the site
+#   {{ADMIN_EMAIL}}   - Email used for Let's Encrypt registration
+#   {{APP_PORT}}      - Upstream application port Nginx proxies to
+- name: Install and configure Nginx with SSL
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    domain_name: "{{DOMAIN_NAME}}"
+    admin_email: "{{ADMIN_EMAIL}}"
+    app_port: "{{APP_PORT}}"
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Nginx and Certbot
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+        state: present
+
+    - name: Deploy reverse-proxy server block
+      ansible.builtin.copy:
+        dest: "/etc/nginx/sites-available/{{ domain_name }}.conf"
+        content: |
+          server {
+              listen 80;
+              server_name {{ domain_name }};
+              location / {
+                  proxy_pass http://127.0.0.1:{{ app_port }};
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+          }
+        mode: "0644"
+      notify: Reload Nginx
+
+    - name: Enable the site
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ domain_name }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ domain_name }}.conf"
+        state: link
+      notify: Reload Nginx
+
+    - name: Ensure Nginx is running and enabled
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Obtain and install Let's Encrypt certificate
+      ansible.builtin.command: >
+        certbot --nginx -n --agree-tos
+        --redirect
+        -m {{ admin_email }}
+        -d {{ domain_name }}
+      args:
+        creates: "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem"
+      notify: Reload Nginx
+
+  handlers:
+    - name: Reload Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

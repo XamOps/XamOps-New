@@ -1,0 +1,42 @@
+---
+# harden-ssh.yml
+# Hardens the OpenSSH daemon: disables root login and password authentication,
+# enforces key-based auth, sets a custom port, and restricts allowed users.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}    - Inventory group or host pattern to target
+#   {{SSH_PORT}}        - Port the SSH daemon should listen on
+#   {{ALLOWED_USERS}}   - Space-separated users permitted to log in
+#   {{MAX_AUTH_TRIES}}  - Maximum authentication attempts per connection
+- name: Harden SSH access
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    ssh_port: "{{SSH_PORT}}"
+    allowed_users: "{{ALLOWED_USERS}}"
+    max_auth_tries: "{{MAX_AUTH_TRIES}}"
+
+  tasks:
+    - name: Apply hardened sshd settings
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?{{ item.key }}\\s"
+        line: "{{ item.key }} {{ item.value }}"
+        state: present
+        validate: "/usr/sbin/sshd -t -f %s"
+      loop:
+        - { key: "Port", value: "{{ ssh_port }}" }
+        - { key: "PermitRootLogin", value: "no" }
+        - { key: "PasswordAuthentication", value: "no" }
+        - { key: "PubkeyAuthentication", value: "yes" }
+        - { key: "ChallengeResponseAuthentication", value: "no" }
+        - { key: "X11Forwarding", value: "no" }
+        - { key: "MaxAuthTries", value: "{{ max_auth_tries }}" }
+        - { key: "AllowUsers", value: "{{ allowed_users }}" }
+      notify: Restart SSH
+
+  handlers:
+    - name: Restart SSH
+      ansible.builtin.service:
+        name: ssh
+        state: restarted

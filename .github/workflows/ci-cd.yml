@@ -164,15 +164,18 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build & Push Docker image
         run: |
-          docker build \
+          docker buildx build \
             --no-cache \
+            --provenance=false \
             -t ghcr.io/xamops/billops:latest \
             -t ghcr.io/xamops/billops:sha-${{ github.sha }} \
+            --push \
             ./billops
-          docker push ghcr.io/xamops/billops:latest
-          docker push ghcr.io/xamops/billops:sha-${{ github.sha }}
 
   billops-deploy:
     name: "[billops] Deploy to UAT"
@@ -349,15 +352,18 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build & Push Docker image
         run: |
-          docker build \
+          docker buildx build \
             --no-cache \
+            --provenance=false \
             -t ghcr.io/xamops/xamops-new:latest \
             -t ghcr.io/xamops/xamops-new:sha-${{ github.sha }} \
+            --push \
             ./xamops-service
-          docker push ghcr.io/xamops/xamops-new:latest
-          docker push ghcr.io/xamops/xamops-new:sha-${{ github.sha }}
 
   xamops-deploy:
     name: "[xamops-service] Deploy to UAT"
@@ -508,16 +514,19 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build & Push Docker image
         run: |
-          docker build \
+          docker buildx build \
             --no-cache \
+            --provenance=false \
             --build-arg DISABLE_ESLINT_PLUGIN=true \
             -t ghcr.io/xamops/frontend-app:latest \
             -t ghcr.io/xamops/frontend-app:sha-${{ github.sha }} \
+            --push \
             ./frontend-app
-          docker push ghcr.io/xamops/frontend-app:latest
-          docker push ghcr.io/xamops/frontend-app:sha-${{ github.sha }}
 
   frontend-deploy:
     name: "[frontend-app] Deploy to UAT"

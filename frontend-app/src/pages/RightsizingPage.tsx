@@ -40,9 +40,14 @@ export const RightsizingPage: React.FC = () => {
   const [isApplying, setIsApplying] = useState(false);
 
   const filteredAWSRecommendations = awsRecommendations.filter(rec => {
-    if (rec.recommendedType) {
-      if (rec.recommendedType.toLowerCase().includes('optimized')) return false;
-    }
+    // Drop "no-change" rows: AWS sometimes returns the current type as the best
+    // option with $0 savings (e.g. "t4g.small -> t4g.small / $0.00").
+    if (!rec.recommendedType || !rec.currentType) return false;
+    if (rec.recommendedType.trim().toLowerCase() === rec.currentType.trim().toLowerCase()) return false;
+    if (!(rec.estimatedMonthlySavings > 0)) return false;
+
+    if (rec.recommendedType.toLowerCase().includes('optimized')) return false;
+
     if (rec.recommendationReason) {
       const reason = rec.recommendationReason.toLowerCase();
       if (reason.includes('optimized') || reason.includes('no recommendation')) return false;

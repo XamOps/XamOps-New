@@ -92,7 +92,7 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
             callbacks: {
               label: (ctx) => {
                 const total = data.reduce((a, b) => a + b, 0);
-                const pct = ((ctx.parsed / total) * 100).toFixed(1);
+                const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : '0.0';
                 return ` ${formatCurrency(ctx.parsed)}  (${pct}%)`;
               },
             },
@@ -177,7 +177,7 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
                 </thead>
                 <tbody>
                   {sortedData.map((item, index) => {
-                    const pct = ((item.amount / totalCost) * 100).toFixed(1);
+                    const pct = totalCost > 0 ? ((item.amount / totalCost) * 100).toFixed(1) : '0.0';
                     return (
                       <tr key={item.name || index} className="border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)] transition-colors" style={{ animation: `fadeInUp 0.35s ease ${index * 0.035}s both` }}>
                         <td className="px-5 py-3">

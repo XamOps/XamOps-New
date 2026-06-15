@@ -1,0 +1,71 @@
+---
+# configure-ingress-services.yml
+# Creates a ClusterIP Service and an Ingress resource that routes a hostname to
+# the application service through an ingress controller.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}     - Inventory host with kubectl/kubeconfig access
+#   {{APP_NAME}}         - Application name (selector + resource names)
+#   {{K8S_NAMESPACE}}    - Target Kubernetes namespace
+#   {{SERVICE_PORT}}     - Service port exposed to the cluster
+#   {{CONTAINER_PORT}}   - Target container port behind the service
+#   {{INGRESS_HOST}}     - Hostname routed by the Ingress
+#   {{INGRESS_CLASS}}    - Ingress class name (e.g. nginx)
+- name: Configure Kubernetes Service and Ingress
+  hosts: "{{TARGET_HOSTS}}"
+  vars:
+    app_name: "{{APP_NAME}}"
+    k8s_namespace: "{{K8S_NAMESPACE}}"
+    service_port: "{{SERVICE_PORT}}"
+    container_port: "{{CONTAINER_PORT}}"
+    ingress_host: "{{INGRESS_HOST}}"
+    ingress_class: "{{INGRESS_CLASS}}"
+
+  tasks:
+    - name: Create ClusterIP Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: "{{ app_name }}"
+            namespace: "{{ k8s_namespace }}"
+          spec:
+            type: ClusterIP
+            selector:
+              app: "{{ app_name }}"
+            ports:
+              - port: "{{ service_port | int }}"
+                targetPort: "{{ container_port | int }}"
+
+    - name: Create Ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: "{{ app_name }}"
+            namespace: "{{ k8s_namespace }}"
+          spec:
+            ingressClassName: "{{ ingress_class }}"
+            rules:
+              - host: "{{ ingress_host }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: "{{ app_name }}"
+                          port:
+                            number: "{{ service_port | int }}"
+      notify: Verify ingress
+
+  handlers:
+    - name: Verify ingress
+      kubernetes.core.k8s_info:
+        kind: Ingress
+        name: "{{ app_name }}"
+        namespace: "{{ k8s_namespace }}"

@@ -242,9 +242,13 @@ public class AccountManagerController {
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         Long clientId = userDetails.getClientId();
         Client client = clientRepository.findById(clientId).orElse(null);
-        CloudAccount savedAccount = gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
-        grantSubUserAccess(userDetails, savedAccount);
-        return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
+        try {
+            CloudAccount savedAccount = gcpDataService.createGcpAccount(gcpAccountRequestDto, client);
+            grantSubUserAccess(userDetails, savedAccount);
+            return ResponseEntity.ok(Map.of("message", "GCP Account added successfully."));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     private AccountDto mapToAccountDto(CloudAccount account) {

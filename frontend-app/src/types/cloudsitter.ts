@@ -56,7 +56,23 @@ export interface ScheduleRecommendation {
   idleThreshold?: number;
 }
 
-export type ViewType = 'dashboard' | 'createPolicy';
+export type ViewType = 'dashboard' | 'createPolicy' | 'auditLog';
+
+export interface AuditLogEntry {
+  id: number;
+  accountId: string;
+  instanceId: string;
+  instanceName?: string;
+  region?: string;
+  action: 'STARTED' | 'STOPPED';
+  policyId?: number;
+  policyName?: string;
+  triggerReason: string;
+  previousState?: string;
+  outcome: 'SUCCESS' | 'FAILURE';
+  errorMessage?: string;
+  timestamp: string;
+}
 
 export interface CloudSitterState {
   currentView: ViewType;

@@ -87,7 +87,7 @@ export const LLM_PROVIDERS: ProviderInfo[] = [
   {
     key: 'OPENAI',
     name: 'OpenAI',
-    icon: 'fas fa-robot',
+    icon: 'logos:openai-icon',
     color: 'text-emerald-600',
     bgColor: 'bg-emerald-50',
     borderColor: 'border-emerald-500',
@@ -96,7 +96,7 @@ export const LLM_PROVIDERS: ProviderInfo[] = [
   {
     key: 'ANTHROPIC',
     name: 'Anthropic',
-    icon: 'fas fa-brain',
+    icon: 'logos:claude',
     color: 'text-orange-600',
     bgColor: 'bg-orange-50',
     borderColor: 'border-orange-500',
@@ -105,7 +105,7 @@ export const LLM_PROVIDERS: ProviderInfo[] = [
   {
     key: 'GEMINI',
     name: 'Google Gemini',
-    icon: 'fas fa-gem',
+    icon: 'logos:google-gemini',
     color: 'text-blue-600',
     bgColor: 'bg-blue-50',
     borderColor: 'border-blue-500',
@@ -114,7 +114,7 @@ export const LLM_PROVIDERS: ProviderInfo[] = [
   {
     key: 'BEDROCK',
     name: 'AWS Bedrock',
-    icon: 'fab fa-aws',
+    icon: 'logos:aws',
     color: 'text-amber-600',
     bgColor: 'bg-amber-50',
     borderColor: 'border-amber-500',

@@ -1,0 +1,56 @@
+---
+# configure-firewall.yml
+# Establishes a deny-by-default UFW firewall baseline, allows SSH and a list of
+# customizable service ports, and enables the firewall.
+#
+# Customization placeholders (replaced by the customization engine):
+#   {{TARGET_HOSTS}}   - Inventory group or host pattern to target
+#   {{SSH_PORT}}       - TCP port allowed for SSH access
+#   {{ALLOWED_TCP}}    - Comma-separated extra TCP ports to allow (e.g. 80,443)
+- name: Configure host firewall with UFW
+  hosts: "{{TARGET_HOSTS}}"
+  become: true
+  vars:
+    ssh_port: "{{SSH_PORT}}"
+    allowed_tcp: "{{ALLOWED_TCP}}"
+
+  tasks:
+    - name: Install UFW
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+        update_cache: true
+
+    - name: Set default deny incoming policy
+      community.general.ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Set default allow outgoing policy
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+
+    - name: Allow and rate-limit SSH
+      community.general.ufw:
+        rule: limit
+        port: "{{ ssh_port }}"
+        proto: tcp
+
+    - name: Allow additional service ports
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: "{{ allowed_tcp.split(',') | map('trim') | reject('equalto', '') | list }}"
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+        logging: "on"
+      notify: Reload UFW
+
+  handlers:
+    - name: Reload UFW
+      community.general.ufw:
+        state: reloaded

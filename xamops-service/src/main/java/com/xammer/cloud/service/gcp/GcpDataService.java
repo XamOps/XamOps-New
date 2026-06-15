@@ -847,6 +847,17 @@ public class GcpDataService {
                 validateBillingTableFormat(request.getBillingExportTable());
             }
 
+            String projectId = request.getGcpProjectId() != null ? request.getGcpProjectId() : request.getProjectId();
+
+            // Verify the service account actually has IAM access to the project before
+            // saving it as "CONNECTED". Without this, a key whose IAM role bindings
+            // failed during setup (valid credentials, zero permissions) would connect
+            // successfully and then silently show no data on every dashboard.
+            Optional<String> validationError = gcpClientProvider.validateServiceAccountAccess(request.getServiceAccountKey(), projectId);
+            if (validationError.isPresent()) {
+                throw new RuntimeException(validationError.get());
+            }
+
             // Create CloudAccount entity
             CloudAccount account = new CloudAccount();
             account.setAccountName(request.getAccountName());
@@ -856,7 +867,6 @@ public class GcpDataService {
             account.setClient(client);
 
             // GCP specific fields
-            String projectId = request.getGcpProjectId() != null ? request.getGcpProjectId() : request.getProjectId();
             account.setGcpProjectId(projectId);
             account.setGcpServiceAccountEmail(serviceAccountEmail);
             account.setGcpServiceAccountKey(request.getServiceAccountKey());
