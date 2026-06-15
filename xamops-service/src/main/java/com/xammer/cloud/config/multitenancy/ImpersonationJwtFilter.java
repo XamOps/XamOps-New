@@ -88,8 +88,15 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
                 clientId = user.getClient().getId();
             }
 
+            // Use the target user's real username (not the numeric JWT subject) so
+            // principal.getName() matches what userRepository.findByUsername() expects —
+            // mirrors ImpersonationFilter's session-based "Login As" path. Otherwise
+            // controllers like SonarQubeController throw UsernameNotFoundException,
+            // which surfaces as a 401 and the frontend treats it as a logout.
+            String principalUsername = (user != null) ? user.getUsername() : claims.getSubject();
+
             ClientUserDetails userDetails = new ClientUserDetails(
-                    claims.getSubject(),
+                    principalUsername,
                     null,
                     Collections.singletonList(new SimpleGrantedAuthority(role)),
                     clientId,
