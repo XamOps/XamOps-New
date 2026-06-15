@@ -128,6 +128,7 @@ const SreDashboardPage = lazy(() => import('./pages/SreDashboardPage'));
 const SreInvestigationsPage = lazy(() => import('./pages/SreInvestigationsPage'));
 const SreInvestigationDetailPage = lazy(() => import('./pages/SreInvestigationDetailPage'));
 const SreSetupPage = lazy(() => import('./pages/SreSetupPage'));
+const MediaOpsPage = lazy(() => import('./pages/MediaOpsPage'));
 const ComplianceOpsPage = lazy(() => import('./pages/ComplianceOpsPage'));
 const CalculatorPage = lazy(() => import('./pages/CalculatorPage'));
 
@@ -536,6 +537,13 @@ const AppContent: React.FC = () => {
                             <Route path="/sre/investigations" element={<SreInvestigationsPage />} />
                             <Route path="/sre/investigations/:id" element={<SreInvestigationDetailPage />} />
                             <Route path="/sre/setup" element={<SreSetupPage />} />
+
+                            {/* MediaOps Routes */}
+                            <Route path="/media-ops" element={<MediaOpsPage />} />
+                            <Route path="/media-ops/transcode" element={<MediaOpsPage />} />
+                            <Route path="/media-ops/streams" element={<MediaOpsPage />} />
+                            <Route path="/media-ops/storage" element={<MediaOpsPage />} />
+                            <Route path="/media-ops/cost-savings" element={<MediaOpsPage />} />
 
                             {/* BillOps Routes */}
                             <Route path="/billops-dashboard" element={<BillOpsUserDashboardPage />} />

@@ -1,0 +1,457 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+
+// ── Backend DTO types ─────────────────────────────────────────────────────────
+
+export interface MediaOpsOverview {
+  liveStreams: number;
+  processingJobs: number;
+  queuedJobs: number;
+  completedJobs: number;
+  failedJobs: number;
+  totalViewers: number;
+  storageUsedBytes: number;
+  totalSavedVsAws: number;
+}
+
+export interface ApiTranscodeJob {
+  id: number;
+  sourceUrl: string;
+  outputFormat: string;
+  resolution: string;
+  bitrate: number;
+  fps: number;
+  enableAdaptive: boolean;
+  status: string;
+  progress: number;
+  durationSeconds: number | null;
+  outputPath: string | null;
+  hlsUrl: string | null;
+  dashUrl: string | null;
+  ffmpegCommand: string | null;
+  errorMessage: string | null;
+  awsEquivalentCost: number | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface ApiMediaStream {
+  id: number;
+  name: string;
+  streamKey: string;
+  status: string;
+  resolution: string;
+  bitrate: number;
+  rtmpUrl: string;
+  hlsUrl: string;
+  viewers: number;
+  bandwidthBytes: number;
+  uptimeSeconds: number;
+}
+
+export interface ApiStorageFile {
+  id: number;
+  name: string;
+  fileType: string;
+  sizeBytes: number;
+  durationSeconds: number | null;
+  format: string;
+  resolution: string | null;
+  filePath: string;
+  createdAt: string;
+}
+
+export interface CreateJobRequest {
+  sourceUrl: string;
+  outputFormat: string;
+  resolution: string;
+  enableAdaptive: boolean;
+}
+
+export interface CreateStreamRequest {
+  name: string;
+  resolution: string;
+  bitrate?: string;
+}
+
+// ── Format helpers ────────────────────────────────────────────────────────────
+
+export function formatBytes(bytes: number): string {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+export function formatSeconds(secs: number | null): string {
+  if (!secs) return '—';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+export function formatUptime(secs: number): string {
+  if (!secs || secs === 0) return '—';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+export function timeAgo(iso: string): string {
+  if (!iso) return '—';
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
+  return `${Math.floor(diff / 86400)} day ago`;
+}
+
+// ── Hook ──────────────────────────────────────────────────────────────────────
+
+export function useMediaOpsData() {
+  const [overview, setOverview] = useState<MediaOpsOverview | null>(null);
+  const [rawJobs, setRawJobs] = useState<ApiTranscodeJob[]>([]);
+  const [rawStreams, setRawStreams] = useState<ApiMediaStream[]>([]);
+  const [rawFiles, setRawFiles] = useState<ApiStorageFile[]>([]);
+
+  const [loadingOverview, setLoadingOverview] = useState(true);
+  const [loadingJobs, setLoadingJobs] = useState(true);
+  const [loadingStreams, setLoadingStreams] = useState(true);
+  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const stompClientRef = useRef<any>(null);
+  const subscriptionsRef = useRef<Map<number, any>>(new Map());
+  const isMountedRef = useRef(true);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Fetch functions ────────────────────────────────────────────────────────
+
+  const fetchOverview = useCallback(async () => {
+    try {
+      const res = await fetch('/api/media-ops/overview', { credentials: 'include' });
+      if (!res.ok) throw new Error(`Overview fetch failed: ${res.status}`);
+      const data: MediaOpsOverview = await res.json();
+      if (isMountedRef.current) setOverview(data);
+    } catch (e: any) {
+      if (isMountedRef.current) setError(e.message);
+    } finally {
+      if (isMountedRef.current) setLoadingOverview(false);
+    }
+  }, []);
+
+  const fetchJobs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/media-ops/jobs', { credentials: 'include' });
+      if (!res.ok) throw new Error(`Jobs fetch failed: ${res.status}`);
+      const data: ApiTranscodeJob[] = await res.json();
+      if (isMountedRef.current) setRawJobs(data);
+    } catch (e: any) {
+      if (isMountedRef.current) setError(e.message);
+    } finally {
+      if (isMountedRef.current) setLoadingJobs(false);
+    }
+  }, []);
+
+  const fetchStreams = useCallback(async () => {
+    try {
+      const res = await fetch('/api/media-ops/streams', { credentials: 'include' });
+      if (!res.ok) throw new Error(`Streams fetch failed: ${res.status}`);
+      const data: ApiMediaStream[] = await res.json();
+      if (isMountedRef.current) setRawStreams(data);
+    } catch (e: any) {
+      if (isMountedRef.current) setError(e.message);
+    } finally {
+      if (isMountedRef.current) setLoadingStreams(false);
+    }
+  }, []);
+
+  const fetchFiles = useCallback(async () => {
+    try {
+      const res = await fetch('/api/media-ops/storage/files', { credentials: 'include' });
+      if (!res.ok) throw new Error(`Files fetch failed: ${res.status}`);
+      const data: ApiStorageFile[] = await res.json();
+      if (isMountedRef.current) setRawFiles(data);
+    } catch (e: any) {
+      if (isMountedRef.current) setError(e.message);
+    } finally {
+      if (isMountedRef.current) setLoadingFiles(false);
+    }
+  }, []);
+
+  // ── STOMP WebSocket ────────────────────────────────────────────────────────
+
+  const subscribeToJob = useCallback((jobId: number) => {
+    const client = stompClientRef.current;
+    if (!client || subscriptionsRef.current.has(jobId)) return;
+
+    const sub = client.subscribe(`/topic/media-ops/jobs/${jobId}`, (msg: any) => {
+      try {
+        const update: { id: number; status: string; progress: number } = JSON.parse(msg.body);
+        if (!isMountedRef.current) return;
+        setRawJobs(prev => prev.map(j =>
+          j.id === update.id ? { ...j, status: update.status, progress: update.progress } : j
+        ));
+        if (update.status === 'COMPLETED' || update.status === 'FAILED' || update.status === 'CANCELLED') {
+          subscriptionsRef.current.get(jobId)?.unsubscribe();
+          subscriptionsRef.current.delete(jobId);
+          setTimeout(() => {
+            if (isMountedRef.current) { fetchJobs(); fetchOverview(); }
+          }, 600);
+        }
+      } catch (err) {
+        console.error('MediaOps: failed to parse job update', err);
+      }
+    });
+    subscriptionsRef.current.set(jobId, sub);
+  }, [fetchJobs, fetchOverview]);
+
+  const connectWebSocket = useCallback(() => {
+    if (!window.SockJS || !window.Stomp) return;
+    try {
+      const socket = new window.SockJS('/media-ops-ws');
+      const client = window.Stomp.over(socket);
+      if (process.env.NODE_ENV === 'production') {
+        client.debug = () => {};
+      }
+      client.connect(
+        {},
+        () => {
+          if (!isMountedRef.current) { client.disconnect(() => {}); return; }
+          stompClientRef.current = client;
+          // Subscribe to any already-processing jobs
+          setRawJobs(prev => {
+            prev.filter(j => j.status === 'PROCESSING').forEach(j => subscribeToJob(j.id));
+            return prev;
+          });
+        },
+        (_err: any) => {
+          stompClientRef.current = null;
+          if (!isMountedRef.current) return;
+          reconnectTimerRef.current = setTimeout(() => {
+            if (isMountedRef.current) connectWebSocket();
+          }, 5000);
+        }
+      );
+    } catch (err) {
+      console.error('MediaOps: WebSocket connect error', err);
+    }
+  }, [subscribeToJob]);
+
+  // When jobs list updates, subscribe to any new PROCESSING jobs
+  useEffect(() => {
+    if (!stompClientRef.current) return;
+    rawJobs.filter(j => j.status === 'PROCESSING').forEach(j => subscribeToJob(j.id));
+  }, [rawJobs, subscribeToJob]);
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    fetchOverview();
+    fetchJobs();
+    fetchStreams();
+    fetchFiles();
+    connectWebSocket();
+
+    return () => {
+      isMountedRef.current = false;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      subscriptionsRef.current.forEach(sub => { try { sub.unsubscribe(); } catch {} });
+      subscriptionsRef.current.clear();
+      try { stompClientRef.current?.disconnect(() => {}); } catch {}
+      stompClientRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+
+  const createJob = useCallback(async (req: CreateJobRequest): Promise<ApiTranscodeJob> => {
+    const res = await fetch('/api/media-ops/jobs', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg || 'Failed to create job');
+    }
+    const job: ApiTranscodeJob = await res.json();
+    setRawJobs(prev => [job, ...prev]);
+    setTimeout(() => { if (stompClientRef.current) subscribeToJob(job.id); }, 800);
+    return job;
+  }, [subscribeToJob]);
+
+  const createStream = useCallback(async (req: CreateStreamRequest): Promise<ApiMediaStream> => {
+    const res = await fetch('/api/media-ops/streams', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg || 'Failed to create stream');
+    }
+    const stream: ApiMediaStream = await res.json();
+    setRawStreams(prev => [stream, ...prev]);
+    fetchOverview();
+    return stream;
+  }, [fetchOverview]);
+
+  const startStream = useCallback(async (streamId: number) => {
+    const res = await fetch(`/api/media-ops/streams/${streamId}/start`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Failed to start stream');
+    await fetchStreams();
+    await fetchOverview();
+  }, [fetchStreams, fetchOverview]);
+
+  const stopStream = useCallback(async (streamId: number) => {
+    const res = await fetch(`/api/media-ops/streams/${streamId}/stop`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Failed to stop stream');
+    await fetchStreams();
+    await fetchOverview();
+  }, [fetchStreams, fetchOverview]);
+
+  const deleteFile = useCallback(async (fileId: number) => {
+    const res = await fetch(`/api/media-ops/storage/files/${fileId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Failed to delete file');
+    setRawFiles(prev => prev.filter(f => f.id !== fileId));
+    fetchOverview();
+  }, [fetchOverview]);
+
+  const uploadFile = useCallback(async (file: File): Promise<ApiStorageFile> => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/media-ops/storage/upload', {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg || `Upload failed: ${res.status}`);
+    }
+    const saved: ApiStorageFile = await res.json();
+    setRawFiles(prev => [saved, ...prev]);
+    fetchOverview();
+    return saved;
+  }, [fetchOverview]);
+
+  const retryJob = useCallback(async (jobId: number): Promise<ApiTranscodeJob> => {
+    const res = await fetch(`/api/media-ops/jobs/${jobId}/retry`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Failed to retry job');
+    const job: ApiTranscodeJob = await res.json();
+    setRawJobs(prev => prev.map(j => j.id === jobId ? job : j));
+    setTimeout(() => { if (stompClientRef.current) subscribeToJob(jobId); }, 800);
+    return job;
+  }, [subscribeToJob]);
+
+  const refresh = useCallback(() => {
+    setLoadingOverview(true);
+    setLoadingJobs(true);
+    setLoadingStreams(true);
+    setLoadingFiles(true);
+    setError(null);
+    fetchOverview();
+    fetchJobs();
+    fetchStreams();
+    fetchFiles();
+  }, [fetchOverview, fetchJobs, fetchStreams, fetchFiles]);
+
+  // ── Derived / adapted view-layer data ─────────────────────────────────────
+
+  const jobs = rawJobs.map(j => ({
+    id: String(j.id),
+    name: j.sourceUrl ? (j.sourceUrl.split('/').pop() || j.sourceUrl) : 'Unknown',
+    inputFormat: ((j.sourceUrl?.split('.').pop() || 'MP4').toUpperCase().slice(0, 4)),
+    outputFormat: j.outputFormat ?? '—',
+    resolution: j.resolution ?? '—',
+    status: (j.status ?? 'queued').toLowerCase() as 'queued' | 'processing' | 'completed' | 'failed',
+    progress: j.progress ?? 0,
+    duration: formatSeconds(j.durationSeconds),
+    fileSize: '—',
+    outputSize: '—',
+    savings: (() => {
+      if (!j.awsEquivalentCost) return '—';
+      const v = Number(j.awsEquivalentCost);
+      if (v < 0.01) return `$${v.toFixed(4)}`;
+      return `$${v.toFixed(2)}`;
+    })(),
+    createdAt: timeAgo(j.createdAt),
+    completedAt: j.completedAt ? timeAgo(j.completedAt) : undefined,
+    fps: j.fps || 30,
+    bitrate: j.bitrate ? `${j.bitrate} kbps` : '—',
+    ffmpegCommand: j.ffmpegCommand ?? undefined,
+    hlsUrl: j.hlsUrl ?? undefined,
+    dashUrl: j.dashUrl ?? undefined,
+    errorMessage: j.errorMessage ?? undefined,
+    rawId: j.id,
+  }));
+
+  const streams = rawStreams.map(s => ({
+    id: String(s.id),
+    name: s.name,
+    status: (s.status ?? 'idle').toLowerCase() as 'live' | 'idle' | 'error',
+    viewers: s.viewers ?? 0,
+    rtmpUrl: s.rtmpUrl,
+    hlsUrl: s.hlsUrl || '',
+    streamKey: s.streamKey,
+    resolution: s.resolution,
+    bitrate: s.bitrate ? `${s.bitrate} kbps` : '—',
+    uptime: formatUptime(s.uptimeSeconds),
+    bandwidth: formatBytes(s.bandwidthBytes),
+    rawId: s.id,
+  }));
+
+  const files = rawFiles.map(f => ({
+    id: String(f.id),
+    name: f.name,
+    type: (f.fileType ?? 'video').toLowerCase() as 'video' | 'audio' | 'image' | 'hls',
+    size: formatBytes(f.sizeBytes),
+    duration: f.durationSeconds ? formatSeconds(f.durationSeconds) : undefined,
+    format: f.format,
+    resolution: f.resolution ?? undefined,
+    filePath: f.filePath,
+    createdAt: timeAgo(f.createdAt),
+    thumbnail: '',
+    rawId: f.id,
+  }));
+
+  return {
+    overview,
+    jobs,
+    streams,
+    files,
+    loadingOverview,
+    loadingJobs,
+    loadingStreams,
+    loadingFiles,
+    error,
+    createJob,
+    retryJob,
+    uploadFile,
+    createStream,
+    startStream,
+    stopStream,
+    deleteFile,
+    refresh,
+  };
+}

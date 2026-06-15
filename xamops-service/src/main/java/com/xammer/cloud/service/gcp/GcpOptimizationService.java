@@ -128,6 +128,7 @@ public class GcpOptimizationService {
     private static final double EST_BACKUP_COST_USD = 0.01; // Nominal; configurable
     private static final double EST_PD_COST_USD_PER_GB = 0.10; // Will query catalog below
     private static final double USD_TO_INR_RATE = 83.0; // Define conversion rate
+    private static final double EST_FORWARDING_RULE_MONTHLY_INR = 1494.0; // ~$18/month * INR rate per idle LB forwarding rule
 
     // Regex for custom tier: db-custom-<vCPU>-<RAM_MB>
     private static final Pattern CUSTOM_TIER_PATTERN = Pattern.compile("db-custom-(\\d+)-(\\d+)");
@@ -842,6 +843,11 @@ public class GcpOptimizationService {
         fastFutures.add(findUnusedSslCertificates(gcpProjectId));
         fastFutures.add(findDownVpnTunnels(gcpProjectId));
         fastFutures.add(findEmptyTargetPools(gcpProjectId));
+        // Tier-2 Easy: DNS, Disks, NAT, PubSub
+        fastFutures.add(findEmptyDnsZones(gcpProjectId));
+        // Tier-2 Medium: Autoscalers, Logging
+        fastFutures.add(findIneffectiveAutoscalers(gcpProjectId, locations));
+        fastFutures.add(findExcessiveLogRetention(gcpProjectId));
 
         List<CompletableFuture<List<GcpWasteItem>>> safeFast = fastFutures.stream()
                 .map(f -> f.exceptionally(e -> {
@@ -871,7 +877,13 @@ public class GcpOptimizationService {
                 findBigQueryDatasetsNotQueried(gcpProjectId),
                 findStorageBucketsWithNoReads(gcpProjectId),
                 findStaleArtifactRepos(gcpProjectId, locations),
-                findAlwaysFailingSchedulerJobs(gcpProjectId, locations)
+                findAlwaysFailingSchedulerJobs(gcpProjectId, locations),
+                // Tier-2 Easy: metric-based
+                findIdleAttachedDisks(gcpProjectId),
+                findIdleCloudNatGateways(gcpProjectId),
+                findStalePubSubSubscriptions(gcpProjectId),
+                // Tier-2 Medium: metric-based
+                findIdleHttpLoadBalancers(gcpProjectId)
         );
 
         List<CompletableFuture<List<GcpWasteItem>>> safeSlow = slowFutures.stream()
@@ -885,7 +897,7 @@ public class GcpOptimizationService {
         List<GcpWasteItem> slowResults;
         try {
             CompletableFuture.allOf(safeSlow.toArray(new CompletableFuture[0]))
-                    .get(40, java.util.concurrent.TimeUnit.SECONDS);
+                    .get(80, java.util.concurrent.TimeUnit.SECONDS);
             slowResults = safeSlow.stream().map(CompletableFuture::join)
                     .flatMap(List::stream).collect(Collectors.toList());
         } catch (Exception e) {
@@ -2966,4 +2978,314 @@ public class GcpOptimizationService {
         }, executor);
     }
 
+    // ── Tier-2 Easy ──────────────────────────────────────────────────────────
+
+    // Cloud DNS managed zones containing only default NS/SOA records — billed but unconfigured.
+    private CompletableFuture<List<GcpWasteItem>> findEmptyDnsZones(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<com.google.api.services.dns.Dns> clientOpt = gcpClientProvider.getDnsZonesClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            List<GcpWasteItem> items = new ArrayList<>();
+            try {
+                com.google.api.services.dns.Dns dns = clientOpt.get();
+                List<com.google.api.services.dns.model.ManagedZone> zones =
+                        dns.managedZones().list(gcpProjectId).execute().getManagedZones();
+                if (zones == null) return List.of();
+                for (com.google.api.services.dns.model.ManagedZone zone : zones) {
+                    List<com.google.api.services.dns.model.ResourceRecordSet> records =
+                            dns.resourceRecordSets().list(gcpProjectId, zone.getName()).execute().getRrsets();
+                    boolean onlyDefaults = records == null || records.stream()
+                            .allMatch(r -> "NS".equals(r.getType()) || "SOA".equals(r.getType()));
+                    if (onlyDefaults) {
+                        items.add(new GcpWasteItem(
+                                zone.getName(), zone.getDnsName(),
+                                "Empty Cloud DNS Zone", "global",
+                                0.20 * USD_TO_INR_RATE,
+                                "Zone contains only default NS/SOA records"));
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findEmptyDnsZones failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
+
+    // Persistent Disks attached to an instance but with zero read/write I/O over the lookback window.
+    private CompletableFuture<List<GcpWasteItem>> findIdleAttachedDisks(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<DisksClient> clientOpt = gcpClientProvider.getDisksClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            List<GcpWasteItem> items = new ArrayList<>();
+            try (DisksClient client = clientOpt.get()) {
+                for (var entry : client.aggregatedList(gcpProjectId).iterateAll()) {
+                    for (var disk : entry.getValue().getDisksList()) {
+                        if (disk.getUsersList().isEmpty()) continue;
+                        String zoneUrl = disk.getZone();
+                        if (zoneUrl == null || zoneUrl.isEmpty()) continue;
+                        String zone = zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1);
+                        try {
+                            double readOps = gcpMetricsService
+                                    .getDiskReadIops(gcpProjectId, disk.getName(), zone, LOOKBACK_DAYS * 24, 3600)
+                                    .stream().mapToDouble(com.xammer.cloud.dto.gcp.GcpMetricDto::getValue).sum();
+                            double writeOps = gcpMetricsService
+                                    .getDiskWriteIops(gcpProjectId, disk.getName(), zone, LOOKBACK_DAYS * 24, 3600)
+                                    .stream().mapToDouble(com.xammer.cloud.dto.gcp.GcpMetricDto::getValue).sum();
+                            if (readOps == 0.0 && writeOps == 0.0) {
+                                items.add(new GcpWasteItem(
+                                        disk.getName(), disk.getName(),
+                                        "Idle Attached Disk", zone,
+                                        calculateDiskCost(disk.getSizeGb()),
+                                        "Disk has had zero read/write I/O over the last " + LOOKBACK_DAYS + " days"));
+                            }
+                        } catch (Exception e) {
+                            log.debug("[GcpWaste] Could not fetch I/O metrics for disk {}: {}", disk.getName(), e.getMessage());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findIdleAttachedDisks failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
+
+    // Cloud NAT gateways with zero sent/received bytes — likely unused egress paths.
+    private CompletableFuture<List<GcpWasteItem>> findIdleCloudNatGateways(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<RoutersClient> routersOpt = gcpClientProvider.getRoutersClient(gcpProjectId);
+            Optional<MetricServiceClient> metricsOpt = gcpClientProvider.getMetricServiceClient(gcpProjectId);
+            if (routersOpt.isEmpty() || metricsOpt.isEmpty()) return List.of();
+
+            List<GcpWasteItem> items = new ArrayList<>();
+            try (RoutersClient routersClient = routersOpt.get();
+                 MetricServiceClient metricsClient = metricsOpt.get()) {
+
+                com.google.protobuf.Timestamp end = com.google.protobuf.Timestamp.newBuilder()
+                        .setSeconds(Instant.now().getEpochSecond()).build();
+                com.google.protobuf.Timestamp start = com.google.protobuf.Timestamp.newBuilder()
+                        .setSeconds(Instant.now().minus(LOOKBACK_DAYS, ChronoUnit.DAYS).getEpochSecond()).build();
+
+                for (var entry : routersClient.aggregatedList(gcpProjectId).iterateAll()) {
+                    for (var router : entry.getValue().getRoutersList()) {
+                        String regionUrl = router.getRegion();
+                        String region = regionUrl.contains("/") ? regionUrl.substring(regionUrl.lastIndexOf('/') + 1) : regionUrl;
+                        for (var nat : router.getNatsList()) {
+                            boolean hasTraffic = false;
+                            for (String metricType : List.of(
+                                    "router.googleapis.com/nat/sent_bytes_count",
+                                    "router.googleapis.com/nat/received_bytes_count")) {
+                                String filter = String.format(
+                                        "metric.type=\"%s\" AND resource.labels.router_id=\"%s\" AND resource.labels.gateway_name=\"%s\"",
+                                        metricType, router.getName(), nat.getName());
+                                var req = com.google.monitoring.v3.ListTimeSeriesRequest.newBuilder()
+                                        .setName("projects/" + gcpProjectId)
+                                        .setFilter(filter)
+                                        .setInterval(com.google.monitoring.v3.TimeInterval.newBuilder()
+                                                .setStartTime(start).setEndTime(end).build())
+                                        .setView(com.google.monitoring.v3.ListTimeSeriesRequest.TimeSeriesView.HEADERS)
+                                        .build();
+                                if (metricsClient.listTimeSeries(req).iterateAll().iterator().hasNext()) {
+                                    hasTraffic = true;
+                                    break;
+                                }
+                            }
+                            if (!hasTraffic) {
+                                items.add(new GcpWasteItem(
+                                        router.getName() + "/" + nat.getName(), nat.getName(),
+                                        "Idle Cloud NAT Gateway", region, 0.0,
+                                        "No NAT traffic (sent/received bytes) in the last " + LOOKBACK_DAYS + " days"));
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findIdleCloudNatGateways failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
+
+    // Pub/Sub subscriptions with no pull/push activity in 30 days — backlog may be accruing storage cost.
+    private CompletableFuture<List<GcpWasteItem>> findStalePubSubSubscriptions(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<com.google.cloud.pubsub.v1.SubscriptionAdminClient> subOpt =
+                    gcpClientProvider.getPubSubSubscriptionClient(gcpProjectId);
+            Optional<MetricServiceClient> metricsOpt = gcpClientProvider.getMetricServiceClient(gcpProjectId);
+            if (subOpt.isEmpty() || metricsOpt.isEmpty()) return List.of();
+
+            List<GcpWasteItem> items = new ArrayList<>();
+            try (com.google.cloud.pubsub.v1.SubscriptionAdminClient subClient = subOpt.get();
+                 MetricServiceClient metricsClient = metricsOpt.get()) {
+
+                com.google.protobuf.Timestamp end = com.google.protobuf.Timestamp.newBuilder()
+                        .setSeconds(Instant.now().getEpochSecond()).build();
+                com.google.protobuf.Timestamp start = com.google.protobuf.Timestamp.newBuilder()
+                        .setSeconds(Instant.now().minus(30, ChronoUnit.DAYS).getEpochSecond()).build();
+
+                String projectPath = com.google.pubsub.v1.ProjectName.of(gcpProjectId).toString();
+                for (com.google.pubsub.v1.Subscription sub : subClient.listSubscriptions(projectPath).iterateAll()) {
+                    String subName = sub.getName();
+                    String shortName = subName.substring(subName.lastIndexOf('/') + 1);
+                    boolean isPush = sub.hasPushConfig() && !sub.getPushConfig().getPushEndpoint().isEmpty();
+                    String metricType = isPush
+                            ? "pubsub.googleapis.com/subscription/push_request_count"
+                            : "pubsub.googleapis.com/subscription/pull_request_count";
+                    String filter = String.format(
+                            "metric.type=\"%s\" AND resource.labels.subscription_id=\"%s\"",
+                            metricType, shortName);
+                    var req = com.google.monitoring.v3.ListTimeSeriesRequest.newBuilder()
+                            .setName("projects/" + gcpProjectId)
+                            .setFilter(filter)
+                            .setInterval(com.google.monitoring.v3.TimeInterval.newBuilder()
+                                    .setStartTime(start).setEndTime(end).build())
+                            .setView(com.google.monitoring.v3.ListTimeSeriesRequest.TimeSeriesView.HEADERS)
+                            .build();
+                    boolean hasActivity = metricsClient.listTimeSeries(req).iterateAll().iterator().hasNext();
+                    if (!hasActivity) {
+                        items.add(new GcpWasteItem(
+                                subName, shortName,
+                                "Idle Pub/Sub Subscription", "global", 0.0,
+                                "No pull/push activity in the last 30 days"));
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findStalePubSubSubscriptions failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
+
+    // ── Tier-2 Medium ─────────────────────────────────────────────────────────
+
+    // Autoscalers where minNumReplicas == maxNumReplicas — autoscaling never fires.
+    private CompletableFuture<List<GcpWasteItem>> findIneffectiveAutoscalers(String gcpProjectId, List<String> locations) {
+        return CompletableFuture.supplyAsync(() -> {
+            List<GcpWasteItem> items = new ArrayList<>();
+
+            Optional<AutoscalersClient> zonalOpt = gcpClientProvider.getAutoscalersClient(gcpProjectId);
+            if (zonalOpt.isPresent()) {
+                try (AutoscalersClient client = zonalOpt.get()) {
+                    for (var entry : client.aggregatedList(gcpProjectId).iterateAll()) {
+                        String zoneUrl = entry.getKey();
+                        String zone = zoneUrl.contains("/") ? zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1) : zoneUrl;
+                        for (Autoscaler as : entry.getValue().getAutoscalersList()) {
+                            collectIneffectiveAutoscaler(items, as, zone);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[GcpWaste] findIneffectiveAutoscalers (zonal) failed for {}: {}", gcpProjectId, e.getMessage());
+                }
+            }
+
+            Optional<RegionAutoscalersClient> regionalOpt = gcpClientProvider.getRegionAutoscalersClient(gcpProjectId);
+            if (regionalOpt.isPresent()) {
+                try (RegionAutoscalersClient client = regionalOpt.get()) {
+                    for (String region : locations) {
+                        try {
+                            for (Autoscaler as : client.list(gcpProjectId, region).iterateAll()) {
+                                collectIneffectiveAutoscaler(items, as, region);
+                            }
+                        } catch (Exception e) {
+                            log.debug("[GcpWaste] Regional autoscalers unavailable for region {}: {}", region, e.getMessage());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[GcpWaste] findIneffectiveAutoscalers (regional) failed for {}: {}", gcpProjectId, e.getMessage());
+                }
+            }
+            return items;
+        }, executor);
+    }
+
+    private void collectIneffectiveAutoscaler(List<GcpWasteItem> items, Autoscaler as, String location) {
+        if (!as.hasAutoscalingPolicy()) return;
+        var policy = as.getAutoscalingPolicy();
+        if (policy.getMinNumReplicas() > 0 && policy.getMinNumReplicas() == policy.getMaxNumReplicas()) {
+            items.add(new GcpWasteItem(
+                    as.getName(), as.getName(),
+                    "Ineffective Autoscaler (Min=Max)", location, 0.0,
+                    "Min and max replicas are both " + policy.getMinNumReplicas() + " — autoscaling has no effect"));
+        }
+    }
+
+    // Cloud Logging buckets with retention beyond 30 days — each extra day incurs storage cost.
+    private CompletableFuture<List<GcpWasteItem>> findExcessiveLogRetention(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<com.google.cloud.logging.v2.ConfigClient> clientOpt = gcpClientProvider.getConfigClient(gcpProjectId);
+            if (clientOpt.isEmpty()) return List.of();
+            List<GcpWasteItem> items = new ArrayList<>();
+            try (com.google.cloud.logging.v2.ConfigClient client = clientOpt.get()) {
+                String parent = String.format("projects/%s/locations/-", gcpProjectId);
+                for (com.google.logging.v2.LogBucket bucket : client.listBuckets(parent).iterateAll()) {
+                    if (bucket.getRetentionDays() <= 30) continue;
+                    String name = bucket.getName();
+                    if (name.endsWith("/_Required")) continue;
+                    String[] parts = name.split("/");
+                    String bucketId = parts[parts.length - 1];
+                    String location = parts.length > 3 ? parts[3] : "global";
+                    double extraDays = bucket.getRetentionDays() - 30;
+                    double estimatedInr = extraDays * 0.01 * USD_TO_INR_RATE;
+                    items.add(new GcpWasteItem(
+                            name, bucketId,
+                            "Cloud Logging Excessive Retention", location, estimatedInr,
+                            "Retention is " + bucket.getRetentionDays() + " days (default 30) — "
+                                    + (int) extraDays + " extra days of log storage cost"));
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findExcessiveLogRetention failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
+
+    // HTTP(S) / proxy-based LB forwarding rules with zero requests — billed per-rule even when idle.
+    private CompletableFuture<List<GcpWasteItem>> findIdleHttpLoadBalancers(String gcpProjectId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<ForwardingRulesClient> frOpt = gcpClientProvider.getForwardingRulesClient(gcpProjectId);
+            Optional<MetricServiceClient> metricsOpt = gcpClientProvider.getMetricServiceClient(gcpProjectId);
+            if (frOpt.isEmpty() || metricsOpt.isEmpty()) return List.of();
+
+            List<GcpWasteItem> items = new ArrayList<>();
+            try (ForwardingRulesClient frClient = frOpt.get();
+                 MetricServiceClient metricsClient = metricsOpt.get()) {
+
+                com.google.protobuf.Timestamp end = com.google.protobuf.Timestamp.newBuilder()
+                        .setSeconds(Instant.now().getEpochSecond()).build();
+                com.google.protobuf.Timestamp start = com.google.protobuf.Timestamp.newBuilder()
+                        .setSeconds(Instant.now().minus(LOOKBACK_DAYS, ChronoUnit.DAYS).getEpochSecond()).build();
+
+                for (var entry : frClient.aggregatedList(gcpProjectId).iterateAll()) {
+                    for (ForwardingRule rule : entry.getValue().getForwardingRulesList()) {
+                        String scheme = rule.getLoadBalancingScheme();
+                        if (!scheme.endsWith("MANAGED")) continue;
+                        String filter = String.format(
+                                "metric.type=\"loadbalancing.googleapis.com/https/request_count\" AND resource.labels.forwarding_rule_name=\"%s\"",
+                                rule.getName());
+                        var req = com.google.monitoring.v3.ListTimeSeriesRequest.newBuilder()
+                                .setName("projects/" + gcpProjectId)
+                                .setFilter(filter)
+                                .setInterval(com.google.monitoring.v3.TimeInterval.newBuilder()
+                                        .setStartTime(start).setEndTime(end).build())
+                                .setView(com.google.monitoring.v3.ListTimeSeriesRequest.TimeSeriesView.HEADERS)
+                                .build();
+                        boolean hasTraffic = metricsClient.listTimeSeries(req).iterateAll().iterator().hasNext();
+                        if (!hasTraffic) {
+                            String regionUrl = rule.getRegion();
+                            String location = (regionUrl == null || regionUrl.isEmpty())
+                                    ? "global"
+                                    : regionUrl.substring(regionUrl.lastIndexOf('/') + 1);
+                            items.add(new GcpWasteItem(
+                                    rule.getName(), rule.getName(),
+                                    "Idle Load Balancer", location, EST_FORWARDING_RULE_MONTHLY_INR,
+                                    "No requests to this " + scheme + " load balancer in the last " + LOOKBACK_DAYS + " days"));
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] findIdleHttpLoadBalancers failed for {}: {}", gcpProjectId, e.getMessage());
+            }
+            return items;
+        }, executor);
+    }
 }

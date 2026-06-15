@@ -1,0 +1,41 @@
+package com.xammer.cloud.security;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.User;
+import java.util.Collection;
+import java.util.Collections;
+
+// Must match the @class stored in Redis by xamops-service — same package, same class name
+@JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = JsonTypeInfo.As.PROPERTY, property = "@class")
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class ClientUserDetails extends User {
+
+    private final Long clientId;
+    private final Long id;
+    private final String tenantId;
+
+    @JsonCreator
+    public ClientUserDetails(
+            @JsonProperty("username") String username,
+            @JsonProperty("password") String password,
+            @JsonProperty("authorities") Collection<? extends GrantedAuthority> authorities,
+            @JsonProperty("clientId") Long clientId,
+            @JsonProperty("id") Long id,
+            @JsonProperty("tenantId") String tenantId) {
+        super(
+                username,
+                (password != null ? password : "[PROTECTED]"),
+                (authorities != null ? authorities : Collections.emptyList()));
+        this.clientId = clientId;
+        this.id = id;
+        this.tenantId = tenantId;
+    }
+
+    public Long getClientId() { return clientId; }
+    public Long getId()       { return id; }
+    public String getTenantId() { return tenantId; }
+}

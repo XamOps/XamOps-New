@@ -125,7 +125,7 @@ export const useGcpWasteData = ({
       console.log(`[GCP Waste] Fetching waste report for account: ${selectedAccountId}, forceRefresh: ${forceRefresh}`);
 
       const response = await fetch(
-        `/api/xamops/gcp/optimization/waste-report?accountId=${selectedAccountId}`
+        `/api/xamops/gcp/optimization/waste-report?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`
       );
 
       if (!response.ok) {

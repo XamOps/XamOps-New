@@ -18,7 +18,7 @@ const Topbar: React.FC = () => {
     const { title: contextTitle, subtitle: contextSubtitle, actions, onHelpClick } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
     const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
-    const { theme, toggleTheme } = useTheme();
+    const { theme } = useTheme();
     const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
     const [isProfileOpen, setIsProfileOpen] = useState(false);

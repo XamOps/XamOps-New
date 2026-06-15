@@ -28,6 +28,7 @@
         <module>service-registry</module>
         <module>xamops-service</module>
         <module>billops</module>
+        <module>media-ops-service</module>
         <module>api-gateway</module>
     </modules>
 

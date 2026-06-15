@@ -85,6 +85,7 @@ const Sidebar: React.FC = () => {
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
     const observabilityRoutes = ['/observability', '/grafana-dashboard'];
     const sreRoutes = ['/sre'];
+    const mediaopsRoutes = ['/media-ops'];
     // const accessopsRoutes = ['/identity/users', '/identity/groups', '/identity/audit'];
 
     if (finopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('finops');
@@ -94,6 +95,7 @@ const Sidebar: React.FC = () => {
     else if (licensesRoutes.some(r => path.startsWith(r))) setOpenDropdown('licenses');
     else if (observabilityRoutes.some(r => path.startsWith(r))) setOpenDropdown('observability');
     else if (sreRoutes.some(r => path.startsWith(r))) setOpenDropdown('sre');
+    else if (mediaopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('mediaops');
     // else if (accessopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('accessops');
   }, [location.pathname]);
 
@@ -353,6 +355,21 @@ const Sidebar: React.FC = () => {
                 <NavItem href="/sre" icon="fas fa-chart-pie" label="Dashboard" isActive={location.pathname === '/sre'} />
                 <NavItem href="/sre/investigations" icon="fas fa-search" label="Investigations" isActive={isActive('/sre/investigations')} />
                 <NavItem href="/sre/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/sre/setup')} />
+              </NavSection>
+
+              <NavSection
+                icon="fas fa-film"
+                label="MediaOps"
+                gradientClass="from-pink-500 to-rose-600"
+                badge="Beta"
+                isOpen={openDropdown === 'mediaops'}
+                onToggle={() => toggleDropdown('mediaops')}
+              >
+                <NavItem href="/media-ops" icon="fas fa-chart-pie" label="Overview" isActive={location.pathname === '/media-ops'} />
+                <NavItem href="/media-ops/transcode" icon="fas fa-exchange-alt" label="Transcoding Jobs" isActive={isActive('/media-ops/transcode')} />
+                <NavItem href="/media-ops/streams" icon="fas fa-broadcast-tower" label="Live Streams" isActive={isActive('/media-ops/streams')} />
+                <NavItem href="/media-ops/storage" icon="fas fa-database" label="Media Storage" isActive={isActive('/media-ops/storage')} />
+                <NavItem href="/media-ops/cost-savings" icon="fas fa-piggy-bank" label="Cost Savings" isActive={isActive('/media-ops/cost-savings')} />
               </NavSection>
 
               <NavSection

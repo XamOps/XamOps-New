@@ -90,6 +90,19 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // --- 0. WEBSOCKET PROXY (Must be first) ---
+      '/media-ops-ws': {
+        target: 'http://localhost:8084',
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+        configure: (proxy: any) => {
+          proxy.on('error', (err: any) => {
+            if (err.code !== 'EPIPE' && err.code !== 'ECONNRESET') {
+              console.error('[media-ops-ws proxy error]', err.message);
+            }
+          });
+        },
+      },
       '/xamops-ws': {
         target: 'http://localhost:8080', // Support SockJS (http + ws upgrade)
         ws: true,
@@ -225,6 +238,23 @@ export default defineConfig({
       '/api/sre': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // SRE Investigations
       '/api/llm-proxy': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // AI Gateway proxy
 
+      // MediaOps — all REST endpoints direct to service (gateway returns 404 with session cookies)
+      '/api/media-ops': { target: 'http://localhost:8084', changeOrigin: true, secure: false },
+
+      // MediaOps — browser-based live streaming WebSocket
+      '/browser-stream': {
+        target: 'http://localhost:8084',
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+        configure: (proxy: any) => {
+          proxy.on('error', (err: any) => {
+            if (err.code !== 'EPIPE' && err.code !== 'ECONNRESET') {
+              console.error('[browser-stream proxy error]', err.message);
+            }
+          });
+        },
+      },
 
     }
   },
