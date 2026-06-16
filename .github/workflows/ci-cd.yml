@@ -740,9 +740,7 @@ jobs:
               -p 8084:8084 \
               -v /data/xamops-media:/data/xamops-media \
               -e SPRING_PROFILES_ACTIVE=uat \
-              -e DB_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
-              -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
-              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+              -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
               -e REDIS_HOST=redis-uat \
               -e REDIS_PORT=6379 \
               -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
