@@ -856,7 +856,46 @@ public class EbsDiskRightsizingService {
         enrichWithDiskMetrics(account, region, result);
         updateRecommendationsWithUsage(result);
         enrichWithComputeOptimizerRecommendations(account, region, result);
+        enrichWithAsgNames(ec2, result);
         return result;
+    }
+
+    // ─── ASG Name Enrichment ────────────────────────────────────────────────────
+
+    void enrichWithAsgNames(Ec2Client ec2, List<Map<String, Object>> volumes) {
+        List<String> instanceIds = volumes.stream()
+                .filter(v -> v.get("instanceId") != null)
+                .map(v -> (String) v.get("instanceId"))
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (instanceIds.isEmpty()) {
+            return;
+        }
+
+        try {
+            DescribeInstancesResponse resp = ec2.describeInstances(
+                    DescribeInstancesRequest.builder().instanceIds(instanceIds).build());
+
+            Map<String, String> instanceToAsg = new HashMap<>();
+            for (Reservation reservation : resp.reservations()) {
+                for (Instance instance : reservation.instances()) {
+                    instance.tags().stream()
+                            .filter(tag -> "aws:autoscaling:groupName".equals(tag.key()))
+                            .findFirst()
+                            .ifPresent(tag -> instanceToAsg.put(instance.instanceId(), tag.value()));
+                }
+            }
+
+            for (Map<String, Object> vol : volumes) {
+                String instanceId = (String) vol.get("instanceId");
+                if (instanceId != null && instanceToAsg.containsKey(instanceId)) {
+                    vol.put("asgName", instanceToAsg.get(instanceId));
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to enrich volumes with ASG names: {}", e.getMessage());
+        }
     }
 
     /**
