@@ -120,6 +120,24 @@ if (isDemoMode()) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Stale Chunk Recovery ─────────────────────────────────────────────────────
+// After a new deploy, browsers with the app already open hold a bundle that
+// references old hashed chunk filenames (e.g. CloudK8sPage-DLUAHFyT.js) which
+// no longer exist on the server, so lazy route imports fail with
+// "Failed to fetch dynamically imported module". Vite fires `vite:preloadError`
+// for this case — reload once to pick up the new index.html (no-cache) with
+// correct chunk hashes. Guard against loops if the reload itself still fails.
+window.addEventListener('vite:preloadError', (event) => {
+  if (sessionStorage.getItem('chunkReloadAttempted')) return;
+  sessionStorage.setItem('chunkReloadAttempted', '1');
+  event.preventDefault();
+  window.location.reload();
+});
+window.addEventListener('load', () => {
+  sessionStorage.removeItem('chunkReloadAttempted');
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
