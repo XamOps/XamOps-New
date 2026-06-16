@@ -874,6 +874,8 @@ public class EbsDiskRightsizingService {
         }
 
         try {
+            // AWS SDK v2 DescribeInstances accepts up to 1000 IDs; beyond that the call fails and
+            // we degrade silently (consistent with other enrichment methods in this class).
             DescribeInstancesResponse resp = ec2.describeInstances(
                     DescribeInstancesRequest.builder().instanceIds(instanceIds).build());
 

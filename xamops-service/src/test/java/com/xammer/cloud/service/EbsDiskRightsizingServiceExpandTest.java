@@ -12,6 +12,7 @@ import software.amazon.awssdk.services.ec2.model.*;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -79,6 +80,21 @@ class EbsDiskRightsizingServiceExpandTest {
 
         service.enrichWithAsgNames(ec2, volumes);
 
+        assertThat(vol).doesNotContainKey("asgName");
+    }
+
+    @Test
+    void enrichWithAsgNames_swallowsExceptionWithoutPropagating() {
+        Map<String, Object> vol = new HashMap<>();
+        vol.put("volumeId", "vol-ddd");
+        vol.put("instanceId", "i-444");
+        List<Map<String, Object>> volumes = List.of(vol);
+
+        when(ec2.describeInstances(any(DescribeInstancesRequest.class)))
+                .thenThrow(new RuntimeException("AWS timeout"));
+
+        assertThatCode(() -> service.enrichWithAsgNames(ec2, volumes))
+                .doesNotThrowAnyException();
         assertThat(vol).doesNotContainKey("asgName");
     }
 }
