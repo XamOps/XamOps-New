@@ -744,6 +744,7 @@ jobs:
               -e REDIS_HOST=redis-uat \
               -e REDIS_PORT=6379 \
               -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
+              -e SPRING_FLYWAY_TABLE=flyway_schema_history_media_ops \
               -e SPRING_FLYWAY_OUT_OF_ORDER=true \
               -e HLS_BASE_URL=http://${{ secrets.SSH_HOST }}:8084/media \
               -e RTMP_BASE_URL=rtmp://${{ secrets.SSH_HOST }}/live \
