@@ -3,6 +3,13 @@
     "configurations": [
         {
             "type": "java",
+            "name": "MediaOpsApplication",
+            "request": "launch",
+            "mainClass": "com.xammer.mediaops.MediaOpsApplication",
+            "projectName": "media-ops-service"
+        },
+        {
+            "type": "java",
             "name": "PasswordGenerator",
             "request": "launch",
             "mainClass": "com.xammer.cloud.util.PasswordGenerator",

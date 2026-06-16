@@ -27,6 +27,7 @@ export interface ApiTranscodeJob {
   outputPath: string | null;
   hlsUrl: string | null;
   dashUrl: string | null;
+  videoUrl: string | null;
   ffmpegCommand: string | null;
   errorMessage: string | null;
   awsEquivalentCost: number | null;
@@ -64,7 +65,28 @@ export interface CreateJobRequest {
   sourceUrl: string;
   outputFormat: string;
   resolution: string;
+  bitrate?: string;
   enableAdaptive: boolean;
+  // Advanced fields
+  presetId?: number;
+  codec?: string | null;
+  priority?: 'HIGH' | 'NORMAL' | 'LOW';
+  startTime?: string;
+  endTime?: string;
+  subtitleMode?: 'BURN_IN' | 'SIDECAR' | null;
+  subtitleFile?: string;
+  watermarkText?: string;
+  watermarkPosition?: string;
+  watermarkOpacity?: number;
+  thumbnailEnabled?: boolean;
+  thumbnailIntervalSeconds?: number | null;
+  thumbnailTimestamp?: string | null;
+  audioBitrate?: string;
+  audioSampleRate?: number | null;
+  audioChannels?: number | null;
+  customFfmpegParams?: string;
+  scheduledAt?: string | null;
+  encryptionEnabled?: boolean;
 }
 
 export interface CreateStreamRequest {
@@ -402,6 +424,7 @@ export function useMediaOpsData() {
     ffmpegCommand: j.ffmpegCommand ?? undefined,
     hlsUrl: j.hlsUrl ?? undefined,
     dashUrl: j.dashUrl ?? undefined,
+    videoUrl: j.videoUrl ?? undefined,
     errorMessage: j.errorMessage ?? undefined,
     rawId: j.id,
   }));

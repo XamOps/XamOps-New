@@ -104,6 +104,10 @@ public class S3StorageService {
         return enabled && s3 != null;
     }
 
+    public boolean isDeleteLocalAfterUpload() {
+        return deleteLocalAfterUpload;
+    }
+
     /**
      * Upload every file in {@code localDir} to S3 under
      * {@code <keyPrefix>/jobs/<jobId>/} and return the public base URL

@@ -3,7 +3,13 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useMediaOpsData, formatBytes, type MediaOpsOverview, type CreateJobRequest, type CreateStreamRequest, type ApiStorageFile } from '../hooks/useMediaOpsData';
+import { SimpleMode } from '../components/mediaops/SimpleMode';
+import { AdvancedMode, type AdvancedModeState } from '../components/mediaops/AdvancedMode';
+import { useMediaOpsNotifications } from '../hooks/useMediaOpsNotifications';
+import { NotificationBell } from '../components/mediaops/NotificationBell';
+import { NotificationList } from '../components/mediaops/NotificationList';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +38,7 @@ interface TranscodeJob {
   ffmpegCommand?: string;
   hlsUrl?: string;
   dashUrl?: string;
+  videoUrl?: string;
   errorMessage?: string;
 }
 
@@ -361,15 +368,30 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
   const [uploadProgress, setUploadProgress] = useState<'idle' | 'uploading' | 'done'>('idle');
   const [outputFmt, setOutputFmt] = useState('HLS');
   const [resolution, setResolution] = useState('1080p');
+  const [bitrate, setBitrate] = useState('');
   const [enableHLS, setEnableHLS] = useState(true);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [playerUrl, setPlayerUrl] = useState<string | null>(null);
   const [dashPlayerUrl, setDashPlayerUrl] = useState<string | null>(null);
+  const [videoPlayerUrl, setVideoPlayerUrl] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<number | null>(null);
   const [expandedError, setExpandedError] = useState<string | null>(null);
   const [embedJob, setEmbedJob] = useState<TranscodeJob | null>(null);
+
+  // Mode toggle: persisted to localStorage
+  const [transcodeMode, setTranscodeMode] = useState<'simple' | 'advanced'>(() => {
+    try {
+      const saved = localStorage.getItem('transcode-mode');
+      return saved === 'advanced' ? 'advanced' : 'simple';
+    } catch { return 'simple'; }
+  });
+
+  const handleModeChange = useCallback((mode: 'simple' | 'advanced') => {
+    setTranscodeMode(mode);
+    try { localStorage.setItem('transcode-mode', mode); } catch {}
+  }, []);
 
   const filtered = filterStatus === 'all' ? jobs : jobs.filter(j => j.status === filterStatus);
 
@@ -380,7 +402,22 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
 
   const canSubmit = sourceMode === 'url' ? !!sourceUrl.trim() : !!localFile;
 
-  const submitJob = useCallback(async () => {
+  const formState: import('../components/mediaops/SimpleMode').SimpleModeFormState = {
+    sourceMode, sourceUrl, localFile, uploadProgress, outputFormat: outputFmt, resolution, bitrate, enableAdaptive: enableHLS,
+  };
+
+  const handleFormChange = useCallback((updates: Partial<import('../components/mediaops/SimpleMode').SimpleModeFormState>) => {
+    if (updates.sourceMode !== undefined) setSourceMode(updates.sourceMode);
+    if (updates.sourceUrl !== undefined) setSourceUrl(updates.sourceUrl);
+    if (updates.localFile !== undefined) setLocalFile(updates.localFile);
+    if (updates.uploadProgress !== undefined) setUploadProgress(updates.uploadProgress);
+    if (updates.outputFormat !== undefined) setOutputFmt(updates.outputFormat);
+    if (updates.resolution !== undefined) setResolution(updates.resolution);
+    if (updates.bitrate !== undefined) setBitrate(updates.bitrate);
+    if (updates.enableAdaptive !== undefined) setEnableHLS(updates.enableAdaptive);
+  }, []);
+
+  const submitJob = useCallback(async (advancedState?: AdvancedModeState) => {
     if (!canSubmit) return;
     setSubmitLoading(true);
     setSubmitError(null);
@@ -392,10 +429,40 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
         setUploadProgress('done');
         finalSourceUrl = uploaded.filePath;
       }
-      await onCreateJob({ sourceUrl: finalSourceUrl, outputFormat: outputFmt, resolution, enableAdaptive: enableHLS });
+      const request: CreateJobRequest = { sourceUrl: finalSourceUrl, outputFormat: outputFmt, resolution, enableAdaptive: enableHLS };
+      if (bitrate.trim()) request.bitrate = bitrate.trim();
+
+      // Include advanced fields if provided
+      if (advancedState) {
+        if (advancedState.presetId) request.presetId = advancedState.presetId;
+        if (advancedState.codec) request.codec = advancedState.codec;
+        if (advancedState.priority !== 'NORMAL') request.priority = advancedState.priority;
+        if (advancedState.startTime) request.startTime = advancedState.startTime;
+        if (advancedState.endTime) request.endTime = advancedState.endTime;
+        if (advancedState.subtitleMode) request.subtitleMode = advancedState.subtitleMode;
+        if (advancedState.watermarkText) request.watermarkText = advancedState.watermarkText;
+        if (advancedState.watermarkType) {
+          request.watermarkPosition = advancedState.watermarkPosition;
+          request.watermarkOpacity = advancedState.watermarkOpacity / 100; // Convert from percentage to 0-1
+        }
+        if (advancedState.thumbnailEnabled) {
+          request.thumbnailEnabled = true;
+          request.thumbnailIntervalSeconds = advancedState.thumbnailIntervalSeconds;
+          request.thumbnailTimestamp = advancedState.thumbnailTimestamp;
+        }
+        if (advancedState.audioBitrate && advancedState.audioBitrate !== '128k') request.audioBitrate = advancedState.audioBitrate;
+        if (advancedState.audioSampleRate) request.audioSampleRate = advancedState.audioSampleRate;
+        if (advancedState.audioChannels) request.audioChannels = advancedState.audioChannels;
+        if (advancedState.customFfmpegParams) request.customFfmpegParams = advancedState.customFfmpegParams;
+        if (advancedState.scheduledAt) request.scheduledAt = advancedState.scheduledAt;
+        if (advancedState.encryptionEnabled) request.encryptionEnabled = true;
+      }
+
+      await onCreateJob(request);
       setShowForm(false);
       setSourceUrl('');
       setLocalFile(null);
+      setBitrate('');
       setUploadProgress('idle');
     } catch (e: any) {
       setSubmitError(e.message || 'Failed to submit job');
@@ -404,6 +471,16 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
       setSubmitLoading(false);
     }
   }, [canSubmit, sourceMode, sourceUrl, localFile, outputFmt, resolution, enableHLS, onCreateJob, onUploadFile]);
+
+  const handleCancel = useCallback(() => {
+    setShowForm(false);
+    setSubmitError(null);
+    setSourceUrl('');
+    setLocalFile(null);
+    setBitrate('');
+    setSourceMode('url');
+    setUploadProgress('idle');
+  }, []);
 
   const copyCmd = useCallback((job: TranscodeJob) => {
     const cmd = job.ffmpegCommand ||
@@ -446,123 +523,51 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
         {showForm && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}
             className="bg-white border border-pink-100 rounded-2xl shadow-sm p-5">
-            <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] mb-4 flex items-center gap-2">
-              <Icon icon="mdi:film-plus" className="text-pink-500" />
-              New Transcoding Job
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wide">Source</label>
-                  <div className="flex items-center gap-1 bg-[rgba(0,0,0,0.05)] rounded-lg p-0.5">
-                    <button onClick={() => { setSourceMode('url'); setLocalFile(null); }}
-                      className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${sourceMode === 'url' ? 'bg-white shadow text-[rgba(0,0,0,0.8)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
-                      Enter URL
-                    </button>
-                    <button onClick={() => { setSourceMode('upload'); setSourceUrl(''); }}
-                      className={`flex items-center gap-1 px-3 py-1 rounded-md text-[11px] font-bold transition-all ${sourceMode === 'upload' ? 'bg-white shadow text-[rgba(0,0,0,0.8)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
-                      <Icon icon="mdi:upload" className="text-sm" />
-                      Upload File
-                    </button>
-                  </div>
-                </div>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] flex items-center gap-2">
+                <Icon icon="mdi:film-plus" className="text-pink-500" />
+                New Transcoding Job
+              </p>
+              {/* Mode Toggle */}
+              <div className="flex items-center gap-1 bg-[rgba(0,0,0,0.05)] rounded-lg p-0.5">
+                <button onClick={() => handleModeChange('simple')}
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${transcodeMode === 'simple' ? 'bg-white shadow text-pink-600' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
+                  <span className="flex items-center gap-1">
+                    <Icon icon="mdi:lightning-bolt" className="text-sm" />
+                    Simple
+                  </span>
+                </button>
+                <button onClick={() => handleModeChange('advanced')}
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${transcodeMode === 'advanced' ? 'bg-white shadow text-pink-600' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
+                  <span className="flex items-center gap-1">
+                    <Icon icon="mdi:tune-variant" className="text-sm" />
+                    Advanced
+                  </span>
+                </button>
+              </div>
+            </div>
 
-                {sourceMode === 'url' ? (
-                  <input value={sourceUrl} onChange={e => setSourceUrl(e.target.value)}
-                    placeholder="s3://bucket/video.mp4 or https://cdn.example.com/input.mov"
-                    className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-pink-400 focus:border-pink-400 outline-none placeholder-[rgba(0,0,0,0.3)]" />
-                ) : (
-                  <label className={`flex flex-col items-center justify-center gap-2 w-full border-2 border-dashed rounded-xl cursor-pointer transition-colors px-4 py-6 ${
-                    localFile ? 'border-pink-300 bg-pink-50' : 'border-[rgba(0,0,0,0.12)] hover:border-pink-300 hover:bg-pink-50/40'
-                  }`}>
-                    <input type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.mp4,.webm,.m4v,.flv"
-                      className="hidden" onChange={e => setLocalFile(e.target.files?.[0] ?? null)} />
-                    {localFile ? (
-                      <div className="flex items-center gap-3 w-full">
-                        <div className="w-10 h-10 bg-pink-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                          <Icon icon="mdi:file-video-outline" className="text-pink-500 text-xl" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] truncate">{localFile.name}</p>
-                          <p className="text-[11px] text-[rgba(0,0,0,0.4)]">{formatBytes(localFile.size)}</p>
-                        </div>
-                        <button type="button" onClick={e => { e.preventDefault(); setLocalFile(null); }}
-                          className="p-1.5 rounded-lg hover:bg-pink-100 transition-colors flex-shrink-0">
-                          <Icon icon="mdi:close" className="text-sm text-[rgba(0,0,0,0.4)]" />
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <Icon icon="mdi:cloud-upload-outline" className="text-3xl text-[rgba(0,0,0,0.2)]" />
-                        <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.55)]">Click to browse or drag & drop</p>
-                        <p className="text-[11px] text-[rgba(0,0,0,0.35)]">MP4, MOV, AVI, MKV, WEBM, and more</p>
-                      </>
-                    )}
-                    {uploadProgress === 'uploading' && (
-                      <div className="w-full mt-1">
-                        <div className="h-1.5 bg-pink-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-pink-500 rounded-full animate-pulse" style={{ width: '60%' }} />
-                        </div>
-                        <p className="text-[11px] text-pink-600 font-semibold mt-1 text-center">Uploading…</p>
-                      </div>
-                    )}
-                  </label>
-                )}
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Output Format</label>
-                <select value={outputFmt} onChange={e => setOutputFmt(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-pink-400 outline-none bg-white">
-                  <option>HLS</option>
-                  <option>DASH</option>
-                  <option>MP4</option>
-                  <option>WEBM</option>
-                  <option>MKV</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Resolution</label>
-                <select value={resolution} onChange={e => setResolution(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-pink-400 outline-none bg-white">
-                  <option value="4K">4K (2160p)</option>
-                  <option value="1080p">1080p</option>
-                  <option value="720p">720p</option>
-                  <option value="480p">480p</option>
-                  <option value="360p">360p</option>
-                  <option value="Original">Original</option>
-                </select>
-              </div>
-              {(outputFmt === 'HLS' || outputFmt === 'DASH') && (
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setEnableHLS(v => !v)}
-                    className={`relative w-9 h-5 rounded-full transition-colors ${enableHLS ? 'bg-pink-500' : 'bg-[rgba(0,0,0,0.15)]'}`}>
-                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enableHLS ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                  </button>
-                  <div>
-                    <span className="text-[12px] text-[rgba(0,0,0,0.65)]">
-                      Generate adaptive bitrate ({outputFmt} multi-variant)
-                    </span>
-                    {enableHLS && (
-                      <p className="text-[10px] text-[rgba(0,0,0,0.4)] mt-0.5">
-                        Encodes 3 quality levels: 1080p · 720p · 480p — player auto-switches by bandwidth
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            {submitError && (
-              <p className="mt-3 text-[12px] text-red-600 bg-red-50 rounded-xl px-3 py-2">{submitError}</p>
+            {transcodeMode === 'simple' ? (
+              <SimpleMode
+                formState={formState}
+                onFormChange={handleFormChange}
+                onSubmit={submitJob}
+                onCancel={handleCancel}
+                canSubmit={canSubmit}
+                submitLoading={submitLoading}
+                submitError={submitError}
+              />
+            ) : (
+              <AdvancedMode
+                formState={formState}
+                onFormChange={handleFormChange}
+                onSubmit={submitJob}
+                onCancel={handleCancel}
+                canSubmit={canSubmit}
+                submitLoading={submitLoading}
+                submitError={submitError}
+              />
             )}
-            <div className="flex items-center gap-3 mt-4">
-              <button onClick={submitJob} disabled={!canSubmit || submitLoading}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[12px] font-bold rounded-xl shadow disabled:opacity-50 transition-all hover:scale-[1.02]">
-                {submitLoading ? <Icon icon="mdi:loading" className="animate-spin" /> : <Icon icon="mdi:play" />}
-                {submitLoading ? (uploadProgress === 'uploading' ? 'Uploading…' : 'Submitting…') : (sourceMode === 'upload' && localFile ? 'Upload & Transcode' : 'Submit Job')}
-              </button>
-              <button onClick={() => { setShowForm(false); setSubmitError(null); setSourceUrl(''); setLocalFile(null); setSourceMode('url'); setUploadProgress('idle'); }}
-                className="px-4 py-2.5 text-[12px] font-semibold text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors">Cancel</button>
-            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -627,7 +632,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                           {job.hlsUrl && (
                             <>
                               <button onClick={() => setPlayerUrl(`http://localhost:8084${job.hlsUrl}`)}
-                                title="Watch in player"
+                                title="Preview HLS"
                                 className="p-1.5 rounded-lg hover:bg-emerald-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-emerald-600">
                                 <Icon icon="mdi:play-circle-outline" className="text-sm" />
                               </button>
@@ -640,8 +645,15 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                           )}
                           {job.dashUrl && (
                             <button onClick={() => setDashPlayerUrl(`http://localhost:8084${job.dashUrl}`)}
-                              title="Preview DASH stream"
+                              title="Preview DASH"
                               className="p-1.5 rounded-lg hover:bg-violet-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-violet-600">
+                              <Icon icon="mdi:play-circle-outline" className="text-sm" />
+                            </button>
+                          )}
+                          {job.videoUrl && (
+                            <button onClick={() => setVideoPlayerUrl(`http://localhost:8084${job.videoUrl}`)}
+                              title={`Preview ${job.outputFormat}`}
+                              className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-blue-600">
                               <Icon icon="mdi:play-circle-outline" className="text-sm" />
                             </button>
                           )}
@@ -684,8 +696,9 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
         )}
       </div>
 
-      {playerUrl && <HlsPlayer src={playerUrl} title="VOD Playback" onClose={() => setPlayerUrl(null)} />}
+      {playerUrl && <HlsPlayer src={playerUrl} title="HLS Playback" onClose={() => setPlayerUrl(null)} />}
       {dashPlayerUrl && <DashPlayer src={dashPlayerUrl} title="DASH Playback" onClose={() => setDashPlayerUrl(null)} />}
+      {videoPlayerUrl && <NativeVideoPlayer src={videoPlayerUrl} onClose={() => setVideoPlayerUrl(null)} />}
       {embedJob?.hlsUrl && (
         <EmbedModal
           hlsUrl={`http://localhost:8084${embedJob.hlsUrl}`}
@@ -1040,6 +1053,47 @@ function HlsPlayer({ src, title = 'Watch Live', onClose }: { src: string; title?
           className="w-full rounded-2xl bg-black"
           style={{ aspectRatio: '16/9' }}
         />
+      </div>
+    </div>
+  );
+}
+
+// ─── Native Video Player (MP4 / WEBM / MKV) ──────────────────────────────────
+
+function NativeVideoPlayer({ src, onClose }: { src: string; onClose: () => void }) {
+  const ext = src.split('.').pop()?.toUpperCase() ?? 'VIDEO';
+  const formatColor: Record<string, string> = {
+    MP4: 'bg-blue-500', WEBM: 'bg-violet-500', MKV: 'bg-amber-500', MOV: 'bg-pink-500',
+  };
+  const dot = formatColor[ext] ?? 'bg-gray-500';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative w-full max-w-3xl mx-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-2 px-1">
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${dot}`} />
+            <span className="text-white text-[13px] font-semibold">{ext} Playback</span>
+            <code className="text-[11px] font-mono text-white/50 truncate max-w-xs">{src}</code>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10 transition-colors">
+            <Icon icon="mdi:close" className="text-white text-lg" />
+          </button>
+        </div>
+        <video
+          src={src}
+          controls
+          autoPlay
+          muted
+          playsInline
+          className="w-full rounded-2xl bg-black"
+          style={{ aspectRatio: '16/9' }}
+        />
+        {ext === 'MKV' && (
+          <p className="text-white/40 text-[11px] text-center mt-2">
+            MKV has limited browser support — Chrome plays most MKV files; Safari may not.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1834,6 +1888,8 @@ const MediaOpsPage: React.FC = () => {
   const activeTab = useActiveTab();
   const navigate = useNavigate();
   const { setActions, clearActions } = useTopbar();
+  const { theme } = useTheme();
+  const dark = theme === 'dark';
 
   const {
     overview,
@@ -1855,6 +1911,40 @@ const MediaOpsPage: React.FC = () => {
     refresh,
   } = useMediaOpsData();
 
+  // ── Notification system ──────────────────────────────────────────────────
+  const {
+    notifications,
+    unreadCount,
+    markAsRead,
+    dismissToast,
+    toast,
+  } = useMediaOpsNotifications();
+
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notificationDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close notification dropdown when clicking outside
+  useEffect(() => {
+    if (!showNotifications) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notificationDropdownRef.current && !notificationDropdownRef.current.contains(e.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showNotifications]);
+
+  // Navigate to transcode tab when a notification is clicked
+  const handleNotificationNavigate = useCallback((_jobId: number) => {
+    navigate('/media-ops/transcode');
+    setShowNotifications(false);
+  }, [navigate]);
+
+  const toggleNotifications = useCallback(() => {
+    setShowNotifications(prev => !prev);
+  }, []);
+
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-2">
@@ -1870,7 +1960,42 @@ const MediaOpsPage: React.FC = () => {
   }, [setActions, clearActions, refresh]);
 
   return (
-    <main className="flex-1 px-6 pt-4 pb-6 bg-white min-h-screen">
+    <main className={`flex-1 px-6 pt-4 pb-6 min-h-screen ${dark ? 'bg-[#111111]' : 'bg-white'}`}>
+      {/* Toast notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -12, x: 12 }}
+            animate={{ opacity: 1, y: 0, x: 0 }}
+            exit={{ opacity: 0, y: -12, x: 12 }}
+            transition={{ duration: 0.2 }}
+            className="fixed top-4 right-4 z-[100] bg-white border border-[rgba(0,0,0,0.10)] rounded-xl shadow-xl px-4 py-3 flex items-start gap-3 max-w-sm"
+          >
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+              toast.type === 'JOB_COMPLETED' ? 'bg-emerald-50' : 'bg-red-50'
+            }`}>
+              <Icon
+                icon={toast.type === 'JOB_COMPLETED' ? 'mdi:check-circle' : 'mdi:alert-circle'}
+                className={`text-sm ${toast.type === 'JOB_COMPLETED' ? 'text-emerald-500' : 'text-red-500'}`}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)] truncate">{toast.message}</p>
+              <p className="text-[10px] text-[rgba(0,0,0,0.4)] mt-0.5">
+                {toast.type === 'JOB_COMPLETED' ? 'Job completed' : 'Job failed'}
+              </p>
+            </div>
+            <button
+              onClick={dismissToast}
+              className="p-1 rounded-lg hover:bg-[rgba(0,0,0,0.04)] transition-colors flex-shrink-0"
+              aria-label="Dismiss notification"
+            >
+              <Icon icon="mdi:close" className="text-sm text-[rgba(0,0,0,0.4)]" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Global error banner */}
       {error && (
         <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-2">
@@ -1882,8 +2007,8 @@ const MediaOpsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Tab Bar */}
-      <div className="flex items-center gap-1 mb-6 overflow-x-auto pb-px border-b border-[rgba(0,0,0,0.06)]">
+      {/* Tab Bar with Notification Bell */}
+      <div className={`flex items-center gap-1 mb-6 overflow-x-auto pb-px border-b ${dark ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.06)]'}`}>
         {TAB_DEFS.map(tab => (
           <button
             key={tab.id}
@@ -1891,13 +2016,28 @@ const MediaOpsPage: React.FC = () => {
             className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap border-b-2 transition-all -mb-px ${
               activeTab === tab.id
                 ? 'border-pink-500 text-pink-600'
-                : 'border-transparent text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.75)] hover:border-[rgba(0,0,0,0.15)]'
+                : `border-transparent ${dark ? 'text-[rgba(255,255,255,0.5)] hover:text-[rgba(255,255,255,0.75)] hover:border-[rgba(255,255,255,0.15)]' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.75)] hover:border-[rgba(0,0,0,0.15)]'}`
             }`}
           >
             <Icon icon={tab.icon} className="text-base" />
             {tab.label}
           </button>
         ))}
+
+        {/* Notification Bell — positioned at the right end of the tab bar */}
+        <div className="relative ml-auto flex-shrink-0" ref={notificationDropdownRef}>
+          <NotificationBell unreadCount={unreadCount} onClick={toggleNotifications} />
+          <AnimatePresence>
+            {showNotifications && (
+              <NotificationList
+                notifications={notifications}
+                onMarkAsRead={markAsRead}
+                onNavigateToJob={handleNotificationNavigate}
+                onClose={() => setShowNotifications(false)}
+              />
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* Tab Content */}
