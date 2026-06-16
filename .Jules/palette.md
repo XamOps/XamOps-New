@@ -1,0 +1,3 @@
+## 2026-06-16 - Accessible Topbar Actions
+**Learning:** Icon-only buttons in the Topbar (Theme Toggle, Help, Notifications) require explicit `aria-label` attributes and should be wrapped in the `TooltipWrapper` component to ensure they are accessible to screen readers and discoverable via keyboard focus. Using `role="switch"` and `aria-checked` for the theme toggle provides clear state information to assistive technologies.
+**Action:** Always wrap Topbar icon-only buttons in `TooltipWrapper` and synchronize the `aria-label` with the tooltip text. Use appropriate ARIA roles for toggleable states.
