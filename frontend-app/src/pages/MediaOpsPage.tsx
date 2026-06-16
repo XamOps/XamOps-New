@@ -111,8 +111,8 @@ const TAB_DEFS: { id: Tab; label: string; icon: string; path: string }[] = [
 
 function StatusBadge({ status }: { status: JobStatus | StreamStatus }) {
   const map: Record<string, { label: string; cls: string; dot: string }> = {
-    processing: { label: 'Processing', cls: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500 animate-pulse' },
-    queued: { label: 'Queued', cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-400' },
+    processing: { label: 'Processing', cls: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.65)] border-[rgba(0,0,0,0.08)]', dot: 'bg-[rgba(0,0,0,0.4)] animate-pulse' },
+    queued: { label: 'Queued', cls: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.55)] border-[rgba(0,0,0,0.08)]', dot: 'bg-[rgba(0,0,0,0.3)]' },
     completed: { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
     failed: { label: 'Failed', cls: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
     live: { label: 'LIVE', cls: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500 animate-pulse' },
@@ -128,7 +128,7 @@ function StatusBadge({ status }: { status: JobStatus | StreamStatus }) {
   );
 }
 
-function ProgressBar({ value, color = 'bg-pink-500' }: { value: number; color?: string }) {
+function ProgressBar({ value, color = 'bg-[rgba(0,0,0,0.5)]' }: { value: number; color?: string }) {
   return (
     <div className="w-full h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
       <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${value}%` }} />
@@ -136,25 +136,24 @@ function ProgressBar({ value, color = 'bg-pink-500' }: { value: number; color?: 
   );
 }
 
-function StatCard({ label, value, icon, iconBg, iconColor, borderColor, sub, tooltip }:
-  { label: string; value: string | number; icon: string; iconBg: string; iconColor: string; borderColor: string; sub?: string; tooltip?: string }) {
+function StatCard({ label, value, icon, sub, tooltip }:
+  { label: string; value: string | number; icon: string; iconBg?: string; iconColor?: string; borderColor?: string; sub?: string; tooltip?: string }) {
   return (
-    <div className={`group relative rounded-2xl border border-l-4 p-4 shadow-sm flex flex-col gap-2 bg-white border-[rgba(0,0,0,0.08)] ${borderColor}`}>
-      <div className="flex items-start justify-between">
-        <div className={`w-9 h-9 rounded-xl ${iconBg} flex items-center justify-center`}>
-          <Icon icon={icon} className={`${iconColor} text-base`} />
+    <div className="group relative bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 flex flex-col gap-0 overflow-hidden card-hover-lift">
+      <div className="flex items-start justify-between mb-2">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)]">{label}</p>
+        <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.04)] flex items-center justify-center flex-shrink-0">
+          <Icon icon={icon} width={16} color="rgba(0,0,0,0.4)" />
         </div>
-        {tooltip && <Icon icon="mdi:information-outline" className="text-[11px] mt-1 opacity-0 group-hover:opacity-100 transition-opacity text-[rgba(0,0,0,0.4)]" />}
       </div>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.5)]">{label}</p>
-      <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '26px', fontWeight: 400, lineHeight: '26px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+      <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
         {String(value)}
       </p>
-      {sub && <p className="text-[11px] text-[rgba(0,0,0,0.4)] -mt-1">{sub}</p>}
+      {sub && <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">{sub}</p>}
       {tooltip && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 rounded-xl px-3 py-2 text-[11px] leading-snug shadow-lg z-50 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity bg-gray-900 text-white">
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 rounded-xl px-3 py-2 text-[11px] leading-snug shadow-lg z-50 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity bg-[rgba(0,0,0,0.88)] text-white">
           {tooltip}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900" />
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[rgba(0,0,0,0.88)]" />
         </div>
       )}
     </div>
@@ -181,46 +180,39 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
   const storageStr = overview ? formatBytes(overview.storageUsedBytes) : '—';
 
   const stats = [
-    { label: 'Active Streams', value: overview?.liveStreams ?? '—', icon: 'mdi:broadcast', iconBg: 'bg-red-50', iconColor: 'text-red-500', borderColor: 'border-l-red-500', sub: 'Live right now', tooltip: 'Number of currently active RTMP/HLS live streams.' },
-    { label: 'Jobs Running', value: overview?.processingJobs ?? '—', icon: 'mdi:film-sync', iconBg: 'bg-blue-50', iconColor: 'text-blue-500', borderColor: 'border-l-blue-500', sub: 'Transcoding now', tooltip: 'FFmpeg transcoding jobs currently in progress.' },
-    { label: 'Jobs Completed', value: overview?.completedJobs ?? '—', icon: 'mdi:check-circle-outline', iconBg: 'bg-emerald-50', iconColor: 'text-emerald-500', borderColor: 'border-l-emerald-500', sub: 'Total completed', tooltip: 'Jobs that finished successfully.' },
-    { label: 'Total Viewers', value: overview?.totalViewers ?? '—', icon: 'mdi:account-group-outline', iconBg: 'bg-violet-50', iconColor: 'text-violet-500', borderColor: 'border-l-violet-500', sub: 'Across all streams', tooltip: 'Total concurrent viewers across all live streams.' },
-    { label: 'Storage Used', value: storageStr, icon: 'mdi:database-outline', iconBg: 'bg-sky-50', iconColor: 'text-sky-500', borderColor: 'border-l-sky-500', sub: 'Media storage', tooltip: 'Total media storage consumed.' },
-    { label: 'Saved vs AWS', value: saved, icon: 'mdi:piggy-bank-outline', iconBg: 'bg-pink-50', iconColor: 'text-pink-500', borderColor: 'border-l-pink-500', sub: 'Total tracked', tooltip: 'Money saved by using FFmpeg instead of AWS Media Services.' },
+    { label: 'Active Streams', value: overview?.liveStreams ?? '—', icon: 'mdi:broadcast', sub: 'Live right now', tooltip: 'Number of currently active RTMP/HLS live streams.' },
+    { label: 'Jobs Running', value: overview?.processingJobs ?? '—', icon: 'mdi:film-sync', sub: 'Transcoding now', tooltip: 'FFmpeg transcoding jobs currently in progress.' },
+    { label: 'Jobs Completed', value: overview?.completedJobs ?? '—', icon: 'mdi:check-circle-outline', sub: 'Total completed', tooltip: 'Jobs that finished successfully.' },
+    { label: 'Total Viewers', value: overview?.totalViewers ?? '—', icon: 'mdi:account-group-outline', sub: 'Across all streams', tooltip: 'Total concurrent viewers across all live streams.' },
+    { label: 'Storage Used', value: storageStr, icon: 'mdi:database-outline', sub: 'Media storage', tooltip: 'Total media storage consumed.' },
+    { label: 'Saved vs AWS', value: saved, icon: 'mdi:piggy-bank-outline', sub: 'Total tracked', tooltip: 'Money saved by using FFmpeg instead of AWS Media Services.' },
   ];
 
   return (
     <div className="space-y-6">
       {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#1a1a2e] via-[#16213e] to-[#0f3460] p-6 shadow-lg">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-4 right-16 w-32 h-32 rounded-full bg-pink-500 blur-3xl" />
-          <div className="absolute bottom-0 right-0 w-48 h-32 rounded-full bg-violet-600 blur-3xl" />
-          <div className="absolute top-0 left-1/2 w-24 h-24 rounded-full bg-blue-400 blur-2xl" />
-        </div>
-        <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow">
-                <Icon icon="mdi:film" className="text-white text-sm" />
-              </div>
-              <span className="text-[11px] font-bold uppercase tracking-widest text-pink-300">MediaOps</span>
-              <span className="px-2 py-0.5 rounded-full bg-pink-500/20 border border-pink-400/30 text-[10px] font-bold text-pink-300 uppercase tracking-wider">Beta</span>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.04)] flex items-center justify-center">
+              <Icon icon="mdi:film" width={16} color="rgba(0,0,0,0.5)" />
             </div>
-            <h1 className="text-2xl font-bold text-white leading-tight mb-1">World-class media processing,<br />zero AWS bill.</h1>
-            <p className="text-[13px] text-white/60 max-w-lg">Replace AWS MediaConvert, MediaLive & MediaPackage with FFmpeg. Transcode, stream, and store media — free.</p>
+            <span className="text-[11px] font-bold uppercase tracking-widest text-[rgba(0,0,0,0.55)]">MediaOps</span>
+            <span className="px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[10px] font-bold text-[rgba(0,0,0,0.45)] uppercase tracking-wider">Beta</span>
           </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 border border-white/10 backdrop-blur-sm">
-              <Icon icon="mdi:lightning-bolt" className="text-yellow-400" />
-              <span className="text-[12px] text-white font-semibold">FFmpeg — Ready</span>
-            </div>
-            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 border border-white/10 backdrop-blur-sm">
-              <span className={`w-2 h-2 rounded-full ${(overview?.processingJobs ?? 0) > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-gray-400'}`} />
-              <span className="text-[12px] text-white font-semibold">
-                {(overview?.processingJobs ?? 0) > 0 ? `${overview!.processingJobs} job(s) processing` : 'Worker idle'}
-              </span>
-            </div>
+          <h1 className="text-[18px] font-bold text-[rgba(0,0,0,0.88)] leading-tight mb-1">World-class media processing, zero AWS bill.</h1>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] max-w-lg">Replace AWS MediaConvert, MediaLive & MediaPackage with FFmpeg. Transcode, stream, and store media — free.</p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.07)]">
+            <Icon icon="mdi:lightning-bolt" width={14} color="rgba(0,0,0,0.4)" />
+            <span className="text-[12px] text-[rgba(0,0,0,0.65)] font-semibold">FFmpeg — Ready</span>
+          </div>
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.07)]">
+            <span className={`w-2 h-2 rounded-full ${(overview?.processingJobs ?? 0) > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-[rgba(0,0,0,0.2)]'}`} />
+            <span className="text-[12px] text-[rgba(0,0,0,0.65)] font-semibold">
+              {(overview?.processingJobs ?? 0) > 0 ? `${overview!.processingJobs} job(s) processing` : 'Worker idle'}
+            </span>
           </div>
         </div>
       </div>
@@ -242,7 +234,7 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
         <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
             <div className="flex items-center gap-2">
-              <Icon icon="mdi:film-sync" className="text-blue-500 text-base" />
+              <Icon icon="mdi:film-sync" className="text-[rgba(0,0,0,0.4)] text-base" />
               <span className="text-[13px] font-bold text-[rgba(0,0,0,0.88)]">Recent Transcoding Jobs</span>
             </div>
             <span className="text-[11px] text-[rgba(0,0,0,0.4)]">{jobs.length} total</span>
@@ -259,15 +251,15 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
               {jobs.slice(0, 5).map(job => (
                 <div key={job.id} className="flex items-center gap-3 px-5 py-3 hover:bg-[rgba(0,0,0,0.01)] transition-colors">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                    job.status === 'completed' ? 'bg-emerald-50' : job.status === 'processing' ? 'bg-blue-50' : job.status === 'failed' ? 'bg-red-50' : 'bg-amber-50'
+                    job.status === 'completed' ? 'bg-emerald-50' : job.status === 'failed' ? 'bg-red-50' : 'bg-[rgba(0,0,0,0.04)]'
                   }`}>
                     <Icon icon={job.status === 'completed' ? 'mdi:check' : job.status === 'processing' ? 'mdi:loading' : job.status === 'failed' ? 'mdi:close' : 'mdi:clock-outline'}
-                      className={`text-sm ${job.status === 'completed' ? 'text-emerald-500' : job.status === 'processing' ? 'text-blue-500 animate-spin' : job.status === 'failed' ? 'text-red-500' : 'text-amber-500'}`} />
+                      className={`text-sm ${job.status === 'completed' ? 'text-emerald-500' : job.status === 'processing' ? 'text-[rgba(0,0,0,0.4)] animate-spin' : job.status === 'failed' ? 'text-red-500' : 'text-[rgba(0,0,0,0.35)]'}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)] truncate">{job.name}</p>
                     <p className="text-[11px] text-[rgba(0,0,0,0.4)]">{job.inputFormat} → {job.outputFormat} · {job.resolution} · {job.createdAt}</p>
-                    {job.status === 'processing' && <ProgressBar value={job.progress} color="bg-blue-500" />}
+                    {job.status === 'processing' && <ProgressBar value={job.progress} />}
                   </div>
                   <div className="text-right flex-shrink-0">
                     <StatusBadge status={job.status} />
@@ -284,7 +276,7 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
         <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
             <div className="flex items-center gap-2">
-              <Icon icon="mdi:broadcast" className="text-red-500 text-base" />
+              <Icon icon="mdi:broadcast" className="text-[rgba(0,0,0,0.4)] text-base" />
               <span className="text-[13px] font-bold text-[rgba(0,0,0,0.88)]">Live Streams</span>
             </div>
             <span className="text-[11px] text-[rgba(0,0,0,0.4)]">{streams.filter(s => s.status === 'live').length} live now</span>
@@ -329,14 +321,14 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
         <p className="text-[12px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.5)] mb-4">FFmpeg Quick Commands</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {[
-            { label: 'Convert to HLS', icon: 'mdi:film', color: 'text-pink-500', bg: 'bg-pink-50', cmd: 'ffmpeg -i input.mp4 -hls_time 10 -hls_list_size 0 output.m3u8' },
-            { label: 'Transcode to 720p', icon: 'mdi:resize', color: 'text-blue-500', bg: 'bg-blue-50', cmd: 'ffmpeg -i input.mp4 -vf scale=1280:720 -c:a copy output.mp4' },
-            { label: 'Live RTMP → HLS', icon: 'mdi:broadcast', color: 'text-red-500', bg: 'bg-red-50', cmd: 'ffmpeg -i rtmp://localhost/live/stream -hls_time 2 stream.m3u8' },
+            { label: 'Convert to HLS', icon: 'mdi:film', cmd: 'ffmpeg -i input.mp4 -hls_time 10 -hls_list_size 0 output.m3u8' },
+            { label: 'Transcode to 720p', icon: 'mdi:resize', cmd: 'ffmpeg -i input.mp4 -vf scale=1280:720 -c:a copy output.mp4' },
+            { label: 'Live RTMP → HLS', icon: 'mdi:broadcast', cmd: 'ffmpeg -i rtmp://localhost/live/stream -hls_time 2 stream.m3u8' },
           ].map((item, i) => (
             <div key={i} className="rounded-xl border border-[rgba(0,0,0,0.08)] p-3 hover:border-[rgba(0,0,0,0.15)] transition-colors">
               <div className="flex items-center gap-2 mb-2">
-                <div className={`w-7 h-7 ${item.bg} rounded-lg flex items-center justify-center`}>
-                  <Icon icon={item.icon} className={`${item.color} text-sm`} />
+                <div className="w-7 h-7 bg-[rgba(0,0,0,0.04)] rounded-lg flex items-center justify-center">
+                  <Icon icon={item.icon} width={14} color="rgba(0,0,0,0.4)" />
                 </div>
                 <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.7)]">{item.label}</span>
               </div>
@@ -512,7 +504,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
           ))}
         </div>
         <button onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[12px] font-bold rounded-xl shadow hover:shadow-md transition-all hover:scale-[1.02]">
+          className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl transition-all hover:bg-[rgba(0,0,0,0.75)]">
           <Icon icon="mdi:plus" className="text-base" />
           New Job
         </button>
@@ -522,23 +514,23 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}
-            className="bg-white border border-pink-100 rounded-2xl shadow-sm p-5">
+            className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] flex items-center gap-2">
-                <Icon icon="mdi:film-plus" className="text-pink-500" />
+                <Icon icon="mdi:film-plus" className="text-[rgba(0,0,0,0.4)]" />
                 New Transcoding Job
               </p>
               {/* Mode Toggle */}
-              <div className="flex items-center gap-1 bg-[rgba(0,0,0,0.05)] rounded-lg p-0.5">
+              <div className="flex items-center gap-1 bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5">
                 <button onClick={() => handleModeChange('simple')}
-                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${transcodeMode === 'simple' ? 'bg-white shadow text-pink-600' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${transcodeMode === 'simple' ? 'bg-white shadow text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
                   <span className="flex items-center gap-1">
                     <Icon icon="mdi:lightning-bolt" className="text-sm" />
                     Simple
                   </span>
                 </button>
                 <button onClick={() => handleModeChange('advanced')}
-                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${transcodeMode === 'advanced' ? 'bg-white shadow text-pink-600' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${transcodeMode === 'advanced' ? 'bg-white shadow text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
                   <span className="flex items-center gap-1">
                     <Icon icon="mdi:tune-variant" className="text-sm" />
                     Advanced
@@ -605,7 +597,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                       <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
                       <td className="px-4 py-3 w-28">
                         <div className="flex items-center gap-2">
-                          <ProgressBar value={job.progress} color={job.status === 'failed' ? 'bg-red-400' : job.status === 'completed' ? 'bg-emerald-500' : 'bg-blue-500'} />
+                          <ProgressBar value={job.progress} color={job.status === 'failed' ? 'bg-red-400' : job.status === 'completed' ? 'bg-emerald-500' : undefined} />
                           <span className="text-[10px] text-[rgba(0,0,0,0.4)] whitespace-nowrap">{job.progress}%</span>
                         </div>
                       </td>
@@ -853,9 +845,9 @@ function BrowserStreamCapture({ streamKey, onClose }: { streamKey: string; onClo
               <div className="grid grid-cols-2 gap-3">
                 {(['screen', 'webcam'] as CaptureSource[]).map(src => (
                   <button key={src} onClick={() => { setSource(src); startPreview(src); }}
-                    className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all hover:border-red-300 hover:bg-red-50/40 ${source === src && captureState !== 'idle' ? 'border-red-400 bg-red-50' : 'border-[rgba(0,0,0,0.1)]'}`}>
-                    <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
-                      <Icon icon={src === 'screen' ? 'mdi:monitor-screenshot' : 'mdi:webcam'} className="text-red-500 text-xl" />
+                    className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all hover:border-[rgba(0,0,0,0.2)] hover:bg-[rgba(0,0,0,0.02)] ${source === src && captureState !== 'idle' ? 'border-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.03)]' : 'border-[rgba(0,0,0,0.1)]'}`}>
+                    <div className="w-10 h-10 rounded-xl bg-[rgba(0,0,0,0.04)] flex items-center justify-center flex-shrink-0">
+                      <Icon icon={src === 'screen' ? 'mdi:monitor-screenshot' : 'mdi:webcam'} width={20} color="rgba(0,0,0,0.4)" />
                     </div>
                     <div className="text-left">
                       <p className="text-[13px] font-bold text-[rgba(0,0,0,0.8)]">{src === 'screen' ? 'Screen Share' : 'Webcam'}</p>
@@ -870,7 +862,7 @@ function BrowserStreamCapture({ streamKey, onClose }: { streamKey: string; onClo
           {captureState === 'previewing' && (
             <div className="flex items-center gap-3">
               <button onClick={startLive}
-                className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-red-500 to-rose-600 text-white text-[13px] font-bold rounded-xl shadow hover:shadow-md transition-all hover:scale-[1.02]">
+                className="flex items-center gap-2 px-6 py-2.5 bg-[rgba(0,0,0,0.88)] text-white text-[13px] font-bold rounded-xl transition-all hover:bg-[rgba(0,0,0,0.75)]">
                 <Icon icon="mdi:broadcast" />
                 Start Broadcasting
               </button>
@@ -1258,18 +1250,18 @@ function ObsSetupModal({ stream, onClose }: { stream: LiveStream; onClose: () =>
             <p className="text-[11px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.5)]">Setup Steps</p>
             {steps.map((step, i) => (
               <div key={i} className="flex items-start gap-2.5">
-                <span className="w-5 h-5 rounded-full bg-orange-100 text-orange-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+                <span className="w-5 h-5 rounded-full bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.55)] text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
                 <p className="text-[12px] text-[rgba(0,0,0,0.65)]">{step}</p>
               </div>
             ))}
           </div>
           {stream.hlsUrl && (
-            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 mb-1">Viewer HLS URL (share this)</p>
+            <div className="rounded-xl bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-[rgba(0,0,0,0.4)] mb-1">Viewer HLS URL (share this)</p>
               <div className="flex items-center gap-2">
-                <code className="text-[11px] font-mono text-emerald-700 flex-1 truncate">{stream.hlsUrl}</code>
-                <button onClick={() => copy(stream.hlsUrl, 'hls-obs')} className="p-1.5 rounded-lg hover:bg-emerald-100 transition-colors">
-                  <Icon icon={copied === 'hls-obs' ? 'mdi:check' : 'mdi:content-copy'} className={`text-sm ${copied === 'hls-obs' ? 'text-emerald-600' : 'text-emerald-500'}`} />
+                <code className="text-[11px] font-mono text-[rgba(0,0,0,0.65)] flex-1 truncate">{stream.hlsUrl}</code>
+                <button onClick={() => copy(stream.hlsUrl, 'hls-obs')} className="p-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.05)] transition-colors">
+                  <Icon icon={copied === 'hls-obs' ? 'mdi:check' : 'mdi:content-copy'} className={`text-sm ${copied === 'hls-obs' ? 'text-emerald-500' : 'text-[rgba(0,0,0,0.35)]'}`} />
                 </button>
               </div>
             </div>
@@ -1348,7 +1340,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
       {/* Header row */}
       <div className="flex items-center justify-end">
         <button onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white text-[12px] font-bold rounded-xl shadow hover:shadow-md transition-all hover:scale-[1.02]">
+          className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl transition-all hover:bg-[rgba(0,0,0,0.75)]">
           <Icon icon="mdi:plus" className="text-base" />
           New Stream
         </button>
@@ -1358,9 +1350,9 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}
-            className="bg-white border border-red-100 rounded-2xl shadow-sm p-5">
+            className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
             <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] mb-4 flex items-center gap-2">
-              <Icon icon="mdi:broadcast" className="text-red-500" />
+              <Icon icon="mdi:broadcast" className="text-[rgba(0,0,0,0.4)]" />
               Create Live Stream
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1368,12 +1360,12 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
                 <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Stream Name</label>
                 <input value={streamName} onChange={e => setStreamName(e.target.value)}
                   placeholder="e.g. Main Stage, Game Stream"
-                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-red-400 focus:border-red-400 outline-none" />
+                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-[rgba(0,0,0,0.2)] outline-none" />
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Resolution</label>
                 <select value={streamResolution} onChange={e => setStreamResolution(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-red-400 outline-none bg-white">
+                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-[rgba(0,0,0,0.2)] outline-none bg-white">
                   <option value="1080p">1080p</option>
                   <option value="720p">720p</option>
                   <option value="480p">480p</option>
@@ -1382,7 +1374,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
               <div>
                 <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Bitrate</label>
                 <select value={streamBitrate} onChange={e => setStreamBitrate(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-red-400 outline-none bg-white">
+                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-[rgba(0,0,0,0.2)] outline-none bg-white">
                   <option value="6000k">6000k (High)</option>
                   <option value="4500k">4500k (Medium)</option>
                   <option value="2500k">2500k (Low)</option>
@@ -1391,7 +1383,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
             </div>
             <div className="flex items-center gap-3 mt-4">
               <button onClick={handleCreate} disabled={!streamName.trim() || createLoading}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-500 to-rose-600 text-white text-[12px] font-bold rounded-xl shadow disabled:opacity-50 transition-all hover:scale-[1.02]">
+                className="flex items-center gap-2 px-5 py-2.5 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl disabled:opacity-50 transition-all hover:bg-[rgba(0,0,0,0.75)]">
                 {createLoading ? <Icon icon="mdi:loading" className="animate-spin" /> : <Icon icon="mdi:broadcast" />}
                 {createLoading ? 'Creating…' : 'Create Stream'}
               </button>
@@ -1405,17 +1397,19 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Live Now', value: streams.filter(s => s.status === 'live').length, icon: 'mdi:broadcast', bg: 'bg-red-50', color: 'text-red-500', border: 'border-l-red-500' },
-          { label: 'Total Viewers', value: streams.reduce((a, s) => a + s.viewers, 0), icon: 'mdi:account-group-outline', bg: 'bg-violet-50', color: 'text-violet-500', border: 'border-l-violet-500' },
-          { label: 'Bandwidth Used', value: formatBytes(totalBandwidth), icon: 'mdi:chart-line', bg: 'bg-sky-50', color: 'text-sky-500', border: 'border-l-sky-500' },
-          { label: 'AWS IVS Saved', value: '$0 spent', icon: 'mdi:piggy-bank-outline', bg: 'bg-emerald-50', color: 'text-emerald-500', border: 'border-l-emerald-500' },
+          { label: 'Live Now', value: streams.filter(s => s.status === 'live').length, icon: 'mdi:broadcast' },
+          { label: 'Total Viewers', value: streams.reduce((a, s) => a + s.viewers, 0), icon: 'mdi:account-group-outline' },
+          { label: 'Bandwidth Used', value: formatBytes(totalBandwidth), icon: 'mdi:chart-line' },
+          { label: 'AWS IVS Saved', value: '$0 spent', icon: 'mdi:piggy-bank-outline' },
         ].map((s, i) => (
-          <div key={i} className={`rounded-2xl border border-l-4 p-4 shadow-sm bg-white border-[rgba(0,0,0,0.08)] ${s.border}`}>
-            <div className={`w-9 h-9 ${s.bg} rounded-xl flex items-center justify-center mb-3`}>
-              <Icon icon={s.icon} className={`${s.color} text-base`} />
+          <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+            <div className="flex items-start justify-between mb-2">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)]">{s.label}</p>
+              <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.04)] flex items-center justify-center flex-shrink-0">
+                <Icon icon={s.icon} width={16} color="rgba(0,0,0,0.4)" />
+              </div>
             </div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.5)] mb-1">{s.label}</p>
-            <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '26px', fontWeight: 400, color: 'rgb(10,10,10)' }}>{String(s.value)}</p>
+            <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{String(s.value)}</p>
           </div>
         ))}
       </div>
@@ -1437,9 +1431,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
             <div key={stream.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all hover:shadow-md ${
               stream.status === 'live' ? 'border-red-200' : stream.status === 'error' ? 'border-red-200' : 'border-[rgba(0,0,0,0.08)]'
             }`}>
-              <div className={`px-5 py-3 flex items-center justify-between ${
-                stream.status === 'live' ? 'bg-gradient-to-r from-red-50 to-rose-50 border-b border-red-100' : 'border-b border-[rgba(0,0,0,0.06)]'
-              }`}>
+              <div className="px-5 py-3 flex items-center justify-between border-b border-[rgba(0,0,0,0.06)]">
                 <div className="flex items-center gap-2">
                   <StatusBadge status={stream.status} />
                   <span className="text-[13px] font-bold text-[rgba(0,0,0,0.88)]">{stream.name}</span>
@@ -1494,7 +1486,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
                   {stream.status === 'idle' && (
                     <>
                       <button onClick={() => setBrowserCaptureKey(stream.streamKey)}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white text-[12px] font-bold rounded-xl shadow hover:shadow-md transition-all">
+                        className="flex items-center gap-1.5 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl transition-all hover:bg-[rgba(0,0,0,0.75)]">
                         <Icon icon="mdi:webcam" />
                         Go Live from Browser
                       </button>
@@ -1505,7 +1497,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
                       </button>
                       {stream.hlsUrl && (
                         <button onClick={() => setPlayerUrl(stream.hlsUrl)}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-violet-50 border border-violet-200 text-violet-700 text-[12px] font-semibold rounded-xl hover:bg-violet-100 transition-all">
+                          className="flex items-center gap-1.5 px-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.65)] text-[12px] font-semibold rounded-xl hover:bg-[rgba(0,0,0,0.07)] transition-all">
                           <Icon icon="mdi:film-play-outline" />
                           Watch Recording
                         </button>
@@ -1521,7 +1513,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
                       </button>
                       {stream.hlsUrl && (
                         <button onClick={() => setPlayerUrl(stream.hlsUrl)}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[12px] font-bold rounded-xl shadow hover:shadow-md transition-all">
+                          className="flex items-center gap-1.5 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl transition-all hover:bg-[rgba(0,0,0,0.75)]">
                           <Icon icon="mdi:play-circle-outline" />
                           Watch Live
                         </button>
@@ -1561,18 +1553,18 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
         <p className="text-[12px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.5)] mb-4">How Live Streaming Works</p>
         <div className="flex flex-col md:flex-row items-start md:items-center gap-3">
           {[
-            { icon: 'mdi:video-outline', label: 'OBS / Encoder', sub: 'Streams RTMP', color: 'text-blue-500', bg: 'bg-blue-50' },
-            { icon: 'mdi:arrow-right', label: '', sub: '', color: 'text-[rgba(0,0,0,0.2)]', bg: '' },
-            { icon: 'mdi:lightning-bolt', label: 'FFmpeg Worker', sub: 'Transcodes + Segments', color: 'text-pink-500', bg: 'bg-pink-50' },
-            { icon: 'mdi:arrow-right', label: '', sub: '', color: 'text-[rgba(0,0,0,0.2)]', bg: '' },
-            { icon: 'mdi:playlist-play', label: 'HLS Segments', sub: '.ts + .m3u8', color: 'text-violet-500', bg: 'bg-violet-50' },
-            { icon: 'mdi:arrow-right', label: '', sub: '', color: 'text-[rgba(0,0,0,0.2)]', bg: '' },
-            { icon: 'mdi:play-circle-outline', label: 'Any Player', sub: 'HLS URL', color: 'text-emerald-500', bg: 'bg-emerald-50' },
+            { icon: 'mdi:video-outline', label: 'OBS / Encoder', sub: 'Streams RTMP' },
+            { icon: 'mdi:arrow-right', label: '', sub: '' },
+            { icon: 'mdi:lightning-bolt', label: 'FFmpeg Worker', sub: 'Transcodes + Segments' },
+            { icon: 'mdi:arrow-right', label: '', sub: '' },
+            { icon: 'mdi:playlist-play', label: 'HLS Segments', sub: '.ts + .m3u8' },
+            { icon: 'mdi:arrow-right', label: '', sub: '' },
+            { icon: 'mdi:play-circle-outline', label: 'Any Player', sub: 'HLS URL' },
           ].map((step, i) => (
             step.label ? (
               <div key={i} className="flex items-center gap-2">
-                <div className={`w-10 h-10 ${step.bg} rounded-xl flex items-center justify-center`}>
-                  <Icon icon={step.icon} className={`${step.color} text-lg`} />
+                <div className="w-10 h-10 bg-[rgba(0,0,0,0.04)] rounded-xl flex items-center justify-center">
+                  <Icon icon={step.icon} width={18} color="rgba(0,0,0,0.4)" />
                 </div>
                 <div>
                   <p className="text-[12px] font-bold text-[rgba(0,0,0,0.7)]">{step.label}</p>
@@ -1580,7 +1572,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
                 </div>
               </div>
             ) : (
-              <Icon key={i} icon={step.icon} className={`${step.color} text-xl hidden md:block`} />
+              <Icon key={i} icon={step.icon} className="text-[rgba(0,0,0,0.2)] text-xl hidden md:block" />
             )
           ))}
         </div>
@@ -1634,10 +1626,10 @@ function StorageTab({ files, overview, loading, onDeleteFile, onUploadFile }: St
   }, [onDeleteFile]);
 
   const TYPE_ICONS: Record<string, { icon: string; color: string; bg: string }> = {
-    video: { icon: 'mdi:file-video-outline', color: 'text-blue-500', bg: 'bg-blue-50' },
-    audio: { icon: 'mdi:file-music-outline', color: 'text-violet-500', bg: 'bg-violet-50' },
-    image: { icon: 'mdi:file-image-outline', color: 'text-emerald-500', bg: 'bg-emerald-50' },
-    hls: { icon: 'mdi:playlist-play', color: 'text-pink-500', bg: 'bg-pink-50' },
+    video: { icon: 'mdi:file-video-outline', color: 'text-[rgba(0,0,0,0.4)]', bg: 'bg-[rgba(0,0,0,0.04)]' },
+    audio: { icon: 'mdi:file-music-outline', color: 'text-[rgba(0,0,0,0.4)]', bg: 'bg-[rgba(0,0,0,0.04)]' },
+    image: { icon: 'mdi:file-image-outline', color: 'text-[rgba(0,0,0,0.4)]', bg: 'bg-[rgba(0,0,0,0.04)]' },
+    hls: { icon: 'mdi:playlist-play', color: 'text-[rgba(0,0,0,0.4)]', bg: 'bg-[rgba(0,0,0,0.04)]' },
   };
 
   return (
@@ -1655,16 +1647,16 @@ function StorageTab({ files, overview, loading, onDeleteFile, onUploadFile }: St
           </div>
         </div>
         <div className="w-full h-3 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-pink-500 to-rose-500 rounded-full transition-all duration-700" style={{ width: `${usedPct}%` }} />
+          <div className="h-full bg-[rgba(0,0,0,0.7)] rounded-full transition-all duration-700" style={{ width: `${usedPct}%` }} />
         </div>
         <div className="grid grid-cols-4 gap-3 mt-4">
           {['VIDEO', 'HLS', 'AUDIO', 'IMAGE'].map((type, i) => {
             const typeFiles = files.filter(f => f.type === type.toLowerCase());
             const meta = [
-              { label: 'Videos', color: 'bg-blue-500' },
-              { label: 'HLS', color: 'bg-pink-500' },
-              { label: 'Audio', color: 'bg-violet-500' },
-              { label: 'Images', color: 'bg-emerald-500' },
+              { label: 'Videos', color: 'bg-[rgba(0,0,0,0.3)]' },
+              { label: 'HLS', color: 'bg-[rgba(0,0,0,0.45)]' },
+              { label: 'Audio', color: 'bg-[rgba(0,0,0,0.2)]' },
+              { label: 'Images', color: 'bg-[rgba(0,0,0,0.15)]' },
             ][i];
             return (
               <div key={type} className="flex items-center gap-2">
@@ -1684,7 +1676,7 @@ function StorageTab({ files, overview, loading, onDeleteFile, onUploadFile }: St
         <div className="relative flex-1">
           <Icon icon="mdi:magnify" className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)] text-sm pointer-events-none" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search files…"
-            className="w-full pl-9 pr-4 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-pink-400 focus:border-pink-400 outline-none" />
+            className="w-full pl-9 pr-4 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-[rgba(0,0,0,0.2)] outline-none" />
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {(['all', 'video', 'hls', 'audio', 'image'] as const).map(t => (
@@ -1695,8 +1687,8 @@ function StorageTab({ files, overview, loading, onDeleteFile, onUploadFile }: St
           ))}
           <label className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-bold border cursor-pointer transition-all ${
             uploadState === 'uploading'
-              ? 'bg-pink-50 border-pink-200 text-pink-600 cursor-wait'
-              : 'bg-gradient-to-r from-pink-500 to-rose-600 text-white border-transparent shadow hover:shadow-md hover:scale-[1.02]'
+              ? 'bg-[rgba(0,0,0,0.04)] border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.45)] cursor-wait'
+              : 'bg-[rgba(0,0,0,0.88)] text-white border-transparent hover:bg-[rgba(0,0,0,0.75)]'
           }`}>
             <input ref={uploadInputRef} type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.mp4,.webm,.m4v,.flv"
               className="hidden" disabled={uploadState === 'uploading'} onChange={handleUpload} />
@@ -1779,26 +1771,22 @@ function CostSavingsTab({ overview }: CostSavingsTabProps) {
   return (
     <div className="space-y-5">
       {/* Hero savings banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 p-6 shadow-lg">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 right-20 w-40 h-40 rounded-full bg-white blur-3xl" />
-          <div className="absolute bottom-0 right-0 w-32 h-24 rounded-full bg-emerald-300 blur-2xl" />
-        </div>
-        <div className="relative grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-200 mb-1">Potential Monthly Savings</p>
-            <p className="text-4xl font-bold text-white" style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif" }}>${totalMonthlySavings.toLocaleString()}</p>
-            <p className="text-[12px] text-emerald-200 mt-1">vs AWS at 100 hrs/mo</p>
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-[rgba(0,0,0,0.06)]">
+          <div className="md:pr-6">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Potential Monthly Savings</p>
+            <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>${totalMonthlySavings.toLocaleString()}</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">vs AWS at 100 hrs/mo</p>
           </div>
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-200 mb-1">Potential Annual Savings</p>
-            <p className="text-4xl font-bold text-white" style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif" }}>${totalYearSavings.toLocaleString()}</p>
-            <p className="text-[12px] text-emerald-200 mt-1">Projected at current usage</p>
+          <div className="md:px-6 pt-4 md:pt-0">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Potential Annual Savings</p>
+            <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>${totalYearSavings.toLocaleString()}</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">Projected at current usage</p>
           </div>
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-200 mb-1">Actual Tracked Savings</p>
-            <p className="text-4xl font-bold text-white" style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif" }}>{actualSaved}</p>
-            <p className="text-[12px] text-emerald-200 mt-1">Recorded by MediaOps</p>
+          <div className="md:pl-6 pt-4 md:pt-0">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Actual Tracked Savings</p>
+            <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{actualSaved}</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">Recorded by MediaOps</p>
           </div>
         </div>
       </div>
@@ -1844,18 +1832,18 @@ function CostSavingsTab({ overview }: CostSavingsTabProps) {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-2 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden w-16">
-                        <div className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full" style={{ width: `${row.savingsPct}%` }} />
+                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${row.savingsPct}%` }} />
                       </div>
                       <span className="text-[12px] font-bold text-emerald-600">{row.savingsPct}%</span>
                     </div>
                   </td>
                 </tr>
               ))}
-              <tr className="bg-emerald-50 border-t-2 border-emerald-200">
-                <td colSpan={4} className="px-4 py-3 text-[12px] font-bold text-emerald-800">Total (all services)</td>
-                <td className="px-4 py-3 text-[14px] font-bold text-emerald-700">${totalMonthlySavings.toLocaleString()}/mo</td>
-                <td className="px-4 py-3 text-[14px] font-bold text-emerald-700">${totalYearSavings.toLocaleString()}/yr</td>
-                <td className="px-4 py-3 text-[14px] font-bold text-emerald-700">~98%</td>
+              <tr className="bg-[rgba(0,0,0,0.02)] border-t-2 border-[rgba(0,0,0,0.08)]">
+                <td colSpan={4} className="px-4 py-3 text-[12px] font-bold text-[rgba(0,0,0,0.88)]">Total (all services)</td>
+                <td className="px-4 py-3 text-[14px] font-bold text-emerald-600">${totalMonthlySavings.toLocaleString()}/mo</td>
+                <td className="px-4 py-3 text-[14px] font-bold text-emerald-600">${totalYearSavings.toLocaleString()}/yr</td>
+                <td className="px-4 py-3 text-[14px] font-bold text-emerald-600">~98%</td>
               </tr>
             </tbody>
           </table>
@@ -1865,13 +1853,13 @@ function CostSavingsTab({ overview }: CostSavingsTabProps) {
       {/* Why FFmpeg */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { icon: 'mdi:currency-usd-off', title: 'Zero Licensing Cost', body: 'FFmpeg is 100% free and open-source (LGPL/GPL). No per-minute fees, no channel fees, no egress markup.', color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100' },
-          { icon: 'mdi:server-network', title: 'Runs on Your Infra', body: 'Runs on any EC2, GCE, or on-prem server. Use Spot/Preemptible instances to cut compute costs further.', color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-100' },
-          { icon: 'mdi:cogs', title: 'Full Format Support', body: 'Supports 500+ codecs and formats including H.264, H.265/HEVC, AV1, VP9, HLS, DASH, RTMP, SRT, and more.', color: 'text-violet-500', bg: 'bg-violet-50', border: 'border-violet-100' },
+          { icon: 'mdi:currency-usd-off', title: 'Zero Licensing Cost', body: 'FFmpeg is 100% free and open-source (LGPL/GPL). No per-minute fees, no channel fees, no egress markup.' },
+          { icon: 'mdi:server-network', title: 'Runs on Your Infra', body: 'Runs on any EC2, GCE, or on-prem server. Use Spot/Preemptible instances to cut compute costs further.' },
+          { icon: 'mdi:cogs', title: 'Full Format Support', body: 'Supports 500+ codecs and formats including H.264, H.265/HEVC, AV1, VP9, HLS, DASH, RTMP, SRT, and more.' },
         ].map((item, i) => (
-          <div key={i} className={`bg-white rounded-2xl border ${item.border} p-5 shadow-sm`}>
-            <div className={`w-10 h-10 ${item.bg} rounded-xl flex items-center justify-center mb-3`}>
-              <Icon icon={item.icon} className={`${item.color} text-xl`} />
+          <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+            <div className="w-9 h-9 bg-[rgba(0,0,0,0.04)] rounded-lg flex items-center justify-center mb-3">
+              <Icon icon={item.icon} width={18} color="rgba(0,0,0,0.4)" />
             </div>
             <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] mb-1">{item.title}</p>
             <p className="text-[12px] text-[rgba(0,0,0,0.5)] leading-relaxed">{item.body}</p>
@@ -1948,9 +1936,9 @@ const MediaOpsPage: React.FC = () => {
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full bg-pink-400 animate-pulse" />
+        <span className="w-2 h-2 rounded-full bg-[rgba(0,0,0,0.3)]" />
         <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.65)]">MediaOps</span>
-        <span className="px-2 py-0.5 rounded-full bg-pink-100 border border-pink-200 text-[10px] font-bold text-pink-600 uppercase tracking-wider">Beta</span>
+        <span className="px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[10px] font-bold text-[rgba(0,0,0,0.45)] uppercase tracking-wider">Beta</span>
         <button onClick={refresh} title="Refresh" className="ml-1 p-1 rounded-lg hover:bg-[rgba(0,0,0,0.06)] transition-colors">
           <Icon icon="mdi:refresh" className="text-sm text-[rgba(0,0,0,0.4)]" />
         </button>
@@ -2008,14 +1996,14 @@ const MediaOpsPage: React.FC = () => {
       )}
 
       {/* Tab Bar with Notification Bell */}
-      <div className={`flex items-center gap-1 mb-6 overflow-x-auto pb-px border-b ${dark ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.06)]'}`}>
+      <div className={`flex items-center gap-1 mb-6 border-b ${dark ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.06)]'}`}>
         {TAB_DEFS.map(tab => (
           <button
             key={tab.id}
             onClick={() => navigate(tab.path)}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap border-b-2 transition-all -mb-px ${
               activeTab === tab.id
-                ? 'border-pink-500 text-pink-600'
+                ? 'border-[rgba(0,0,0,0.88)] text-[rgba(0,0,0,0.88)]'
                 : `border-transparent ${dark ? 'text-[rgba(255,255,255,0.5)] hover:text-[rgba(255,255,255,0.75)] hover:border-[rgba(255,255,255,0.15)]' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.75)] hover:border-[rgba(0,0,0,0.15)]'}`
             }`}
           >
