@@ -80,12 +80,14 @@ public class TranscodeJobService {
         job.setStartTime(req.getStartTime());
         job.setEndTime(req.getEndTime());
 
+        job.setSubtitlePath(req.getSubtitlePath());
         if (req.getSubtitleMode() != null && !req.getSubtitleMode().isEmpty()) {
             try {
                 job.setSubtitleMode(TranscodeJob.SubtitleMode.valueOf(req.getSubtitleMode().toUpperCase()));
             } catch (IllegalArgumentException ignored) {}
         }
 
+        job.setWatermarkImagePath(req.getWatermarkImagePath());
         job.setWatermarkText(req.getWatermarkText());
         if (req.getWatermarkPosition() != null && !req.getWatermarkPosition().isEmpty()) {
             try {

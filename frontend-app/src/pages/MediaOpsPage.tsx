@@ -431,12 +431,26 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
         if (advancedState.priority !== 'NORMAL') request.priority = advancedState.priority;
         if (advancedState.startTime) request.startTime = advancedState.startTime;
         if (advancedState.endTime) request.endTime = advancedState.endTime;
-        if (advancedState.subtitleMode) request.subtitleMode = advancedState.subtitleMode;
-        if (advancedState.watermarkText) request.watermarkText = advancedState.watermarkText;
-        if (advancedState.watermarkType) {
-          request.watermarkPosition = advancedState.watermarkPosition;
-          request.watermarkOpacity = advancedState.watermarkOpacity / 100; // Convert from percentage to 0-1
+
+        // Upload subtitle file first, then pass the server path
+        if (advancedState.subtitleFile) {
+          const uploadedSubtitle = await onUploadFile(advancedState.subtitleFile);
+          request.subtitlePath = uploadedSubtitle.filePath;
         }
+        if (advancedState.subtitleMode) request.subtitleMode = advancedState.subtitleMode;
+
+        // Upload watermark image first, then pass the server path
+        if (advancedState.watermarkType === 'image' && advancedState.watermarkImage) {
+          const uploadedWatermark = await onUploadFile(advancedState.watermarkImage);
+          request.watermarkImagePath = uploadedWatermark.filePath;
+          request.watermarkPosition = advancedState.watermarkPosition;
+          request.watermarkOpacity = advancedState.watermarkOpacity / 100;
+        } else if (advancedState.watermarkType === 'text' && advancedState.watermarkText) {
+          request.watermarkText = advancedState.watermarkText;
+          request.watermarkPosition = advancedState.watermarkPosition;
+          request.watermarkOpacity = advancedState.watermarkOpacity / 100;
+        }
+
         if (advancedState.thumbnailEnabled) {
           request.thumbnailEnabled = true;
           request.thumbnailIntervalSeconds = advancedState.thumbnailIntervalSeconds;

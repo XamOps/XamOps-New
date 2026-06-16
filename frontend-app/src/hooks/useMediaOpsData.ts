@@ -74,8 +74,9 @@ export interface CreateJobRequest {
   startTime?: string;
   endTime?: string;
   subtitleMode?: 'BURN_IN' | 'SIDECAR' | null;
-  subtitleFile?: string;
+  subtitlePath?: string;
   watermarkText?: string;
+  watermarkImagePath?: string;
   watermarkPosition?: string;
   watermarkOpacity?: number;
   thumbnailEnabled?: boolean;

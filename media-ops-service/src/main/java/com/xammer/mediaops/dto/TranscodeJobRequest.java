@@ -27,10 +27,12 @@ public class TranscodeJobRequest {
     private String endTime;
 
     // Subtitles (BURN_IN, SIDECAR)
+    private String subtitlePath;
     private String subtitleMode;
 
     // Watermark
     private String watermarkText;
+    private String watermarkImagePath;
     private String watermarkPosition;
     private Double watermarkOpacity;
 
