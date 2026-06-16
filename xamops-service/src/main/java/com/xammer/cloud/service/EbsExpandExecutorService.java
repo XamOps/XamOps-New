@@ -26,6 +26,10 @@ public class EbsExpandExecutorService {
     private static final Logger logger = LoggerFactory.getLogger(EbsExpandExecutorService.class);
     private static final int MODIFICATION_POLL_INTERVAL_MS = 15_000;
     private static final int MODIFICATION_TIMEOUT_MINUTES = 15;
+    private static final java.util.regex.Pattern VALID_DEVICE =
+            java.util.regex.Pattern.compile("^/dev/[a-zA-Z0-9]{1,15}$");
+    private static final java.util.regex.Pattern VALID_INSTANCE_ID =
+            java.util.regex.Pattern.compile("^i-[0-9a-f]{8,17}$");
 
     private final AwsClientProvider awsClientProvider;
     private final CloudAccountRepository cloudAccountRepository;
@@ -48,6 +52,11 @@ public class EbsExpandExecutorService {
         if (account == null) return;
 
         try {
+            if (device != null && !VALID_DEVICE.matcher(device).matches())
+                throw new IllegalArgumentException("Invalid device name: " + device);
+            if (instanceId != null && !VALID_INSTANCE_ID.matcher(instanceId).matches())
+                throw new IllegalArgumentException("Invalid instance ID: " + instanceId);
+
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
             SsmClient ssm = awsClientProvider.getSsmClient(account, region);
 
@@ -127,11 +136,18 @@ public class EbsExpandExecutorService {
      * Sends an SSM shell script to grow the partition and filesystem online.
      * Supports ext2/ext3/ext4 (resize2fs) and xfs (xfs_growfs).
      * Checks status BEFORE sleeping so that tests returning SUCCESS immediately do not wait.
+     *
+     * Security: Validates device path to prevent command injection via shell metacharacters.
      */
     private void runSsmResize(SsmClient ssm, String instanceId, String device) throws InterruptedException {
+        if (device == null || !VALID_DEVICE.matcher(device).matches())
+            throw new IllegalArgumentException("Invalid device path: " + device);
+
+        // Pass device as a shell variable (validated above) to avoid interpolation issues
         String script = String.join("\n",
                 "set -e",
-                "PART=$(df --output=source " + device + " 2>/dev/null | tail -1 || lsblk -no NAME " + device + " | tail -1 | xargs -I{} echo /dev/{})",
+                "DEVICE=" + device,
+                "PART=$(df --output=source \"$DEVICE\" 2>/dev/null | tail -1 || lsblk -no NAME \"$DEVICE\" | tail -1 | xargs -I{} echo /dev/{})",
                 "DISK=$(lsblk -no PKNAME \"$PART\" 2>/dev/null || echo '')",
                 "PARTNUM=$(echo \"$PART\" | grep -o '[0-9]*$')",
                 "if [ -n \"$DISK\" ] && [ -n \"$PARTNUM\" ]; then growpart /dev/$DISK $PARTNUM || true; fi",

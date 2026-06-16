@@ -49,8 +49,9 @@ class EbsExpandExecutorServiceTest {
 
         when(cloudAccountRepository.findById(1L)).thenReturn(Optional.of(account));
         when(ebsVolumeActionRepository.findById(10L)).thenReturn(Optional.of(action));
-        when(awsClientProvider.getEc2Client(account, "us-east-1")).thenReturn(ec2);
-        when(awsClientProvider.getSsmClient(account, "us-east-1")).thenReturn(ssm);
+        // Use lenient() to avoid UnnecessaryStubbingException in tests that validate and fail early
+        lenient().when(awsClientProvider.getEc2Client(account, "us-east-1")).thenReturn(ec2);
+        lenient().when(awsClientProvider.getSsmClient(account, "us-east-1")).thenReturn(ssm);
     }
 
     @Test
@@ -82,7 +83,8 @@ class EbsExpandExecutorServiceTest {
                         .standardOutputContent("resize done")
                         .build());
 
-        service.executeExpandWorkflow(10L, 1L, "vol-001", "us-east-1", "i-111", "/dev/xvdf", 300, null);
+        // Valid instance ID: i-[8-17 hex chars]
+        service.executeExpandWorkflow(10L, 1L, "vol-001", "us-east-1", "i-0abcdef123456789", "/dev/xvdf", 300, null);
 
         verify(ec2).modifyVolume(argThat((ModifyVolumeRequest req) ->
                 "vol-001".equals(req.volumeId()) && req.size() == 300));
@@ -96,9 +98,23 @@ class EbsExpandExecutorServiceTest {
         when(ec2.modifyVolume(any(ModifyVolumeRequest.class)))
                 .thenThrow(new RuntimeException("API throttled"));
 
-        service.executeExpandWorkflow(10L, 1L, "vol-001", "us-east-1", "i-111", "/dev/xvdf", 300, null);
+        // Valid instance ID
+        service.executeExpandWorkflow(10L, 1L, "vol-001", "us-east-1", "i-0abcdef123456789", "/dev/xvdf", 300, null);
 
         verify(ebsVolumeActionRepository, atLeastOnce()).save(argThat((EbsVolumeAction a) ->
                 "FAILED".equals(a.getStatus())));
+    }
+
+    @Test
+    void executeExpandWorkflow_rejectsInvalidDevicePath() {
+        // Device path with shell metacharacters should be rejected before any SSM command is sent
+        // Valid instance ID but invalid device
+        service.executeExpandWorkflow(10L, 1L, "vol-001", "us-east-1", "i-0abcdef123456789", "/dev/xvdf; rm -rf /", 300, null);
+
+        // Validation throws inside the try block → caught → action saved as FAILED
+        verify(ebsVolumeActionRepository, atLeastOnce()).save(argThat((EbsVolumeAction a) ->
+                "FAILED".equals(a.getStatus())));
+        // modifyVolume must NOT have been called (should fail before reaching SSM)
+        verifyNoInteractions(ssm);
     }
 }
