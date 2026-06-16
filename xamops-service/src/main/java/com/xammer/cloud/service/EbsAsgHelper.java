@@ -36,8 +36,20 @@ public class EbsAsgHelper {
                                         .build())
                                 .build();
                     }
-                    return LaunchTemplateBlockDeviceMappingRequest.builder()
-                            .deviceName(bdm.deviceName()).build();
+                    // Pass-through: preserve virtualName (instance-store), noDevice, and any EBS fields
+                    LaunchTemplateBlockDeviceMappingRequest.Builder b =
+                            LaunchTemplateBlockDeviceMappingRequest.builder().deviceName(bdm.deviceName());
+                    if (bdm.virtualName() != null) b.virtualName(bdm.virtualName());
+                    if (bdm.noDevice() != null) b.noDevice(bdm.noDevice());
+                    if (bdm.ebs() != null) {
+                        b.ebs(LaunchTemplateEbsBlockDeviceRequest.builder()
+                                .volumeType(bdm.ebs().volumeType())
+                                .volumeSize(bdm.ebs().volumeSize())
+                                .deleteOnTermination(bdm.ebs().deleteOnTermination())
+                                .encrypted(bdm.ebs().encrypted())
+                                .build());
+                    }
+                    return b.build();
                 })
                 .collect(Collectors.toList());
 
@@ -49,6 +61,18 @@ public class EbsAsgHelper {
                                                String asgName, String deviceName, int newSizeGb) {
         String ltId = getLaunchTemplateId(asg, asgName);
         LaunchTemplateVersion current = getCurrentLaunchTemplateVersion(ec2, ltId);
+
+        // Validate: disallow shrinking the volume
+        current.launchTemplateData().blockDeviceMappings().stream()
+                .filter(bdm -> deviceName.equals(bdm.deviceName()) && bdm.ebs() != null)
+                .findFirst()
+                .ifPresent(bdm -> {
+                    if (bdm.ebs().volumeSize() != null && newSizeGb < bdm.ebs().volumeSize()) {
+                        throw new IllegalArgumentException(
+                                "Cannot shrink launch template volume on " + deviceName
+                                + " from " + bdm.ebs().volumeSize() + "GB to " + newSizeGb + "GB");
+                    }
+                });
 
         List<LaunchTemplateBlockDeviceMappingRequest> newBdms = current.launchTemplateData()
                 .blockDeviceMappings().stream()
@@ -64,8 +88,20 @@ public class EbsAsgHelper {
                                         .build())
                                 .build();
                     }
-                    return LaunchTemplateBlockDeviceMappingRequest.builder()
-                            .deviceName(bdm.deviceName()).build();
+                    // Pass-through: preserve virtualName (instance-store), noDevice, and any EBS fields
+                    LaunchTemplateBlockDeviceMappingRequest.Builder b =
+                            LaunchTemplateBlockDeviceMappingRequest.builder().deviceName(bdm.deviceName());
+                    if (bdm.virtualName() != null) b.virtualName(bdm.virtualName());
+                    if (bdm.noDevice() != null) b.noDevice(bdm.noDevice());
+                    if (bdm.ebs() != null) {
+                        b.ebs(LaunchTemplateEbsBlockDeviceRequest.builder()
+                                .volumeType(bdm.ebs().volumeType())
+                                .volumeSize(bdm.ebs().volumeSize())
+                                .deleteOnTermination(bdm.ebs().deleteOnTermination())
+                                .encrypted(bdm.ebs().encrypted())
+                                .build());
+                    }
+                    return b.build();
                 })
                 .collect(Collectors.toList());
 
