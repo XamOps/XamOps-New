@@ -637,7 +637,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                           )}
                           {job.hlsUrl && (
                             <>
-                              <button onClick={() => setPlayerUrl(`http://localhost:8084${job.hlsUrl}`)}
+                              <button onClick={() => setPlayerUrl(job.hlsUrl!.startsWith('http') ? job.hlsUrl! : `/media/${job.hlsUrl!.replace(/^\//, '')}`)}
                                 title="Preview HLS"
                                 className="p-1.5 rounded-lg hover:bg-emerald-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-emerald-600">
                                 <Icon icon="mdi:play-circle-outline" className="text-sm" />
@@ -650,14 +650,14 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                             </>
                           )}
                           {job.dashUrl && (
-                            <button onClick={() => setDashPlayerUrl(`http://localhost:8084${job.dashUrl}`)}
+                            <button onClick={() => setDashPlayerUrl(job.dashUrl!.startsWith('http') ? job.dashUrl! : `/media/${job.dashUrl!.replace(/^\//, '')}`)}
                               title="Preview DASH"
                               className="p-1.5 rounded-lg hover:bg-violet-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-violet-600">
                               <Icon icon="mdi:play-circle-outline" className="text-sm" />
                             </button>
                           )}
                           {job.videoUrl && (
-                            <button onClick={() => setVideoPlayerUrl(`http://localhost:8084${job.videoUrl}`)}
+                            <button onClick={() => setVideoPlayerUrl(job.videoUrl!.startsWith('http') ? job.videoUrl! : `/media/${job.videoUrl!.replace(/^\//, '')}`)}
                               title={`Preview ${job.outputFormat}`}
                               className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-blue-600">
                               <Icon icon="mdi:play-circle-outline" className="text-sm" />
@@ -707,7 +707,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
       {videoPlayerUrl && <NativeVideoPlayer src={videoPlayerUrl} onClose={() => setVideoPlayerUrl(null)} />}
       {embedJob?.hlsUrl && (
         <EmbedModal
-          hlsUrl={`http://localhost:8084${embedJob.hlsUrl}`}
+          hlsUrl={embedJob.hlsUrl!.startsWith('http') ? embedJob.hlsUrl! : `/media/${embedJob.hlsUrl!.replace(/^\//, '')}`}
           title={embedJob.name}
           onClose={() => setEmbedJob(null)}
         />
@@ -913,7 +913,7 @@ function EmbedModal({ hlsUrl, title, onClose }: { hlsUrl: string; title: string;
   const [tab, setTab] = useState<'hlsjs' | 'native' | 'react'>('hlsjs');
   const [copied, setCopied] = useState(false);
 
-  const fullUrl = hlsUrl.startsWith('http') ? hlsUrl : `http://localhost:8084${hlsUrl}`;
+  const fullUrl = hlsUrl.startsWith('http') ? hlsUrl : `/media/${hlsUrl.replace(/^\//, '')}`;
 
   const snippets: Record<string, string> = {
     hlsjs: `<!-- HLS.js (works in Chrome, Firefox, Edge) -->
@@ -1747,7 +1747,7 @@ function StorageTab({ files, overview, loading, onDeleteFile, onUploadFile }: St
                     </span>
                   )}
                   <div className="ml-auto flex items-center gap-1">
-                    <a href={`http://localhost:8084/media/${file.filePath.replace(/.*xamops-media\//, '')}`}
+                    <a href={file.filePath.startsWith('http') ? file.filePath : `/media/${file.filePath.replace(/.*xamops-media\//, '')}`}
                       download={file.name}
                       className="p-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.06)] transition-colors" title="Download">
                       <Icon icon="mdi:download-outline" className="text-sm text-[rgba(0,0,0,0.4)]" />
