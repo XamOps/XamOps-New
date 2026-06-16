@@ -57,9 +57,12 @@ public class EbsDiskRightsizingController {
             String targetType = (String) request.get("targetType");
             Integer targetSizeGb = request.get("targetSizeGb") != null
                     ? ((Number) request.get("targetSizeGb")).intValue() : null;
+            String instanceId = (String) request.get("instanceId");
+            String asgName    = (String) request.get("asgName");
 
             return ResponseEntity.ok(
-                    ebsService.applyAction(accountId, volumeId, region, actionType, targetType, targetSizeGb));
+                    ebsService.applyAction(accountId, volumeId, region, actionType, targetType, targetSizeGb,
+                            instanceId, asgName));
         } catch (Exception e) {
             logger.error("Failed to apply EBS action for account {}: {}", accountId, e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));

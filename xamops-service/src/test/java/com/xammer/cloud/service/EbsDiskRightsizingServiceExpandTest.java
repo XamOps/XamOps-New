@@ -131,6 +131,38 @@ class EbsDiskRightsizingServiceExpandTest {
     }
 
     @Test
+    void applyAction_upgradeType_asgPath_updatesLaunchTemplateAndRefreshes() {
+        when(ec2.modifyVolume(any(ModifyVolumeRequest.class)))
+                .thenReturn(ModifyVolumeResponse.builder()
+                        .volumeModification(VolumeModification.builder()
+                                .volumeId("vol-upgrade")
+                                .modificationState(VolumeModificationState.COMPLETED)
+                                .build())
+                        .build());
+        when(ec2.describeVolumes(any(DescribeVolumesRequest.class)))
+                .thenReturn(DescribeVolumesResponse.builder()
+                        .volumes(Volume.builder()
+                                .volumeId("vol-upgrade")
+                                .size(100)
+                                .volumeType(VolumeType.GP2)
+                                .attachments(VolumeAttachment.builder()
+                                        .instanceId("i-0abcdef123456789")
+                                        .device("/dev/xvda")
+                                        .build())
+                                .build())
+                        .build());
+
+        Map<String, Object> result = service.applyAction(
+                "42", "vol-upgrade", "us-east-1",
+                "UPGRADE_TYPE", "gp3", null, "i-0abcdef123456789", "my-asg");
+
+        assertThat(result).containsEntry("success", true);
+        verify(ebsAsgHelper).updateLaunchTemplateVolumeType(
+                any(), any(), eq("my-asg"), eq("/dev/xvda"), eq("gp3"));
+        verify(ebsAsgHelper).startInstanceRefresh(any(), eq("my-asg"));
+    }
+
+    @Test
     void initiateExpand_createsActionRecordWithPendingStatus() {
         Map<String, Object> result = service.initiateExpand(
                 "42", "vol-expand", "us-east-1", "i-0abcdef123456789", "/dev/xvdf", 300, null);

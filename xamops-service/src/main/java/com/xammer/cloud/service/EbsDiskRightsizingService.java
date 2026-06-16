@@ -125,7 +125,8 @@ public class EbsDiskRightsizingService {
     // ─── Apply Actions ───────────────────────────────────────────────────────────
 
     public Map<String, Object> applyAction(String accountId, String volumeId, String region,
-                                            String actionType, String targetType, Integer targetSizeGb) {
+                                            String actionType, String targetType, Integer targetSizeGb,
+                                            String instanceId, String asgName) {
         CloudAccount account = resolveAccount(accountId);
 
         EbsVolumeAction action = new EbsVolumeAction();
@@ -142,7 +143,7 @@ public class EbsDiskRightsizingService {
 
             switch (actionType) {
                 case "UPGRADE_TYPE":
-                    return applyTypeUpgrade(ec2, action, volumeId, targetType);
+                    return applyTypeUpgrade(ec2, account, action, volumeId, targetType, region, asgName);
                 case "DELETE_UNATTACHED":
                     return deleteUnattachedVolume(ec2, action, volumeId, region);
                 case "EXPAND":
@@ -165,9 +166,10 @@ public class EbsDiskRightsizingService {
         }
     }
 
-    private Map<String, Object> applyTypeUpgrade(Ec2Client ec2, EbsVolumeAction action,
-                                                   String volumeId, String targetType) {
-        // Fetch current volume details first
+    private Map<String, Object> applyTypeUpgrade(Ec2Client ec2, CloudAccount account,
+                                                   EbsVolumeAction action,
+                                                   String volumeId, String targetType,
+                                                   String region, String asgName) {
         DescribeVolumesResponse descResp = ec2.describeVolumes(
                 DescribeVolumesRequest.builder().volumeIds(volumeId).build());
         if (descResp.volumes().isEmpty()) {
@@ -181,11 +183,24 @@ public class EbsDiskRightsizingService {
         action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size())
                 - calcMonthlyCost(targetType, vol.size()));
 
-        ModifyVolumeRequest modifyReq = ModifyVolumeRequest.builder()
+        boolean isAsg = asgName != null && !asgName.isBlank();
+        if (isAsg) {
+            // Update launch template so new ASG instances get the new volume type
+            String device = vol.attachments().isEmpty() ? "/dev/xvda"
+                    : vol.attachments().get(0).device();
+            ebsAsgHelper.updateLaunchTemplateVolumeType(
+                    ec2, awsClientProvider.getAutoScalingClient(account, region), asgName, device, targetType);
+        }
+
+        ec2.modifyVolume(ModifyVolumeRequest.builder()
                 .volumeId(volumeId)
                 .volumeType(VolumeType.fromValue(targetType))
-                .build();
-        ec2.modifyVolume(modifyReq);
+                .build());
+
+        if (isAsg) {
+            ebsAsgHelper.startInstanceRefresh(
+                    awsClientProvider.getAutoScalingClient(account, region), asgName);
+        }
 
         action.setStatus("SUCCESS");
         action.setCompletedAt(Instant.now());
@@ -193,7 +208,8 @@ public class EbsDiskRightsizingService {
 
         logger.info("Type upgrade {} → {} applied to volume {}", action.getOldType(), targetType, volumeId);
         return Map.of("success", true, "message",
-                "Volume type changed from " + action.getOldType() + " to " + targetType);
+                "Volume type changed from " + action.getOldType() + " to " + targetType
+                        + (isAsg ? ". Instance refresh started for ASG " + asgName + "." : "."));
     }
 
     private Map<String, Object> applyResize(Ec2Client ec2, EbsVolumeAction action,
