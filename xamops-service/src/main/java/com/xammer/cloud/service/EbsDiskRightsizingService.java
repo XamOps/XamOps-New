@@ -75,6 +75,8 @@ public class EbsDiskRightsizingService {
     private final EbsVolumeActionRepository ebsVolumeActionRepository;
     private final RedisCacheService redisCacheService;
     private final EbsShrinkExecutorService shrinkExecutorService;
+    private final EbsExpandExecutorService expandExecutorService;
+    private final EbsAsgHelper ebsAsgHelper;
 
     // ─── Volume Scanning ────────────────────────────────────────────────────────
 
@@ -471,6 +473,55 @@ public class EbsDiskRightsizingService {
 
         return Map.of("success", true, "actionId", saved.getId(),
                 "message", "Shrink workflow initiated. Track progress in Actions History.");
+    }
+
+    // ─── Expand (Data Volume) ─────────────────────────────────────────────────────
+
+    /**
+     * Initiates a data-volume expand workflow.
+     * Returns immediately after creating the action record — actual work runs async.
+     *
+     * Prerequisites:
+     *  - targetSizeGb must be larger than the current volume size (EBS only grows)
+     *  - Volume must be attached to an instance for filesystem resize to be applied
+     */
+    public Map<String, Object> initiateExpand(String accountId, String volumeId, String region,
+                                               String instanceId, String device, int targetSizeGb,
+                                               String asgName) {
+        CloudAccount account = resolveAccount(accountId);
+
+        Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+        DescribeVolumesResponse descResp = ec2.describeVolumes(
+                DescribeVolumesRequest.builder().volumeIds(volumeId).build());
+        if (descResp.volumes().isEmpty()) {
+            return Map.of("success", false, "error", "Volume not found: " + volumeId);
+        }
+        Volume vol = descResp.volumes().get(0);
+        if (targetSizeGb <= vol.size()) {
+            return Map.of("success", false, "error",
+                    "Target size must be larger than current size (" + vol.size() + " GB)");
+        }
+
+        EbsVolumeAction action = new EbsVolumeAction();
+        action.setAccount(account);
+        action.setVolumeId(volumeId);
+        action.setRegion(region);
+        action.setActionType("EXPAND");
+        action.setOldType(vol.volumeTypeAsString());
+        action.setNewType(vol.volumeTypeAsString());
+        action.setOldSizeGb(vol.size());
+        action.setNewSizeGb(targetSizeGb);
+        action.setEstimatedSavings(0.0);
+        action.setStatus("PENDING");
+        action.setInitiatedAt(Instant.now());
+        EbsVolumeAction saved = ebsVolumeActionRepository.save(action);
+
+        // Fire-and-forget async workflow (delegated to separate bean to preserve @Async proxy)
+        expandExecutorService.executeExpandWorkflow(
+                saved.getId(), account.getId(), volumeId, region, instanceId, device, targetSizeGb, asgName);
+
+        return Map.of("success", true, "actionId", saved.getId(),
+                "message", "Expand workflow initiated. Track progress in Actions History.");
     }
 
     // ─── Volume Monitoring (CloudWatch native EBS metrics) ────────────────────────

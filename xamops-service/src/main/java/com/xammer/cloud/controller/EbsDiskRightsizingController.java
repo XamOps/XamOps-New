@@ -146,6 +146,28 @@ public class EbsDiskRightsizingController {
         }
     }
 
+    // ─── Expand (Data Volume) ─────────────────────────────────────────────────────
+
+    @PostMapping("/expand/{accountId}")
+    public ResponseEntity<?> initiateExpand(
+            @PathVariable String accountId,
+            @RequestBody Map<String, Object> request) {
+        try {
+            String volumeId   = (String) request.get("volumeId");
+            String region     = (String) request.get("region");
+            String instanceId = (String) request.get("instanceId");
+            String device     = (String) request.get("device");
+            int targetSizeGb  = ((Number) request.get("targetSizeGb")).intValue();
+            String asgName    = (String) request.get("asgName");
+
+            return ResponseEntity.ok(
+                    ebsService.initiateExpand(accountId, volumeId, region, instanceId, device, targetSizeGb, asgName));
+        } catch (Exception e) {
+            logger.error("Failed to initiate expand for account {}: {}", accountId, e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+        }
+    }
+
     // ─── Pending Deletion Management ─────────────────────────────────────────────
 
     @GetMapping("/pending-deletion/{accountId}")

@@ -1,5 +1,8 @@
 package com.xammer.cloud.service;
 
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.EbsVolumeAction;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -13,7 +16,7 @@ import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -26,8 +29,37 @@ class EbsDiskRightsizingServiceExpandTest {
     @Mock com.xammer.cloud.repository.EbsVolumeActionRepository ebsVolumeActionRepository;
     @Mock RedisCacheService redisCacheService;
     @Mock EbsShrinkExecutorService shrinkExecutorService;
+    @Mock EbsExpandExecutorService expandExecutorService;
+    @Mock EbsAsgHelper ebsAsgHelper;
 
     @InjectMocks EbsDiskRightsizingService service;
+
+    @BeforeEach
+    void setUpExpand() {
+        CloudAccount account = new CloudAccount();
+        account.setId(42L);
+        account.setAwsAccountId("123456789012");
+        // lenient: these stubs are only consumed by the initiateExpand test, not the enrichWithAsgNames tests
+        lenient().when(cloudAccountRepository.findByProviderAccountId("42")).thenReturn(Optional.of(account));
+        lenient().when(awsClientProvider.getEc2Client(any(), any())).thenReturn(ec2);
+        lenient().when(ec2.describeVolumes(any(DescribeVolumesRequest.class)))
+                .thenReturn(DescribeVolumesResponse.builder()
+                        .volumes(Volume.builder()
+                                .volumeId("vol-expand")
+                                .size(200)
+                                .volumeType(VolumeType.GP3)
+                                .attachments(VolumeAttachment.builder()
+                                        .instanceId("i-0abcdef123456789")
+                                        .device("/dev/xvdf")
+                                        .build())
+                                .build())
+                        .build());
+        lenient().when(ebsVolumeActionRepository.save(any())).thenAnswer(inv -> {
+            EbsVolumeAction a = inv.getArgument(0);
+            a.setId(77L);
+            return a;
+        });
+    }
 
     @Test
     void enrichWithAsgNames_setsAsgNameOnAttachedVolumes() {
@@ -96,5 +128,19 @@ class EbsDiskRightsizingServiceExpandTest {
         assertThatCode(() -> service.enrichWithAsgNames(ec2, volumes))
                 .doesNotThrowAnyException();
         assertThat(vol).doesNotContainKey("asgName");
+    }
+
+    @Test
+    void initiateExpand_createsActionRecordWithPendingStatus() {
+        Map<String, Object> result = service.initiateExpand(
+                "42", "vol-expand", "us-east-1", "i-0abcdef123456789", "/dev/xvdf", 300, null);
+
+        assertThat(result).containsEntry("success", true);
+        assertThat(result).containsKey("actionId");
+        verify(ebsVolumeActionRepository).save(argThat((EbsVolumeAction a) ->
+                "PENDING".equals(a.getStatus()) && "EXPAND".equals(a.getActionType())));
+        verify(expandExecutorService).executeExpandWorkflow(
+                anyLong(), eq(42L), eq("vol-expand"), eq("us-east-1"),
+                eq("i-0abcdef123456789"), eq("/dev/xvdf"), eq(300), isNull());
     }
 }
