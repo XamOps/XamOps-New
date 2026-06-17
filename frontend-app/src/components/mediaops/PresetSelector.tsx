@@ -289,9 +289,9 @@ export function PresetSelector({ onApplyPreset }: PresetSelectorProps) {
             </div>
           </div>
 
-          {/* Custom FFmpeg params */}
+          {/* Custom encoding params */}
           <div>
-            <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.45)] mb-1 uppercase">Custom FFmpeg Params</label>
+            <label className="block text-[10px] font-semibold text-[rgba(0,0,0,0.45)] mb-1 uppercase">Custom Encoding Params</label>
             <input
               value={formData.customFfmpegParams || ''}
               onChange={e => handleFormField('customFfmpegParams', e.target.value)}

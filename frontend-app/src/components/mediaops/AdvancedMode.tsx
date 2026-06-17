@@ -292,8 +292,8 @@ export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canS
         </AdvancedSection>
         )}
 
-        {/* Custom FFmpeg Parameters */}
-        <AdvancedSection icon="mdi:console" label="Custom FFmpeg Params">
+        {/* Custom Encoding Parameters */}
+        <AdvancedSection icon="mdi:console" label="Custom Encoding Params">
           <CustomParams
             value={advState.customFfmpegParams}
             onChange={(v) => updateAdv('customFfmpegParams', v)}

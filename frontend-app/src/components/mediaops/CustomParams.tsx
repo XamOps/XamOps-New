@@ -40,7 +40,7 @@ export function CustomParams({ value, onChange }: CustomParamsProps) {
           {/* Tooltip */}
           {showTooltip && (
             <div className="absolute z-10 left-0 top-full mt-1 w-72 p-3 bg-[rgba(0,0,0,0.88)] text-white text-[11px] rounded-xl shadow-lg leading-relaxed">
-              <p className="font-semibold mb-1">Extra FFmpeg flags appended before output path.</p>
+              <p className="font-semibold mb-1">Extra encoding flags appended before output path.</p>
               <p className="text-[rgba(255,255,255,0.7)]">
                 Avoid: <code className="bg-[rgba(255,255,255,0.15)] px-1 rounded">; | ` $ &amp; ( ) {'{'} {'}'} [ ] &lt; &gt; !</code>
               </p>
