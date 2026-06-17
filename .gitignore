@@ -8,6 +8,7 @@ frontend-app/tsc_output*.txt
 
 # Ignore build artifacts
 /xamops-service/target/
+/media-ops-service/target/
 *.jar
 
 # Go binaries
