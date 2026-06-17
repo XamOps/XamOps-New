@@ -15,6 +15,8 @@ export interface EC2Resource {
   // undefined = still loading from CloudWatch, null = no off-hours recommended, number = computed savings
   recommendedSavings?: number | null;
   recommendedOffHoursPerWeek?: number | null;
+  // Skip reason if recommendation was skipped (ASG_MANAGED, K8S_NODE, PRODUCTION, ACTIVE_ALARM, INSUFFICIENT_DATA)
+  skipReason?: string | null;
 }
 
 export interface CloudSitterPolicy {

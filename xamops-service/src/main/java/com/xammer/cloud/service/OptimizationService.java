@@ -503,7 +503,6 @@ public class OptimizationService {
                 findIdleElastiCacheClusters(account, activeRegions), findUnusedDynamoDbTables(account, activeRegions),
                 findStaleEcrRepositories(account, activeRegions), findExpiredAcmCertificates(account, activeRegions),
                 findIdleSnsTopics(account, activeRegions), findIdleSqsQueues(account, activeRegions),
-                findOversizedEc2Instances(account, activeRegions),
                 findIdleAutoScalingGroups(account, activeRegions),
                 findIdleNatGateways(account, activeRegions),
                 findS3BucketsWithNoReads(account),
@@ -848,7 +847,7 @@ public class OptimizationService {
                 return List.of();
 
             Instant end = Instant.now();
-            Instant start = end.minus(30, ChronoUnit.DAYS);
+            Instant start = end.minus(60, ChronoUnit.DAYS);
             List<MetricDataQuery> cpuQueries = new ArrayList<>();
             List<MetricDataQuery> netQueries = new ArrayList<>();
             for (int i = 0; i < instances.size(); i++) {

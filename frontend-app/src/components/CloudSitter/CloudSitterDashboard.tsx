@@ -65,12 +65,11 @@ function computeKpis(allResources: EC2Resource[]): KpiData {
   const activeResources = allResources.filter(isActive);
   const managedCount = activeResources.filter((r) => r.policyName).length;
   const totalMonthlyCost = activeResources.reduce((sum, r) => sum + getMonthlyRunCost(r), 0);
-  const potentialSavings = activeResources.reduce((sum, r) => sum + (getPotentialSavings(r) ?? 0), 0);
   return {
     totalInstances: allResources.length,
     managedCount,
     totalMonthlyCost: Math.round(totalMonthlyCost * 100) / 100,
-    potentialSavings: Math.round(potentialSavings * 100) / 100,
+    potentialSavings: 0, // Not used anymore but kept for compatibility
   };
 }
 
@@ -117,7 +116,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
     <>
       {/* KPI Cards */}
       {(allResources.length > 0 || isLoading) && (
-        <div className="grid grid-cols-4 gap-4 mb-5">
+        <div className="grid grid-cols-3 gap-4 mb-5">
           {/* Total Instances */}
           <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0s both' }}>
             {CLOUD_SVG}
@@ -166,23 +165,6 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                 ? <div className="h-8 w-24 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
                 : <p style={NUM_STYLE}>${kpi.totalMonthlyCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>}
               <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">24/7 run cost est.</p>
-            </div>
-          </div>
-
-          {/* Potential Savings */}
-          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.18s both' }}>
-            {CLOUD_SVG}
-            <div className="relative z-10">
-              <div className="flex items-start justify-between mb-2">
-                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">Potential Savings</p>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#16A34A14' }}>
-                  <Icon icon="mdi:piggy-bank" width={18} color="#16A34A" />
-                </div>
-              </div>
-              {isLoading
-                ? <div className="h-8 w-24 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
-                : <p style={{ ...NUM_STYLE, color: '#16A34A' }}>${kpi.potentialSavings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}<span className="text-[16px] font-normal ml-1">/mo</span></p>}
-              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">from active schedule policies</p>
             </div>
           </div>
         </div>
@@ -292,28 +274,23 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
             className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover"
           >
           {/* Column headers */}
-          <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
+          <div className="grid grid-cols-11 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
             <div className="col-span-3">Name / ID</div>
             <div className="col-span-2">Region</div>
-            <div className="col-span-1">Type</div>
+            <div className="col-span-2">Type</div>
             <div className="col-span-1">State</div>
             <div className="col-span-2">CloudSitter Policy</div>
-            <div className="col-span-1">Cost/mo</div>
-            <div className="col-span-1">Savings</div>
             <div className="col-span-1 text-center">Actions</div>
           </div>
 
           {resources.map((resource, idx) => {
             const isTerminated = resource.state === 'terminated' || resource.state === 'stopped';
-            const monthlyCost  = getMonthlyRunCost(resource);
-            const potSavings   = getPotentialSavings(resource);
             const hasPolicy    = !!resource.policyName;
-            const recLoading   = isRecommendationLoading(resource);
 
             return (
               <div
                 key={resource.id}
-                className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+                className="grid grid-cols-11 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
                 style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.03, 0.45)}s both` }}
               >
                 {/* Name / ID */}
@@ -343,7 +320,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                 </div>
 
                 {/* Type */}
-                <div className="col-span-1">
+                <div className="col-span-2">
                   <span className="px-2 py-0.5 rounded bg-[rgba(0,0,0,0.04)] text-[11px] font-mono text-[rgba(0,0,0,0.65)] border border-[rgba(0,0,0,0.06)]">
                     {resource.type}
                   </span>
@@ -364,47 +341,6 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                     </span>
                   ) : (
                     <span className="text-[11px] text-[rgba(0,0,0,0.3)] italic">No Policy</span>
-                  )}
-                </div>
-
-                {/* Cost */}
-                <div className="col-span-1">
-                  {isTerminated ? (
-                    <span className="text-[rgba(0,0,0,0.2)]">—</span>
-                  ) : (
-                    <>
-                      <p className="font-semibold text-[rgba(0,0,0,0.88)]">${monthlyCost.toFixed(2)}</p>
-                      <p className="text-[11px] text-[rgba(0,0,0,0.35)]">24/7 est.</p>
-                    </>
-                  )}
-                </div>
-
-                {/* Savings */}
-                <div className="col-span-1">
-                  {isTerminated ? (
-                    <span className="text-[rgba(0,0,0,0.2)]">—</span>
-                  ) : recLoading ? (
-                    <div>
-                      <div className="h-4 w-14 bg-[rgba(0,0,0,0.06)] rounded animate-pulse mb-1" />
-                      <div className="flex items-center gap-1 text-[10px] text-[rgba(0,0,0,0.3)]">
-                        <Icon icon="mdi:loading" width={10} className="animate-spin" /> Analyzing
-                      </div>
-                    </div>
-                  ) : !hasPolicy && (potSavings === null || potSavings === 0) ? (
-                    <span className="text-[rgba(0,0,0,0.2)]">—</span>
-                  ) : (
-                    <>
-                      <p className={`font-semibold ${hasPolicy ? 'text-emerald-600' : 'text-amber-500'}`}>
-                        ${(potSavings ?? 0).toFixed(2)}
-                      </p>
-                      <div className={`text-[10px] mt-0.5 flex items-center gap-1 ${hasPolicy ? 'text-emerald-500' : 'text-amber-400'}`}>
-                        {hasPolicy ? (
-                          <><Icon icon="mdi:check-circle" width={10} /> Active</>
-                        ) : (
-                          <><Icon icon="mdi:brain" width={10} /> AI Estimate</>
-                        )}
-                      </div>
-                    </>
                   )}
                 </div>
 
