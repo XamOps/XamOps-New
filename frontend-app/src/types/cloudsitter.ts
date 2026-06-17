@@ -46,9 +46,9 @@ export interface PolicyGrid {
 }
 
 export interface ScheduleRecommendation {
-  recommendedSchedule: Record<string, number[]>;
-  avgCpuGrid: Record<string, number[]>;
-  avgMemGrid: Record<string, number[]>;
+  recommendedSchedule: Record<string, number[]> | null;
+  avgCpuGrid: Record<string, number[]> | null;
+  avgMemGrid: Record<string, number[]> | null;
   memAvailable: boolean;
   dataPoints: number;
   lookbackDays: number;
@@ -56,6 +56,7 @@ export interface ScheduleRecommendation {
   memIdleThreshold: number;
   /** @deprecated use cpuIdleThreshold */
   idleThreshold?: number;
+  skipReason?: string | null;
 }
 
 export type ViewType = 'dashboard' | 'createPolicy' | 'auditLog';

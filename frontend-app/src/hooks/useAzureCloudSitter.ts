@@ -164,6 +164,7 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
     setPolicyForm({ id: null, name: '', type: 'SCHEDULE', timezone: 'Asia/Kolkata', notificationsEnabled: true });
     resetGrid();
     setEditMode(false);
+    setFormInstanceTarget(null);
     setCurrentView('createPolicy');
   }, [resetGrid]);
 

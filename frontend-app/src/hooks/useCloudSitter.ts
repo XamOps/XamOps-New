@@ -234,6 +234,7 @@ export const useCloudSitter = (accountId: string | null) => {
     });
     resetGrid();
     setEditMode(false);
+    setFormInstanceTarget(null);
     setCurrentView('createPolicy');
   }, [resetGrid]);
 
