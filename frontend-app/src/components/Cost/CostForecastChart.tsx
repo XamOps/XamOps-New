@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { Chart, ChartConfiguration, LineElement, PointElement, LineController, CategoryScale, LinearScale, Tooltip, Legend, Filler } from 'chart.js';
-import type { ForecastData } from '../../types/cost';
+import type { ForecastData, ForecastAccuracyMetrics } from '../../types/cost';
 
 // Register Chart.js components
 Chart.register(LineElement, PointElement, LineController, CategoryScale, LinearScale, Tooltip, Legend, Filler);
@@ -16,6 +16,7 @@ interface CostForecastChartProps {
   service: string;
   availableServices: string[];
   onServiceChange: (service: string) => void;
+  accuracy?: ForecastAccuracyMetrics | null;
 }
 
 const KPICard: React.FC<{ title: string; value: string; icon: string; color: string; tooltip: string; index?: number }> = ({ title, value, tooltip, index = 0 }) => (
@@ -31,12 +32,55 @@ const KPICard: React.FC<{ title: string; value: string; icon: string; color: str
   </div>
 );
 
+/**
+ * Compact badge showing how accurate past forecasts have been for this selection.
+ * Colour-coded by data quality. Hidden until enough days have been evaluated.
+ */
+const AccuracyBadge: React.FC<{ accuracy: ForecastAccuracyMetrics }> = ({ accuracy }) => {
+  const quality = accuracy.dataQuality;
+
+  const styles: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+    GOOD: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Accurate' },
+    FAIR: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', dot: 'bg-amber-500', label: 'Fair' },
+    POOR: { bg: 'bg-red-50 border-red-200', text: 'text-red-700', dot: 'bg-red-500', label: 'Low' },
+    INSUFFICIENT_DATA: { bg: 'bg-gray-50 border-gray-200', text: 'text-gray-500', dot: 'bg-gray-400', label: 'Learning' },
+  };
+  const s = styles[quality] || styles.INSUFFICIENT_DATA;
+
+  const scoreText =
+    quality === 'INSUFFICIENT_DATA' || accuracy.accuracyScore == null
+      ? 'Calibrating…'
+      : `${accuracy.accuracyScore.toFixed(0)}% accurate`;
+
+  return (
+    <div className={`group relative inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${s.bg} cursor-help`}>
+      <span className={`w-2 h-2 rounded-full ${s.dot}`}></span>
+      <span className={`text-[12px] font-semibold ${s.text}`}>{scoreText}</span>
+      <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-[rgba(0,0,0,0.88)] text-white text-[11px] rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 leading-snug text-left">
+        <p className="font-semibold mb-1">Forecast accuracy ({s.label})</p>
+        <p className="mb-1.5 text-[rgba(255,255,255,0.8)]">{accuracy.message}</p>
+        {accuracy.mape != null && (
+          <p>Avg error (MAPE): <span className="font-semibold">{accuracy.mape.toFixed(1)}%</span></p>
+        )}
+        {accuracy.mae != null && (
+          <p>Avg $ error (MAE): <span className="font-semibold">${accuracy.mae.toFixed(2)}</span></p>
+        )}
+        {accuracy.confidenceCoverage != null && (
+          <p>Within confidence band: <span className="font-semibold">{accuracy.confidenceCoverage.toFixed(0)}%</span></p>
+        )}
+        <p className="mt-1 text-[rgba(255,255,255,0.6)]">Based on {accuracy.evaluatedCount} evaluated day(s)</p>
+      </div>
+    </div>
+  );
+};
+
 const CostForecastChart: React.FC<CostForecastChartProps> = ({
   data,
   isLoading,
   service,
   availableServices,
   onServiceChange,
+  accuracy,
 }) => {
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart<'line'> | null>(null);
@@ -202,6 +246,7 @@ const CostForecastChart: React.FC<CostForecastChartProps> = ({
           <p className="text-[11px] text-[rgba(0,0,0,0.4)]">Predictive analysis for next {data?.dates.length || 30} days</p>
         </div>
         <div className="flex items-center space-x-4 flex-wrap gap-2">
+          {accuracy && <AccuracyBadge accuracy={accuracy} />}
           <select
             value={service}
             onChange={(e) => onServiceChange(e.target.value)}

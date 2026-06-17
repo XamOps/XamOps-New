@@ -87,7 +87,9 @@ class ProphetForecaster:
 
             # Smart seasonality configuration based on data characteristics
             use_weekly = weekly_seasonality and data_span_days >= 21  # At least 3 weeks
-            use_yearly = yearly_seasonality and data_span_days >= 730  # At least 2 years
+            # ✅ IMPROVED: ~1 year threshold (was 730/2 years). Uses 350 to be robust
+            # against off-by-one (365 requested days = ~364 span) and real-world data gaps.
+            use_yearly = yearly_seasonality and data_span_days >= 350
 
             # ✅ FIXED: Use non-zero coefficient of variation for changepoint prior
             coefficient_of_variation = std_non_zero / mean_non_zero if mean_non_zero > 0 else 0

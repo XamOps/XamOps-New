@@ -18,7 +18,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useCostData } from '../hooks/useCostData';
-import type { CostFilters, HistoricalData, ForecastData, CostDataItem } from '../types/cost';
+import type { CostFilters, HistoricalData, ForecastData, CostDataItem, ForecastAccuracyMetrics } from '../types/cost';
 import type { ResourceLabel } from '../types/resourceLabels';
 import { fetchLabels, fetchLabelCost } from '../services/resourceLabelsApi';
 import type { LabelCostResponse } from '../services/resourceLabelsApi';
@@ -100,11 +100,13 @@ const CostPage: React.FC = () => {
     data: ForecastData | null;
     service: string;
     periods: number;
+    accuracy: ForecastAccuracyMetrics | null;
   }>({
     isLoading: false,
     data: null,
     service: '',
     periods: 30,
+    accuracy: null,
   });
 
   // Get cost data using custom hook
@@ -114,6 +116,7 @@ const CostPage: React.FC = () => {
     isRefreshing,
     loadHistoricalData,
     loadForecast,
+    loadForecastAccuracy,
     refreshAll,
   } = useCostData({
     selectedAccountId,
@@ -206,24 +209,31 @@ const CostPage: React.FC = () => {
       service,
     }));
 
-    const data = await loadForecast(service, forecastState.periods, false);
+    const [data, accuracy] = await Promise.all([
+      loadForecast(service, forecastState.periods, false),
+      loadForecastAccuracy(service),
+    ]);
 
     setForecastState(prev => ({
       ...prev,
       isLoading: false,
       data,
+      accuracy,
     }));
-  }, [loadForecast, forecastState.periods]);
+  }, [loadForecast, loadForecastAccuracy, forecastState.periods]);
 
   // Load forecast on mount and when data changes
   useEffect(() => {
     if (selectedAccountId && costData.length > 0 && !forecastState.data) {
       setForecastState(prev => ({ ...prev, isLoading: true }));
-      loadForecast(forecastState.service, forecastState.periods, false).then((data) => {
-        setForecastState(prev => ({ ...prev, isLoading: false, data }));
+      Promise.all([
+        loadForecast(forecastState.service, forecastState.periods, false),
+        loadForecastAccuracy(forecastState.service),
+      ]).then(([data, accuracy]) => {
+        setForecastState(prev => ({ ...prev, isLoading: false, data, accuracy }));
       });
     }
-  }, [selectedAccountId, costData, forecastState.service, forecastState.periods, loadForecast, forecastState.data]);
+  }, [selectedAccountId, costData, forecastState.service, forecastState.periods, loadForecast, loadForecastAccuracy, forecastState.data]);
 
   // Refresh handler
   const handleRefresh = useCallback(async () => {
@@ -309,6 +319,7 @@ const CostPage: React.FC = () => {
                 service={forecastState.service}
                 availableServices={availableServices}
                 onServiceChange={handleForecastServiceChange}
+                accuracy={forecastState.accuracy}
               />
             </RevealSection>
           </>
