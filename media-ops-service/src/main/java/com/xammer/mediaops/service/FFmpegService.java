@@ -109,9 +109,14 @@ public class FFmpegService {
      * @throws RuntimeException with "probe-failed" message if FFprobe fails
      */
     public FileProbeResult probeFile(String sourceUrl) {
+        if (sourceUrl.startsWith("-")) {
+            throw new IllegalArgumentException("Invalid source URL");
+        }
         List<String> cmd = Arrays.asList(
                 ffprobePath, "-v", "quiet", "-print_format", "json",
-                "-show_format", "-show_streams", sourceUrl
+                "-show_format", "-show_streams",
+                "-protocol_whitelist", "file,https",
+                "--", sourceUrl
         );
         log.info("[MediaOps] Probing file: {}", String.join(" ", cmd));
 
@@ -314,8 +319,11 @@ public class FFmpegService {
             cmd.addAll(Arrays.asList("-ss", normalizeTime(job.getStartTime())));
         }
 
-        // Primary input
-        cmd.addAll(Arrays.asList("-i", job.getSourceUrl()));
+        // Primary input — reject leading-dash URLs to prevent flag injection
+        if (job.getSourceUrl() != null && job.getSourceUrl().startsWith("-")) {
+            throw new IllegalArgumentException("Invalid source URL");
+        }
+        cmd.addAll(Arrays.asList("-i", "--", job.getSourceUrl()));
 
         // End time (after -i)
         if (job.getEndTime() != null && !job.getEndTime().isEmpty()) {
@@ -324,6 +332,7 @@ public class FFmpegService {
 
         // Watermark image as second input (must be added before filters)
         if (job.getWatermarkImagePath() != null && !job.getWatermarkImagePath().isEmpty()) {
+            validateStoragePath(job.getWatermarkImagePath());
             cmd.addAll(Arrays.asList("-i", job.getWatermarkImagePath()));
         }
 
@@ -376,6 +385,7 @@ public class FFmpegService {
         boolean hasSubtitleBurnIn = job.getSubtitleMode() == SubtitleMode.BURN_IN
                 && job.getSubtitlePath() != null && !job.getSubtitlePath().isEmpty();
         boolean hasWatermarkImage = job.getWatermarkImagePath() != null && !job.getWatermarkImagePath().isEmpty();
+        if (hasSubtitleBurnIn) validateStoragePath(job.getSubtitlePath());
         boolean hasWatermarkText = !hasWatermarkImage
                 && job.getWatermarkText() != null && !job.getWatermarkText().isEmpty();
 
@@ -747,6 +757,21 @@ public class FFmpegService {
     }
 
     // ─── Private utility methods ──────────────────────────────────────────────
+
+    /**
+     * Validates that a path is within the permitted storage base directory.
+     * Rejects URL-like strings and paths that resolve outside the storage root.
+     */
+    private void validateStoragePath(String path) {
+        if (path == null || path.contains("://")) {
+            throw new IllegalArgumentException("Invalid storage path: " + path);
+        }
+        java.nio.file.Path resolved = Paths.get(path).toAbsolutePath().normalize();
+        java.nio.file.Path base = Paths.get(baseStorageDir).toAbsolutePath().normalize();
+        if (!resolved.startsWith(base)) {
+            throw new IllegalArgumentException("Path is outside permitted storage directory");
+        }
+    }
 
     /**
      * Escapes a file path for use inside FFmpeg filter expressions.

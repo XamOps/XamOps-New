@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.servlet.http.HttpSession;
+import java.net.InetAddress;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -335,21 +337,59 @@ public class MediaOpsController {
     // ─── File Probe & Estimation ──────────────────────────────────────────────
 
     @PostMapping("/probe")
-    public ResponseEntity<?> probeFile(@RequestBody ProbeRequest req) {
+    public ResponseEntity<?> probeFile(@RequestBody ProbeRequest req, HttpSession session) {
+        Long clientId = resolveClientId(session);
+        if (clientId == null) return ResponseEntity.status(401).build();
         if (req.getSourceUrl() == null || req.getSourceUrl().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "sourceUrl is required"));
+        }
+        try {
+            validateProbeUrl(req.getSourceUrl());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "invalid-url", "message", e.getMessage()));
         }
         try {
             FileProbeResult result = fileProbeService.probe(req.getSourceUrl());
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "probe-failed", "message", e.getMessage() != null ? e.getMessage() : "FFprobe failed"));
+                    .body(Map.of("error", "probe-failed"));
+        }
+    }
+
+    private static void validateProbeUrl(String url) {
+        URI uri;
+        try {
+            uri = new URI(url);
+        } catch (java.net.URISyntaxException e) {
+            throw new IllegalArgumentException("Invalid URL");
+        }
+        String scheme = uri.getScheme();
+        if (scheme == null || (!scheme.equals("https") && !scheme.equals("s3"))) {
+            throw new IllegalArgumentException("Only https:// and s3:// URLs are permitted");
+        }
+        if (uri.getUserInfo() != null) {
+            throw new IllegalArgumentException("URLs with credentials are not permitted");
+        }
+        String host = uri.getHost();
+        if (host != null && !scheme.equals("s3")) {
+            try {
+                for (InetAddress addr : InetAddress.getAllByName(host)) {
+                    if (addr.isLoopbackAddress() || addr.isLinkLocalAddress()
+                            || addr.isSiteLocalAddress() || addr.isAnyLocalAddress()) {
+                        throw new IllegalArgumentException("URL resolves to a private or internal address");
+                    }
+                }
+            } catch (java.net.UnknownHostException e) {
+                throw new IllegalArgumentException("URL host could not be resolved");
+            }
         }
     }
 
     @PostMapping("/estimate")
-    public ResponseEntity<SizeEstimation> estimateSize(@RequestBody EstimateRequest req) {
+    public ResponseEntity<?> estimateSize(@RequestBody EstimateRequest req, HttpSession session) {
+        Long clientId = resolveClientId(session);
+        if (clientId == null) return ResponseEntity.status(401).build();
         SizeEstimation estimation = fileProbeService.estimateOutputSize(
                 req.getVideoBitrate(), req.getAudioBitrate(), req.getDurationSeconds());
         return ResponseEntity.ok(estimation);

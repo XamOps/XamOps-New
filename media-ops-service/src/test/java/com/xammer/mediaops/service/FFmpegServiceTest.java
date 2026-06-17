@@ -316,7 +316,7 @@ class FFmpegServiceTest {
     void buildTranscodeCommand_subtitleBurnIn_includesSubtitleFilter() {
         TranscodeJob job = createBasicJob(OutputFormat.MP4);
         job.setSubtitleMode(SubtitleMode.BURN_IN);
-        job.setSubtitlePath("/path/to/subs.srt");
+        job.setSubtitlePath("/tmp/test-media/subs.srt");
 
         List<String> cmd = ffmpegService.buildTranscodeCommand(job, "/tmp/output");
 
@@ -342,7 +342,7 @@ class FFmpegServiceTest {
     @Test
     void buildTranscodeCommand_watermarkImage_addsSecondInputAndFilterComplex() {
         TranscodeJob job = createBasicJob(OutputFormat.MP4);
-        job.setWatermarkImagePath("/path/to/logo.png");
+        job.setWatermarkImagePath("/tmp/test-media/logo.png");
         job.setWatermarkPosition(WatermarkPosition.TOP_RIGHT);
 
         List<String> cmd = ffmpegService.buildTranscodeCommand(job, "/tmp/output");
