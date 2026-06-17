@@ -298,10 +298,9 @@ const EbsRightsizingPage: React.FC = () => {
                   <div className="col-span-1">Region</div>
                   <div className="col-span-1">Type</div>
                   <div className="col-span-2 text-right">Size / Usage</div>
-                  <div className="col-span-1">State</div>
                   <div className="col-span-1">Attached To</div>
                   <div className="col-span-1 text-right">Cost/mo</div>
-                  <div className="col-span-2">Action</div>
+                  <div className="col-span-3">Action</div>
                 </div>
 
                 {isLoading ? (
@@ -356,7 +355,14 @@ const EbsRightsizingPage: React.FC = () => {
 
                         {/* Size / Usage */}
                         <div className="col-span-2 text-right">
-                          <p className="font-semibold text-[rgba(0,0,0,0.88)]">{vol.sizeGb} GB</p>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <p className="font-semibold text-[rgba(0,0,0,0.88)]">{vol.sizeGb} GB</p>
+                            {vol.attached ? (
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" title="In Use" />
+                            ) : (
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" title="Unattached" />
+                            )}
+                          </div>
                           {vol.usedPercent !== undefined ? (
                             <div className="mt-1">
                               <div className="w-20 h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden ml-auto">
@@ -382,19 +388,6 @@ const EbsRightsizingPage: React.FC = () => {
                           )}
                         </div>
 
-                        {/* State */}
-                        <div className="col-span-1">
-                          {vol.attached ? (
-                            <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />In Use
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-[11px] font-medium text-amber-600">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />Unattached
-                            </span>
-                          )}
-                        </div>
-
                         {/* Attached to */}
                         <div className="col-span-1 min-w-0">
                           {vol.instanceId ? (
@@ -413,7 +406,7 @@ const EbsRightsizingPage: React.FC = () => {
                         </div>
 
                         {/* Action */}
-                        <div className="col-span-2">
+                        <div className="col-span-3">
                           {(() => {
                             const inflight = inFlightActions.get(vol.volumeId);
                             if (inflight) {
