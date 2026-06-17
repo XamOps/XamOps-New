@@ -22,9 +22,10 @@ jobs:
     name: Detect Changed Services
     runs-on: ubuntu-latest
     outputs:
-      billops:  ${{ steps.diff.outputs.billops }}
-      xamops:   ${{ steps.diff.outputs.xamops }}
-      frontend: ${{ steps.diff.outputs.frontend }}
+      billops:    ${{ steps.diff.outputs.billops }}
+      xamops:     ${{ steps.diff.outputs.xamops }}
+      frontend:   ${{ steps.diff.outputs.frontend }}
+      media-ops:  ${{ steps.diff.outputs.media-ops }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -60,6 +61,12 @@ jobs:
             echo "frontend=true" >> $GITHUB_OUTPUT
           else
             echo "frontend=false" >> $GITHUB_OUTPUT
+          fi
+
+          if echo "$CHANGED" | grep -q "^media-ops-service/"; then
+            echo "media-ops=true" >> $GITHUB_OUTPUT
+          else
+            echo "media-ops=false" >> $GITHUB_OUTPUT
           fi
 
 
@@ -601,4 +608,163 @@ jobs:
 
             docker image prune -f
             echo "🚀 frontend-app deployment complete!"
+          ENDSSH
+
+
+  # ══════════════════════════════════════════════════════════
+  #  MEDIA-OPS-SERVICE
+  # ══════════════════════════════════════════════════════════
+
+  media-ops-build-test:
+    name: "[media-ops-service] Build & Test"
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.media-ops == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build (skip tests — FFmpeg not available in CI runner)
+        run: mvn package -B -DskipTests --no-transfer-progress -pl media-ops-service -am
+
+  media-ops-docker-push:
+    name: "[media-ops-service] Build & Push Docker Image"
+    runs-on: ubuntu-latest
+    needs: [changes, media-ops-build-test]
+    if: |
+      needs.changes.outputs.media-ops == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build .jar
+        run: mvn package -B -DskipTests --no-transfer-progress -pl media-ops-service -am
+
+      - name: Copy pre-built jar into service folder
+        run: cp media-ops-service/target/*.jar media-ops-service/app.jar
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push Docker image (FFmpeg baked in)
+        run: |
+          docker buildx build \
+            --no-cache \
+            --provenance=false \
+            -t ghcr.io/xamops/media-ops-service:latest \
+            -t ghcr.io/xamops/media-ops-service:sha-${{ github.sha }} \
+            --push \
+            ./media-ops-service
+
+  media-ops-deploy:
+    name: "[media-ops-service] Deploy to UAT"
+    runs-on: ubuntu-latest
+    needs: [changes, media-ops-docker-push]
+    if: |
+      needs.changes.outputs.media-ops == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
+    environment: uat
+    steps:
+      - name: Setup SSH Keys
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cat << 'SSHKEY' > ~/.ssh/bastion_key
+          ${{ secrets.BASTION_SSH_KEY }}
+          SSHKEY
+          chmod 600 ~/.ssh/bastion_key
+          cat << 'SSHKEY' > ~/.ssh/uat_key
+          ${{ secrets.SSH_KEY }}
+          SSHKEY
+          chmod 600 ~/.ssh/uat_key
+          cat > ~/.ssh/config << 'EOF'
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ServerAliveInterval 60
+            ServerAliveCountMax 10
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Test Bastion Connection
+        run: |
+          ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+            ec2-user@${{ secrets.BASTION_HOST }} "echo '✅ Bastion connected!'"
+
+      - name: Deploy media-ops-service via Bastion
+        run: |
+          ssh \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            -o "ProxyCommand=ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -W %h:%p ec2-user@${{ secrets.BASTION_HOST }}" \
+            -i ~/.ssh/uat_key \
+            ec2-user@${{ secrets.SSH_HOST }} << 'ENDSSH'
+
+            echo "🔄 Deploying media-ops-service..."
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/xamops/media-ops-service:latest
+
+            docker network inspect xamops-network >/dev/null 2>&1 || docker network create xamops-network
+
+            mkdir -p /data/xamops-media
+
+            docker stop media-ops-service 2>/dev/null || true
+            docker rm   media-ops-service 2>/dev/null || true
+
+            docker run -d \
+              --name media-ops-service \
+              --restart unless-stopped \
+              --network xamops-network \
+              --memory=3g --memory-swap=3g \
+              -p 8084:8084 \
+              -v /data/xamops-media:/data/xamops-media \
+              -e SPRING_PROFILES_ACTIVE=uat \
+              -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
+              -e REDIS_HOST=redis-uat \
+              -e REDIS_PORT=6379 \
+              -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
+              -e SPRING_FLYWAY_TABLE=flyway_schema_history_media_ops \
+              -e SPRING_FLYWAY_BASELINE_ON_MIGRATE=true \
+              -e SPRING_FLYWAY_BASELINE_VERSION=0 \
+              -e SPRING_FLYWAY_OUT_OF_ORDER=true \
+              -e HLS_BASE_URL=http://${{ secrets.SSH_HOST }}:8084/media \
+              -e RTMP_BASE_URL=rtmp://${{ secrets.SSH_HOST }}/live \
+              -e MANAGEMENT_HEALTH_DB_ENABLED=false \
+              -e MANAGEMENT_HEALTH_REDIS_ENABLED=false \
+              -e "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info" \
+              ghcr.io/xamops/media-ops-service:latest
+
+            sleep 25
+            if docker ps --filter "name=media-ops-service" --filter "status=running" | grep -q media-ops-service; then
+              echo "✅ media-ops-service is running"
+              docker ps --filter "name=media-ops-service"
+            else
+              echo "❌ media-ops-service failed to start"
+              docker logs --tail=50 media-ops-service
+              exit 1
+            fi
+
+            docker image prune -f
+            echo "🚀 media-ops-service deployment complete!"
           ENDSSH

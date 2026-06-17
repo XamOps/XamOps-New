@@ -30,17 +30,20 @@ public class TranscodeJobService {
     private final FFmpegService ffmpegService;
     private final S3StorageService s3Storage;
     private final SimpMessagingTemplate messaging;
+    private final NotificationService notificationService;
 
     public TranscodeJobService(TranscodeJobRepository jobRepo,
                                MediaStorageFileRepository fileRepo,
                                FFmpegService ffmpegService,
                                S3StorageService s3Storage,
-                               SimpMessagingTemplate messaging) {
+                               SimpMessagingTemplate messaging,
+                               NotificationService notificationService) {
         this.jobRepo = jobRepo;
         this.fileRepo = fileRepo;
         this.ffmpegService = ffmpegService;
         this.s3Storage = s3Storage;
         this.messaging = messaging;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -61,6 +64,48 @@ public class TranscodeJobService {
         } catch (Exception e) {
             job.setOutputFormat(TranscodeJob.OutputFormat.HLS);
         }
+
+        // Map advanced fields from request
+        job.setCodec(req.getCodec());
+
+        if (req.getPriority() != null && !req.getPriority().isEmpty()) {
+            try {
+                job.setPriority(TranscodeJob.Priority.valueOf(req.getPriority().toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                job.setPriority(TranscodeJob.Priority.NORMAL);
+            }
+        }
+
+        job.setPresetId(req.getPresetId());
+        job.setStartTime(req.getStartTime());
+        job.setEndTime(req.getEndTime());
+
+        job.setSubtitlePath(req.getSubtitlePath());
+        if (req.getSubtitleMode() != null && !req.getSubtitleMode().isEmpty()) {
+            try {
+                job.setSubtitleMode(TranscodeJob.SubtitleMode.valueOf(req.getSubtitleMode().toUpperCase()));
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        job.setWatermarkImagePath(req.getWatermarkImagePath());
+        job.setWatermarkText(req.getWatermarkText());
+        if (req.getWatermarkPosition() != null && !req.getWatermarkPosition().isEmpty()) {
+            try {
+                job.setWatermarkPosition(TranscodeJob.WatermarkPosition.valueOf(req.getWatermarkPosition().toUpperCase()));
+            } catch (IllegalArgumentException ignored) {}
+        }
+        job.setWatermarkOpacity(req.getWatermarkOpacity());
+
+        job.setThumbnailEnabled(req.isThumbnailEnabled());
+        job.setThumbnailIntervalSeconds(req.getThumbnailIntervalSeconds());
+        job.setThumbnailTimestamp(req.getThumbnailTimestamp());
+
+        job.setAudioBitrate(req.getAudioBitrate());
+        job.setAudioSampleRate(req.getAudioSampleRate());
+        job.setAudioChannels(req.getAudioChannels());
+
+        job.setCustomFfmpegParams(req.getCustomFfmpegParams());
+        job.setEncryptionEnabled(req.isEncryptionEnabled());
 
         job.setStatus(TranscodeJob.JobStatus.QUEUED);
         return jobRepo.save(job);
@@ -92,11 +137,25 @@ public class TranscodeJobService {
             if (duration > 0)
                 job.setAwsEquivalentCost(AWS_COST_PER_MINUTE.multiply(BigDecimal.valueOf(duration / 60.0)));
 
+            // Thumbnail generation after successful transcode
+            if (job.isThumbnailEnabled()) {
+                log.info("[MediaOps] Generating thumbnails for job {}", job.getId());
+                List<String> thumbnailPaths = ffmpegService.executeThumbnailGeneration(job);
+                if (!thumbnailPaths.isEmpty()) {
+                    log.info("[MediaOps] Generated {} thumbnails for job {}", thumbnailPaths.size(), job.getId());
+                }
+            }
+
             if (s3Storage.isEnabled() && job.getOutputPath() != null) {
                 try {
-                    String outputUrl = s3Storage.uploadJobOutput(job.getId(), Paths.get(job.getOutputPath()));
-                    job.setOutputUrl(outputUrl);
-                    log.info("[MediaOps] Job {} output uploaded to S3: {}", job.getId(), outputUrl);
+                    String s3Url = s3Storage.uploadJobOutput(job.getId(), Paths.get(job.getOutputPath()));
+                    log.info("[MediaOps] Job {} backed up to S3: {}", job.getId(), s3Url);
+                    // Only point streaming URLs at S3 when local files are deleted (production).
+                    // When delete-local-after-upload=false (dev), files still exist locally so
+                    // the player continues using the local file server — bucket is private anyway.
+                    if (s3Storage.isDeleteLocalAfterUpload()) {
+                        job.setOutputUrl(s3Url);
+                    }
                 } catch (Exception e) {
                     log.error("[MediaOps] S3 upload failed for job {}, files remain local: {}", job.getId(), e.getMessage());
                 }
@@ -110,6 +169,13 @@ public class TranscodeJobService {
             jobRepo.save(job);
         }
         broadcast(job);
+
+        // Send notifications on terminal status transitions
+        if (job.getStatus() == TranscodeJob.JobStatus.COMPLETED) {
+            notificationService.notifyJobCompleted(job);
+        } else if (job.getStatus() == TranscodeJob.JobStatus.FAILED) {
+            notificationService.notifyJobFailed(job);
+        }
     }
 
     public List<TranscodeJob> listJobs(Long clientId) {

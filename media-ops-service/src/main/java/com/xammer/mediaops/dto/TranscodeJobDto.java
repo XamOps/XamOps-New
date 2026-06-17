@@ -26,6 +26,7 @@ public class TranscodeJobDto {
     private String outputPath;
     private String hlsUrl;
     private String dashUrl;
+    private String videoUrl;
     private String ffmpegCommand;
     private String errorMessage;
     private BigDecimal awsEquivalentCost;
@@ -59,6 +60,10 @@ public class TranscodeJobDto {
                 dto.hlsUrl = base + (j.isEnableAdaptive() ? "/master.m3u8" : "/index.m3u8");
             } else if (j.getOutputFormat() == TranscodeJob.OutputFormat.DASH) {
                 dto.dashUrl = base + "/manifest.mpd";
+            } else {
+                // MP4, WEBM, MKV, MOV — single output file playable natively in <video>
+                String ext = j.getOutputFormat().name().toLowerCase();
+                dto.videoUrl = base + "/output." + ext;
             }
         }
         dto.ffmpegCommand = j.getFfmpegCommand();

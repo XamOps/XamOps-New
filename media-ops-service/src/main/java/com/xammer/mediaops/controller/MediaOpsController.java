@@ -4,9 +4,16 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.mediaops.domain.MediaStorageFile;
 import com.xammer.mediaops.domain.TranscodeJob;
 import com.xammer.mediaops.dto.*;
+import com.xammer.mediaops.domain.TranscodePreset;
+import com.xammer.mediaops.service.FileProbeService;
 import com.xammer.mediaops.service.MediaStorageService;
 import com.xammer.mediaops.service.MediaStreamService;
+import com.xammer.mediaops.service.PresetService;
+import com.xammer.mediaops.service.PriorityQueueService;
+import com.xammer.mediaops.service.SchedulerService;
 import com.xammer.mediaops.service.TranscodeJobService;
+import com.xammer.mediaops.validation.TranscodeJobValidator;
+import com.xammer.mediaops.validation.ValidationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,13 +32,28 @@ public class MediaOpsController {
     private final TranscodeJobService jobService;
     private final MediaStreamService streamService;
     private final MediaStorageService storageService;
+    private final FileProbeService fileProbeService;
+    private final PriorityQueueService priorityQueueService;
+    private final SchedulerService schedulerService;
+    private final PresetService presetService;
+    private final TranscodeJobValidator transcodeJobValidator;
 
     public MediaOpsController(TranscodeJobService jobService,
                               MediaStreamService streamService,
-                              MediaStorageService storageService) {
+                              MediaStorageService storageService,
+                              FileProbeService fileProbeService,
+                              PriorityQueueService priorityQueueService,
+                              SchedulerService schedulerService,
+                              PresetService presetService,
+                              TranscodeJobValidator transcodeJobValidator) {
         this.jobService = jobService;
         this.streamService = streamService;
         this.storageService = storageService;
+        this.fileProbeService = fileProbeService;
+        this.priorityQueueService = priorityQueueService;
+        this.schedulerService = schedulerService;
+        this.presetService = presetService;
+        this.transcodeJobValidator = transcodeJobValidator;
     }
 
     // ─── Overview ──────────────────────────────────────────────────────────────
@@ -54,13 +76,62 @@ public class MediaOpsController {
     }
 
     @PostMapping("/jobs")
-    public ResponseEntity<TranscodeJobDto> createJob(@RequestBody TranscodeJobRequest req, HttpSession session) {
+    public ResponseEntity<?> createJob(@RequestBody TranscodeJobRequest req, HttpSession session) {
         Long clientId = resolveClientId(session);
         if (clientId == null) return ResponseEntity.status(401).build();
         if (req.getSourceUrl() == null || req.getSourceUrl().isBlank())
             return ResponseEntity.badRequest().build();
+
+        // Step 1: If presetId is present, load preset and apply via PresetService
+        if (req.getPresetId() != null) {
+            List<TranscodePreset> presets = presetService.listByClient(clientId);
+            TranscodePreset preset = presets.stream()
+                    .filter(p -> p.getId().equals(req.getPresetId()))
+                    .findFirst()
+                    .orElse(null);
+            if (preset != null) {
+                presetService.applyPreset(req, preset);
+            }
+        }
+
+        // Step 2: Validate the request
+        try {
+            transcodeJobValidator.validate(
+                    req.getCustomFfmpegParams(),
+                    null, // subtitle filename not available in this request DTO
+                    req.getStartTime(),
+                    req.getEndTime(),
+                    req.getCodec(),
+                    req.getOutputFormat(),
+                    req.getWatermarkOpacity(),
+                    req.isEncryptionEnabled(),
+                    null  // watermark file size not available in this request DTO
+            );
+        } catch (ValidationException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", e.getErrorCode(),
+                    "message", e.getMessage()
+            ));
+        }
+
+        // Step 3: Create the job (maps all advanced fields)
         TranscodeJob job = jobService.createJob(clientId, req);
-        jobService.processJobAsync(job.getId());
+
+        // Step 4: If scheduledAt is provided, schedule instead of immediate processing
+        if (req.getScheduledAt() != null) {
+            try {
+                schedulerService.scheduleJob(job, req.getScheduledAt());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "error", "schedule-time-invalid",
+                        "message", e.getMessage()
+                ));
+            }
+        } else {
+            // Step 5: Process immediately
+            jobService.processJobAsync(job.getId());
+        }
+
         return ResponseEntity.ok(TranscodeJobDto.from(job));
     }
 
@@ -89,6 +160,70 @@ public class MediaOpsController {
         return jobService.cancelJob(id, clientId)
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
+    }
+
+    // ─── Priority and Scheduling ───────────────────────────────────────────────
+
+    @PatchMapping("/jobs/{id}/priority")
+    public ResponseEntity<TranscodeJobDto> updateJobPriority(@PathVariable Long id,
+                                                              @RequestBody PriorityUpdateRequest req,
+                                                              HttpSession session) {
+        Long clientId = resolveClientId(session);
+        if (clientId == null) return ResponseEntity.status(401).build();
+
+        TranscodeJob.Priority priority;
+        try {
+            priority = TranscodeJob.Priority.valueOf(req.getPriority().toUpperCase());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        try {
+            TranscodeJob updated = priorityQueueService.updatePriority(id, clientId, priority);
+            return ResponseEntity.ok(TranscodeJobDto.from(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(409).build();
+        }
+    }
+
+    @PatchMapping("/jobs/{id}/schedule")
+    public ResponseEntity<TranscodeJobDto> updateJobSchedule(@PathVariable Long id,
+                                                              @RequestBody ScheduleUpdateRequest req,
+                                                              HttpSession session) {
+        Long clientId = resolveClientId(session);
+        if (clientId == null) return ResponseEntity.status(401).build();
+
+        if (req.getScheduledAt() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        return jobService.getJob(id, clientId).map(job -> {
+            if (job.getStatus() != TranscodeJob.JobStatus.SCHEDULED) {
+                return ResponseEntity.status(409).<TranscodeJobDto>build();
+            }
+            try {
+                schedulerService.scheduleJob(job, req.getScheduledAt());
+                return ResponseEntity.ok(TranscodeJobDto.from(job));
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().<TranscodeJobDto>build();
+            }
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/jobs/{id}/schedule")
+    public ResponseEntity<Void> cancelScheduledJob(@PathVariable Long id, HttpSession session) {
+        Long clientId = resolveClientId(session);
+        if (clientId == null) return ResponseEntity.status(401).build();
+
+        return jobService.getJob(id, clientId).map(job -> {
+            if (job.getStatus() != TranscodeJob.JobStatus.SCHEDULED) {
+                return ResponseEntity.status(409).<Void>build();
+            }
+            schedulerService.cancelScheduledJob(job);
+            return ResponseEntity.noContent().<Void>build();
+        }).orElse(ResponseEntity.notFound().build());
     }
 
     // ─── Live Streams ──────────────────────────────────────────────────────────
@@ -195,6 +330,29 @@ public class MediaOpsController {
         Long clientId = resolveClientId(session);
         if (clientId == null) return ResponseEntity.status(401).build();
         return ResponseEntity.ok(Map.of("usedBytes", storageService.totalStorageBytes(clientId)));
+    }
+
+    // ─── File Probe & Estimation ──────────────────────────────────────────────
+
+    @PostMapping("/probe")
+    public ResponseEntity<?> probeFile(@RequestBody ProbeRequest req) {
+        if (req.getSourceUrl() == null || req.getSourceUrl().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "sourceUrl is required"));
+        }
+        try {
+            FileProbeResult result = fileProbeService.probe(req.getSourceUrl());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "probe-failed", "message", e.getMessage() != null ? e.getMessage() : "FFprobe failed"));
+        }
+    }
+
+    @PostMapping("/estimate")
+    public ResponseEntity<SizeEstimation> estimateSize(@RequestBody EstimateRequest req) {
+        SizeEstimation estimation = fileProbeService.estimateOutputSize(
+                req.getVideoBitrate(), req.getAudioBitrate(), req.getDurationSeconds());
+        return ResponseEntity.ok(estimation);
     }
 
     // ─── Helper ────────────────────────────────────────────────────────────────
