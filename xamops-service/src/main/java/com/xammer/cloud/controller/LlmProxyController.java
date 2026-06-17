@@ -62,8 +62,9 @@ public class LlmProxyController {
 
         } catch (RuntimeException e) {
             logger.error("Proxy error: {}", e.getMessage());
-            return ResponseEntity.badRequest()
-                    .body("{\"error\":\"" + e.getMessage() + "\"}");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body("{\"error\":\"Proxy request failed. Check server logs for details.\"}");
         }
     }
 }
