@@ -70,4 +70,24 @@ public class ForecastAccuracyController {
             return ResponseEntity.internalServerError().body(response);
         }
     }
+
+    /**
+     * Backfill accuracy using stored daily cost snapshots — replays past forecasts and
+     * scores them against actuals we already have, so real metrics appear immediately
+     * instead of waiting days. AWS + all-services.
+     *
+     * Example: POST /api/xamops/forecast/accuracy/backfill?accountId=123&horizonDays=30&origins=4
+     */
+    @PostMapping("/backfill")
+    public ResponseEntity<ForecastAccuracyMetrics> backfill(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "30") int horizonDays,
+            @RequestParam(defaultValue = "4") int origins) {
+
+        log.info("🔁 Forecast accuracy backfill - Account: {}, Horizon: {}d, Origins: {}",
+                accountId, horizonDays, origins);
+        ForecastAccuracyMetrics metrics =
+                accuracyService.backfillFromSnapshots(accountId, horizonDays, origins);
+        return ResponseEntity.ok(metrics);
+    }
 }

@@ -15,10 +15,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -35,6 +37,8 @@ class ForecastAccuracyServiceTest {
     @Mock ForecastAccuracyRepository repository;
     @Mock CostService costService;
     @Mock GcpCostService gcpCostService;
+    @Mock CostDataSnapshotService snapshotService;
+    @Mock ForecastingService forecastingService;
 
     @Captor ArgumentCaptor<List<ForecastAccuracyRecord>> saveCaptor;
 
@@ -42,7 +46,8 @@ class ForecastAccuracyServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ForecastAccuracyService(repository, costService, gcpCostService);
+        service = new ForecastAccuracyService(
+                repository, costService, gcpCostService, snapshotService, forecastingService);
     }
 
     private ForecastDto point(String ds, double yhat, double lower, double upper) {
@@ -326,5 +331,70 @@ class ForecastAccuracyServiceTest {
         assertNull(m.getMape());             // no defined APEs
         assertEquals(50.0, m.getMae());      // MAE still computed
         assertEquals("FAIR", m.getDataQuality());
+    }
+
+    // ---------- backfill ----------
+
+    @Test
+    void backfill_replaysSnapshotsAndScoresImmediately() {
+        LocalDate yesterday = LocalDate.now().minusDays(1);
+
+        // Provide ~210 days of daily actuals across the relevant months so history >= 14
+        // and the forecast horizon days have actuals to score against.
+        java.util.Map<YearMonth, List<CostDataSnapshotService.DailyCostEntry>> byMonth = new java.util.HashMap<>();
+        for (int i = 0; i < 210; i++) {
+            LocalDate d = yesterday.minusDays(i);
+            YearMonth ym = YearMonth.from(d);
+            byMonth.computeIfAbsent(ym, k -> new ArrayList<>())
+                    .add(new CostDataSnapshotService.DailyCostEntry(d.toString(), 100.0));
+        }
+        when(snapshotService.readDailyCost(eq("acct-1"), any(YearMonth.class)))
+                .thenAnswer(inv -> Optional.ofNullable(byMonth.get(inv.getArgument(1))));
+
+        // Forecast returns the days right after each origin with a prediction of 100.
+        when(forecastingService.generateForecastFromHistory(anyList(), anyInt()))
+                .thenAnswer(inv -> {
+                    List<java.util.Map<String, Object>> hist = inv.getArgument(0);
+                    int periods = inv.getArgument(1);
+                    String lastDs = (String) hist.get(hist.size() - 1).get("ds");
+                    LocalDate origin = LocalDate.parse(lastDs);
+                    List<ForecastDto> out = new ArrayList<>();
+                    for (int p = 1; p <= periods; p++) {
+                        out.add(point(origin.plusDays(p).toString(), 100, 80, 120));
+                    }
+                    return out;
+                });
+
+        when(repository.findExistingTargetDates(any(), any(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        // metrics query at the end
+        when(repository.findEvaluatedForAccountService(eq("AWS"), eq("acct-1"), eq("ALL"), any()))
+                .thenAnswer(inv -> new ArrayList<>()); // not asserting metrics here
+
+        ForecastAccuracyMetrics m = service.backfillFromSnapshots("acct-1", 30, 2);
+
+        // Two origins × up to 30 scored days each were saved as EVALUATED.
+        verify(repository, atLeastOnce()).saveAll(saveCaptor.capture());
+        List<ForecastAccuracyRecord> saved = saveCaptor.getAllValues().stream()
+                .flatMap(List::stream).collect(java.util.stream.Collectors.toList());
+        assertFalse(saved.isEmpty());
+        assertTrue(saved.stream().allMatch(r -> "EVALUATED".equals(r.getStatus())));
+        assertTrue(saved.stream().allMatch(r -> r.getActualCost() != null));
+        // predicted 100 vs actual 100 → 0% error, within band
+        assertTrue(saved.stream().allMatch(r -> r.getPercentageError() != null && r.getPercentageError() == 0.0));
+        assertTrue(saved.stream().allMatch(r -> Boolean.TRUE.equals(r.getWithinConfidence())));
+        assertNotNull(m);
+    }
+
+    @Test
+    void backfill_insufficientSnapshots_returnsInsufficient() {
+        // No snapshots → empty actuals
+        when(snapshotService.readDailyCost(any(), any(YearMonth.class)))
+                .thenReturn(Optional.empty());
+
+        ForecastAccuracyMetrics m = service.backfillFromSnapshots("acct-1", 30, 4);
+
+        assertEquals("INSUFFICIENT_DATA", m.getDataQuality());
+        verify(forecastingService, never()).generateForecastFromHistory(anyList(), anyInt());
     }
 }

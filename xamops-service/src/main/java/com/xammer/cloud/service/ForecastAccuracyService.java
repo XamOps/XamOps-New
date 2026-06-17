@@ -9,11 +9,13 @@ import com.xammer.cloud.repository.ForecastAccuracyRepository;
 import com.xammer.cloud.service.gcp.GcpCostService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -43,13 +45,19 @@ public class ForecastAccuracyService {
     private final ForecastAccuracyRepository repository;
     private final CostService costService;
     private final GcpCostService gcpCostService;
+    private final CostDataSnapshotService snapshotService;
+    private final ForecastingService forecastingService;
 
     public ForecastAccuracyService(ForecastAccuracyRepository repository,
                                    CostService costService,
-                                   GcpCostService gcpCostService) {
+                                   GcpCostService gcpCostService,
+                                   CostDataSnapshotService snapshotService,
+                                   @Lazy ForecastingService forecastingService) {
         this.repository = repository;
         this.costService = costService;
         this.gcpCostService = gcpCostService;
+        this.snapshotService = snapshotService;
+        this.forecastingService = forecastingService;
     }
 
     // ============================================================
@@ -292,6 +300,129 @@ public class ForecastAccuracyService {
             }
         }
         // AZURE: no reliable daily actuals source — return empty (handled gracefully).
+        return out;
+    }
+
+    // ============================================================
+    // Backfill (uses stored daily snapshots — gives instant accuracy)
+    // ============================================================
+
+    /**
+     * Backfill accuracy by replaying forecasts from past dates using the daily cost
+     * snapshots we already store ({@code AWS_DAILY_COST::...}). For each past "origin"
+     * date we build history from snapshots up to that day, run the same Prophet model,
+     * then immediately score the predictions against the actuals we already have.
+     *
+     * This populates real accuracy metrics instantly instead of waiting days for the
+     * nightly job. AWS + all-services only (daily snapshots are account totals).
+     *
+     * @param accountId   AWS account id
+     * @param horizonDays forecast horizon to simulate (1-90)
+     * @param numOrigins  how many past forecast points to replay (1-12), spaced weekly
+     * @return metrics computed from the freshly backfilled records
+     */
+    @Transactional
+    public ForecastAccuracyMetrics backfillFromSnapshots(String accountId, int horizonDays, int numOrigins) {
+        final String provider = ForecastAccuracyRecord.PROVIDER_AWS;
+        final String service = "ALL";
+        int horizon = Math.max(1, Math.min(horizonDays, 90));
+        int origins = Math.max(1, Math.min(numOrigins, 12));
+
+        LocalDate yesterday = LocalDate.now().minusDays(1);
+
+        // Pull all daily actuals we have (Jan 2025 → yesterday) once.
+        Map<LocalDate, Double> actuals = readDailyActuals(accountId,
+                yesterday.minusDays(600), yesterday);
+
+        if (actuals.size() < 30) {
+            log.warn("⚠️ Backfill: only {} daily actuals available for {} — need more snapshot history",
+                    actuals.size(), accountId);
+            return ForecastAccuracyMetrics.insufficient(provider, accountId, service, 0);
+        }
+
+        int created = 0;
+        for (int k = 0; k < origins; k++) {
+            // Origin is far enough back that the whole horizon lies in the past.
+            LocalDate origin = yesterday.minusDays((long) horizon + k * 7L);
+            LocalDate lookbackStart = origin.minusDays(180);
+
+            // Build history strictly up to (and including) the origin date.
+            List<Map<String, Object>> history = actuals.entrySet().stream()
+                    .filter(e -> !e.getKey().isBefore(lookbackStart) && !e.getKey().isAfter(origin))
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(e -> {
+                        Map<String, Object> p = new HashMap<>();
+                        p.put("ds", e.getKey().toString());
+                        p.put("y", e.getValue());
+                        return p;
+                    })
+                    .collect(Collectors.toList());
+
+            if (history.size() < 14) {
+                log.info("Backfill: skipping origin {} — only {} history points", origin, history.size());
+                continue;
+            }
+
+            List<ForecastDto> predictions = forecastingService.generateForecastFromHistory(history, horizon);
+            if (predictions == null || predictions.isEmpty()) {
+                continue;
+            }
+
+            // Dedupe against any prior backfill for this same origin.
+            Set<LocalDate> existing = new HashSet<>(
+                    repository.findExistingTargetDates(provider, accountId, service, origin));
+
+            List<ForecastAccuracyRecord> batch = new ArrayList<>();
+            for (ForecastDto p : predictions) {
+                LocalDate target = parseDate(p.getDs());
+                if (target == null || !target.isAfter(origin) || target.isAfter(yesterday)) {
+                    continue;
+                }
+                if (existing.contains(target)) {
+                    continue;
+                }
+                Double actual = actuals.get(target);
+                if (actual == null) {
+                    continue; // no actual to score against
+                }
+                double yhat = sanitize(p.getYhat());
+                double lower = sanitize(p.getYhatLower());
+                double upper = sanitize(p.getYhatUpper());
+                if (lower > upper) { double t = lower; lower = upper; upper = t; }
+
+                ForecastAccuracyRecord r = new ForecastAccuracyRecord(
+                        provider, accountId, service, origin, target, yhat, lower, upper);
+                applyEvaluation(r, actual); // score immediately
+                batch.add(r);
+                existing.add(target);
+            }
+            if (!batch.isEmpty()) {
+                repository.saveAll(batch);
+                created += batch.size();
+            }
+        }
+
+        log.info("✅ Backfill complete for {}: {} evaluated records created from snapshots", accountId, created);
+
+        // Return metrics over a window that comfortably covers the backfilled dates.
+        return getMetrics(provider, accountId, service, horizon + origins * 7 + 7);
+    }
+
+    /** Read realised daily costs from closed-month snapshots for a date range. */
+    private Map<LocalDate, Double> readDailyActuals(String accountId, LocalDate start, LocalDate end) {
+        Map<LocalDate, Double> out = new HashMap<>();
+        YearMonth startYm = YearMonth.from(start);
+        YearMonth endYm = YearMonth.from(end);
+        for (YearMonth ym = startYm; !ym.isAfter(endYm); ym = ym.plusMonths(1)) {
+            Optional<List<CostDataSnapshotService.DailyCostEntry>> snap =
+                    snapshotService.readDailyCost(accountId, ym);
+            if (snap.isEmpty()) continue;
+            for (CostDataSnapshotService.DailyCostEntry e : snap.get()) {
+                LocalDate d = parseDate(e.getDate());
+                if (d == null || d.isBefore(start) || d.isAfter(end)) continue;
+                out.put(d, e.getAmount());
+            }
+        }
         return out;
     }
 

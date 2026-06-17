@@ -364,4 +364,72 @@ public class ForecastingService {
                     }
                 });
     }
+
+    /**
+     * Generate a forecast from an explicit historical series (ds/y maps), synchronously.
+     *
+     * Unlike {@link #getCostForecast} this does NOT fetch history itself — the caller
+     * supplies it. This lets us replay a forecast "as of" a past date using stored cost
+     * snapshots, which is how accuracy backfill works. Uses the same cleaning + Prophet
+     * call as the live path so results are directly comparable.
+     *
+     * @param rawHistory list of {"ds": "yyyy-MM-dd", "y": Double}
+     * @param periods    days to forecast forward
+     * @return forecast points, or empty list if insufficient/failed
+     */
+    public List<ForecastDto> generateForecastFromHistory(List<Map<String, Object>> rawHistory, int periods) {
+        if (rawHistory == null || rawHistory.size() < 14) {
+            log.warn("generateForecastFromHistory: insufficient history ({} points)",
+                    rawHistory == null ? 0 : rawHistory.size());
+            return new ArrayList<>();
+        }
+
+        try {
+            List<Map<String, Object>> cleanedData = removeOutliers(rawHistory);
+
+            long nonZeroCount = cleanedData.stream()
+                    .filter(point -> ((Number) point.get("y")).doubleValue() > 0.01)
+                    .count();
+            if (nonZeroCount < cleanedData.size() * 0.2 && nonZeroCount >= 14) {
+                cleanedData = removeZeroDays(cleanedData);
+            }
+
+            // Span-based yearly seasonality, mirroring the live path's intent.
+            boolean enableYearlySeasonality = cleanedData.size() >= 350;
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("data", cleanedData);
+            requestBody.put("periods", periods);
+            requestBody.put("weekly_seasonality", true);
+            requestBody.put("yearly_seasonality", enableYearlySeasonality);
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+            String forecastUrl = forecastServiceUrl + "/forecast/cost";
+
+            log.info("📡 [backfill] Calling Prophet with {} points for {} periods (yearly={})",
+                    cleanedData.size(), periods, enableYearlySeasonality);
+
+            String forecastJson = restTemplate.postForObject(forecastUrl, entity, String.class);
+            JsonNode responseNode = objectMapper.readTree(forecastJson);
+
+            if (responseNode.has("status") && !"success".equals(responseNode.get("status").asText())) {
+                log.error("❌ [backfill] Prophet returned error status");
+                return new ArrayList<>();
+            }
+            JsonNode forecastArray = responseNode.get("forecast");
+            if (forecastArray == null || !forecastArray.isArray()) {
+                log.error("❌ [backfill] Invalid forecast response format");
+                return new ArrayList<>();
+            }
+            return objectMapper.readValue(forecastArray.toString(),
+                    new TypeReference<List<ForecastDto>>() {});
+
+        } catch (Exception e) {
+            log.error("❌ [backfill] Error generating forecast from history: {}", e.getMessage());
+            return new ArrayList<>();
+        }
+    }
 }
