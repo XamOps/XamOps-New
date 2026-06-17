@@ -60,11 +60,17 @@ const recommendationBadge = (r: string) => {
 const DISK_TYPES = ['gp2', 'gp3', 'io1', 'io2', 'sc1', 'st1'];
 
 const EbsRightsizingPage: React.FC = () => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts } = useAccounts();
   const selectedAccountId = selectedAccountIds[0] || null;
+  const selectedAccount = accounts.find(a => a.id === selectedAccountId);
+  const isReadOnly = selectedAccount?.access !== 'read-write';
   const [activeTab, setActiveTab] = useTabState<Tab>('overview');
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [guideTarget, setGuideTarget] = useState<GuideTarget | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{ type: 'DELETE' | 'SHRINK' | 'ASG_SHRINK'; vol: EbsVolume } | null>(null);
+  const [shrinkMountPoint, setShrinkMountPoint] = useState('');
+  const [shrinkTargetGb, setShrinkTargetGb] = useState(0);
+  const [isActioning, setIsActioning] = useState(false);
   const [monitoringVolume, setMonitoringVolume] = useState<EbsVolume | null>(null);
   const [filterSearch, setFilterSearch] = useState('');
   const [filterRegion, setFilterRegion] = useState('');
@@ -78,6 +84,7 @@ const EbsRightsizingPage: React.FC = () => {
     isLoading, isDiskUsageLoading, isRefreshing, ssmUnavailableInstances, totalWastedMonthly,
     unattachedCount, shrinkCount,
     calculateRoi, refreshAll, deletePendingVolume, keepVolume,
+    applyAction, initiateDownsize, initiateExpand, inFlightActions,
   } = useEbsRightsizingData({ selectedAccountId });
 
   const uniqueRegions = Array.from(new Set(volumes.map(v => v.region))).sort();
@@ -292,9 +299,9 @@ const EbsRightsizingPage: React.FC = () => {
                   <div className="col-span-1">Type</div>
                   <div className="col-span-2 text-right">Size / Usage</div>
                   <div className="col-span-1">State</div>
-                  <div className="col-span-2">Attached To</div>
+                  <div className="col-span-1">Attached To</div>
                   <div className="col-span-1 text-right">Cost/mo</div>
-                  <div className="col-span-1">Action</div>
+                  <div className="col-span-2">Action</div>
                 </div>
 
                 {isLoading ? (
@@ -389,11 +396,11 @@ const EbsRightsizingPage: React.FC = () => {
                         </div>
 
                         {/* Attached to */}
-                        <div className="col-span-2">
+                        <div className="col-span-1 min-w-0">
                           {vol.instanceId ? (
                             <div>
                               <p className="font-mono text-[11px] text-[rgba(0,0,0,0.7)] truncate">{vol.instanceId}</p>
-                              {vol.device && <p className="text-[10px] text-[rgba(0,0,0,0.35)]">{vol.device}{vol.isRootVolume ? ' · root' : ''}</p>}
+                              {vol.device && <p className="text-[10px] text-[rgba(0,0,0,0.35)] truncate">{vol.device}{vol.isRootVolume ? ' · root' : ''}</p>}
                             </div>
                           ) : (
                             <span className="text-[rgba(0,0,0,0.3)]">—</span>
@@ -405,25 +412,129 @@ const EbsRightsizingPage: React.FC = () => {
                           ${vol.monthlyCost.toFixed(2)}
                         </div>
 
-                        {/* Recommendation */}
-                        <div className="col-span-1">
-                          {vol.recommendation === 'SHRINK' || vol.recommendation === 'EXPAND' ? (
-                            <div className="space-y-1">
-                              {recommendationBadge(vol.recommendation)}
-                              <button
-                                onClick={() => setGuideTarget({ volumeId: vol.volumeId, region: vol.region, instanceId: vol.instanceId ?? undefined, currentSizeGb: vol.sizeGb, recommendedSizeGb: vol.recommendedSizeGb, recommendation: vol.recommendation as 'SHRINK' | 'EXPAND', isRootVolume: vol.isRootVolume, volumeType: vol.volumeType })}
-                                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95"
-                              >
-                                <Icon icon="mdi:book-open-outline" width={10} />How to fix
-                              </button>
-                            </div>
-                          ) : vol.recommendation === 'DELETE_UNATTACHED' || vol.recommendation === 'UPGRADE_TYPE' ? (
-                            <div className="space-y-1">
-                              {recommendationBadge(vol.recommendation)}
-                              {vol.recommendationReason && <p className="text-[10px] text-[rgba(0,0,0,0.4)] leading-snug">{vol.recommendationReason}</p>}
-                            </div>
-                          ) : (
-                            <div>
+                        {/* Action */}
+                        <div className="col-span-2">
+                          {(() => {
+                            const inflight = inFlightActions.get(vol.volumeId);
+                            if (inflight) {
+                              if (inflight.status === 'SUCCESS') {
+                                return (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-100">
+                                    <Icon icon="mdi:check-circle-outline" width={11} />Done
+                                  </span>
+                                );
+                              }
+                              if (inflight.status === 'FAILED') {
+                                return (
+                                  <span title={inflight.errorMessage} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-600 border border-rose-100 cursor-help">
+                                    <Icon icon="mdi:alert-circle-outline" width={11} />Failed
+                                  </span>
+                                );
+                              }
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <svg className="w-3 h-3 animate-spin text-indigo-500" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                  </svg>
+                                  <span className="text-[11px] text-indigo-600 font-medium truncate max-w-[120px]" title={inflight.errorMessage ?? ''}>
+                                    {inflight.errorMessage ?? (inflight.status === 'PENDING' ? 'Queued…' : 'Running…')}
+                                  </span>
+                                </div>
+                              );
+                            }
+
+                            if (vol.recommendation === 'UPGRADE_TYPE') {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  {recommendationBadge(vol.recommendation)}
+                                  <div className="flex flex-col gap-0.5">
+                                    <button
+                                      disabled={isReadOnly}
+                                      onClick={() => applyAction(vol.volumeId, vol.region, 'UPGRADE_TYPE', vol.recommendedType ?? 'gp3', undefined, vol.instanceId, vol.asgName)}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      <Icon icon="mdi:arrow-up-circle-outline" width={10} />Upgrade
+                                    </button>
+                                    <span className="text-[9px] text-[rgba(0,0,0,0.35)]">
+                                      Zero downtime{vol.asgName ? ' · ASG refresh' : ''}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (vol.recommendation === 'DELETE_UNATTACHED') {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  {recommendationBadge(vol.recommendation)}
+                                  <button
+                                    disabled={isReadOnly}
+                                    onClick={() => setConfirmTarget({ type: 'DELETE', vol })}
+                                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border border-rose-200 text-rose-600 hover:bg-rose-50 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                                  >
+                                    <Icon icon="mdi:trash-can-outline" width={10} />Delete
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            if (vol.recommendation === 'EXPAND') {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  {recommendationBadge(vol.recommendation)}
+                                  <div className="flex flex-col gap-0.5">
+                                    <button
+                                      disabled={isReadOnly || !vol.instanceId || !vol.device}
+                                      onClick={() => initiateExpand(vol.volumeId, vol.region, vol.instanceId!, vol.device!, vol.recommendedSizeGb, vol.asgName)}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      <Icon icon="mdi:arrow-expand" width={10} />Expand
+                                    </button>
+                                    <span className="text-[9px] text-[rgba(0,0,0,0.35)]">
+                                      Zero downtime{vol.asgName ? ' · ASG refresh' : ''}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (vol.recommendation === 'SHRINK') {
+                              if (vol.isRootVolume) {
+                                return (
+                                  <div className="flex items-center gap-2">
+                                    {recommendationBadge(vol.recommendation)}
+                                    <button
+                                      onClick={() => setGuideTarget({ volumeId: vol.volumeId, region: vol.region, instanceId: vol.instanceId ?? undefined, currentSizeGb: vol.sizeGb, recommendedSizeGb: vol.recommendedSizeGb, recommendation: 'SHRINK', isRootVolume: true, volumeType: vol.volumeType })}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95"
+                                    >
+                                      <Icon icon="mdi:book-open-outline" width={10} />How to fix
+                                    </button>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div className="flex items-center gap-2">
+                                  {recommendationBadge(vol.recommendation)}
+                                  <div className="flex flex-col gap-0.5">
+                                    <button
+                                      disabled={isReadOnly || !vol.instanceId}
+                                      onClick={() => {
+                                        setShrinkTargetGb(vol.recommendedSizeGb || 0);
+                                        setShrinkMountPoint('');
+                                        setConfirmTarget({ type: vol.asgName ? 'ASG_SHRINK' : 'SHRINK', vol });
+                                      }}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      <Icon icon="mdi:arrow-collapse" width={10} />Shrink
+                                    </button>
+                                    {vol.asgName && <span className="text-[9px] text-[rgba(0,0,0,0.35)]">ASG: {vol.asgName}</span>}
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            return (
                               <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
                                 vol.usedPercent !== undefined ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
                                 : vol.agentDeployed ? 'bg-blue-50 text-blue-600 border-blue-100'
@@ -435,8 +546,8 @@ const EbsRightsizingPage: React.FC = () => {
                                   : vol.instanceId && ssmUnavailableInstances.includes(vol.instanceId) ? 'No agent'
                                   : 'No action'}
                               </span>
-                            </div>
-                          )}
+                            );
+                          })()}
                         </div>
                       </div>
                     ))}
@@ -507,6 +618,111 @@ const EbsRightsizingPage: React.FC = () => {
 
       {showHelpModal && <EbsHelpModal onClose={() => setShowHelpModal(false)} />}
       {guideTarget && <GuideModal target={guideTarget} onClose={() => setGuideTarget(null)} />}
+
+      {/* Confirmation dialog */}
+      {confirmTarget && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[2px]" onClick={() => !isActioning && setConfirmTarget(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 p-5" onClick={e => e.stopPropagation()}>
+            {confirmTarget.type === 'DELETE' && (
+              <>
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="w-8 h-8 rounded-full bg-rose-50 flex items-center justify-center flex-shrink-0">
+                    <Icon icon="mdi:trash-can-outline" width={16} color="#e11d48" />
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">Delete Volume</p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.45)] font-mono">{confirmTarget.vol.volumeId}</p>
+                  </div>
+                </div>
+                <p className="text-[12px] text-[rgba(0,0,0,0.6)] mb-1">This unattached volume will be permanently deleted.</p>
+                <p className="text-[11px] text-rose-500 font-medium mb-5">This action cannot be undone.</p>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setConfirmTarget(null)} disabled={isActioning} className="px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-40">Cancel</button>
+                  <button
+                    disabled={isActioning}
+                    onClick={async () => {
+                      setIsActioning(true);
+                      const { vol } = confirmTarget;
+                      await applyAction(vol.volumeId, vol.region, 'DELETE_UNATTACHED');
+                      setIsActioning(false);
+                      setConfirmTarget(null);
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-40 flex items-center gap-1.5"
+                  >
+                    {isActioning && <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
+                    Delete Volume
+                  </button>
+                </div>
+              </>
+            )}
+
+            {(confirmTarget.type === 'SHRINK' || confirmTarget.type === 'ASG_SHRINK') && (
+              <>
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center flex-shrink-0">
+                    <Icon icon="mdi:arrow-collapse" width={16} color="#4f46e5" />
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">Shrink Volume</p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.45)] font-mono">{confirmTarget.vol.volumeId}</p>
+                  </div>
+                </div>
+                <p className="text-[12px] text-[rgba(0,0,0,0.6)] mb-3">
+                  Resize from <strong>{confirmTarget.vol.sizeGb} GB</strong> to <strong>{shrinkTargetGb} GB</strong>.
+                  Requires instance stop, volume replacement, and restart.
+                </p>
+                {confirmTarget.type === 'ASG_SHRINK' && (
+                  <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100 text-[11px] text-amber-700">
+                    <Icon icon="mdi:alert-outline" width={12} className="inline mr-1" />
+                    ASG-attached (<strong>{confirmTarget.vol.asgName}</strong>). Instance will be stopped and replaced outside the normal refresh cycle.
+                  </div>
+                )}
+                <div className="space-y-2.5 mb-5">
+                  <div>
+                    <label className="block text-[11px] font-medium text-[rgba(0,0,0,0.55)] mb-1">Mount point</label>
+                    <input
+                      type="text"
+                      placeholder="/data"
+                      value={shrinkMountPoint}
+                      onChange={e => setShrinkMountPoint(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-[rgba(0,0,0,0.12)] text-[12px] font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-[rgba(0,0,0,0.55)] mb-1">Target size (GB)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={confirmTarget.vol.sizeGb - 1}
+                      value={shrinkTargetGb}
+                      onChange={e => setShrinkTargetGb(Number(e.target.value))}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-[rgba(0,0,0,0.12)] text-[12px] font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setConfirmTarget(null)} disabled={isActioning} className="px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-40">Cancel</button>
+                  <button
+                    disabled={isActioning || !shrinkMountPoint.trim() || shrinkTargetGb < 1 || shrinkTargetGb >= confirmTarget.vol.sizeGb}
+                    onClick={async () => {
+                      setIsActioning(true);
+                      const { vol } = confirmTarget;
+                      await initiateDownsize(vol.volumeId, vol.region, vol.instanceId!, shrinkMountPoint.trim(), shrinkTargetGb);
+                      setIsActioning(false);
+                      setConfirmTarget(null);
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 flex items-center gap-1.5"
+                  >
+                    {isActioning && <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
+                    Shrink Volume
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
       {selectedAccountId && (
         <EbsVolumeMonitoringDrawer
           volume={monitoringVolume}

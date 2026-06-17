@@ -75,6 +75,8 @@ public class EbsDiskRightsizingService {
     private final EbsVolumeActionRepository ebsVolumeActionRepository;
     private final RedisCacheService redisCacheService;
     private final EbsShrinkExecutorService shrinkExecutorService;
+    private final EbsExpandExecutorService expandExecutorService;
+    private final EbsAsgHelper ebsAsgHelper;
 
     // ─── Volume Scanning ────────────────────────────────────────────────────────
 
@@ -123,7 +125,8 @@ public class EbsDiskRightsizingService {
     // ─── Apply Actions ───────────────────────────────────────────────────────────
 
     public Map<String, Object> applyAction(String accountId, String volumeId, String region,
-                                            String actionType, String targetType, Integer targetSizeGb) {
+                                            String actionType, String targetType, Integer targetSizeGb,
+                                            String instanceId, String asgName) {
         CloudAccount account = resolveAccount(accountId);
 
         EbsVolumeAction action = new EbsVolumeAction();
@@ -140,7 +143,7 @@ public class EbsDiskRightsizingService {
 
             switch (actionType) {
                 case "UPGRADE_TYPE":
-                    return applyTypeUpgrade(ec2, action, volumeId, targetType);
+                    return applyTypeUpgrade(ec2, account, action, volumeId, targetType, region, asgName);
                 case "DELETE_UNATTACHED":
                     return deleteUnattachedVolume(ec2, action, volumeId, region);
                 case "EXPAND":
@@ -163,9 +166,10 @@ public class EbsDiskRightsizingService {
         }
     }
 
-    private Map<String, Object> applyTypeUpgrade(Ec2Client ec2, EbsVolumeAction action,
-                                                   String volumeId, String targetType) {
-        // Fetch current volume details first
+    private Map<String, Object> applyTypeUpgrade(Ec2Client ec2, CloudAccount account,
+                                                   EbsVolumeAction action,
+                                                   String volumeId, String targetType,
+                                                   String region, String asgName) {
         DescribeVolumesResponse descResp = ec2.describeVolumes(
                 DescribeVolumesRequest.builder().volumeIds(volumeId).build());
         if (descResp.volumes().isEmpty()) {
@@ -179,11 +183,24 @@ public class EbsDiskRightsizingService {
         action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size())
                 - calcMonthlyCost(targetType, vol.size()));
 
-        ModifyVolumeRequest modifyReq = ModifyVolumeRequest.builder()
+        boolean isAsg = asgName != null && !asgName.isBlank();
+        if (isAsg) {
+            // Update launch template so new ASG instances get the new volume type
+            String device = vol.attachments().isEmpty() ? "/dev/xvda"
+                    : vol.attachments().get(0).device();
+            ebsAsgHelper.updateLaunchTemplateVolumeType(
+                    ec2, awsClientProvider.getAutoScalingClient(account, region), asgName, device, targetType);
+        }
+
+        ec2.modifyVolume(ModifyVolumeRequest.builder()
                 .volumeId(volumeId)
                 .volumeType(VolumeType.fromValue(targetType))
-                .build();
-        ec2.modifyVolume(modifyReq);
+                .build());
+
+        if (isAsg) {
+            ebsAsgHelper.startInstanceRefresh(
+                    awsClientProvider.getAutoScalingClient(account, region), asgName);
+        }
 
         action.setStatus("SUCCESS");
         action.setCompletedAt(Instant.now());
@@ -191,7 +208,8 @@ public class EbsDiskRightsizingService {
 
         logger.info("Type upgrade {} → {} applied to volume {}", action.getOldType(), targetType, volumeId);
         return Map.of("success", true, "message",
-                "Volume type changed from " + action.getOldType() + " to " + targetType);
+                "Volume type changed from " + action.getOldType() + " to " + targetType
+                        + (isAsg ? ". Instance refresh started for ASG " + asgName + "." : "."));
     }
 
     private Map<String, Object> applyResize(Ec2Client ec2, EbsVolumeAction action,
@@ -471,6 +489,55 @@ public class EbsDiskRightsizingService {
 
         return Map.of("success", true, "actionId", saved.getId(),
                 "message", "Shrink workflow initiated. Track progress in Actions History.");
+    }
+
+    // ─── Expand (Data Volume) ─────────────────────────────────────────────────────
+
+    /**
+     * Initiates a data-volume expand workflow.
+     * Returns immediately after creating the action record — actual work runs async.
+     *
+     * Prerequisites:
+     *  - targetSizeGb must be larger than the current volume size (EBS only grows)
+     *  - Volume must be attached to an instance for filesystem resize to be applied
+     */
+    public Map<String, Object> initiateExpand(String accountId, String volumeId, String region,
+                                               String instanceId, String device, int targetSizeGb,
+                                               String asgName) {
+        CloudAccount account = resolveAccount(accountId);
+
+        Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+        DescribeVolumesResponse descResp = ec2.describeVolumes(
+                DescribeVolumesRequest.builder().volumeIds(volumeId).build());
+        if (descResp.volumes().isEmpty()) {
+            return Map.of("success", false, "error", "Volume not found: " + volumeId);
+        }
+        Volume vol = descResp.volumes().get(0);
+        if (targetSizeGb <= vol.size()) {
+            return Map.of("success", false, "error",
+                    "Target size must be larger than current size (" + vol.size() + " GB)");
+        }
+
+        EbsVolumeAction action = new EbsVolumeAction();
+        action.setAccount(account);
+        action.setVolumeId(volumeId);
+        action.setRegion(region);
+        action.setActionType("EXPAND");
+        action.setOldType(vol.volumeTypeAsString());
+        action.setNewType(vol.volumeTypeAsString());
+        action.setOldSizeGb(vol.size());
+        action.setNewSizeGb(targetSizeGb);
+        action.setEstimatedSavings(0.0);
+        action.setStatus("PENDING");
+        action.setInitiatedAt(Instant.now());
+        EbsVolumeAction saved = ebsVolumeActionRepository.save(action);
+
+        // Fire-and-forget async workflow (delegated to separate bean to preserve @Async proxy)
+        expandExecutorService.executeExpandWorkflow(
+                saved.getId(), account.getId(), volumeId, region, instanceId, device, targetSizeGb, asgName);
+
+        return Map.of("success", true, "actionId", saved.getId(),
+                "message", "Expand workflow initiated. Track progress in Actions History.");
     }
 
     // ─── Volume Monitoring (CloudWatch native EBS metrics) ────────────────────────
@@ -856,7 +923,48 @@ public class EbsDiskRightsizingService {
         enrichWithDiskMetrics(account, region, result);
         updateRecommendationsWithUsage(result);
         enrichWithComputeOptimizerRecommendations(account, region, result);
+        enrichWithAsgNames(ec2, result);
         return result;
+    }
+
+    // ─── ASG Name Enrichment ────────────────────────────────────────────────────
+
+    void enrichWithAsgNames(Ec2Client ec2, List<Map<String, Object>> volumes) {
+        List<String> instanceIds = volumes.stream()
+                .filter(v -> v.get("instanceId") != null)
+                .map(v -> (String) v.get("instanceId"))
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (instanceIds.isEmpty()) {
+            return;
+        }
+
+        try {
+            // AWS SDK v2 DescribeInstances accepts up to 1000 IDs; beyond that the call fails and
+            // we degrade silently (consistent with other enrichment methods in this class).
+            DescribeInstancesResponse resp = ec2.describeInstances(
+                    DescribeInstancesRequest.builder().instanceIds(instanceIds).build());
+
+            Map<String, String> instanceToAsg = new HashMap<>();
+            for (Reservation reservation : resp.reservations()) {
+                for (Instance instance : reservation.instances()) {
+                    instance.tags().stream()
+                            .filter(tag -> "aws:autoscaling:groupName".equals(tag.key()))
+                            .findFirst()
+                            .ifPresent(tag -> instanceToAsg.put(instance.instanceId(), tag.value()));
+                }
+            }
+
+            for (Map<String, Object> vol : volumes) {
+                String instanceId = (String) vol.get("instanceId");
+                if (instanceId != null && instanceToAsg.containsKey(instanceId)) {
+                    vol.put("asgName", instanceToAsg.get(instanceId));
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to enrich volumes with ASG names: {}", e.getMessage());
+        }
     }
 
     /**

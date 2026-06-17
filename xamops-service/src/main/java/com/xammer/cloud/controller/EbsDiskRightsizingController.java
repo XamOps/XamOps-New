@@ -57,9 +57,12 @@ public class EbsDiskRightsizingController {
             String targetType = (String) request.get("targetType");
             Integer targetSizeGb = request.get("targetSizeGb") != null
                     ? ((Number) request.get("targetSizeGb")).intValue() : null;
+            String instanceId = (String) request.get("instanceId");
+            String asgName    = (String) request.get("asgName");
 
             return ResponseEntity.ok(
-                    ebsService.applyAction(accountId, volumeId, region, actionType, targetType, targetSizeGb));
+                    ebsService.applyAction(accountId, volumeId, region, actionType, targetType, targetSizeGb,
+                            instanceId, asgName));
         } catch (Exception e) {
             logger.error("Failed to apply EBS action for account {}: {}", accountId, e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
@@ -142,6 +145,28 @@ public class EbsDiskRightsizingController {
                     ebsService.initiateDownsize(accountId, volumeId, region, instanceId, mountPoint, targetSizeGb));
         } catch (Exception e) {
             logger.error("Failed to initiate shrink for account {}: {}", accountId, e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+        }
+    }
+
+    // ─── Expand (Data Volume) ─────────────────────────────────────────────────────
+
+    @PostMapping("/expand/{accountId}")
+    public ResponseEntity<?> initiateExpand(
+            @PathVariable String accountId,
+            @RequestBody Map<String, Object> request) {
+        try {
+            String volumeId   = (String) request.get("volumeId");
+            String region     = (String) request.get("region");
+            String instanceId = (String) request.get("instanceId");
+            String device     = (String) request.get("device");
+            int targetSizeGb  = ((Number) request.get("targetSizeGb")).intValue();
+            String asgName    = (String) request.get("asgName");
+
+            return ResponseEntity.ok(
+                    ebsService.initiateExpand(accountId, volumeId, region, instanceId, device, targetSizeGb, asgName));
+        } catch (Exception e) {
+            logger.error("Failed to initiate expand for account {}: {}", accountId, e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
         }
     }
