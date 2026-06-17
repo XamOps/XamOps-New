@@ -87,6 +87,12 @@ const CloudSitterPage: React.FC = () => {
                 onCreatePolicy={cloudSitter.openCreatePolicy}
                 onManagePolicies={() => cloudSitter.setShowManagePoliciesModal(true)}
                 onAssignPolicy={cloudSitter.openAssignModal}
+                page={cloudSitter.dashboardPage}
+                pageSize={cloudSitter.dashboardPageSize}
+                totalPages={cloudSitter.dashboardTotalPages}
+                filteredCount={cloudSitter.filteredResourcesCount}
+                onPageChange={cloudSitter.setDashboardPage}
+                onPageSizeChange={cloudSitter.setDashboardPageSize}
               />
             </motion.div>
           )}

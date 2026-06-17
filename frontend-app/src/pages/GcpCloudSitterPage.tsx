@@ -55,6 +55,12 @@ const GcpCloudSitterPage: React.FC = () => {
                 onManagePolicies={() => cs.setShowManagePoliciesModal(true)}
                 onAssignPolicy={cs.openAssignModal}
                 provider="GCP"
+                page={cs.dashboardPage}
+                pageSize={cs.dashboardPageSize}
+                totalPages={cs.dashboardTotalPages}
+                filteredCount={cs.filteredResourcesCount}
+                onPageChange={cs.setDashboardPage}
+                onPageSizeChange={cs.setDashboardPageSize}
               />
             </motion.div>
           )}

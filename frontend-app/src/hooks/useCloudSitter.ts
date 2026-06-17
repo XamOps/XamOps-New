@@ -26,6 +26,10 @@ export const useCloudSitter = (accountId: string | null) => {
   const [resources, setResources] = useState<EC2Resource[]>([]);
   const [policies, setPolicies] = useState<CloudSitterPolicy[]>([]);
   const [, setAssignments] = useState<Record<string, PolicyAssignment>>({});
+  
+  // Dashboard pagination
+  const [dashboardPage, setDashboardPage] = useState(0);
+  const [dashboardPageSize, setDashboardPageSize] = useState(10);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -220,6 +224,20 @@ export const useCloudSitter = (accountId: string | null) => {
         (r.id && r.id.toLowerCase().includes(q))
     );
   }, [resources, searchQuery])();
+  
+  /**
+   * Paginated resources for dashboard
+   */
+  const paginatedResources = useCallback(() => {
+    const start = dashboardPage * dashboardPageSize;
+    const end = start + dashboardPageSize;
+    return filteredResources.slice(start, end);
+  }, [filteredResources, dashboardPage, dashboardPageSize])();
+  
+  /**
+   * Total pages for dashboard pagination
+   */
+  const dashboardTotalPages = Math.ceil(filteredResources.length / dashboardPageSize);
 
   /**
    * Open create policy view
@@ -478,6 +496,11 @@ export const useCloudSitter = (accountId: string | null) => {
     }
     resetGrid();
   }, [accountId, loadData, resetGrid]);
+  
+  // Reset page to 0 when search query changes
+  useEffect(() => {
+    setDashboardPage(0);
+  }, [searchQuery]);
 
   return {
     // State
@@ -485,7 +508,7 @@ export const useCloudSitter = (accountId: string | null) => {
     isLoading,
     isSaving,
     searchQuery,
-    resources: filteredResources,
+    resources: paginatedResources,
     allResources: resources,
     policies,
     policyForm,
@@ -496,6 +519,10 @@ export const useCloudSitter = (accountId: string | null) => {
     showManagePoliciesModal,
     assignTarget,
     selectedPolicyId,
+    dashboardPage,
+    dashboardPageSize,
+    dashboardTotalPages,
+    filteredResourcesCount: filteredResources.length,
 
     // Actions
     setCurrentView,
@@ -505,6 +532,8 @@ export const useCloudSitter = (accountId: string | null) => {
     setShowAssignModal,
     setShowManagePoliciesModal,
     setSelectedPolicyId,
+    setDashboardPage,
+    setDashboardPageSize,
     loadData,
     openCreatePolicy,
     closeCreatePolicy,

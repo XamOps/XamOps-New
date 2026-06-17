@@ -17,6 +17,10 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
   const [resources, setResources] = useState<EC2Resource[]>([]);
   const [policies, setPolicies] = useState<CloudSitterPolicy[]>([]);
   const [, setAssignments] = useState<Record<string, PolicyAssignment>>({});
+  
+  // Dashboard pagination
+  const [dashboardPage, setDashboardPage] = useState(0);
+  const [dashboardPageSize, setDashboardPageSize] = useState(10);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -159,6 +163,20 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
       r => (r.name && r.name.toLowerCase().includes(q)) || (r.id && r.id.toLowerCase().includes(q))
     );
   }, [resources, searchQuery])();
+  
+  /**
+   * Paginated resources for dashboard
+   */
+  const paginatedResources = useCallback(() => {
+    const start = dashboardPage * dashboardPageSize;
+    const end = start + dashboardPageSize;
+    return filteredResources.slice(start, end);
+  }, [filteredResources, dashboardPage, dashboardPageSize])();
+  
+  /**
+   * Total pages for dashboard pagination
+   */
+  const dashboardTotalPages = Math.ceil(filteredResources.length / dashboardPageSize);
 
   const openCreatePolicy = useCallback(() => {
     setPolicyForm({ id: null, name: '', type: 'SCHEDULE', timezone: 'Asia/Kolkata', notificationsEnabled: true });
@@ -298,14 +316,22 @@ export const useAzureCloudSitter = (subscriptionId: string | null) => {
     if (subscriptionId) loadData();
     resetGrid();
   }, [subscriptionId, loadData, resetGrid]);
+  
+  // Reset page to 0 when search query changes
+  useEffect(() => {
+    setDashboardPage(0);
+  }, [searchQuery]);
 
   return {
     currentView, isLoading, isSaving, searchQuery,
-    resources: filteredResources, allResources: resources, policies, policyForm, policyGrid,
+    resources: paginatedResources, allResources: resources, policies, policyForm, policyGrid,
     editMode, isDragging, showAssignModal, showManagePoliciesModal,
     assignTarget, selectedPolicyId, formInstanceTarget,
+    dashboardPage, dashboardPageSize, dashboardTotalPages,
+    filteredResourcesCount: filteredResources.length,
     setCurrentView, setSearchQuery, setPolicyForm, setIsDragging,
     setShowAssignModal, setShowManagePoliciesModal, setSelectedPolicyId,
+    setDashboardPage, setDashboardPageSize,
     loadData, openCreatePolicy, closeCreatePolicy, openCreatePolicyFromAssign,
     resetGrid, toggleCell, dragToggle, savePolicy, editPolicy, deletePolicy,
     openAssignModal, submitAssignment, applyRecommendationToGrid,

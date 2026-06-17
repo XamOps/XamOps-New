@@ -85,6 +85,12 @@ interface CloudSitterDashboardProps {
   onManagePolicies: () => void;
   onAssignPolicy: (resource: EC2Resource) => void;
   provider?: 'AWS' | 'GCP' | 'AZURE';
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+  filteredCount?: number;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
 }
 
 const PROVIDER_META: Record<string, { icon: string; label: string; color: string }> = {
@@ -105,6 +111,12 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
   onManagePolicies,
   onAssignPolicy,
   provider = 'AWS',
+  page = 0,
+  pageSize = 10,
+  totalPages = 0,
+  filteredCount = 0,
+  onPageChange,
+  onPageSizeChange,
 }) => {
   const kpi = computeKpis(allResources);
   const coveragePct = kpi.totalInstances > 0
@@ -357,6 +369,102 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
               </div>
             );
           })}
+          
+          {/* Pagination Controls */}
+          {totalPages > 1 && onPageChange && (
+            <div className="flex items-center justify-between px-5 py-3 border-t border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.01)]">
+              <div className="flex items-center gap-3">
+                <span className="text-[12px] text-[rgba(0,0,0,0.5)]">
+                  Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, filteredCount)} of {filteredCount}
+                </span>
+                {onPageSizeChange && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-[rgba(0,0,0,0.45)]">Per page:</span>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        onPageSizeChange(Number(e.target.value));
+                        onPageChange(0);
+                      }}
+                      className="text-[11px] border border-[rgba(0,0,0,0.1)] rounded px-2 py-1 bg-white text-[rgba(0,0,0,0.75)] focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    >
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => onPageChange(0)}
+                  disabled={page === 0}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="First page"
+                >
+                  <Icon icon="mdi:chevron-double-left" width={14} />
+                </button>
+                <button
+                  onClick={() => onPageChange(page - 1)}
+                  disabled={page === 0}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Previous page"
+                >
+                  <Icon icon="mdi:chevron-left" width={14} />
+                </button>
+                
+                {/* Page numbers */}
+                <div className="flex items-center gap-0.5 mx-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum: number;
+                    if (totalPages <= 5) {
+                      pageNum = i;
+                    } else if (page < 3) {
+                      pageNum = i;
+                    } else if (page > totalPages - 4) {
+                      pageNum = totalPages - 5 + i;
+                    } else {
+                      pageNum = page - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => onPageChange(pageNum)}
+                        className={`min-w-[28px] h-7 px-2 flex items-center justify-center rounded text-[11px] font-semibold transition-colors ${
+                          page === pageNum
+                            ? 'bg-indigo-600 text-white'
+                            : 'border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)]'
+                        }`}
+                      >
+                        {pageNum + 1}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button
+                  onClick={() => onPageChange(page + 1)}
+                  disabled={page >= totalPages - 1}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Next page"
+                >
+                  <Icon icon="mdi:chevron-right" width={14} />
+                </button>
+                <button
+                  onClick={() => onPageChange(totalPages - 1)}
+                  disabled={page >= totalPages - 1}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Last page"
+                >
+                  <Icon icon="mdi:chevron-double-right" width={14} />
+                </button>
+              </div>
+            </div>
+          )}
           </motion.div>
         )}
       </AnimatePresence>
