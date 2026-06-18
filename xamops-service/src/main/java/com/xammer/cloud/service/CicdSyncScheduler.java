@@ -35,6 +35,7 @@ public class CicdSyncScheduler {
     private final CicdNotificationService cicdNotificationService;
     private final CicdNotificationConfigRepository notificationConfigRepo;
     private final com.xammer.cloud.repository.UserRepository userRepository;
+    private final NotificationSentMarker notificationSentMarker;
 
     public CicdSyncScheduler(GitHubIntegrationConfigRepository githubConfigRepo,
                               JenkinsIntegrationConfigRepository jenkinsConfigRepo,
@@ -45,7 +46,8 @@ public class CicdSyncScheduler {
                               FailureCategoryResolver failureCategoryResolver,
                               CicdNotificationService cicdNotificationService,
                               CicdNotificationConfigRepository notificationConfigRepo,
-                              com.xammer.cloud.repository.UserRepository userRepository) {
+                              com.xammer.cloud.repository.UserRepository userRepository,
+                              NotificationSentMarker notificationSentMarker) {
         this.githubConfigRepo = githubConfigRepo;
         this.jenkinsConfigRepo = jenkinsConfigRepo;
         this.runRecordRepo = runRecordRepo;
@@ -56,6 +58,7 @@ public class CicdSyncScheduler {
         this.cicdNotificationService = cicdNotificationService;
         this.notificationConfigRepo = notificationConfigRepo;
         this.userRepository = userRepository;
+        this.notificationSentMarker = notificationSentMarker;
     }
 
     @Scheduled(fixedDelay = 900000) // 15 minutes
@@ -242,8 +245,7 @@ public class CicdSyncScheduler {
             notificationConfigRepo.findByUserId(record.getUserId()).ifPresent(config -> {
                 userRepository.findById(record.getUserId()).ifPresent(user -> {
                     cicdNotificationService.notifyFailure(record, config, user.getEmail());
-                    record.setNotificationSent(true);
-                    runRecordRepo.save(record);
+                    notificationSentMarker.markSent(record);
                 });
             });
         } catch (Exception e) {

@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.HtmlUtils;
 
 import java.util.Map;
 
@@ -46,11 +47,12 @@ public class CicdNotificationService {
 
     private void sendSlackNotification(String webhookUrl, CicdRunRecord record) {
         try {
+            String safeSlackUrl = record.getHtmlUrl() != null ? record.getHtmlUrl().replace(">", "") : null;
             String text = ":x: *Pipeline failed*: `" + record.getWorkflowName() + "`"
                     + (record.getRepoName() != null ? " in `" + record.getRepoName() + "`" : "")
                     + "\n*Category:* " + (record.getFailureCategory() != null ? record.getFailureCategory() : "UNKNOWN")
                     + (record.getFailedStage() != null ? "\n*Failed stage:* " + record.getFailedStage() : "")
-                    + (record.getHtmlUrl() != null ? "\n<" + record.getHtmlUrl() + "|View run>" : "");
+                    + (safeSlackUrl != null ? "\n<" + safeSlackUrl + "|View run>" : "");
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -63,18 +65,25 @@ public class CicdNotificationService {
     }
 
     private String buildEmailBody(CicdRunRecord record) {
+        String safeUrl = safeUrl(record.getHtmlUrl());
         return "<html><body style='font-family:sans-serif;'>"
                 + "<h2 style='color:#e53e3e;'>Pipeline Failed</h2>"
                 + "<table style='border-collapse:collapse;'>"
-                + row("Workflow", record.getWorkflowName())
-                + (record.getRepoName() != null ? row("Repository", record.getRepoOwner() + "/" + record.getRepoName()) : "")
-                + row("Category", record.getFailureCategory() != null ? record.getFailureCategory() : "UNKNOWN")
-                + (record.getFailedStage() != null ? row("Failed Stage", record.getFailedStage()) : "")
+                + row("Workflow", HtmlUtils.htmlEscape(record.getWorkflowName()))
+                + (record.getRepoName() != null ? row("Repository",
+                    HtmlUtils.htmlEscape(record.getRepoOwner()) + "/" + HtmlUtils.htmlEscape(record.getRepoName())) : "")
+                + row("Category", HtmlUtils.htmlEscape(record.getFailureCategory() != null ? record.getFailureCategory() : "UNKNOWN"))
+                + (record.getFailedStage() != null ? row("Failed Stage", HtmlUtils.htmlEscape(record.getFailedStage())) : "")
                 + "</table>"
-                + (record.getHtmlUrl() != null
-                    ? "<br><a href='" + record.getHtmlUrl() + "' style='background:#3182ce;color:white;padding:8px 16px;border-radius:4px;text-decoration:none;'>View Run</a>"
+                + (safeUrl != null
+                    ? "<br><a href=\"" + safeUrl + "\" style='background:#3182ce;color:white;padding:8px 16px;border-radius:4px;text-decoration:none;'>View Run</a>"
                     : "")
                 + "</body></html>";
+    }
+
+    private String safeUrl(String url) {
+        if (url == null) return null;
+        return (url.startsWith("http://") || url.startsWith("https://")) ? HtmlUtils.htmlEscape(url) : null;
     }
 
     private String row(String label, String value) {
