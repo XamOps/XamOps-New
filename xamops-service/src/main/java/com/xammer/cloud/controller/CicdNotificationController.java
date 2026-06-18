@@ -43,7 +43,11 @@ public class CicdNotificationController {
                 CicdNotificationConfig cfg = configRepo.findByUserId(user.getId())
                         .orElseGet(() -> { CicdNotificationConfig c = new CicdNotificationConfig(); c.setUserId(user.getId()); return c; });
                 cfg.setEmailEnabled(dto.isEmailEnabled());
-                cfg.setSlackWebhookUrl(dto.getSlackWebhookUrl());
+                String webhookUrl = dto.getSlackWebhookUrl();
+                if (webhookUrl != null && !webhookUrl.startsWith("https://hooks.slack.com/")) {
+                    return ResponseEntity.badRequest().<Void>build();
+                }
+                cfg.setSlackWebhookUrl(webhookUrl);
                 cfg.setUpdatedAt(Instant.now());
                 configRepo.save(cfg);
                 return ResponseEntity.ok().<Void>build();
