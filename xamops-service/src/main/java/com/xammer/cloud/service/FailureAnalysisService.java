@@ -1,8 +1,11 @@
 package com.xammer.cloud.service;
 
+import com.xammer.cloud.dto.cicd.DiffSummaryDto;
 import com.xammer.cloud.dto.cicd.FailureAnalysisDto;
 import com.xammer.cloud.repository.CicdRunRecordRepository;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -81,6 +84,77 @@ public class FailureAnalysisService {
         } else {
             dto.setFallback(false);
             dto.setSnippets(snippets);
+        }
+        return dto;
+    }
+
+    public DiffSummaryDto getDiffSummaryForGitHub(Long userId, String workflowName,
+                                                   String owner, String repo,
+                                                   String headSha, String pat) {
+        DiffSummaryDto dto = new DiffSummaryDto();
+
+        List<com.xammer.cloud.domain.CicdRunRecord> successRuns =
+                runRecordRepo.findTopSuccessRun(userId, workflowName, "GITHUB", PageRequest.of(0, 1));
+
+        if (successRuns.isEmpty()) {
+            dto.setNoPreviousSuccess(true);
+            dto.setCommits(List.of());
+            dto.setChangedFiles(List.of());
+            return dto;
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", "Bearer " + pat);
+            headers.set("Accept", "application/vnd.github.v3+json");
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            String baseRunId = successRuns.get(0).getRunId();
+            String runUrl = "https://api.github.com/repos/" + owner + "/" + repo + "/actions/runs/" + baseRunId;
+            var runResp = restTemplate.exchange(runUrl, HttpMethod.GET, entity, com.fasterxml.jackson.databind.JsonNode.class);
+            String baseSha = runResp.getBody() != null ? runResp.getBody().path("head_sha").asText() : null;
+
+            if (baseSha == null || baseSha.isBlank()) {
+                dto.setNoPreviousSuccess(true);
+                dto.setCommits(List.of());
+                dto.setChangedFiles(List.of());
+                return dto;
+            }
+
+            String compareUrl = "https://api.github.com/repos/" + owner + "/" + repo
+                    + "/compare/" + baseSha + "..." + headSha;
+            var compareResp = restTemplate.exchange(compareUrl, HttpMethod.GET, entity, com.fasterxml.jackson.databind.JsonNode.class);
+            var body = compareResp.getBody();
+
+            List<DiffSummaryDto.CommitInfo> commits = new ArrayList<>();
+            if (body != null && body.has("commits")) {
+                for (var c : body.get("commits")) {
+                    DiffSummaryDto.CommitInfo ci = new DiffSummaryDto.CommitInfo();
+                    ci.setSha(c.path("sha").asText("").substring(0, Math.min(7, c.path("sha").asText("").length())));
+                    ci.setMessage(c.path("commit").path("message").asText("").split("\n")[0]);
+                    ci.setAuthor(c.path("commit").path("author").path("name").asText(""));
+                    ci.setTimestamp(c.path("commit").path("author").path("date").asText(""));
+                    commits.add(ci);
+                }
+            }
+
+            List<String> files = new ArrayList<>();
+            int fileCount = 0;
+            if (body != null && body.has("files")) {
+                fileCount = body.get("files").size();
+                for (var f : body.get("files")) {
+                    files.add(f.path("filename").asText(""));
+                }
+            }
+
+            dto.setCommits(commits);
+            dto.setFilesChanged(fileCount);
+            dto.setChangedFiles(files);
+            dto.setNoPreviousSuccess(false);
+        } catch (Exception e) {
+            dto.setNoPreviousSuccess(true);
+            dto.setCommits(List.of());
+            dto.setChangedFiles(List.of());
         }
         return dto;
     }
