@@ -44,6 +44,7 @@ export const useCicdNotificationConfig = (): UseCicdNotificationConfigReturn => 
   }, []);
 
   const testSlack = useCallback(async (webhookUrl: string): Promise<boolean> => {
+    if (!webhookUrl.startsWith('https://hooks.slack.com/')) return false;
     try {
       await fetch(webhookUrl, {
         method: 'POST',
