@@ -19,6 +19,8 @@ export interface GitHubRun {
   updated_at: string;
   run_number: number;
   workflow_id: number;
+  failureCategory?: string;
+  failedStage?: string;
   repository: GitHubRepository | null;
 }
 
@@ -42,6 +44,8 @@ export interface JenkinsJob {
   url: string;
   displayStatus: string;
   color: string;
+  failureCategory?: string;
+  failedStage?: string;
   lastBuild: JenkinsLastBuild | null;
 }
 
@@ -66,7 +70,7 @@ export type RunHistory = GitHubRun | JenkinsBuild;
 export type PipelineStage = GitHubStage | JenkinsStage;
 
 // Component state types
-export type TabType = 'github' | 'jenkins';
+export type TabType = 'github' | 'jenkins' | 'health';
 
 export type SelectedWorkflow = CICDRun;
 
@@ -112,3 +116,35 @@ export interface CicdMetrics {
 }
 
 export type TimeRange = 7 | 30 | 90;
+
+// --- Failure Analysis ---
+export interface ErrorSnippet {
+  matchLine: number;
+  lines: string[];
+}
+
+export interface FailureAnalysis {
+  snippets: ErrorSnippet[];
+  fallback: boolean;
+}
+
+// --- Diff Summary ---
+export interface CommitInfo {
+  sha: string;
+  message: string;
+  author: string;
+  timestamp: string;
+}
+
+export interface DiffSummary {
+  commits: CommitInfo[];
+  filesChanged: number;
+  changedFiles: string[];
+  noPreviousSuccess: boolean;
+}
+
+// --- Notification Config ---
+export interface NotificationConfig {
+  emailEnabled: boolean;
+  slackWebhookUrl: string | null;
+}
