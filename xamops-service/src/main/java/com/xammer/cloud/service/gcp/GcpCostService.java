@@ -837,6 +837,71 @@ public class GcpCostService {
         return "USD";
     }
 
+    /**
+     * Evicts every cached GCP cost/billing artifact for a project across BOTH cache
+     * layers (Redis + permanent DB snapshot). Call this whenever the billing source
+     * changes (e.g. billing export table update) or on a user-triggered force refresh,
+     * so the next query re-reads from BigQuery against the current billing table
+     * instead of serving stale section-level caches.
+     */
+    public void evictAllCostCaches(String gcpProjectId) {
+        if (gcpProjectId == null || gcpProjectId.isBlank()) {
+            log.warn("Skipping GCP cost cache eviction: blank project id");
+            return;
+        }
+
+        // Redis-backed caches (keyed by the gcp:* prefixes).
+        String[] redisPrefixes = {
+                COST_BY_TAG_CACHE_PREFIX,
+                UNFILTERED_MTD_SPEND_CACHE_PREFIX,
+                BILLING_SUMMARY_CACHE_PREFIX,
+                HISTORICAL_COSTS_CACHE_PREFIX,
+                COST_BY_REGION_CACHE_PREFIX,
+                DAILY_COSTS_FORECAST_CACHE_PREFIX,
+                COST_BREAKDOWN_CACHE_PREFIX,
+                COST_BY_SERVICE_REGION_CACHE_PREFIX,
+                CURRENCY_CACHE_PREFIX
+        };
+        for (String prefix : redisPrefixes) {
+            redisCacheService.evictByPattern(prefix + gcpProjectId + "*");
+        }
+
+        // Permanent DB snapshots. Some sections (billing-summary, MTD spend) persist
+        // under their gcp:* key, others under dedicated GCP_*:: keys — clear both.
+        String[] dbPrefixes = {
+                // gcp:* keys also written to the DB snapshot table
+                BILLING_SUMMARY_CACHE_PREFIX,
+                UNFILTERED_MTD_SPEND_CACHE_PREFIX,
+                HISTORICAL_COSTS_CACHE_PREFIX,
+                COST_BY_REGION_CACHE_PREFIX,
+                COST_BY_TAG_CACHE_PREFIX,
+                // dedicated DB snapshot keys
+                GCP_FINOPS_BILLING_SVC_DB,
+                GCP_FINOPS_COST_REGION_DB,
+                GCP_FINOPS_COST_LABEL_DB,
+                GCP_FINOPS_ANOMALIES_DB,
+                GCP_COST_BREAKDOWN_DB,
+                GCP_COST_BREAKDOWN_DATE_DB,
+                GCP_COST_HISTORY_DB,
+                GCP_COST_BY_REGION_DB,
+                GCP_COST_DAILY_FORECAST_DB,
+                GCP_COST_BY_TAG_DB,
+                GCP_COST_SVC_REGION_DB
+        };
+        for (String prefix : dbPrefixes) {
+            try {
+                int removed = cachedDataRepository.deleteByCacheKeyPrefix(prefix + gcpProjectId);
+                if (removed > 0) {
+                    log.info("Evicted {} DB snapshot rows for prefix {}{}", removed, prefix, gcpProjectId);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to evict DB snapshot for prefix {}{}: {}", prefix, gcpProjectId, e.getMessage());
+            }
+        }
+
+        log.info("✅ Cleared all GCP cost caches (Redis + DB) for project {}", gcpProjectId);
+    }
+
     private Optional<String> getBillingTableName(BigQuery bigquery, String gcpProjectId) {
         // Priority 1: Check billing table stored in CloudAccount
         try {

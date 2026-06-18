@@ -924,7 +924,41 @@ public class GcpDataService {
         account.setBillingExportTable(billingTable);
         CloudAccount saved = cloudAccountRepository.save(account);
         log.info("Updated billing export table for account {}: {}", accountId, billingTable);
+
+        // The new billing table won't surface until the previously cached cost
+        // data is cleared, otherwise the FinOps dashboard keeps serving stale
+        // snapshots (Redis + permanent DB snapshot) instead of re-querying BigQuery.
+        evictGcpCostCaches(saved.getGcpProjectId());
+
         return saved;
+    }
+
+    /**
+     * Clears all cached GCP cost/billing data for a project so subsequent dashboard
+     * loads re-query BigQuery against the (newly configured) billing export table.
+     * Covers the section-level caches plus the FinOps report-level cache.
+     */
+    private void evictGcpCostCaches(String gcpProjectId) {
+        if (gcpProjectId == null || gcpProjectId.isBlank()) {
+            log.warn("Skipping GCP cost cache eviction: no GCP project id on account");
+            return;
+        }
+
+        // Section-level caches (billing summary, region, MTD, history, anomalies, ...).
+        gcpCostService.evictAllCostCaches(gcpProjectId);
+
+        // FinOps report-level caches (Redis + DB snapshot) assembled from the sections.
+        redisCache.evictByPattern("gcp:finops-report:" + gcpProjectId + "*");
+        try {
+            cachedDataRepository.deleteByCacheKeyPrefix("GCP_FINOPS::" + gcpProjectId);
+        } catch (Exception e) {
+            log.warn("Failed to evict FinOps report DB snapshot for {}: {}", gcpProjectId, e.getMessage());
+        }
+
+        // Dashboard cache that surfaces GCP cost widgets.
+        redisCache.evictByPattern(DASHBOARD_CACHE_PREFIX + gcpProjectId + "*");
+
+        log.info("✅ Cleared GCP cost caches for project {} after billing table update", gcpProjectId);
     }
 
     private String extractServiceAccountEmail(String serviceAccountKey) {
