@@ -54,8 +54,8 @@ public class ObservabilityController {
                     ObservabilityConfig clientConfig = openObserveService.provisionTenant(client);
                     return ResponseEntity.ok(toAccountConfigResponse(accConfig, clientConfig));
                 } catch (Exception e) {
-                    logger.warn("Account provisioning failed for {}, falling back to client config: {}",
-                            providerAccountId, e.getMessage());
+                    logger.warn("Account provisioning failed for {}, falling back to client config",
+                            providerAccountId, e);
                     // Fall through to client-level config below
                 }
             }
@@ -63,8 +63,8 @@ public class ObservabilityController {
             ObservabilityConfig config = openObserveService.provisionTenant(client);
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
-            logger.error("getConfig failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("getConfig failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -83,8 +83,8 @@ public class ObservabilityController {
             ObservabilityConfig config = openObserveService.updateConfig(clientId, retentionDays);
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
-            logger.error("updateConfig failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("updateConfig failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -98,8 +98,8 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.getOverviewStats(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            logger.error("getOverview failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("getOverview failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -114,8 +114,8 @@ public class ObservabilityController {
                     openObserveService.listStreams(userDetails.getClientId(), providerAccountId);
             return ResponseEntity.ok(streams);
         } catch (Exception e) {
-            logger.error("listStreams failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("listStreams failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -131,8 +131,8 @@ public class ObservabilityController {
             Map<String, Object> result = openObserveService.searchLogs(userDetails.getClientId(), params);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            logger.error("searchLogs failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("searchLogs failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -148,8 +148,8 @@ public class ObservabilityController {
             Map<String, Object> result = openObserveService.getLogHistogram(userDetails.getClientId(), params);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            logger.error("getLogHistogram failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("getLogHistogram failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -170,8 +170,8 @@ public class ObservabilityController {
                     userDetails.getClientId(), providerAccountId, query, start, end, step);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            logger.error("queryMetrics failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("queryMetrics failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -185,8 +185,8 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.getClusters(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            logger.error("getClusters failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("getClusters failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -201,7 +201,8 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateFluentBitConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            logger.error("getFluentBitConfig failed", e);
+            return ResponseEntity.internalServerError().body("An internal error occurred. Please contact support.");
         }
     }
 
@@ -214,7 +215,8 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateHelmValues(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            logger.error("getHelmValues failed", e);
+            return ResponseEntity.internalServerError().body("An internal error occurred. Please contact support.");
         }
     }
 
@@ -227,7 +229,8 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateOtelCollectorConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            logger.error("getOtelConfig failed", e);
+            return ResponseEntity.internalServerError().body("An internal error occurred. Please contact support.");
         }
     }
 
@@ -244,7 +247,8 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateHelmEksCommand(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            logger.error("getHelmEksCommand failed", e);
+            return ResponseEntity.internalServerError().body("An internal error occurred. Please contact support.");
         }
     }
 
@@ -261,7 +265,8 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateEc2OtelConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            logger.error("getEc2OtelConfig failed", e);
+            return ResponseEntity.internalServerError().body("An internal error occurred. Please contact support.");
         }
     }
 
@@ -278,7 +283,8 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateGceOtelConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            logger.error("getGceOtelConfig failed", e);
+            return ResponseEntity.internalServerError().body("An internal error occurred. Please contact support.");
         }
     }
 
@@ -295,7 +301,8 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateAgentSecret(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            logger.error("getAgentSecret failed", e);
+            return ResponseEntity.internalServerError().body("An internal error occurred. Please contact support.");
         }
     }
 
@@ -317,7 +324,8 @@ public class ObservabilityController {
             String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             return ResponseEntity.ok().header("Content-Type", "text/plain").body(content);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            logger.error("getAgentManifest failed", e);
+            return ResponseEntity.internalServerError().body("An internal error occurred. Please contact support.");
         }
     }
 
@@ -331,7 +339,8 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.listAlerts(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("listAlerts failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -344,7 +353,8 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.createAlert(userDetails.getClientId(), providerAccountId, body));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("createAlert failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -359,7 +369,8 @@ public class ObservabilityController {
             openObserveService.deleteAlert(userDetails.getClientId(), providerAccountId, streamType, streamName, alertName);
             return ResponseEntity.ok(Map.of("deleted", true));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("deleteAlert failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -375,7 +386,8 @@ public class ObservabilityController {
             openObserveService.toggleAlert(userDetails.getClientId(), providerAccountId, streamType, streamName, alertName, enable);
             return ResponseEntity.ok(Map.of("enabled", enable));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("toggleAlert failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -389,7 +401,8 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.listDestinations(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("listDestinations failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -402,7 +415,8 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.saveDestination(userDetails.getClientId(), providerAccountId, body));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("saveDestination failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 
@@ -415,7 +429,8 @@ public class ObservabilityController {
             openObserveService.deleteDestination(userDetails.getClientId(), providerAccountId, name);
             return ResponseEntity.ok(Map.of("deleted", true));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            logger.error("deleteDestination failed", e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "An internal error occurred. Please contact support."));
         }
     }
 

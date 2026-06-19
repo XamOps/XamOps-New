@@ -1,0 +1,4 @@
+## 2026-06-18 - [Information Leakage in ObservabilityController]
+**Vulnerability:** Raw exception messages were being returned directly in API responses via `e.getMessage()`, exposing internal implementation details (CWE-209).
+**Learning:** The codebase frequently uses `ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()))` in catch blocks. While providing developer convenience, this leaks details about backend services (like OpenObserve or database errors) to potential attackers. In large controllers, this pattern can lead to massive duplication of insecure error handling.
+**Prevention:** Use a generic, sanitized error message for client-facing responses. For large controllers, consider using `@ExceptionHandler` or a global `@ControllerAdvice` to centralize secure error handling and keep changes concise. Always ensure the full exception object `e` is passed to the logger for internal diagnostics without exposing it to the client.
