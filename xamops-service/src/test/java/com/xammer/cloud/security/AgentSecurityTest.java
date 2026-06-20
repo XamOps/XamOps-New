@@ -10,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -28,11 +29,12 @@ public class AgentSecurityTest {
     @MockBean private OpenObserveService openObserveService;
     @MockBean private ExplainRequestRepository explainRequestRepository;
 
-    // Mocks to satisfy DataInitializer which is incorrectly picked up by component scan
+    // Mocks to satisfy DataInitializer and DatabaseInitializer picked up by component scan
     @MockBean private ClientRepository clientRepository;
     @MockBean private UserRepository userRepository;
     @MockBean private PasswordEncoder passwordEncoder;
     @MockBean private DevOpsScriptRepository devOpsScriptRepository;
+    @MockBean private JdbcTemplate jdbcTemplate;
 
     @Test
     public void installInfo_requiresAuthentication() throws Exception {
