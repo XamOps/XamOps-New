@@ -4,8 +4,10 @@ import com.xammer.cloud.config.AwsConfig;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -14,6 +16,7 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 
 import java.io.*;
+import java.security.Principal;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -61,12 +64,22 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        Map<String, String> queryParams = parseQueryParams(session.getUri().getQuery());
-        String accountId = queryParams.get("accountId");
-        String tenantId = queryParams.get("tenantId");
-
         // Initialize session lock for thread-safe message sending
         sessionLocks.put(session.getId(), new Object());
+
+        Principal principal = session.getPrincipal();
+        if (!(principal instanceof UsernamePasswordAuthenticationToken)) {
+            sendMessageSafe(session, "Error: Authentication required.\r\n");
+            session.close();
+            return;
+        }
+
+        ClientUserDetails userDetails = (ClientUserDetails) ((UsernamePasswordAuthenticationToken) principal).getPrincipal();
+        String tenantId = userDetails.getTenantId();
+        Long clientId = userDetails.getClientId();
+
+        Map<String, String> queryParams = parseQueryParams(session.getUri().getQuery());
+        String accountId = queryParams.get("accountId");
 
         if (accountId == null) {
             sendMessageSafe(session, "Error: No accountId provided.\r\n");
@@ -87,6 +100,16 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             CloudAccount account = findAccount(accountId);
             if (account == null) {
                 sendMessageSafe(session, "Error: Account not found.\r\n");
+                session.close();
+                return;
+            }
+
+            // Authorization Check: Verify account belongs to user's client
+            if (clientId != null && (account.getClient() == null || !clientId.equals(account.getClient().getId()))) {
+                log.warn("IDOR attempt: User {} (Client {}) tried to access Account {} (Client {})",
+                        userDetails.getUsername(), clientId, accountId,
+                        account.getClient() != null ? account.getClient().getId() : "null");
+                sendMessageSafe(session, "Error: Access Denied. This account does not belong to your organization.\r\n");
                 session.close();
                 return;
             }
