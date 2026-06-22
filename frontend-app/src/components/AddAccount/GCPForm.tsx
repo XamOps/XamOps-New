@@ -5,7 +5,7 @@ import {
   Tag, FolderOpen, Key, Database, Copy, Check, Loader2,
   CheckCircle2, ChevronDown, ExternalLink, Terminal,
   BarChart3, Package, Activity, Cpu, AlertCircle, Building2,
-  ShieldAlert,
+  ShieldAlert, ShieldCheck,
 } from 'lucide-react';
 import { useCspBillingConfig } from '../../hooks/useCspBillingConfig';
 import { cn } from '../../lib/utils';
@@ -32,6 +32,7 @@ const GCPForm: React.FC = () => {
 
   const [accountName, setAccountName] = useState('');
   const [projectId, setProjectId] = useState('');
+  const [accessType, setAccessType] = useState<'read-only' | 'read-write'>('read-only');
   const [serviceAccountKey, setServiceAccountKey] = useState('');
   const [billingTable, setBillingTable] = useState('');
   const [isCspManaged, setIsCspManaged] = useState(false);
@@ -59,8 +60,9 @@ const GCPForm: React.FC = () => {
 
   useEffect(() => {
     const pid = projectId.trim() || 'YOUR_PROJECT_ID';
-    setCommandText(`sh <(curl -s ${SCRIPT_URL}) ${pid}`);
-  }, [projectId]);
+    const suffix = accessType === 'read-write' ? ' read-write' : '';
+    setCommandText(`sh <(curl -s ${SCRIPT_URL}) ${pid}${suffix}`);
+  }, [projectId, accessType]);
 
   const handleCopyCmd = useCallback(async () => {
     try {
@@ -110,6 +112,7 @@ const GCPForm: React.FC = () => {
         body: JSON.stringify({
           accountName: accountName.trim(),
           projectId: projectId.trim(),
+          accessType,
           serviceAccountKey: serviceAccountKey.trim(),
           cspManaged: isCspManaged,
           ...(isCspManaged && cspConfigId && { cspBillingConfigId: cspConfigId }),
@@ -128,7 +131,7 @@ const GCPForm: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [accountName, projectId, serviceAccountKey, billingTable, isCspManaged, cspConfigId]);
+  }, [accountName, projectId, accessType, serviceAccountKey, billingTable, isCspManaged, cspConfigId]);
 
   // ── Success screen ──────────────────────────────────────────────────────
   if (success) {
@@ -388,6 +391,93 @@ const GCPForm: React.FC = () => {
                 required
               />
               <p className="text-xs text-slate-400">Filling this in updates the Cloud Shell command above automatically</p>
+            </div>
+
+            {/* Access Level */}
+            <div className="space-y-3">
+              <Label className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                Access Level
+              </Label>
+
+              {/* Read-only option */}
+              <label
+                htmlFor="gcp-read-only"
+                className={cn(
+                  'relative flex items-start gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all duration-200',
+                  accessType === 'read-only'
+                    ? 'border-emerald-400 bg-emerald-50/50 shadow-sm'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                )}
+              >
+                <div className={cn(
+                  'absolute left-0 top-3 bottom-3 w-0.5 rounded-full transition-all duration-200',
+                  accessType === 'read-only' ? 'bg-emerald-400' : 'bg-transparent'
+                )} />
+                <input
+                  type="radio"
+                  id="gcp-read-only"
+                  name="gcp-access-type"
+                  value="read-only"
+                  checked={accessType === 'read-only'}
+                  onChange={() => setAccessType('read-only')}
+                  className="mt-1 accent-emerald-500"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold text-slate-800">Read-Only Access</span>
+                    <Badge variant="success" className="text-[10px] py-0">Recommended</Badge>
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Grants visibility into costs, usage, and inventory without modification rights
+                  </p>
+                </div>
+                <ShieldCheck className={cn('w-4 h-4 flex-shrink-0 mt-1', accessType === 'read-only' ? 'text-emerald-500' : 'text-slate-300')} />
+              </label>
+
+              {/* Read-write option */}
+              <label
+                htmlFor="gcp-read-write"
+                className={cn(
+                  'relative flex items-start gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all duration-200',
+                  accessType === 'read-write'
+                    ? 'border-amber-400 bg-amber-50/50 shadow-sm'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                )}
+              >
+                <div className={cn(
+                  'absolute left-0 top-3 bottom-3 w-0.5 rounded-full transition-all duration-200',
+                  accessType === 'read-write' ? 'bg-amber-400' : 'bg-transparent'
+                )} />
+                <input
+                  type="radio"
+                  id="gcp-read-write"
+                  name="gcp-access-type"
+                  value="read-write"
+                  checked={accessType === 'read-write'}
+                  onChange={() => setAccessType('read-write')}
+                  className="mt-1 accent-amber-500"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold text-slate-800">Read &amp; Write Access</span>
+                    <Badge variant="warning" className="text-[10px] py-0">Advanced</Badge>
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Grants full visibility plus AutoSpotting, resource management, and operational actions
+                  </p>
+                </div>
+                <ShieldAlert className={cn('w-4 h-4 flex-shrink-0 mt-1', accessType === 'read-write' ? 'text-amber-500' : 'text-slate-300')} />
+              </label>
+
+              {accessType === 'read-write' && (
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <ShieldAlert className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-800 leading-relaxed">
+                    The Cloud Shell command will include <code className="bg-amber-100 px-1 rounded">read-write</code> automatically. Run it to grant additional compute and GKE write permissions.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Service Account Key */}

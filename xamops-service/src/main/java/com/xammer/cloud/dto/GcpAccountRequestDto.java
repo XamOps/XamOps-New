@@ -12,6 +12,7 @@ public class GcpAccountRequestDto {
     private String billingExportTable;
     private Boolean cspManaged;
     private Long cspBillingConfigId;
+    private String accessType;
 
     // Getters and Setters
     public String getAccountName() {
@@ -92,5 +93,13 @@ public class GcpAccountRequestDto {
 
     public void setCspBillingConfigId(Long cspBillingConfigId) {
         this.cspBillingConfigId = cspBillingConfigId;
+    }
+
+    public String getAccessType() {
+        return accessType;
+    }
+
+    public void setAccessType(String accessType) {
+        this.accessType = accessType;
     }
 }

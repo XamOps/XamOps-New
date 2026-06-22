@@ -1,17 +1,24 @@
 #!/bin/bash
 
 # XamOps Service Account Setup - Complete & Future-Proof
-# USAGE: sh <(curl -s https://xamops-gcp-sa.s3.ap-south-1.amazonaws.com/create_serviceaccount.sh) PROJECT_ID
+# USAGE (read-only):   sh <(curl -s https://xamops-gcp-sa.s3.ap-south-1.amazonaws.com/create_serviceaccount.sh) PROJECT_ID
+# USAGE (read-write):  sh <(curl -s https://xamops-gcp-sa.s3.ap-south-1.amazonaws.com/create_serviceaccount.sh) PROJECT_ID read-write
 #
 # NOTE: This file is the source of truth for the script hosted at the URL
 # above. After making changes here, re-upload it to that S3 location so the
 # "Add GCP Account" page picks up the fix.
 
 PROJECT_ID=$1
+ACCESS_TYPE=${2:-read-only}
 
 if [ -z "$PROJECT_ID" ]; then
     echo "ERROR: PROJECT_ID is required"
-    echo "Usage: $0 PROJECT_ID"
+    echo "Usage: $0 PROJECT_ID [read-only|read-write]"
+    exit 1
+fi
+
+if [ "$ACCESS_TYPE" != "read-only" ] && [ "$ACCESS_TYPE" != "read-write" ]; then
+    echo "ERROR: ACCESS_TYPE must be 'read-only' or 'read-write' (got: '$ACCESS_TYPE')"
     exit 1
 fi
 
@@ -21,7 +28,8 @@ SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount
 echo "================================================"
 echo "🚀 XamOps Service Account Setup"
 echo "================================================"
-echo "Project ID: $PROJECT_ID"
+echo "Project ID:  $PROJECT_ID"
+echo "Access Type: $ACCESS_TYPE"
 echo "Service Account: $SERVICE_ACCOUNT_EMAIL"
 echo ""
 
@@ -295,6 +303,47 @@ GRANTED=$((${#ALL_ROLES[@]} - ${#FAILED_ROLES[@]}))
 echo "✓ Permissions granted successfully ($GRANTED/${#ALL_ROLES[@]} required roles)"
 echo ""
 
+# Step 3b: Grant write roles when read-write mode is selected
+if [ "$ACCESS_TYPE" = "read-write" ]; then
+    echo "  [Read & Write] Granting write permissions for AutoSpotting & resource management..."
+
+    WRITE_ROLES=(
+        "roles/compute.instanceAdmin.v1"   # Create/modify/delete instance templates & MIGs (AutoSpotting)
+        "roles/iam.serviceAccountUser"     # Required to use service accounts when creating instances
+        "roles/container.admin"            # GKE node pool management
+        "roles/storage.objectAdmin"        # Delete unused storage objects (Waste Management)
+        "roles/monitoring.alertPolicyEditor" # Create/update cost alerts & budget notifications
+    )
+
+    FAILED_WRITE_ROLES=()
+    for role in "${WRITE_ROLES[@]}"; do
+        if gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+            --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+            --role="$role" \
+            --quiet > /dev/null 2>&1; then
+            :
+        else
+            FAILED_WRITE_ROLES+=("$role")
+        fi
+    done
+
+    if [ ${#FAILED_WRITE_ROLES[@]} -gt 0 ]; then
+        echo ""
+        echo "❌ ERROR: Failed to grant ${#FAILED_WRITE_ROLES[@]} write role(s):"
+        for role in "${FAILED_WRITE_ROLES[@]}"; do
+            echo "   - $role"
+        done
+        echo ""
+        echo "Aborting — read-write mode requires all write roles to be granted."
+        echo "Ask a project Owner to run this script, or grant yourself"
+        echo "'roles/resourcemanager.projectIamAdmin' and re-run it."
+        exit 1
+    fi
+
+    echo "✓ Write permissions granted (${#WRITE_ROLES[@]}/${#WRITE_ROLES[@]} roles)"
+    echo ""
+fi
+
 # Step 4: Create Service Account Key
 echo "[4/4] Creating and downloading service account key..."
 KEY_FILE="${SERVICE_ACCOUNT_NAME}-${PROJECT_ID}-key.json"
@@ -319,6 +368,7 @@ echo ""
 echo "📋 SUMMARY:"
 echo "  Service Account: $SERVICE_ACCOUNT_EMAIL"
 echo "  Key File: $KEY_FILE"
+echo "  Access Type: $ACCESS_TYPE"
 echo "  APIs Enabled: $ENABLED_COUNT"
 echo "  IAM Roles Granted: ${#ALL_ROLES[@]}/${#ALL_ROLES[@]}"
 echo ""
@@ -329,6 +379,12 @@ echo "  ✓ Security findings & compliance"
 echo "  ✓ Optimization recommendations"
 echo "  ✓ Monitoring & logging data"
 echo "  ✓ Asset inventory & metadata"
+if [ "$ACCESS_TYPE" = "read-write" ]; then
+echo "  ✓ Compute instance & template management (AutoSpotting)"
+echo "  ✓ GKE node pool management"
+echo "  ✓ Storage object management (Waste cleanup)"
+echo "  ✓ Monitoring alert policy management"
+fi
 echo ""
 
 # ============================================

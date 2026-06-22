@@ -1053,6 +1053,7 @@ public class ProactiveCacheRefreshService {
                     String gcpProjectId = account.getGcpProjectId();
                     if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
                     try {
+                        gcpCostService.getUnfilteredMonthToDateSpendSync(gcpProjectId, true);
                         gcpCostService.getBillingSummarySync(gcpProjectId, true);
                         gcpCostService.getCostByRegionSync(gcpProjectId, true);
                         gcpCostService.getHistoricalCostsSync(gcpProjectId, true);

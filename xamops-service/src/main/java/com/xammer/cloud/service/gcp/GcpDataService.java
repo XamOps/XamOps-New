@@ -863,7 +863,7 @@ public class GcpDataService {
             account.setAccountName(request.getAccountName());
             account.setProvider("GCP");
             account.setStatus("CONNECTED");
-            account.setAccessType("read-only");
+            account.setAccessType("read-write".equals(request.getAccessType()) ? "read-write" : "read-only");
             account.setClient(client);
 
             // GCP specific fields
