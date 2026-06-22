@@ -24,6 +24,26 @@ export interface ForecastResponse {
   forecast: ForecastData | null;
 }
 
+/**
+ * Forecast accuracy metrics — measures how close past ML predictions were
+ * to the realised actual cost. Populated by the backend accuracy tracker.
+ */
+export interface ForecastAccuracyMetrics {
+  provider: string;
+  accountId: string;
+  serviceName: string | null;
+  evaluatedCount: number;
+  pendingCount: number;
+  skippedCount: number;
+  mape: number | null;            // Mean Absolute Percentage Error
+  mae: number | null;             // Mean Absolute Error (currency)
+  accuracyScore: number | null;   // 0-100 (100 - MAPE)
+  confidenceCoverage: number | null; // % of actuals inside predicted band
+  dataQuality: 'GOOD' | 'FAIR' | 'POOR' | 'INSUFFICIENT_DATA';
+  message: string;
+  mapeByHorizon?: Record<string, number>;
+}
+
 export type GroupByType = 'SERVICE' | 'REGION' | 'TAG';
 
 export interface CostFilters {

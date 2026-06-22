@@ -3,7 +3,9 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.dto.CostDto;
 import com.xammer.cloud.dto.CostForecastDto;
 import com.xammer.cloud.dto.HistoricalCostDto;
+import com.xammer.cloud.domain.ForecastAccuracyRecord;
 import com.xammer.cloud.service.CostService;
+import com.xammer.cloud.service.ForecastAccuracyService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -23,9 +25,11 @@ public class CostController {
     private static final Logger logger = LoggerFactory.getLogger(CostController.class);
 
     private final CostService costService;
+    private final ForecastAccuracyService forecastAccuracyService;
 
-    public CostController(CostService costService) {
+    public CostController(CostService costService, ForecastAccuracyService forecastAccuracyService) {
         this.costService = costService;
+        this.forecastAccuracyService = forecastAccuracyService;
     }
 
     /**
@@ -145,6 +149,18 @@ public class CostController {
 
         return costService.getCostForecast(accountId, serviceName, regionName, periods, forceRefresh)
                 .thenApply(forecast -> {
+                    // Record predictions for accuracy tracking (fire-and-forget, all-services only).
+                    // We track unfiltered ("ALL") forecasts; per-service/region forecasts are skipped
+                    // to keep the actuals comparison clean and bounded.
+                    if (forecast != null && (regionName == null || regionName.isBlank())) {
+                        try {
+                            forecastAccuracyService.recordCostForecast(
+                                    ForecastAccuracyRecord.PROVIDER_AWS, accountId, serviceName, forecast);
+                        } catch (Exception trackEx) {
+                            logger.warn("Accuracy tracking skipped for {}: {}", accountId, trackEx.getMessage());
+                        }
+                    }
+
                     Map<String, Object> response = new HashMap<>();
                     response.put("status", "success");
                     response.put("forecast", forecast);

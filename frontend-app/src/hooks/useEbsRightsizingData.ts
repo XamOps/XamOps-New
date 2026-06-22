@@ -3,7 +3,7 @@
  * Manages EBS/Disk rightsizing data: volumes, recommendations, policies, action history, ROI.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export interface EbsVolume {
   volumeId: string;
@@ -27,6 +27,7 @@ export interface EbsVolume {
   recommendedType: string;
   recommendedSizeGb: number;
   estimatedSavings: number;
+  asgName?: string;
 }
 
 export interface DiskPolicy {
@@ -98,6 +99,8 @@ export const useEbsRightsizingData = ({ selectedAccountId }: UseEbsRightsizingDa
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [ssmUnavailableInstances, setSsmUnavailableInstances] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [inFlightActions, setInFlightActions] = useState<Map<string, EbsVolumeAction>>(new Map());
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchRecommendations = useCallback(async (forceRefresh = false) => {
     if (!selectedAccountId) return;
@@ -183,9 +186,41 @@ export const useEbsRightsizingData = ({ selectedAccountId }: UseEbsRightsizingDa
     }
   }, [selectedAccountId]);
 
+  const startPollingForVolume = useCallback((_volumeId: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      if (!selectedAccountId) return;
+      try {
+        const res = await fetch(`/api/ebs/action-history/${selectedAccountId}`, { credentials: 'include' });
+        if (!res.ok) return;
+        const history: EbsVolumeAction[] = await res.json();
+        const active = history.filter(
+          (a) => a.status === 'PENDING' || a.status === 'IN_PROGRESS'
+        );
+        const newMap = new Map(active.map((a) => [a.volumeId, a]));
+        setInFlightActions(newMap);
+        setActionHistory(history);
+        if (active.length === 0) {
+          clearInterval(pollingRef.current!);
+          pollingRef.current = null;
+          fetchVolumes(true);
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 5_000);
+  }, [selectedAccountId, fetchVolumes]);
+
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [selectedAccountId]);
+
   const applyAction = useCallback(async (
     volumeId: string, region: string, actionType: string,
-    targetType?: string, targetSizeGb?: number
+    targetType?: string, targetSizeGb?: number,
+    instanceId?: string, asgName?: string
   ) => {
     if (!selectedAccountId) return { success: false, error: 'No account selected' };
     try {
@@ -193,10 +228,11 @@ export const useEbsRightsizingData = ({ selectedAccountId }: UseEbsRightsizingDa
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ volumeId, region, actionType, targetType, targetSizeGb }),
+        body: JSON.stringify({ volumeId, region, actionType, targetType, targetSizeGb, instanceId, asgName }),
       });
       const data = await res.json();
       if (data.success) {
+        startPollingForVolume(volumeId);
         // Refresh recommendations and history after successful action
         sessionStorage.removeItem(`ebs-recommendations-${selectedAccountId}`);
         sessionStorage.removeItem(`ebs-volumes-${selectedAccountId}`);
@@ -207,7 +243,7 @@ export const useEbsRightsizingData = ({ selectedAccountId }: UseEbsRightsizingDa
       console.error('[EBS] Failed to apply action:', e);
       return { success: false, error: String(e) };
     }
-  }, [selectedAccountId, fetchRecommendations, fetchActionHistory]);
+  }, [selectedAccountId, fetchRecommendations, fetchActionHistory, startPollingForVolume]);
 
   const createPolicy = useCallback(async (policy: DiskPolicy) => {
     if (!selectedAccountId) return;
@@ -252,12 +288,45 @@ export const useEbsRightsizingData = ({ selectedAccountId }: UseEbsRightsizingDa
         body: JSON.stringify({ volumeId, region, instanceId, mountPoint, targetSizeGb }),
       });
       const data = await res.json();
-      if (data.success) await fetchActionHistory();
+      if (data.success) {
+        startPollingForVolume(volumeId);
+        await fetchActionHistory();
+      }
       return data;
     } catch (e) {
       return { success: false, error: String(e) };
     }
-  }, [selectedAccountId, fetchActionHistory]);
+  }, [selectedAccountId, fetchActionHistory, startPollingForVolume]);
+
+  const initiateExpand = useCallback(
+    async (
+      volumeId: string,
+      region: string,
+      instanceId: string,
+      device: string,
+      targetSizeGb: number,
+      asgName?: string
+    ) => {
+      if (!selectedAccountId) return { success: false, error: 'No account selected' };
+      try {
+        const res = await fetch(`/api/ebs/expand/${selectedAccountId}`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ volumeId, region, instanceId, device, targetSizeGb, asgName }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          startPollingForVolume(volumeId);
+          await fetchActionHistory();
+        }
+        return data;
+      } catch (e: any) {
+        return { success: false, error: String(e) };
+      }
+    },
+    [selectedAccountId, startPollingForVolume, fetchActionHistory]
+  );
 
   const calculateRoi = useCallback(async (
     provisionedGb: number, utilizationPct: number,
@@ -521,8 +590,11 @@ export const useEbsRightsizingData = ({ selectedAccountId }: UseEbsRightsizingDa
     typeUpgradeCount,
     shrinkCount,
     expandCount,
+    inFlightActions,
     applyAction,
     initiateDownsize,
+    initiateExpand,
+    startPollingForVolume,
     createPolicy,
     updatePolicy,
     deletePolicy,

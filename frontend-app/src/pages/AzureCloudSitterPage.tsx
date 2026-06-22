@@ -55,6 +55,12 @@ const AzureCloudSitterPage: React.FC = () => {
                 onManagePolicies={() => cs.setShowManagePoliciesModal(true)}
                 onAssignPolicy={cs.openAssignModal}
                 provider="AZURE"
+                page={cs.dashboardPage}
+                pageSize={cs.dashboardPageSize}
+                totalPages={cs.dashboardTotalPages}
+                filteredCount={cs.filteredResourcesCount}
+                onPageChange={cs.setDashboardPage}
+                onPageSizeChange={cs.setDashboardPageSize}
               />
             </motion.div>
           )}

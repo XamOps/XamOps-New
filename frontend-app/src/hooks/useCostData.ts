@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import type { CostDataItem, CostFilters, HistoricalData, ForecastData, ForecastResponse } from '../types/cost';
+import type { CostDataItem, CostFilters, HistoricalData, ForecastData, ForecastResponse, ForecastAccuracyMetrics } from '../types/cost';
 
 interface UseCostDataParams {
   selectedAccountId: string | null;
@@ -20,6 +20,7 @@ interface UseCostDataReturn {
   loadCostData: (forceRefresh?: boolean) => Promise<void>;
   loadHistoricalData: (dimension: string, forceRefresh?: boolean) => Promise<HistoricalData | null>;
   loadForecast: (service: string, periods: number, forceRefresh?: boolean) => Promise<ForecastData | null>;
+  loadForecastAccuracy: (service: string) => Promise<ForecastAccuracyMetrics | null>;
   refreshAll: () => Promise<void>;
 }
 
@@ -127,9 +128,9 @@ export const useCostData = ({
     try {
       let url = `/api/xamops/forecast/cost?accountId=${selectedAccountId}&periods=${periods}&forceRefresh=${forceRefresh}`;
 
-      if (service) {
-        url += `&serviceName=${encodeURIComponent(service)}`;
-      }
+      // Always send serviceName parameter - use "ALL" for empty/all services
+      const serviceParam = service && service.trim() !== '' ? service : 'ALL';
+      url += `&serviceName=${encodeURIComponent(serviceParam)}`;
 
       console.log('🔮 Fetching forecast from:', url);
 
@@ -161,6 +162,30 @@ export const useCostData = ({
   }, [selectedAccountId]);
 
   /**
+   * Load forecast accuracy metrics for a service (or all services)
+   */
+  const loadForecastAccuracy = useCallback(async (
+    service: string
+  ): Promise<ForecastAccuracyMetrics | null> => {
+    if (!selectedAccountId) return null;
+
+    try {
+      const serviceParam = service && service.trim() !== '' ? service : 'ALL';
+      const url = `/api/xamops/forecast/accuracy?accountId=${selectedAccountId}&serviceName=${encodeURIComponent(serviceParam)}&provider=AWS&days=90`;
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        return null;
+      }
+      const data: ForecastAccuracyMetrics = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error loading forecast accuracy:', error);
+      return null;
+    }
+  }, [selectedAccountId]);
+
+  /**
    * Refresh all data
    */
   const refreshAll = useCallback(async () => {
@@ -182,6 +207,7 @@ export const useCostData = ({
     loadCostData,
     loadHistoricalData,
     loadForecast,
+    loadForecastAccuracy,
     refreshAll,
   };
 };

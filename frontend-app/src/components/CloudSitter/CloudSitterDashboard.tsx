@@ -65,12 +65,11 @@ function computeKpis(allResources: EC2Resource[]): KpiData {
   const activeResources = allResources.filter(isActive);
   const managedCount = activeResources.filter((r) => r.policyName).length;
   const totalMonthlyCost = activeResources.reduce((sum, r) => sum + getMonthlyRunCost(r), 0);
-  const potentialSavings = activeResources.reduce((sum, r) => sum + (getPotentialSavings(r) ?? 0), 0);
   return {
     totalInstances: allResources.length,
     managedCount,
     totalMonthlyCost: Math.round(totalMonthlyCost * 100) / 100,
-    potentialSavings: Math.round(potentialSavings * 100) / 100,
+    potentialSavings: 0, // Not used anymore but kept for compatibility
   };
 }
 
@@ -86,6 +85,12 @@ interface CloudSitterDashboardProps {
   onManagePolicies: () => void;
   onAssignPolicy: (resource: EC2Resource) => void;
   provider?: 'AWS' | 'GCP' | 'AZURE';
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+  filteredCount?: number;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
 }
 
 const PROVIDER_META: Record<string, { icon: string; label: string; color: string }> = {
@@ -106,6 +111,12 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
   onManagePolicies,
   onAssignPolicy,
   provider = 'AWS',
+  page = 0,
+  pageSize = 10,
+  totalPages = 0,
+  filteredCount = 0,
+  onPageChange,
+  onPageSizeChange,
 }) => {
   const kpi = computeKpis(allResources);
   const coveragePct = kpi.totalInstances > 0
@@ -117,7 +128,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
     <>
       {/* KPI Cards */}
       {(allResources.length > 0 || isLoading) && (
-        <div className="grid grid-cols-4 gap-4 mb-5">
+        <div className="grid grid-cols-3 gap-4 mb-5">
           {/* Total Instances */}
           <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0s both' }}>
             {CLOUD_SVG}
@@ -166,23 +177,6 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                 ? <div className="h-8 w-24 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
                 : <p style={NUM_STYLE}>${kpi.totalMonthlyCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>}
               <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">24/7 run cost est.</p>
-            </div>
-          </div>
-
-          {/* Potential Savings */}
-          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: 'fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) 0.18s both' }}>
-            {CLOUD_SVG}
-            <div className="relative z-10">
-              <div className="flex items-start justify-between mb-2">
-                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">Potential Savings</p>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#16A34A14' }}>
-                  <Icon icon="mdi:piggy-bank" width={18} color="#16A34A" />
-                </div>
-              </div>
-              {isLoading
-                ? <div className="h-8 w-24 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
-                : <p style={{ ...NUM_STYLE, color: '#16A34A' }}>${kpi.potentialSavings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}<span className="text-[16px] font-normal ml-1">/mo</span></p>}
-              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">from active schedule policies</p>
             </div>
           </div>
         </div>
@@ -292,28 +286,23 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
             className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden widget-panel-hover"
           >
           {/* Column headers */}
-          <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
+          <div className="grid grid-cols-11 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
             <div className="col-span-3">Name / ID</div>
             <div className="col-span-2">Region</div>
-            <div className="col-span-1">Type</div>
+            <div className="col-span-2">Type</div>
             <div className="col-span-1">State</div>
             <div className="col-span-2">CloudSitter Policy</div>
-            <div className="col-span-1">Cost/mo</div>
-            <div className="col-span-1">Savings</div>
             <div className="col-span-1 text-center">Actions</div>
           </div>
 
           {resources.map((resource, idx) => {
             const isTerminated = resource.state === 'terminated' || resource.state === 'stopped';
-            const monthlyCost  = getMonthlyRunCost(resource);
-            const potSavings   = getPotentialSavings(resource);
             const hasPolicy    = !!resource.policyName;
-            const recLoading   = isRecommendationLoading(resource);
 
             return (
               <div
                 key={resource.id}
-                className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
+                className="grid grid-cols-11 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[13px]"
                 style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.03, 0.45)}s both` }}
               >
                 {/* Name / ID */}
@@ -343,7 +332,7 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                 </div>
 
                 {/* Type */}
-                <div className="col-span-1">
+                <div className="col-span-2">
                   <span className="px-2 py-0.5 rounded bg-[rgba(0,0,0,0.04)] text-[11px] font-mono text-[rgba(0,0,0,0.65)] border border-[rgba(0,0,0,0.06)]">
                     {resource.type}
                   </span>
@@ -367,47 +356,6 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
                   )}
                 </div>
 
-                {/* Cost */}
-                <div className="col-span-1">
-                  {isTerminated ? (
-                    <span className="text-[rgba(0,0,0,0.2)]">—</span>
-                  ) : (
-                    <>
-                      <p className="font-semibold text-[rgba(0,0,0,0.88)]">${monthlyCost.toFixed(2)}</p>
-                      <p className="text-[11px] text-[rgba(0,0,0,0.35)]">24/7 est.</p>
-                    </>
-                  )}
-                </div>
-
-                {/* Savings */}
-                <div className="col-span-1">
-                  {isTerminated ? (
-                    <span className="text-[rgba(0,0,0,0.2)]">—</span>
-                  ) : recLoading ? (
-                    <div>
-                      <div className="h-4 w-14 bg-[rgba(0,0,0,0.06)] rounded animate-pulse mb-1" />
-                      <div className="flex items-center gap-1 text-[10px] text-[rgba(0,0,0,0.3)]">
-                        <Icon icon="mdi:loading" width={10} className="animate-spin" /> Analyzing
-                      </div>
-                    </div>
-                  ) : !hasPolicy && (potSavings === null || potSavings === 0) ? (
-                    <span className="text-[rgba(0,0,0,0.2)]">—</span>
-                  ) : (
-                    <>
-                      <p className={`font-semibold ${hasPolicy ? 'text-emerald-600' : 'text-amber-500'}`}>
-                        ${(potSavings ?? 0).toFixed(2)}
-                      </p>
-                      <div className={`text-[10px] mt-0.5 flex items-center gap-1 ${hasPolicy ? 'text-emerald-500' : 'text-amber-400'}`}>
-                        {hasPolicy ? (
-                          <><Icon icon="mdi:check-circle" width={10} /> Active</>
-                        ) : (
-                          <><Icon icon="mdi:brain" width={10} /> AI Estimate</>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-
                 {/* Actions */}
                 <div className="col-span-1 flex justify-center">
                   <button
@@ -421,6 +369,102 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
               </div>
             );
           })}
+          
+          {/* Pagination Controls */}
+          {totalPages > 1 && onPageChange && (
+            <div className="flex items-center justify-between px-5 py-3 border-t border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.01)]">
+              <div className="flex items-center gap-3">
+                <span className="text-[12px] text-[rgba(0,0,0,0.5)]">
+                  Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, filteredCount)} of {filteredCount}
+                </span>
+                {onPageSizeChange && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-[rgba(0,0,0,0.45)]">Per page:</span>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        onPageSizeChange(Number(e.target.value));
+                        onPageChange(0);
+                      }}
+                      className="text-[11px] border border-[rgba(0,0,0,0.1)] rounded px-2 py-1 bg-white text-[rgba(0,0,0,0.75)] focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    >
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => onPageChange(0)}
+                  disabled={page === 0}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="First page"
+                >
+                  <Icon icon="mdi:chevron-double-left" width={14} />
+                </button>
+                <button
+                  onClick={() => onPageChange(page - 1)}
+                  disabled={page === 0}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Previous page"
+                >
+                  <Icon icon="mdi:chevron-left" width={14} />
+                </button>
+                
+                {/* Page numbers */}
+                <div className="flex items-center gap-0.5 mx-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum: number;
+                    if (totalPages <= 5) {
+                      pageNum = i;
+                    } else if (page < 3) {
+                      pageNum = i;
+                    } else if (page > totalPages - 4) {
+                      pageNum = totalPages - 5 + i;
+                    } else {
+                      pageNum = page - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => onPageChange(pageNum)}
+                        className={`min-w-[28px] h-7 px-2 flex items-center justify-center rounded text-[11px] font-semibold transition-colors ${
+                          page === pageNum
+                            ? 'bg-indigo-600 text-white'
+                            : 'border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)]'
+                        }`}
+                      >
+                        {pageNum + 1}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button
+                  onClick={() => onPageChange(page + 1)}
+                  disabled={page >= totalPages - 1}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Next page"
+                >
+                  <Icon icon="mdi:chevron-right" width={14} />
+                </button>
+                <button
+                  onClick={() => onPageChange(totalPages - 1)}
+                  disabled={page >= totalPages - 1}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Last page"
+                >
+                  <Icon icon="mdi:chevron-double-right" width={14} />
+                </button>
+              </div>
+            </div>
+          )}
           </motion.div>
         )}
       </AnimatePresence>

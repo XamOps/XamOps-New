@@ -151,16 +151,16 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
   useEffect(() => { fetchRecommendation(); }, [fetchRecommendation]);
 
   const handleApply = useCallback(() => {
-    if (!rec) return;
+    if (!rec || !rec.recommendedSchedule) return;
     const grid = DAY_KEYS.map((key) => {
-      const runningHours = rec.recommendedSchedule[key] ?? [];
+      const runningHours = rec.recommendedSchedule![key] ?? [];
       return Array.from({ length: 24 }, (_, h) => runningHours.includes(h));
     });
     onApply(grid);
   }, [rec, onApply]);
 
-  const offHoursPerWeek = rec
-    ? DAY_KEYS.reduce((t, k) => t + (24 - (rec.recommendedSchedule[k]?.length ?? 24)), 0)
+  const offHoursPerWeek = rec?.recommendedSchedule
+    ? DAY_KEYS.reduce((t, k) => t + (24 - (rec.recommendedSchedule![k]?.length ?? 24)), 0)
     : 0;
 
   return (
@@ -220,8 +220,26 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
         </div>
       )}
 
+      {/* ── Skipped ── */}
+      {rec && rec.skipReason && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <Icon icon="mdi:information-outline" color="#d97706" width={14} />
+          <span style={{ fontSize: 13, color: '#92400e', fontFamily: 'Inter, sans-serif' }}>
+            Recommendation skipped:{' '}
+            <strong>
+              {rec.skipReason === 'ASG_MANAGED' && 'Instance is in an Auto Scaling Group'}
+              {rec.skipReason === 'K8S_NODE' && 'Instance is a Kubernetes node'}
+              {rec.skipReason === 'PRODUCTION' && 'Instance is tagged as production'}
+              {rec.skipReason === 'ACTIVE_ALARM' && 'Instance has active CloudWatch alarms'}
+              {rec.skipReason === 'INSUFFICIENT_DATA' && 'Insufficient CloudWatch data'}
+              {!['ASG_MANAGED','K8S_NODE','PRODUCTION','ACTIVE_ALARM','INSUFFICIENT_DATA'].includes(rec.skipReason) && rec.skipReason}
+            </strong>
+          </span>
+        </div>
+      )}
+
       {/* ── Results ── */}
-      {rec && (
+      {rec && !rec.skipReason && rec.recommendedSchedule && (
         <>
           {/* Stats pills */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -251,12 +269,12 @@ const ScheduleRecommendationPanel: React.FC<Props> = ({
             <MetricGrid
               label="CPU Utilization"
               subLabel="(AWS/EC2 · CPUUtilization)"
-              grid={rec.avgCpuGrid}
+              grid={rec.avgCpuGrid ?? {}}
               colorFn={cpuColor}
-              tooltipFn={(v, day, h) => cellTooltip(v, rec.memAvailable ? (rec.avgMemGrid[DAY_KEYS[DAYS.indexOf(day)]]?.[h] ?? null) : null, day, h)}
+              tooltipFn={(v, day, h) => cellTooltip(v, rec.memAvailable && rec.avgMemGrid ? (rec.avgMemGrid[DAY_KEYS[DAYS.indexOf(day)]]?.[h] ?? null) : null, day, h)}
               dotThreshold={2}
             />
-            {rec.memAvailable && (
+            {rec.memAvailable && rec.avgMemGrid && (
               <MetricGrid
                 label="Memory Usage"
                 subLabel="(CWAgent · mem_used_percent)"

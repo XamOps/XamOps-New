@@ -73,6 +73,26 @@ public class RedisCacheService {
         }
     }
 
+    /**
+     * Evicts every key matching the given glob-style pattern (e.g. "gcp:billing-summary:my-project:*").
+     * Returns the number of keys removed.
+     */
+    public long evictByPattern(String pattern) {
+        try {
+            java.util.Set<String> keys = redisTemplate.keys(pattern);
+            if (keys == null || keys.isEmpty()) {
+                logger.info("--- NO REDIS KEYS MATCHED PATTERN: {} ---", pattern);
+                return 0L;
+            }
+            Long removed = redisTemplate.delete(keys);
+            logger.info("--- EVICTED {} REDIS KEYS FOR PATTERN: {} ---", removed, pattern);
+            return removed == null ? 0L : removed;
+        } catch (Exception e) {
+            logger.warn("Error evicting Redis keys for pattern {}: {}", pattern, e.getMessage());
+            return 0L;
+        }
+    }
+
     // --- ✅ ADD THESE NEW METHODS AT THE BOTTOM ---
 
     public void saveOtp(String username, String otp) {

@@ -56,6 +56,9 @@ public class CicdController {
     @Autowired
     private JenkinsIntegrationConfigRepository jenkinsConfigRepository;
 
+    @Autowired
+    private com.xammer.cloud.repository.CicdRunRecordRepository cicdRunRecordRepository;
+
     /**
      * Fetches the latest run for each GitHub workflow.
      */
@@ -104,6 +107,23 @@ public class CicdController {
                 return -1;
             return r2.getUpdatedAt().compareTo(r1.getUpdatedAt()); // Descending
         });
+
+        // Enrich with failure category and failed stage from DB
+        for (GitHubWorkflowRunDto run : allRuns) {
+            configs.stream()
+                .filter(c -> run.getRepository() != null
+                    && run.getRepository().getFullName() != null
+                    && run.getRepository().getFullName().equals(c.getGithubOwner() + "/" + c.getGithubRepo()))
+                .findFirst()
+                .ifPresent(config -> {
+                    cicdRunRecordRepository
+                        .findByConfigIdAndProviderAndRunId(config.getId(), "GITHUB", String.valueOf(run.getId()))
+                        .ifPresent(record -> {
+                            run.setFailureCategory(record.getFailureCategory());
+                            run.setFailedStage(record.getFailedStage());
+                        });
+                });
+        }
 
         logger.info("Returning {} total GitHub workflow runs for the user.", allRuns.size());
         return ResponseEntity.ok(allRuns);

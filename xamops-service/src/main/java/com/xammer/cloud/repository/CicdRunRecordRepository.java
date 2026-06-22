@@ -25,4 +25,12 @@ public interface CicdRunRecordRepository extends JpaRepository<CicdRunRecord, Lo
             @Param("configId") Long configId,
             @Param("provider") String provider,
             Pageable pageable);
+
+    @Query("SELECT r FROM CicdRunRecord r WHERE r.userId = :userId AND r.workflowName = :workflowName " +
+           "AND r.provider = :provider AND r.status = 'success' ORDER BY r.startedAt DESC")
+    List<CicdRunRecord> findTopSuccessRun(
+            @Param("userId") Long userId,
+            @Param("workflowName") String workflowName,
+            @Param("provider") String provider,
+            Pageable pageable);
 }

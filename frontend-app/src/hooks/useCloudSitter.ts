@@ -17,31 +17,6 @@ import type {
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_KEYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 
-const HOURLY_PRICES: Record<string, number> = {
-  't2.nano': 0.0058, 't2.micro': 0.0116, 't2.small': 0.023, 't2.medium': 0.0464,
-  't2.large': 0.0928, 't2.xlarge': 0.1856, 't2.2xlarge': 0.3712,
-  't3.nano': 0.0052, 't3.micro': 0.0104, 't3.small': 0.0208, 't3.medium': 0.0416,
-  't3.large': 0.0832, 't3.xlarge': 0.1664, 't3.2xlarge': 0.3328,
-  'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384, 'm5.4xlarge': 0.768,
-  'm5.8xlarge': 1.536, 'm5.12xlarge': 2.304, 'm5.24xlarge': 4.608,
-  'c5.large': 0.085, 'c5.xlarge': 0.17, 'c5.2xlarge': 0.34, 'c5.4xlarge': 0.68,
-  'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504, 'r5.4xlarge': 1.008,
-};
-
-function computeRecommendedSavings(
-  instanceType: string,
-  recommendedSchedule: Record<string, number[]>,
-): { savings: number; offHoursPerWeek: number } {
-  const runningHoursPerWeek = DAY_KEYS.reduce(
-    (sum, k) => sum + (recommendedSchedule[k]?.length ?? 0), 0
-  );
-  const offHoursPerWeek = 7 * 24 - runningHoursPerWeek;
-  const offHoursPerMonth = offHoursPerWeek * 4.33;
-  const hourlyPrice = HOURLY_PRICES[instanceType.toLowerCase()] ?? 0.05;
-  const savings = Math.round(hourlyPrice * offHoursPerMonth * 100) / 100;
-  return { savings, offHoursPerWeek };
-}
-
 export const useCloudSitter = (accountId: string | null) => {
   // State
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
@@ -51,6 +26,10 @@ export const useCloudSitter = (accountId: string | null) => {
   const [resources, setResources] = useState<EC2Resource[]>([]);
   const [policies, setPolicies] = useState<CloudSitterPolicy[]>([]);
   const [, setAssignments] = useState<Record<string, PolicyAssignment>>({});
+  
+  // Dashboard pagination
+  const [dashboardPage, setDashboardPage] = useState(0);
+  const [dashboardPageSize, setDashboardPageSize] = useState(10);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -224,52 +203,7 @@ export const useCloudSitter = (accountId: string | null) => {
       setResources(mappedResources);
       console.log(`✅ Mapped ${mappedResources.length} resources for CloudSitter display`);
 
-      // Fetch CloudWatch-based recommendations for unmanaged running instances in parallel.
-      // recommendedSavings starts as undefined (loading) and is updated when fetches complete.
-      const unmanagedRunning = mappedResources.filter(
-        (r) => !r.policyName && r.state === 'running'
-      );
-
-      if (unmanagedRunning.length > 0) {
-        Promise.allSettled(
-          unmanagedRunning.map((r) => {
-            const cacheKey = `cs-rec-${accountId}-${r.id}`;
-            const cached = sessionStorage.getItem(cacheKey);
-            if (cached) {
-              return Promise.resolve({ instanceId: r.id, instanceType: r.type, rec: JSON.parse(cached) });
-            }
-            return fetch(
-              `/api/xamops/cloudsitter/recommendation?accountId=${accountId}&instanceId=${r.id}&region=${r.region}&lookbackDays=30`,
-              { signal }
-            )
-              .then((res) => (res.ok ? res.json() : null))
-              .then((rec) => {
-                if (rec) sessionStorage.setItem(cacheKey, JSON.stringify(rec));
-                return { instanceId: r.id, instanceType: r.type, rec };
-              });
-          })
-        ).then((results) => {
-          const savingsMap: Record<string, { savings: number; offHoursPerWeek: number }> = {};
-          results.forEach((result) => {
-            if (result.status === 'fulfilled' && result.value?.rec) {
-              const { instanceId, instanceType, rec } = result.value;
-              savingsMap[instanceId] = computeRecommendedSavings(instanceType, rec.recommendedSchedule);
-            }
-          });
-
-          setResources((prev) =>
-            prev.map((r) => {
-              if (r.policyName || r.state !== 'running') return r;
-              const computed = savingsMap[r.id];
-              return {
-                ...r,
-                recommendedSavings: computed !== undefined ? computed.savings : null,
-                recommendedOffHoursPerWeek: computed !== undefined ? computed.offHoursPerWeek : null,
-              };
-            })
-          );
-        });
-      }
+      // Note: AI recommendation feature removed - CloudSitter is now a manual scheduling tool only
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return;
       console.error('Failed to load CloudSitter data:', e);
@@ -290,6 +224,20 @@ export const useCloudSitter = (accountId: string | null) => {
         (r.id && r.id.toLowerCase().includes(q))
     );
   }, [resources, searchQuery])();
+  
+  /**
+   * Paginated resources for dashboard
+   */
+  const paginatedResources = useCallback(() => {
+    const start = dashboardPage * dashboardPageSize;
+    const end = start + dashboardPageSize;
+    return filteredResources.slice(start, end);
+  }, [filteredResources, dashboardPage, dashboardPageSize])();
+  
+  /**
+   * Total pages for dashboard pagination
+   */
+  const dashboardTotalPages = Math.ceil(filteredResources.length / dashboardPageSize);
 
   /**
    * Open create policy view
@@ -304,6 +252,7 @@ export const useCloudSitter = (accountId: string | null) => {
     });
     resetGrid();
     setEditMode(false);
+    setFormInstanceTarget(null);
     setCurrentView('createPolicy');
   }, [resetGrid]);
 
@@ -547,6 +496,11 @@ export const useCloudSitter = (accountId: string | null) => {
     }
     resetGrid();
   }, [accountId, loadData, resetGrid]);
+  
+  // Reset page to 0 when search query changes
+  useEffect(() => {
+    setDashboardPage(0);
+  }, [searchQuery]);
 
   return {
     // State
@@ -554,7 +508,7 @@ export const useCloudSitter = (accountId: string | null) => {
     isLoading,
     isSaving,
     searchQuery,
-    resources: filteredResources,
+    resources: paginatedResources,
     allResources: resources,
     policies,
     policyForm,
@@ -565,6 +519,10 @@ export const useCloudSitter = (accountId: string | null) => {
     showManagePoliciesModal,
     assignTarget,
     selectedPolicyId,
+    dashboardPage,
+    dashboardPageSize,
+    dashboardTotalPages,
+    filteredResourcesCount: filteredResources.length,
 
     // Actions
     setCurrentView,
@@ -574,6 +532,8 @@ export const useCloudSitter = (accountId: string | null) => {
     setShowAssignModal,
     setShowManagePoliciesModal,
     setSelectedPolicyId,
+    setDashboardPage,
+    setDashboardPageSize,
     loadData,
     openCreatePolicy,
     closeCreatePolicy,

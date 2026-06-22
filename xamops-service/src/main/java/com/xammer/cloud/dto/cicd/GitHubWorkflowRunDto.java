@@ -41,6 +41,9 @@ public class GitHubWorkflowRunDto {
 
     private String owner;
 
+    private String failureCategory;
+    private String failedStage;
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class RepositoryInfo {
 
@@ -181,6 +184,11 @@ public class GitHubWorkflowRunDto {
     public void setOwner(String owner) {
         this.owner = owner;
     }
+
+    public String getFailureCategory() { return failureCategory; }
+    public void setFailureCategory(String failureCategory) { this.failureCategory = failureCategory; }
+    public String getFailedStage() { return failedStage; }
+    public void setFailedStage(String failedStage) { this.failedStage = failedStage; }
 
     // Explicit setter for Jenkins service
     public void setDisplayStatus(String displayStatus) {

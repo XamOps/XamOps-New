@@ -2,6 +2,7 @@ package com.xammer.mediaops.validation;
 
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -14,8 +15,15 @@ import java.util.regex.Pattern;
 @Component
 public class TranscodeJobValidator {
 
-    private static final Pattern SHELL_INJECTION_PATTERN =
-            Pattern.compile("[;|`$&(){}\\[\\]<>!]");
+    // Explicit allowlist of safe scalar FFmpeg flags. Anything not on this list is rejected.
+    private static final Set<String> ALLOWED_FFMPEG_FLAGS = Set.of(
+            "-crf", "-preset", "-maxrate", "-bufsize", "-tune", "-profile:v",
+            "-level", "-pix_fmt", "-r", "-g", "-sc_threshold", "-b_strategy",
+            "-threads", "-movflags", "-b:a", "-ar", "-ac"
+    );
+
+    // Values must contain only alphanumeric, digits, dots, plus, underscore, colon, or dash.
+    private static final Pattern ALLOWED_FLAG_VALUE = Pattern.compile("^[a-zA-Z0-9_.+:\\-]+$");
 
     private static final Set<String> VALID_SUBTITLE_EXTENSIONS = Set.of("srt", "vtt");
 
@@ -47,17 +55,40 @@ public class TranscodeJobValidator {
     }
 
     /**
-     * Validates that custom FFmpeg parameters do not contain shell injection characters.
-     * Prohibited characters: ; | ` $ & ( ) { } [ ] < > !
+     * Validates custom FFmpeg parameters against an explicit allowlist of safe scalar flags.
+     * Rejects any flag not in the allowlist (e.g. -i, -f, -map, -vf, -filter_complex,
+     * -protocol_whitelist) and any value containing path separators or URL schemes.
      *
      * @param params the custom FFmpeg parameter string
-     * @throws ValidationException if prohibited characters are found
+     * @throws ValidationException if any flag or value is not permitted
      */
     public void validateCustomParams(String params) {
         if (params == null) return;
-        if (SHELL_INJECTION_PATTERN.matcher(params).find()) {
-            throw new ValidationException("parameter-validation-failed",
-                    "Custom parameters contain prohibited characters");
+        String trimmed = params.trim();
+        if (trimmed.isEmpty()) return;
+        String[] tokens = trimmed.split("\\s+");
+        int i = 0;
+        while (i < tokens.length) {
+            String token = tokens[i];
+            if (!token.startsWith("-")) {
+                throw new ValidationException("parameter-validation-failed",
+                        "Unexpected token in custom FFmpeg parameters");
+            }
+            if (!ALLOWED_FFMPEG_FLAGS.contains(token)) {
+                throw new ValidationException("parameter-validation-failed",
+                        "FFmpeg flag not permitted: " + token);
+            }
+            i++;
+            if (i >= tokens.length) {
+                throw new ValidationException("parameter-validation-failed",
+                        "Flag " + token + " requires a value");
+            }
+            String value = tokens[i];
+            if (!ALLOWED_FLAG_VALUE.matcher(value).matches()) {
+                throw new ValidationException("parameter-validation-failed",
+                        "Invalid value for flag " + token);
+            }
+            i++;
         }
     }
 

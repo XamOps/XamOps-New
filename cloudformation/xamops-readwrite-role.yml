@@ -232,6 +232,7 @@ Resources:
               - 'ec2:ModifyInstanceCreditSpecification'
               - 'ec2:ModifyVolume'
               - 'ec2:ModifyVolumeAttribute'
+              - 'ec2:DescribeVolumesModifications'
               - 'ec2:CreateSnapshot'
               - 'ec2:DeleteSnapshot'
               - 'ec2:CreateVolume'

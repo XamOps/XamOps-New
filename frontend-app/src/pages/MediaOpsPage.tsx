@@ -88,7 +88,7 @@ const AWS_COMPARISON = [
   { service: 'AWS MediaConvert', useCase: 'Video Transcoding', awsPrice: '$0.0150/min', ffmpegPrice: '$0.00 (CPU cost ~$0.0002/min)', monthlySavings: '$1,240', yearSavings: '$14,880', savingsPct: 98 },
   { service: 'AWS MediaLive', useCase: 'Live Encoding', awsPrice: '$0.2200/hr/channel', ffmpegPrice: '$0.00 (instance cost ~$0.004/hr)', monthlySavings: '$648', yearSavings: '$7,776', savingsPct: 98 },
   { service: 'AWS MediaPackage', useCase: 'HLS Packaging', awsPrice: '$0.0330/GB', ffmpegPrice: '$0.00 (bundled with encoding)', monthlySavings: '$420', yearSavings: '$5,040', savingsPct: 100 },
-  { service: 'Amazon IVS', useCase: 'Interactive Video', awsPrice: '$0.2000/hr + $0.05/GB', ffmpegPrice: '$0.00 (nginx-rtmp + FFmpeg)', monthlySavings: '$312', yearSavings: '$3,744', savingsPct: 97 },
+  { service: 'Amazon IVS', useCase: 'Interactive Video', awsPrice: '$0.2000/hr + $0.05/GB', ffmpegPrice: '$0.00 (bundled with streaming)', monthlySavings: '$312', yearSavings: '$3,744', savingsPct: 97 },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -182,11 +182,11 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
 
   const stats = [
     { label: 'Active Streams', value: overview?.liveStreams ?? '—', icon: 'mdi:broadcast', sub: 'Live right now', tooltip: 'Number of currently active RTMP/HLS live streams.' },
-    { label: 'Jobs Running', value: overview?.processingJobs ?? '—', icon: 'mdi:film-sync', sub: 'Transcoding now', tooltip: 'FFmpeg transcoding jobs currently in progress.' },
+    { label: 'Jobs Running', value: overview?.processingJobs ?? '—', icon: 'mdi:film-sync', sub: 'Transcoding now', tooltip: 'Transcoding jobs currently in progress.' },
     { label: 'Jobs Completed', value: overview?.completedJobs ?? '—', icon: 'mdi:check-circle-outline', sub: 'Total completed', tooltip: 'Jobs that finished successfully.' },
     { label: 'Total Viewers', value: overview?.totalViewers ?? '—', icon: 'mdi:account-group-outline', sub: 'Across all streams', tooltip: 'Total concurrent viewers across all live streams.' },
     { label: 'Storage Used', value: storageStr, icon: 'mdi:database-outline', sub: 'Media storage', tooltip: 'Total media storage consumed.' },
-    { label: 'Saved vs AWS', value: saved, icon: 'mdi:piggy-bank-outline', sub: 'Total tracked', tooltip: 'Money saved by using FFmpeg instead of AWS Media Services.' },
+    { label: 'Saved vs AWS', value: saved, icon: 'mdi:piggy-bank-outline', sub: 'Total tracked', tooltip: 'Money saved vs AWS Media Services.' },
   ];
 
   return (
@@ -202,12 +202,12 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
             <span className="px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[10px] font-bold text-[rgba(0,0,0,0.45)] uppercase tracking-wider">Beta</span>
           </div>
           <h1 className="text-[18px] font-bold text-[rgba(0,0,0,0.88)] leading-tight mb-1">World-class media processing, zero AWS bill.</h1>
-          <p className="text-[13px] text-[rgba(0,0,0,0.45)] max-w-lg">Replace AWS MediaConvert, MediaLive & MediaPackage with FFmpeg. Transcode, stream, and store media — free.</p>
+          <p className="text-[13px] text-[rgba(0,0,0,0.45)] max-w-lg">Replace AWS MediaConvert, MediaLive & MediaPackage with XamOps MediaOps. Transcode, stream, and store media — free.</p>
         </div>
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.07)]">
             <Icon icon="mdi:lightning-bolt" width={14} color="rgba(0,0,0,0.4)" />
-            <span className="text-[12px] text-[rgba(0,0,0,0.65)] font-semibold">FFmpeg — Ready</span>
+            <span className="text-[12px] text-[rgba(0,0,0,0.65)] font-semibold">Media Engine — Ready</span>
           </div>
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.07)]">
             <span className={`w-2 h-2 rounded-full ${(overview?.processingJobs ?? 0) > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-[rgba(0,0,0,0.2)]'}`} />
@@ -319,7 +319,7 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
 
       {/* Quick Start */}
       <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm p-5">
-        <p className="text-[12px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.5)] mb-4">FFmpeg Quick Commands</p>
+        <p className="text-[12px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.5)] mb-4">Quick Commands</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {[
             { label: 'Convert to HLS', icon: 'mdi:film', cmd: 'ffmpeg -i input.mp4 -hls_time 10 -hls_list_size 0 output.m3u8' },
@@ -683,7 +683,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                               <Icon icon="mdi:play-circle-outline" className="text-sm" />
                             </button>
                           )}
-                          <button onClick={() => copyCmd(job)} title="Copy FFmpeg command"
+                          <button onClick={() => copyCmd(job)} title="Copy command"
                             className="p-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.05)] transition-colors text-[rgba(0,0,0,0.35)] hover:text-[rgba(0,0,0,0.7)]">
                             <Icon icon={copiedId === job.id ? 'mdi:check' : 'mdi:content-copy'} className={`text-sm ${copiedId === job.id ? 'text-emerald-500' : ''}`} />
                           </button>
@@ -696,7 +696,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                           <div className="flex items-start gap-2">
                             <Icon icon="mdi:bug-outline" className="text-red-500 mt-0.5 flex-shrink-0" />
                             <div className="flex-1">
-                              <p className="text-[11px] font-bold text-red-700 mb-0.5">FFmpeg Error Details</p>
+                              <p className="text-[11px] font-bold text-red-700 mb-0.5">Error Details</p>
                               <pre className="text-[10px] font-mono text-red-600 whitespace-pre-wrap break-all leading-relaxed">
                                 {job.errorMessage ?? 'No error details recorded (job failed before error logging was enabled — click Retry to reprocess with full logging).'}
                               </pre>
@@ -1589,7 +1589,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
           {[
             { icon: 'mdi:video-outline', label: 'OBS / Encoder', sub: 'Streams RTMP' },
             { icon: 'mdi:arrow-right', label: '', sub: '' },
-            { icon: 'mdi:lightning-bolt', label: 'FFmpeg Worker', sub: 'Transcodes + Segments' },
+            { icon: 'mdi:lightning-bolt', label: 'Media Worker', sub: 'Transcodes + Segments' },
             { icon: 'mdi:arrow-right', label: '', sub: '' },
             { icon: 'mdi:playlist-play', label: 'HLS Segments', sub: '.ts + .m3u8' },
             { icon: 'mdi:arrow-right', label: '', sub: '' },
@@ -1828,14 +1828,14 @@ function CostSavingsTab({ overview }: CostSavingsTabProps) {
       {/* Comparison table */}
       <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-2xl shadow-sm overflow-hidden">
         <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
-          <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)]">AWS Media Services vs FFmpeg (XamOps MediaOps)</p>
+          <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)]">AWS Media Services vs XamOps MediaOps</p>
           <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">Based on estimated monthly usage at 100 hrs transcoding + 4 live channels</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
-                {['AWS Service', 'Use Case', 'AWS Price', 'MediaOps (FFmpeg)', 'Monthly Savings', '12-Month Savings', 'Saving %'].map(h => (
+                {['AWS Service', 'Use Case', 'AWS Price', 'MediaOps Price', 'Monthly Savings', '12-Month Savings', 'Saving %'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">{h}</th>
                 ))}
               </tr>
@@ -1884,10 +1884,10 @@ function CostSavingsTab({ overview }: CostSavingsTabProps) {
         </div>
       </div>
 
-      {/* Why FFmpeg */}
+      {/* Why MediaOps */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { icon: 'mdi:currency-usd-off', title: 'Zero Licensing Cost', body: 'FFmpeg is 100% free and open-source (LGPL/GPL). No per-minute fees, no channel fees, no egress markup.' },
+          { icon: 'mdi:currency-usd-off', title: 'Zero Licensing Cost', body: 'Our media engine has zero per-minute fees, no channel fees, and no egress markup — you only pay for compute.' },
           { icon: 'mdi:server-network', title: 'Runs on Your Infra', body: 'Runs on any EC2, GCE, or on-prem server. Use Spot/Preemptible instances to cut compute costs further.' },
           { icon: 'mdi:cogs', title: 'Full Format Support', body: 'Supports 500+ codecs and formats including H.264, H.265/HEVC, AV1, VP9, HLS, DASH, RTMP, SRT, and more.' },
         ].map((item, i) => (

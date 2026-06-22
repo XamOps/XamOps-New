@@ -166,9 +166,27 @@ public class ForecastingService {
      * Generate AWS cost forecast with improved outlier preprocessing
      */
     public CompletableFuture<List<ForecastDto>> getCostForecast(String accountId, String serviceName, int periods) {
-        int historicalDays = Math.min(periods * 3, 180);
+        // ✅ IMPROVED: Adaptive lookback for better pattern detection
+        // Short-term forecasts need more history to learn patterns properly
+        int historicalDays;
+        if (periods <= 30) {
+            historicalDays = 180;  // 6 months for short-term (better weekly/monthly patterns)
+        } else if (periods <= 60) {
+            historicalDays = 270;  // 9 months for medium-term (captures quarterly trends)
+        } else {
+            historicalDays = 365;  // 1 year for long-term (yearly seasonality)
+        }
+        
+        log.info("📅 Using {} days of historical data for {}-day forecast (improved adaptive lookback)", 
+                 historicalDays, periods);
 
-        return costService.getHistoricalCost(accountId, "ALL".equalsIgnoreCase(serviceName) ? null : serviceName, null, historicalDays, false)
+        // Normalize serviceName - treat null, empty, or "ALL" the same
+        String normalizedService = null;
+        if (serviceName != null && !serviceName.trim().isEmpty() && !"ALL".equalsIgnoreCase(serviceName.trim())) {
+            normalizedService = serviceName.trim();
+        }
+
+        return costService.getHistoricalCost(accountId, normalizedService, null, historicalDays, false)
                 .thenCompose(historicalCostData -> {
                     if (historicalCostData == null || historicalCostData.getLabels() == null || historicalCostData.getLabels().size() < 14) {
                         log.warn("❌ Not enough historical cost data for AWS account {} to generate a forecast (found {} days).",
@@ -201,19 +219,22 @@ public class ForecastingService {
                         HttpHeaders headers = new HttpHeaders();
                         headers.setContentType(MediaType.APPLICATION_JSON);
 
+                        // ✅ IMPROVED: Enable yearly seasonality when we have enough data
+                        boolean enableYearlySeasonality = historicalDays >= 365;
+                        
                         Map<String, Object> requestBody = new HashMap<>();
                         requestBody.put("data", cleanedData);
                         requestBody.put("periods", periods);
                         requestBody.put("weekly_seasonality", true);
-                        requestBody.put("yearly_seasonality", false);
+                        requestBody.put("yearly_seasonality", enableYearlySeasonality);  // Was always false!
 
                         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
                         // ✅ CHANGED: Use configurable URL instead of hardcoded localhost
                         String forecastUrl = forecastServiceUrl + "/forecast/cost";
 
-                        log.info("📡 [{}] Calling Prophet forecast service at {} with {} cleaned data points for {} periods",
-                                environment, forecastUrl, cleanedData.size(), periods);
+                        log.info("📡 [{}] Calling Prophet forecast service at {} with {} cleaned data points for {} periods (yearly_seasonality={})",
+                                environment, forecastUrl, cleanedData.size(), periods, enableYearlySeasonality);
 
                         // ✅ CHANGED: Use forecastUrl variable
                         String forecastJson = restTemplate.postForObject(forecastUrl, entity, String.class);
@@ -258,7 +279,17 @@ public class ForecastingService {
      * Generate GCP cost forecast using the Prophet Flask service (same as AWS)
      */
     public CompletableFuture<List<ForecastDto>> getGcpCostForecast(String gcpProjectId, String serviceName, int periods) {
-        int historicalDays = Math.min(periods * 3, 180);
+        // ✅ IMPROVED: Adaptive lookback for better pattern detection (same as AWS)
+        int historicalDays;
+        if (periods <= 30) {
+            historicalDays = 180;  // 6 months for short-term
+        } else if (periods <= 60) {
+            historicalDays = 270;  // 9 months for medium-term
+        } else {
+            historicalDays = 365;  // 1 year for long-term
+        }
+        
+        log.info("📅 GCP: Using {} days of historical data for {}-day forecast", historicalDays, periods);
 
         return gcpCostService.getDailyCostsForForecast(gcpProjectId, serviceName, historicalDays)
                 .thenCompose(dailyCosts -> {
@@ -292,17 +323,20 @@ public class ForecastingService {
                         HttpHeaders headers = new HttpHeaders();
                         headers.setContentType(MediaType.APPLICATION_JSON);
 
+                        // ✅ IMPROVED: Enable yearly seasonality when we have enough data
+                        boolean enableYearlySeasonality = historicalDays >= 365;
+
                         Map<String, Object> requestBody = new HashMap<>();
                         requestBody.put("data", cleanedData);
                         requestBody.put("periods", periods);
                         requestBody.put("weekly_seasonality", true);
-                        requestBody.put("yearly_seasonality", false);
+                        requestBody.put("yearly_seasonality", enableYearlySeasonality);
 
                         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
                         String forecastUrl = forecastServiceUrl + "/forecast/cost";
 
-                        log.info("📡 Calling Prophet forecast service for GCP project {} with {} data points, {} periods",
-                                gcpProjectId, cleanedData.size(), periods);
+                        log.info("📡 Calling Prophet forecast service for GCP project {} with {} data points, {} periods (yearly_seasonality={})",
+                                gcpProjectId, cleanedData.size(), periods, enableYearlySeasonality);
 
                         String forecastJson = restTemplate.postForObject(forecastUrl, entity, String.class);
                         JsonNode responseNode = objectMapper.readTree(forecastJson);
@@ -329,5 +363,73 @@ public class ForecastingService {
                         return CompletableFuture.completedFuture(new ArrayList<ForecastDto>());
                     }
                 });
+    }
+
+    /**
+     * Generate a forecast from an explicit historical series (ds/y maps), synchronously.
+     *
+     * Unlike {@link #getCostForecast} this does NOT fetch history itself — the caller
+     * supplies it. This lets us replay a forecast "as of" a past date using stored cost
+     * snapshots, which is how accuracy backfill works. Uses the same cleaning + Prophet
+     * call as the live path so results are directly comparable.
+     *
+     * @param rawHistory list of {"ds": "yyyy-MM-dd", "y": Double}
+     * @param periods    days to forecast forward
+     * @return forecast points, or empty list if insufficient/failed
+     */
+    public List<ForecastDto> generateForecastFromHistory(List<Map<String, Object>> rawHistory, int periods) {
+        if (rawHistory == null || rawHistory.size() < 14) {
+            log.warn("generateForecastFromHistory: insufficient history ({} points)",
+                    rawHistory == null ? 0 : rawHistory.size());
+            return new ArrayList<>();
+        }
+
+        try {
+            List<Map<String, Object>> cleanedData = removeOutliers(rawHistory);
+
+            long nonZeroCount = cleanedData.stream()
+                    .filter(point -> ((Number) point.get("y")).doubleValue() > 0.01)
+                    .count();
+            if (nonZeroCount < cleanedData.size() * 0.2 && nonZeroCount >= 14) {
+                cleanedData = removeZeroDays(cleanedData);
+            }
+
+            // Span-based yearly seasonality, mirroring the live path's intent.
+            boolean enableYearlySeasonality = cleanedData.size() >= 350;
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("data", cleanedData);
+            requestBody.put("periods", periods);
+            requestBody.put("weekly_seasonality", true);
+            requestBody.put("yearly_seasonality", enableYearlySeasonality);
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+            String forecastUrl = forecastServiceUrl + "/forecast/cost";
+
+            log.info("📡 [backfill] Calling Prophet with {} points for {} periods (yearly={})",
+                    cleanedData.size(), periods, enableYearlySeasonality);
+
+            String forecastJson = restTemplate.postForObject(forecastUrl, entity, String.class);
+            JsonNode responseNode = objectMapper.readTree(forecastJson);
+
+            if (responseNode.has("status") && !"success".equals(responseNode.get("status").asText())) {
+                log.error("❌ [backfill] Prophet returned error status");
+                return new ArrayList<>();
+            }
+            JsonNode forecastArray = responseNode.get("forecast");
+            if (forecastArray == null || !forecastArray.isArray()) {
+                log.error("❌ [backfill] Invalid forecast response format");
+                return new ArrayList<>();
+            }
+            return objectMapper.readValue(forecastArray.toString(),
+                    new TypeReference<List<ForecastDto>>() {});
+
+        } catch (Exception e) {
+            log.error("❌ [backfill] Error generating forecast from history: {}", e.getMessage());
+            return new ArrayList<>();
+        }
     }
 }

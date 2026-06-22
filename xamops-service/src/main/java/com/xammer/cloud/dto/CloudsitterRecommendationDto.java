@@ -41,6 +41,9 @@ public class CloudsitterRecommendationDto {
     /**
      * Null when a full recommendation was computed.
      * "ASG_MANAGED"       — instance is in an Auto Scaling Group; stopping it causes immediate replacement.
+     * "K8S_NODE"          — instance is a Kubernetes node; critical infrastructure that should run 24/7.
+     * "PRODUCTION"        — instance is tagged as production environment; should not be scheduled.
+     * "ACTIVE_ALARM"      — instance has active CloudWatch alarms; indicates potential issues.
      * "INSUFFICIENT_DATA" — fewer than 50% of expected data points were available.
      */
     private String skipReason;

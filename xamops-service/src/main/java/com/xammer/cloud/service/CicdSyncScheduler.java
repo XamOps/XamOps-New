@@ -5,6 +5,7 @@ import com.xammer.cloud.domain.GitHubIntegrationConfig;
 import com.xammer.cloud.domain.JenkinsIntegrationConfig;
 import com.xammer.cloud.dto.cicd.GitHubWorkflowRunDto;
 import com.xammer.cloud.dto.cicd.JenkinsJobDto;
+import com.xammer.cloud.repository.CicdNotificationConfigRepository;
 import com.xammer.cloud.repository.CicdRunRecordRepository;
 import com.xammer.cloud.repository.GitHubIntegrationConfigRepository;
 import com.xammer.cloud.repository.JenkinsIntegrationConfigRepository;
@@ -30,19 +31,34 @@ public class CicdSyncScheduler {
     private final CicdStatusService cicdStatusService;
     private final JenkinsService jenkinsService;
     private final EncryptionService encryptionService;
+    private final FailureCategoryResolver failureCategoryResolver;
+    private final CicdNotificationService cicdNotificationService;
+    private final CicdNotificationConfigRepository notificationConfigRepo;
+    private final com.xammer.cloud.repository.UserRepository userRepository;
+    private final NotificationSentMarker notificationSentMarker;
 
     public CicdSyncScheduler(GitHubIntegrationConfigRepository githubConfigRepo,
                               JenkinsIntegrationConfigRepository jenkinsConfigRepo,
                               CicdRunRecordRepository runRecordRepo,
                               CicdStatusService cicdStatusService,
                               JenkinsService jenkinsService,
-                              EncryptionService encryptionService) {
+                              EncryptionService encryptionService,
+                              FailureCategoryResolver failureCategoryResolver,
+                              CicdNotificationService cicdNotificationService,
+                              CicdNotificationConfigRepository notificationConfigRepo,
+                              com.xammer.cloud.repository.UserRepository userRepository,
+                              NotificationSentMarker notificationSentMarker) {
         this.githubConfigRepo = githubConfigRepo;
         this.jenkinsConfigRepo = jenkinsConfigRepo;
         this.runRecordRepo = runRecordRepo;
         this.cicdStatusService = cicdStatusService;
         this.jenkinsService = jenkinsService;
         this.encryptionService = encryptionService;
+        this.failureCategoryResolver = failureCategoryResolver;
+        this.cicdNotificationService = cicdNotificationService;
+        this.notificationConfigRepo = notificationConfigRepo;
+        this.userRepository = userRepository;
+        this.notificationSentMarker = notificationSentMarker;
     }
 
     @Scheduled(fixedDelay = 900000) // 15 minutes
@@ -120,7 +136,21 @@ public class CicdSyncScheduler {
         }
         if (record.getStartedAt() == null) record.setStartedAt(Instant.now());
 
+        String previousStatus = existing.map(CicdRunRecord::getStatus).orElse(null);
+
+        if ("failure".equals(record.getStatus())) {
+            record.setFailureCategory(failureCategoryResolver.resolve(run.getName(), null));
+        } else {
+            record.setFailureCategory(null);
+        }
+
         runRecordRepo.save(record);
+
+        if ("failure".equals(record.getStatus())
+                && !"failure".equals(previousStatus)
+                && !record.isNotificationSent()) {
+            triggerNotification(record);
+        }
     }
 
     private String normalizeGitHubStatus(GitHubWorkflowRunDto run) {
@@ -178,7 +208,23 @@ public class CicdSyncScheduler {
             if (ts > 0) record.setStartedAt(Instant.ofEpochMilli(ts));
             else record.setStartedAt(Instant.now());
 
+            String previousStatus = existing.map(CicdRunRecord::getStatus).orElse(null);
+
+            if ("failure".equals(record.getStatus())) {
+                String jenkinsRaw = job.getDisplayStatus() != null ? job.getDisplayStatus().toUpperCase() : null;
+                record.setFailureCategory(failureCategoryResolver.resolve(job.getName(), jenkinsRaw));
+                record.setFailedStage(job.getName());
+            } else {
+                record.setFailureCategory(null);
+            }
+
             runRecordRepo.save(record);
+
+            if ("failure".equals(record.getStatus())
+                    && !"failure".equals(previousStatus)
+                    && !record.isNotificationSent()) {
+                triggerNotification(record);
+            }
         }
 
         config.setLastSyncedAt(Instant.now());
@@ -192,5 +238,19 @@ public class CicdSyncScheduler {
         if (lower.equals("failure") || lower.equals("failed")) return "failure";
         if (lower.equals("cancelled") || lower.equals("aborted")) return "cancelled";
         return "unknown";
+    }
+
+    private void triggerNotification(CicdRunRecord record) {
+        try {
+            notificationConfigRepo.findByUserId(record.getUserId()).ifPresent(config -> {
+                userRepository.findById(record.getUserId()).ifPresent(user -> {
+                    cicdNotificationService.notifyFailure(record, config, user.getEmail());
+                    notificationSentMarker.markSent(record);
+                });
+            });
+        } catch (Exception e) {
+            logger.error("Notification failed for run {}: {}", record.getRunId(), e.getMessage());
+            // Do NOT set notificationSent — will retry next sync
+        }
     }
 }

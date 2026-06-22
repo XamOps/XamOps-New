@@ -595,10 +595,7 @@ public class TicketService {
     }
 
     private List<String> getAdminEmailList() {
-        return getAdminUsers().stream()
-                .map(User::getEmail)
-                .filter(e -> e != null && !e.isBlank())
-                .collect(Collectors.toList());
+        return List.of("techtickets@xamops.com");
     }
 
     /**

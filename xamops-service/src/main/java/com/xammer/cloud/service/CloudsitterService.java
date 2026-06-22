@@ -216,7 +216,13 @@ public class CloudsitterService {
         try {
             int stoppedHoursPerMonth = calculateStoppedHoursPerMonth(policy);
             double savings = pricingService.calculateMonthlySavings(instanceType, region, stoppedHoursPerMonth);
-            return Math.round(savings * 100.0) / 100.0;
+            double roundedSavings = Math.round(savings * 100.0) / 100.0;
+            
+            logger.debug("CloudSitter Monthly Savings - Instance: {} in {}, Policy: '{}', " +
+                    "Stopped hrs/month: {}, Savings: ${}",
+                    instanceType, region, policy.getName(), stoppedHoursPerMonth, roundedSavings);
+            
+            return roundedSavings;
         } catch (Exception e) {
             logger.error("Failed to calculate savings for policy {}", policy.getId(), e);
             return 0.0;
@@ -237,7 +243,14 @@ public class CloudsitterService {
 
             int totalHoursPerWeek = 7 * 24;
             int stoppedHoursPerWeek = totalHoursPerWeek - totalRunningHoursPerWeek;
-            return (int) (stoppedHoursPerWeek * 4.33);
+            int stoppedHoursPerMonth = (int) (stoppedHoursPerWeek * 4.33);
+            
+            logger.debug("CloudSitter Savings Calculation - Policy '{}' (ID: {}): " +
+                    "Running={} hrs/week, Stopped={} hrs/week, Stopped/month={} hrs",
+                    policy.getName(), policy.getId(), 
+                    totalRunningHoursPerWeek, stoppedHoursPerWeek, stoppedHoursPerMonth);
+            
+            return stoppedHoursPerMonth;
         } catch (Exception e) {
             logger.error("Failed to parse schedule for policy {}", policy.getId(), e);
             return 0;
@@ -317,12 +330,12 @@ public class CloudsitterService {
     private static final String[] DAY_NAMES = {
         "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"
     };
-    private static final double CPU_IDLE_THRESHOLD = 12.0;
-    private static final double MEM_IDLE_THRESHOLD = 20.0;
-    private static final double NETWORK_IDLE_THRESHOLD = 100.0;  // packets/hour
+    private static final double CPU_IDLE_THRESHOLD = 5.0;  // Consider active if CPU >= 5% (was 12%)
+    private static final double MEM_IDLE_THRESHOLD = 10.0;  // Consider active if mem >= 10% (was 20%)
+    private static final double NETWORK_IDLE_THRESHOLD = 50.0;  // packets/hour (was 100)
     private static final double CPU_MAX_SPIKE_THRESHOLD = 60.0;  // any spike above this keeps hour running
     private static final double DISK_IDLE_THRESHOLD = 100.0;     // combined EBS read+write ops/hour
-    private static final int MIN_CONSECUTIVE_IDLE_HOURS = 3;
+    private static final int MIN_CONSECUTIVE_IDLE_HOURS = 6;  // Need 6+ consecutive idle hours to recommend stopping (was 3)
     private static final int MIN_DATA_POINTS_PER_DAY = 12;       // need ≥50% coverage for a reliable estimate
 
     public CloudsitterRecommendationDto getScheduleRecommendation(
@@ -332,7 +345,7 @@ public class CloudsitterService {
                 .stream().findFirst()
                 .orElseThrow(() -> new RuntimeException("Account not found: " + accountId));
 
-        // --- 1. EC2 pre-checks: ASG membership and EIP ---
+        // --- 1. EC2 pre-checks: ASG membership, K8s nodes, production instances, and EIP ---
         Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
         boolean hasEip = false;
         try {
@@ -343,12 +356,48 @@ public class CloudsitterService {
                     .findFirst();
             if (instanceOpt.isPresent()) {
                 Instance inst = instanceOpt.get();
+                
+                // Check if instance is in an Auto Scaling Group
                 boolean isAsg = inst.tags().stream()
                         .anyMatch(t -> "aws:autoscaling:groupName".equals(t.key()));
                 if (isAsg) {
                     logger.info("CloudSitter: Skipping recommendation for ASG-managed instance {}", instanceId);
                     return CloudsitterRecommendationDto.skipped("ASG_MANAGED");
                 }
+                
+                // Check if instance is a Kubernetes node (EKS, kops, kubeadm, etc.)
+                boolean isK8sNode = inst.tags().stream()
+                        .anyMatch(t -> {
+                            String key = t.key().toLowerCase();
+                            String value = t.value() != null ? t.value().toLowerCase() : "";
+                            return key.contains("kubernetes") 
+                                || key.startsWith("k8s.io/")
+                                || key.startsWith("kubernetes.io/")
+                                || key.equals("kubernetescluster")
+                                || key.equals("k8s-node")
+                                || value.contains("kubernetes")
+                                || value.contains("k8s-node")
+                                || value.contains("kube-node");
+                        });
+                if (isK8sNode) {
+                    logger.info("CloudSitter: Skipping recommendation for Kubernetes node {}", instanceId);
+                    return CloudsitterRecommendationDto.skipped("K8S_NODE");
+                }
+                
+                // Check if instance is tagged as production environment
+                boolean isProduction = inst.tags().stream()
+                        .anyMatch(t -> {
+                            String key = t.key().toLowerCase();
+                            String value = t.value() != null ? t.value().toLowerCase() : "";
+                            return (key.equals("environment") || key.equals("env") || key.equals("stage"))
+                                && (value.equals("production") || value.equals("prod") || value.equals("prd"));
+                        });
+                if (isProduction) {
+                    logger.info("CloudSitter: Skipping recommendation for production instance {}", instanceId);
+                    return CloudsitterRecommendationDto.skipped("PRODUCTION");
+                }
+                
+                // Check for Elastic IP
                 hasEip = inst.networkInterfaces().stream()
                         .anyMatch(ni -> ni.association() != null
                                 && ni.association().ipOwnerId() != null

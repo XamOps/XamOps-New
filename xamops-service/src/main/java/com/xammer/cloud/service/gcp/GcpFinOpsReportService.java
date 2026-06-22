@@ -393,7 +393,13 @@ public class GcpFinOpsReportService {
         String dbKey = DB_CACHE_KEY_PREFIX + gcpProjectId;
         redisCacheService.evict(cacheKey);
         cachedDataRepository.deleteById(dbKey);
-        logger.info("Forced refresh of FinOps report for project {} — evicted Redis + both DB snapshots", gcpProjectId);
+        // The report is assembled from per-section cost caches (billing summary, region,
+        // MTD spend, history, anomalies, ...). Evicting only the report-level cache would
+        // rebuild the report from those stale section caches, so clear them too. This is
+        // what makes a manual force-refresh actually re-query BigQuery against the current
+        // billing export table.
+        gcpCostService.evictAllCostCaches(gcpProjectId);
+        logger.info("Forced refresh of FinOps report for project {} — evicted report + section caches (Redis + DB)", gcpProjectId);
         return generateFinOpsReport(gcpProjectId);
     }
 

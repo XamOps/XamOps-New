@@ -9,6 +9,9 @@ public class JenkinsJobDto {
     private String url;
     private String color; // blue, red, yellow, blue_anime, etc.
 
+    private String failureCategory;
+    private String failedStage;
+
     @JsonProperty("lastBuild")
     private JenkinsBuild lastBuild;
 
@@ -53,6 +56,11 @@ public class JenkinsJobDto {
     public void setColor(String color) {
         this.color = color;
     }
+
+    public String getFailureCategory() { return failureCategory; }
+    public void setFailureCategory(String failureCategory) { this.failureCategory = failureCategory; }
+    public String getFailedStage() { return failedStage; }
+    public void setFailedStage(String failedStage) { this.failedStage = failedStage; }
 
     public JenkinsBuild getLastBuild() {
         return lastBuild;

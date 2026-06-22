@@ -50,6 +50,12 @@ public class CicdRunRecord {
 
     private String failedStage;
 
+    @Column(name = "failure_category", length = 30)
+    private String failureCategory;
+
+    @Column(name = "notification_sent", nullable = false)
+    private boolean notificationSent = false;
+
     @Column(columnDefinition = "TEXT")
     private String htmlUrl;
 
@@ -184,6 +190,12 @@ public class CicdRunRecord {
     public void setFailedStage(String failedStage) {
         this.failedStage = failedStage;
     }
+
+    public String getFailureCategory() { return failureCategory; }
+    public void setFailureCategory(String failureCategory) { this.failureCategory = failureCategory; }
+
+    public boolean isNotificationSent() { return notificationSent; }
+    public void setNotificationSent(boolean notificationSent) { this.notificationSent = notificationSent; }
 
     public String getHtmlUrl() {
         return htmlUrl;
