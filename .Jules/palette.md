@@ -1,0 +1,3 @@
+## 2026-06-22 - Accessible label-input association in shared components
+**Learning:** Shared UI components like `SuperAdminTopBar` often lack explicit association between `<label>` and form controls (`<select>`, `<input>`). Standard practice in this app is to use the `useId` hook to generate unique IDs and link them via `id` and `htmlFor` attributes to ensure screen reader accessibility. Additionally, icon-only buttons should consistently use the `TooltipWrapper` pattern with synchronized `aria-label` for better UX and accessibility.
+**Action:** Always check for missing `htmlFor` and `id` on form controls. Use `useId` for stable, unique IDs. Replace basic `title` attributes on icon-only buttons with `TooltipWrapper` and `aria-label`.
