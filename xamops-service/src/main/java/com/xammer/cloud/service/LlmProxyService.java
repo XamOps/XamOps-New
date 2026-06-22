@@ -241,7 +241,7 @@ public class LlmProxyService {
             long latency = System.currentTimeMillis() - startTime;
             logUsageAsync(config, subPath, body, null, 502, latency, true, ex.getMessage(), agentName);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body("{\"error\":\"Failed to reach " + providerForModel + ": " + ex.getMessage() + "\"}");
+                    .body("{\"error\":\"Failed to reach " + providerForModel + ". Check server logs for details.\"}");
         }
     }
 
@@ -314,7 +314,7 @@ public class LlmProxyService {
                 long latency = System.currentTimeMillis() - startTime;
                 logUsageAsync(config, subPath, body, null, 502, latency, true, ex.getMessage(), agentName);
                 return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                        .body("{\"error\":\"Failed to reach " + providerForModel + ": " + ex.getMessage() + "\"}");
+                        .body("{\"error\":\"Failed to reach " + providerForModel + ". Check server logs for details.\"}");
             }
         }
 
@@ -367,7 +367,7 @@ public class LlmProxyService {
             long latency = System.currentTimeMillis() - startTime;
             logUsageAsync(config, subPath, body, null, 502, latency, true, ex.getMessage(), agentName);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body("{\"error\":\"Failed to reach " + providerForModel + ": " + ex.getMessage() + "\"}");
+                    .body("{\"error\":\"Failed to reach " + providerForModel + ". Check server logs for details.\"}");
         }
     }
 
@@ -507,7 +507,7 @@ public class LlmProxyService {
                 long lat2 = System.currentTimeMillis() - startTime;
                 logUsageAsync(config, subPath, body, null, 502, lat2, true, ex.getMessage(), agentName);
                 return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                        .body("{\"error\":\"Failed to reach AI provider: " + ex.getMessage() + "\"}");
+                        .body("{\"error\":\"Failed to reach AI provider. Check server logs for details.\"}");
             }
         }
     }
