@@ -10,6 +10,7 @@ import { AdvancedMode, type AdvancedModeState } from '../components/mediaops/Adv
 import { useMediaOpsNotifications } from '../hooks/useMediaOpsNotifications';
 import { NotificationBell } from '../components/mediaops/NotificationBell';
 import { NotificationList } from '../components/mediaops/NotificationList';
+import { S3PickerModal } from '../components/mediaops/S3PickerModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -361,6 +362,8 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
   const [outputFmt, setOutputFmt] = useState('HLS');
   const [resolution, setResolution] = useState('1080p');
   const [bitrate, setBitrate] = useState('');
+  const [s3PickerOpen, setS3PickerOpen] = useState(false);
+  const [s3PickedFile, setS3PickedFile] = useState<import('../components/mediaops/S3PickerModal').S3PickedFile | null>(null);
   const [enableHLS, setEnableHLS] = useState(true);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -395,7 +398,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
   const canSubmit = sourceMode === 'url' ? !!sourceUrl.trim() : !!localFile;
 
   const formState: import('../components/mediaops/SimpleMode').SimpleModeFormState = {
-    sourceMode, sourceUrl, localFile, uploadProgress, outputFormat: outputFmt, resolution, bitrate, enableAdaptive: enableHLS,
+    sourceMode, sourceUrl, localFile, uploadProgress, outputFormat: outputFmt, resolution, bitrate, enableAdaptive: enableHLS, s3PickedFile,
   };
 
   const handleFormChange = useCallback((updates: Partial<import('../components/mediaops/SimpleMode').SimpleModeFormState>) => {
@@ -407,6 +410,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
     if (updates.resolution !== undefined) setResolution(updates.resolution);
     if (updates.bitrate !== undefined) setBitrate(updates.bitrate);
     if (updates.enableAdaptive !== undefined) setEnableHLS(updates.enableAdaptive);
+    if ('s3PickedFile' in updates) setS3PickedFile(updates.s3PickedFile ?? null);
   }, []);
 
   const submitJob = useCallback(async (advancedState?: AdvancedModeState) => {
@@ -470,6 +474,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
       setLocalFile(null);
       setBitrate('');
       setUploadProgress('idle');
+      setS3PickedFile(null);
     } catch (e: any) {
       setSubmitError(e.message || 'Failed to submit job');
       setUploadProgress('idle');
@@ -486,6 +491,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
     setBitrate('');
     setSourceMode('url');
     setUploadProgress('idle');
+    setS3PickedFile(null);
   }, []);
 
   const copyCmd = useCallback((job: TranscodeJob) => {
@@ -562,6 +568,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                 canSubmit={canSubmit}
                 submitLoading={submitLoading}
                 submitError={submitError}
+                onBrowseS3={() => setS3PickerOpen(true)}
               />
             ) : (
               <AdvancedMode
@@ -572,11 +579,24 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                 canSubmit={canSubmit}
                 submitLoading={submitLoading}
                 submitError={submitError}
+                onBrowseS3={() => setS3PickerOpen(true)}
               />
             )}
           </motion.div>
         )}
       </AnimatePresence>
+
+      {s3PickerOpen && (
+        <S3PickerModal
+          onClose={() => setS3PickerOpen(false)}
+          onSelect={(url, file) => {
+            setSourceUrl(url);
+            setSourceMode('url');
+            setS3PickedFile(file);
+            setS3PickerOpen(false);
+          }}
+        />
+      )}
 
       {/* Jobs Table */}
       <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-2xl shadow-sm overflow-hidden">

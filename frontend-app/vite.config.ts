@@ -238,6 +238,9 @@ export default defineConfig({
       '/api/sre': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // SRE Investigations
       '/api/llm-proxy': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // AI Gateway proxy
 
+      // S3 browser — proxied to xamops-service (uses connected account IAM role)
+      '/api/s3-browser': { target: 'http://localhost:8080', changeOrigin: true, secure: false },
+
       // MediaOps — all REST endpoints direct to service (gateway returns 404 with session cookies)
       '/api/media-ops': { target: 'http://localhost:8084', changeOrigin: true, secure: false },
 

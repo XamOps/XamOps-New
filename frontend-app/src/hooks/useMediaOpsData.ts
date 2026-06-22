@@ -96,6 +96,92 @@ export interface CreateStreamRequest {
   bitrate?: string;
 }
 
+// ── User S3 types ─────────────────────────────────────────────────────────────
+
+export interface UserS3ConfigDto {
+  id: number;
+  nickname: string;
+  bucketName: string;
+  region: string;
+  accessKeyHint: string | null;
+  prefixFilter: string | null;
+  createdAt: string;
+}
+
+export interface UserS3FileItem {
+  key: string;
+  name: string;
+  sizeBytes: number;
+  formattedSize: string;
+  lastModified: string;
+  extension: string;
+}
+
+// ── User S3 API functions ─────────────────────────────────────────────────────
+
+export async function fetchUserS3Configs(): Promise<UserS3ConfigDto[]> {
+  const res = await fetch('/api/media-ops/user-s3/configs', { credentials: 'include' });
+  if (!res.ok) throw new Error('Failed to load S3 connections');
+  return res.json();
+}
+
+export async function connectUserS3(req: {
+  nickname?: string;
+  bucketName: string;
+  region: string;
+  accessKey: string;
+  secretKey: string;
+  prefixFilter?: string;
+  endpointUrl?: string;
+}): Promise<UserS3ConfigDto> {
+  const res = await fetch('/api/media-ops/user-s3/configs', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || 'Failed to connect S3 bucket');
+  }
+  return res.json();
+}
+
+export async function deleteUserS3Config(id: number): Promise<void> {
+  const res = await fetch(`/api/media-ops/user-s3/configs/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!res.ok && res.status !== 404) throw new Error('Failed to disconnect S3 bucket');
+}
+
+export async function fetchUserS3Files(configId: number): Promise<UserS3FileItem[]> {
+  const res = await fetch(`/api/media-ops/user-s3/configs/${configId}/files`, {
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).message || 'Failed to list S3 files');
+  }
+  return res.json();
+}
+
+export async function presignUserS3Url(
+  configId: number,
+  s3Key: string,
+  expiryMinutes = 60
+): Promise<string> {
+  const res = await fetch(`/api/media-ops/user-s3/configs/${configId}/presign`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ s3Key, expiryMinutes }),
+  });
+  if (!res.ok) throw new Error('Failed to generate preview URL');
+  const data = await res.json();
+  return data.url;
+}
+
 // ── Format helpers ────────────────────────────────────────────────────────────
 
 export function formatBytes(bytes: number): string {

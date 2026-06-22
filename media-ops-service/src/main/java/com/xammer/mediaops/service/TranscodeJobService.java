@@ -57,7 +57,14 @@ public class TranscodeJobService {
         job.setEnableAdaptive(req.isEnableAdaptive());
 
         String url = req.getSourceUrl();
-        job.setName(url.contains("/") ? url.substring(url.lastIndexOf('/') + 1) : url);
+        String rawName = url.contains("/") ? url.substring(url.lastIndexOf('/') + 1) : url;
+        // Strip query params (presigned S3 URLs have ?X-Amz-... after the filename)
+        int qIdx = rawName.indexOf('?');
+        if (qIdx >= 0) rawName = rawName.substring(0, qIdx);
+        // URL-decode percent-encoded characters in the key
+        try { rawName = java.net.URLDecoder.decode(rawName, "UTF-8"); } catch (Exception ignored) {}
+        if (rawName.isBlank()) rawName = "job";
+        job.setName(rawName);
 
         try {
             job.setOutputFormat(TranscodeJob.OutputFormat.valueOf(req.getOutputFormat().toUpperCase()));

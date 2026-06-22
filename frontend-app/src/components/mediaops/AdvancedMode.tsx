@@ -51,6 +51,7 @@ interface AdvancedModeProps {
   canSubmit: boolean;
   submitLoading: boolean;
   submitError: string | null;
+  onBrowseS3?: () => void;
 }
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
@@ -73,7 +74,7 @@ const AUDIO_ONLY_FORMATS = ['MP3', 'AAC', 'FLAC', 'OGG'];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canSubmit, submitLoading, submitError }: AdvancedModeProps) {
+export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canSubmit, submitLoading, submitError, onBrowseS3 }: AdvancedModeProps) {
   // Advanced state managed locally
   const [advState, setAdvState] = useState<AdvancedModeState>({
     presetId: null,
@@ -186,6 +187,7 @@ export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canS
           submitLoading={submitLoading}
           submitError={null}
           hideActions
+          onBrowseS3={onBrowseS3}
         />
       </div>
 

@@ -1,4 +1,5 @@
 import { Icon } from '@iconify/react';
+import type { S3PickedFile } from './S3PickerModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,7 @@ export interface SimpleModeFormState {
   resolution: string;
   bitrate: string;
   enableAdaptive: boolean;
+  s3PickedFile?: S3PickedFile | null;
 }
 
 interface SimpleModeProps {
@@ -23,6 +25,8 @@ interface SimpleModeProps {
   submitError: string | null;
   /** When true, hides action buttons and error — used when embedded inside AdvancedMode */
   hideActions?: boolean;
+  /** When provided, shows a "Browse S3" button that calls this to open the S3 picker */
+  onBrowseS3?: () => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -49,8 +53,8 @@ function formatBytes(bytes: number): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function SimpleMode({ formState, onFormChange, onSubmit, onCancel, canSubmit, submitLoading, submitError, hideActions }: SimpleModeProps) {
-  const { sourceMode, sourceUrl, localFile, uploadProgress, outputFormat, resolution, bitrate, enableAdaptive } = formState;
+export function SimpleMode({ formState, onFormChange, onSubmit, onCancel, canSubmit, submitLoading, submitError, hideActions, onBrowseS3 }: SimpleModeProps) {
+  const { sourceMode, sourceUrl, localFile, uploadProgress, outputFormat, resolution, bitrate, enableAdaptive, s3PickedFile } = formState;
   const isAdaptiveFormat = outputFormat === 'HLS' || outputFormat === 'DASH';
 
   return (
@@ -60,19 +64,40 @@ export function SimpleMode({ formState, onFormChange, onSubmit, onCancel, canSub
         <div className="flex items-center justify-between mb-1.5">
           <label className="text-[11px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wide">Source</label>
           <div className="flex items-center gap-1 bg-[rgba(0,0,0,0.05)] rounded-lg p-0.5">
-            <button onClick={() => onFormChange({ sourceMode: 'url', localFile: null })}
-              className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${sourceMode === 'url' ? 'bg-white shadow text-[rgba(0,0,0,0.8)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
+            <button onClick={() => onFormChange({ sourceMode: 'url', localFile: null, s3PickedFile: null })}
+              className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${sourceMode === 'url' && !s3PickedFile ? 'bg-white shadow text-[rgba(0,0,0,0.8)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
               Enter URL
             </button>
-            <button onClick={() => onFormChange({ sourceMode: 'upload', sourceUrl: '' })}
+            <button onClick={() => onFormChange({ sourceMode: 'upload', sourceUrl: '', s3PickedFile: null })}
               className={`flex items-center gap-1 px-3 py-1 rounded-md text-[11px] font-bold transition-all ${sourceMode === 'upload' ? 'bg-white shadow text-[rgba(0,0,0,0.8)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
               <Icon icon="mdi:upload" className="text-sm" />
               Upload File
             </button>
+            {onBrowseS3 && (
+              <button onClick={onBrowseS3}
+                className={`flex items-center gap-1 px-3 py-1 rounded-md text-[11px] font-bold transition-all ${s3PickedFile ? 'bg-white shadow text-[rgba(0,0,0,0.8)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
+                <Icon icon="mdi:bucket-outline" className="text-sm" />
+                Browse S3
+              </button>
+            )}
           </div>
         </div>
 
-        {sourceMode === 'url' ? (
+        {s3PickedFile ? (
+          <div className="flex items-center gap-3 px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl bg-[rgba(0,0,0,0.02)]">
+            <div className="w-8 h-8 bg-[rgba(0,0,0,0.05)] rounded-lg flex items-center justify-center flex-shrink-0">
+              <Icon icon="mdi:file-video-outline" className="text-[rgba(0,0,0,0.4)] text-base" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] truncate">{s3PickedFile.name}</p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)]">{s3PickedFile.formattedSize} · {s3PickedFile.bucket}</p>
+            </div>
+            <button onClick={() => onFormChange({ sourceUrl: '', s3PickedFile: null })}
+              className="p-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.06)] transition-colors flex-shrink-0" title="Clear">
+              <Icon icon="mdi:close" className="text-sm text-[rgba(0,0,0,0.4)]" />
+            </button>
+          </div>
+        ) : sourceMode === 'url' ? (
           <input value={sourceUrl} onChange={e => onFormChange({ sourceUrl: e.target.value })}
             placeholder="s3://bucket/video.mp4 or https://cdn.example.com/input.mov"
             className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-pink-400 focus:border-pink-400 outline-none placeholder-[rgba(0,0,0,0.3)]" />
