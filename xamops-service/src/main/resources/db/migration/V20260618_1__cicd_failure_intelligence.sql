@@ -18,7 +18,7 @@ ALTER TABLE cicd_run_record
 
 CREATE TABLE IF NOT EXISTS cicd_notification_config (
     id                BIGSERIAL PRIMARY KEY,
-    user_id           BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    user_id           BIGINT NOT NULL UNIQUE REFERENCES app_user(id) ON DELETE CASCADE,
     email_enabled     BOOLEAN NOT NULL DEFAULT TRUE,
     slack_webhook_url VARCHAR(500),
     created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -37,7 +37,7 @@ ON cicd_notification_config(user_id);
 -- =============================================
 
 COMMENT ON TABLE cicd_notification_config IS 'User notification preferences for CI/CD pipeline failures (email and Slack)';
-COMMENT ON COLUMN cicd_notification_config.user_id IS 'Foreign key to users table; one config per user';
+COMMENT ON COLUMN cicd_notification_config.user_id IS 'Foreign key to app_user table; one config per user';
 COMMENT ON COLUMN cicd_notification_config.email_enabled IS 'Whether email notifications are enabled for this user';
 COMMENT ON COLUMN cicd_notification_config.slack_webhook_url IS 'Slack webhook URL for pipeline failure notifications (optional)';
 COMMENT ON COLUMN cicd_run_record.failure_category IS 'Category of failure (TEST_FAILURE, BUILD_ERROR, DEPLOY_FAILURE, INFRA_ERROR, UNKNOWN)';
