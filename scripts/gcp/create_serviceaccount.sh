@@ -189,13 +189,17 @@ echo "[3/4] Granting comprehensive read-only access..."
 # Core roles that provide 90%+ coverage
 CORE_ROLES=(
     "roles/viewer"                          # Read access to ALL resources
-    "roles/billing.viewer"                  # Billing data access
     "roles/recommender.viewer"              # Optimization recommendations
     "roles/securitycenter.adminViewer"      # Security findings
     "roles/iam.securityReviewer"            # IAM policy review
     "roles/monitoring.viewer"               # Metrics & monitoring
     "roles/logging.viewer"                  # Log viewing
     "roles/cloudasset.viewer"               # Asset inventory
+)
+
+# Optional roles — failures here are non-fatal (require billing account admin)
+OPTIONAL_ROLES=(
+    "roles/billing.viewer"                  # Billing data access
 )
 
 # Enhanced service-specific roles for better data access
@@ -224,6 +228,7 @@ SERVICE_ROLES=(
 
 ALL_ROLES=("${CORE_ROLES[@]}" "${SERVICE_ROLES[@]}")
 FAILED_ROLES=()
+FAILED_OPTIONAL_ROLES=()
 
 echo "  Binding ${#ALL_ROLES[@]} IAM roles to $SERVICE_ACCOUNT_EMAIL..."
 for role in "${ALL_ROLES[@]}"; do
@@ -255,7 +260,39 @@ if [ ${#FAILED_ROLES[@]} -gt 0 ]; then
     exit 1
 fi
 
-echo "✓ Permissions granted successfully (${#ALL_ROLES[@]}/${#ALL_ROLES[@]} roles)"
+echo "  Binding ${#OPTIONAL_ROLES[@]} optional IAM roles (billing) to $SERVICE_ACCOUNT_EMAIL..."
+for role in "${OPTIONAL_ROLES[@]}"; do
+    if gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+        --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+        --role="$role" \
+        --quiet > /dev/null 2>&1; then
+        :
+    else
+        FAILED_OPTIONAL_ROLES+=("$role")
+    fi
+done
+
+if [ ${#FAILED_OPTIONAL_ROLES[@]} -gt 0 ]; then
+    echo ""
+    echo "⚠️  WARNING: Failed to grant ${#FAILED_OPTIONAL_ROLES[@]} optional role(s) — billing data will be limited:"
+    for role in "${FAILED_OPTIONAL_ROLES[@]}"; do
+        echo "   - $role"
+    done
+    echo ""
+    echo "  roles/billing.viewer requires billing account admin access."
+    echo "  To enable full billing data in XamOps, a billing account admin can run:"
+    echo ""
+    echo "    BILLING_ACCOUNT=\$(gcloud billing projects describe $PROJECT_ID --format='value(billingAccountName)' | sed 's|billingAccounts/||')"
+    echo "    gcloud billing accounts add-iam-policy-binding \"\$BILLING_ACCOUNT\" \\"
+    echo "      --member=\"serviceAccount:$SERVICE_ACCOUNT_EMAIL\" \\"
+    echo "      --role=\"roles/billing.viewer\""
+    echo ""
+    echo "  Continuing without billing.viewer — all other permissions were granted."
+    echo ""
+fi
+
+GRANTED=$((${#ALL_ROLES[@]} - ${#FAILED_ROLES[@]}))
+echo "✓ Permissions granted successfully ($GRANTED/${#ALL_ROLES[@]} required roles)"
 echo ""
 
 # Step 4: Create Service Account Key

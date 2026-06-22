@@ -260,7 +260,7 @@ public class GcpDataService {
                     return new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList());
                 });
 
-        CompletableFuture<Double> unfilteredMtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
+        CompletableFuture<Double> unfilteredMtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId, forceRefresh)
                 .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
                     log.warn("⚠️ GCP MTD spend timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
@@ -1854,7 +1854,7 @@ public class GcpDataService {
         }
 
         log.info("🔍 [GCP-KPI] Live fetch for: {}", gcpProjectId);
-        CompletableFuture<Double> mtdFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
+        CompletableFuture<Double> mtdFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId, forceRefresh)
                 .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> 0.0);
         CompletableFuture<List<GcpCostDto>> histFuture = gcpCostService.getHistoricalCosts(gcpProjectId)
                 .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());
@@ -1958,7 +1958,7 @@ public class GcpDataService {
         }
 
         log.info("🔍 [GCP-Cost] Live fetch for: {}", gcpProjectId);
-        CompletableFuture<Double> mtdFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId)
+        CompletableFuture<Double> mtdFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId, forceRefresh)
                 .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> 0.0);
         CompletableFuture<List<GcpCostDto>> histFuture = gcpCostService.getHistoricalCosts(gcpProjectId)
                 .orTimeout(55, TimeUnit.SECONDS).exceptionally(ex -> Collections.emptyList());

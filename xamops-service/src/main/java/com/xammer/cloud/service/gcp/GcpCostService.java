@@ -261,31 +261,45 @@ public class GcpCostService {
     // ===== UNFILTERED MTD SPEND =====
 
     public CompletableFuture<Double> getUnfilteredMonthToDateSpend(String gcpProjectId) {
-        return CompletableFuture.supplyAsync(() -> getUnfilteredMonthToDateSpendSync(gcpProjectId), executor);
+        return getUnfilteredMonthToDateSpend(gcpProjectId, false);
+    }
+
+    public CompletableFuture<Double> getUnfilteredMonthToDateSpend(String gcpProjectId, boolean forceRefresh) {
+        return CompletableFuture.supplyAsync(() -> getUnfilteredMonthToDateSpendSync(gcpProjectId, forceRefresh), executor);
     }
 
     public Double getUnfilteredMonthToDateSpendSync(String gcpProjectId) {
+        return getUnfilteredMonthToDateSpendSync(gcpProjectId, false);
+    }
+
+    public Double getUnfilteredMonthToDateSpendSync(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = UNFILTERED_MTD_SPEND_CACHE_PREFIX + gcpProjectId;
 
-        Optional<Double> cached = redisCacheService.get(cacheKey, Double.class);
-        if (cached.isPresent()) {
-            log.info("✅ Returning Redis-cached MTD spend for project {}", gcpProjectId);
-            return cached.get();
-        }
-
-        // DB fallback — re-warms Redis, avoids BigQuery on cold starts
-        try {
-            Optional<CachedData> dbSnap = cachedDataRepository.findById(cacheKey);
-            if (dbSnap.isPresent()) {
-                Double dbVal = objectMapper.readValue(dbSnap.get().getJsonData(), Double.class);
-                if (dbVal != null) {
-                    log.info("✅ Returning DB-cached MTD spend for project {} — re-warming Redis", gcpProjectId);
-                    redisCacheService.put(cacheKey, dbVal, 60);
-                    return dbVal;
-                }
+        if (forceRefresh) {
+            redisCacheService.evict(cacheKey);
+            cachedDataRepository.deleteById(cacheKey);
+            log.info("🔄 Force refresh: evicted MTD spend cache for project {}", gcpProjectId);
+        } else {
+            Optional<Double> cached = redisCacheService.get(cacheKey, Double.class);
+            if (cached.isPresent()) {
+                log.info("✅ Returning Redis-cached MTD spend for project {}", gcpProjectId);
+                return cached.get();
             }
-        } catch (Exception e) {
-            log.warn("DB snapshot load failed for MTD spend {}: {}", gcpProjectId, e.getMessage());
+
+            // DB fallback — re-warms Redis, avoids BigQuery on cold starts
+            try {
+                Optional<CachedData> dbSnap = cachedDataRepository.findById(cacheKey);
+                if (dbSnap.isPresent()) {
+                    Double dbVal = objectMapper.readValue(dbSnap.get().getJsonData(), Double.class);
+                    if (dbVal != null) {
+                        log.info("✅ Returning DB-cached MTD spend for project {} — re-warming Redis", gcpProjectId);
+                        redisCacheService.put(cacheKey, dbVal, 60);
+                        return dbVal;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for MTD spend {}: {}", gcpProjectId, e.getMessage());
+            }
         }
 
         log.info("🔍 Fetching MTD spend for project {}", gcpProjectId);
