@@ -317,7 +317,16 @@ export const FinOpsPage: React.FC = () => {
             {sectionLoading.charts ? (
               <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-64 w-full rounded-xl" />
             ) : reportData && (
-              <FinOpsCharts costBreakdown={reportData.costBreakdown} />
+              <FinOpsCharts
+                costBreakdown={reportData.costBreakdown}
+                costAnomalies={reportData.costAnomalies}
+                selectedAccountId={selectedAccountId}
+                dateFilter={dateFilter}
+                onTimePresetChange={(startDate, endDate) => {
+                  setDateFilter({ startDate, endDate });
+                  loadReport(false);
+                }}
+              />
             )}
           </RevealSection>
 

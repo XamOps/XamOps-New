@@ -136,7 +136,7 @@ const AzureFinOpsPage: React.FC = () => {
             <AzureFinOpsSavingsCallout reportData={reportData} />
           </RevealSection>
           <RevealSection delay={0.05}>
-            <AzureFinOpsCostCharts reportData={reportData} isLoading={isLoading} />
+            <AzureFinOpsCostCharts reportData={reportData} isLoading={isLoading} selectedAccountId={subscriptionId} />
           </RevealSection>
           <RevealSection delay={0.05}>
             <AzureFinOpsInsightsSection reportData={reportData} isLoading={isLoading} />

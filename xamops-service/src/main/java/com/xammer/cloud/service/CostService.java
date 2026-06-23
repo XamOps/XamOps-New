@@ -92,12 +92,26 @@ public class CostService {
          * regardless of a future end date, so using end-of-month is safe.
          */
         private String normalizeEndDate(String endDate) {
+                return normalizeEndDate(null, endDate);
+        }
+
+        /**
+         * Normalises endDate to end-of-month for cache-key stability, but ONLY when the
+         * query is a default MTD or full-month view (startDate null or 1st of month).
+         * Mid-month startDates (comparison periods like Jun 8–15) must NOT be stretched to
+         * end-of-month, otherwise the cache returns 3+ weeks of data instead of 7 days.
+         */
+        private String normalizeEndDate(String startDate, String endDate) {
                 if (endDate == null) return null;
                 try {
                         LocalDate end = LocalDate.parse(endDate);
                         YearMonth endYm = YearMonth.from(end);
                         if (endYm.equals(YearMonth.now())) {
-                                return endYm.atEndOfMonth().toString();
+                                boolean isMtdOrFullMonth = startDate == null
+                                        || LocalDate.parse(startDate).getDayOfMonth() == 1;
+                                if (isMtdOrFullMonth) {
+                                        return endYm.atEndOfMonth().toString();
+                                }
                         }
                 } catch (Exception ignored) {}
                 return endDate;
@@ -448,7 +462,8 @@ public class CostService {
 
                 // Stable cache key: use end-of-month for current-month queries so the key
                 // doesn't change daily between nightly scheduler runs.
-                String normalizedEnd = normalizeEndDate(endDate);
+                // Pass startDate so mid-month comparison ranges (e.g. Jun 8–15) are not stretched.
+                String normalizedEnd = normalizeEndDate(startDate, endDate);
                 String cacheKey = "costBreakdown-" + accountId + "-" + groupBy + "-" + (tag != null ? tag : "") + "-"
                                 + startDate + "-" + normalizedEnd;
                 String dbKey = "AWS_COST_BREAKDOWN::" + accountId + "::" + groupBy + "::" + (tag != null ? tag : "")

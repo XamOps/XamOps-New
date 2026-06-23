@@ -322,7 +322,16 @@ export const GcpFinOpsPage: React.FC = () => {
           )}
 
           <RevealSection delay={0.05}>
-            <GcpFinOpsCharts costBreakdown={reportData.costBreakdown} />
+            <GcpFinOpsCharts
+              costBreakdown={reportData.costBreakdown}
+              costAnomalies={reportData.costAnomalies}
+              selectedAccountId={selectedAccountId}
+              dateFilter={dateFilter}
+              onTimePresetChange={(startDate, endDate) => {
+                setDateFilter({ startDate, endDate });
+                loadReport(false);
+              }}
+            />
           </RevealSection>
 
           {(reportData.rightsizingRecommendations.length > 0 ||

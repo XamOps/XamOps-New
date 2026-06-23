@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -55,6 +56,9 @@ public class AzureFinOpsService {
 
     @Autowired
     private CostService costService;
+
+    @Autowired
+    private AzureCostQueryService costQueryService;
 
     /**
      * Generates the main FinOps report for an Azure subscription
@@ -313,6 +317,36 @@ public class AzureFinOpsService {
 
         scheduleRepository.delete(schedule);
         logger.info("Deleted FinOps schedule {} for user {}", scheduleId, user.getUsername());
+    }
+
+    // --- Cost Explorer date-range endpoints (used by Compare feature) ---
+
+    public List<Map<String, Object>> getBillingSummaryForDateRange(String subscriptionId, String startDate, String endDate) {
+        CloudAccount account = findAccountBySubscriptionId(subscriptionId);
+        AzureCostQueryService.AzureCostData data = costQueryService.fetchCostBreakdownForDateRange(account, startDate, endDate);
+        return data.costByService.entrySet().stream()
+                .map(e -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("serviceName", e.getKey());
+                    m.put("monthToDateCost", e.getValue());
+                    return m;
+                })
+                .sorted((a, b) -> Double.compare((Double) b.get("monthToDateCost"), (Double) a.get("monthToDateCost")))
+                .collect(Collectors.toList());
+    }
+
+    public List<Map<String, Object>> getCostByRegionForDateRange(String subscriptionId, String startDate, String endDate) {
+        CloudAccount account = findAccountBySubscriptionId(subscriptionId);
+        AzureCostQueryService.AzureCostData data = costQueryService.fetchCostBreakdownForDateRange(account, startDate, endDate);
+        return data.costByRegion.entrySet().stream()
+                .map(e -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("region", e.getKey());
+                    m.put("cost", e.getValue());
+                    return m;
+                })
+                .sorted((a, b) -> Double.compare((Double) b.get("cost"), (Double) a.get("cost")))
+                .collect(Collectors.toList());
     }
 
     // --- Helper Methods ---

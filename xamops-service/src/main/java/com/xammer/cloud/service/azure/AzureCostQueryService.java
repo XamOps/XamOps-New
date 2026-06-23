@@ -333,4 +333,78 @@ public class AzureCostQueryService {
             return data;
         }
     }
+
+    /**
+     * Fetches cost breakdown (by service and region) for an explicit date range.
+     * Used by the Cost Explorer comparison feature.
+     */
+    public AzureCostData fetchCostBreakdownForDateRange(CloudAccount account, String startDate, String endDate) {
+        AzureCostData data = new AzureCostData();
+        String subscriptionId = account.getAzureSubscriptionId();
+        try {
+            TokenCredential credential = clientProvider.getCredential(account);
+            TokenRequestContext tokenCtx = new TokenRequestContext()
+                    .addScopes("https://management.azure.com/.default");
+            String bearerToken = credential.getToken(tokenCtx).block().getToken();
+
+            String body = String.format(
+                    "{\"type\":\"ActualCost\",\"timeframe\":\"Custom\"," +
+                    "\"timePeriod\":{\"from\":\"%sT00:00:00Z\",\"to\":\"%sT00:00:00Z\"}," +
+                    "\"dataset\":{\"granularity\":\"Daily\"," +
+                    "\"aggregation\":{\"TotalCost\":{\"name\":\"Cost\",\"function\":\"Sum\"}}," +
+                    "\"grouping\":[" +
+                    "{\"type\":\"Dimension\",\"name\":\"MeterCategory\"}," +
+                    "{\"type\":\"Dimension\",\"name\":\"ResourceLocation\"}" +
+                    "]}}",
+                    startDate, endDate);
+
+            String uri = "https://management.azure.com/subscriptions/" + subscriptionId
+                    + "/providers/Microsoft.CostManagement/query?api-version=2023-03-01";
+
+            java.net.http.HttpClient httpClient = java.net.http.HttpClient.newHttpClient();
+            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(uri))
+                    .header("Authorization", "Bearer " + bearerToken)
+                    .header("Content-Type", "application/json")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            java.net.http.HttpResponse<String> response = httpClient.send(
+                    request, java.net.http.HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                log.error("Cost Management date-range API error for {}: {}", subscriptionId, response.body());
+                return data;
+            }
+
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(response.body());
+            JsonNode columns = root.path("properties").path("columns");
+            JsonNode rows = root.path("properties").path("rows");
+
+            int costIdx = 0, productIdx = 2, locationIdx = 3;
+            if (columns.isArray() && columns.size() > 0) {
+                costIdx = -1; productIdx = -1; locationIdx = -1;
+                for (int i = 0; i < columns.size(); i++) {
+                    String name = columns.get(i).path("name").asText();
+                    if (name.equalsIgnoreCase("Cost") || name.equalsIgnoreCase("TotalCost")) costIdx = i;
+                    else if (name.equalsIgnoreCase("MeterCategory") || name.equalsIgnoreCase("ProductName")
+                            || name.equalsIgnoreCase("ServiceName")) productIdx = i;
+                    else if (name.equalsIgnoreCase("ResourceLocation") || name.equalsIgnoreCase("Location")) locationIdx = i;
+                }
+            }
+
+            for (JsonNode row : rows) {
+                if (!row.isArray() || costIdx == -1 || row.size() <= costIdx) continue;
+                double cost = row.get(costIdx).asDouble();
+                String service = (productIdx != -1 && row.size() > productIdx) ? row.get(productIdx).asText() : "Unknown";
+                String region  = (locationIdx != -1 && row.size() > locationIdx) ? row.get(locationIdx).asText() : "Unknown";
+                data.costByService.merge(service, cost, (a, b) -> a + b);
+                data.costByRegion.merge(region, cost, (a, b) -> a + b);
+            }
+
+        } catch (Exception e) {
+            log.error("Cost Management date-range fetch error for {}: {}", subscriptionId, e.getMessage());
+        }
+        return data;
+    }
 }

@@ -754,7 +754,9 @@ public class FinOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<Map<String, Object>>> getCostByRegion(CloudAccount account, boolean forceRefresh,
             String startDate, String endDate) {
-        String normalizedEndRegion = (endDate != null && isCurrentMonth(endDate))
+        boolean isMtdOrFullMonthQuery = startDate == null
+                || LocalDate.parse(startDate).getDayOfMonth() == 1;
+        String normalizedEndRegion = (endDate != null && isCurrentMonth(endDate) && isMtdOrFullMonthQuery)
                 ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
                 : endDate;
         String cacheKey = "costByRegion-" + account.getAwsAccountId();
@@ -885,9 +887,13 @@ public class FinOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.BillingSummary>> getBillingSummary(CloudAccount account,
             boolean forceRefresh, String startDate, String endDate) {
-        // Normalise current-month end date to end-of-month so the getCostBreakdown
-        // cache key is the same every day of the month (matches the nightly scheduler key).
-        String normalizedEnd = (endDate != null && isCurrentMonth(endDate))
+        // Normalise current-month end date to end-of-month for cache-key stability, but ONLY
+        // for the default MTD view (startDate null) or a standard month-start query (startDate = 1st).
+        // Comparison queries pass a mid-month startDate (e.g. Jun 8) and must NOT be stretched
+        // to end-of-month, otherwise they silently return 3+ weeks of data instead of 7 days.
+        boolean isMtdOrFullMonthQuery = startDate == null
+                || LocalDate.parse(startDate).getDayOfMonth() == 1;
+        String normalizedEnd = (endDate != null && isCurrentMonth(endDate) && isMtdOrFullMonthQuery)
                 ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
                 : endDate;
 
@@ -932,7 +938,9 @@ public class FinOpsService {
     @Async("awsTaskExecutor")
     public CompletableFuture<DashboardData.CostHistory> getCostHistory(CloudAccount account, boolean forceRefresh,
             String startDate, String endDate) {
-        String normalizedEndHistory = (endDate != null && isCurrentMonth(endDate))
+        boolean isMtdOrFullMonthQuery = startDate == null
+                || LocalDate.parse(startDate).getDayOfMonth() == 1;
+        String normalizedEndHistory = (endDate != null && isCurrentMonth(endDate) && isMtdOrFullMonthQuery)
                 ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
                 : endDate;
         String cacheKey = "costHistory-" + account.getAwsAccountId();

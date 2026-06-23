@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/azure")
@@ -34,6 +35,30 @@ public class AzureFinOpsController {
     public ResponseEntity<AzureFinOpsReportDto> getFinOpsReport(@RequestParam String subscriptionId) {
         AzureFinOpsReportDto report = azureFinOpsService.getFinOpsReport(subscriptionId);
         return ResponseEntity.ok(report);
+    }
+
+    /**
+     * GET /api/azure/finops/billing-summary
+     * Returns per-service cost breakdown for a given date range (used by Cost Explorer compare).
+     */
+    @GetMapping("/finops/billing-summary")
+    public ResponseEntity<List<Map<String, Object>>> getAzureBillingSummary(
+            @RequestParam String subscriptionId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return ResponseEntity.ok(azureFinOpsService.getBillingSummaryForDateRange(subscriptionId, startDate, endDate));
+    }
+
+    /**
+     * GET /api/azure/finops/cost-by-region
+     * Returns per-region cost breakdown for a given date range (used by Cost Explorer compare).
+     */
+    @GetMapping("/finops/cost-by-region")
+    public ResponseEntity<List<Map<String, Object>>> getAzureCostByRegion(
+            @RequestParam String subscriptionId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return ResponseEntity.ok(azureFinOpsService.getCostByRegionForDateRange(subscriptionId, startDate, endDate));
     }
 
     /**
