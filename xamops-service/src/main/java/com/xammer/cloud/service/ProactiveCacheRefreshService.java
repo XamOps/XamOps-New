@@ -1114,6 +1114,9 @@ public class ProactiveCacheRefreshService {
                         List<com.xammer.cloud.dto.gcp.GcpSecurityFinding> findings =
                                 gcpSecurityService.refreshSecurityFindings(gcpProjectId).join();
                         logger.info("✓ GCP Security refreshed for project {} — {} findings", gcpProjectId, findings.size());
+
+                        gcpSecurityService.getIamPolicyDrift(gcpProjectId, true).join();
+                        gcpSecurityService.getContainerScanningResults(gcpProjectId, true).join();
                         count++;
                     } catch (Exception e) {
                         logger.error("Failed GCP Security refresh for {}: {}", gcpProjectId, e.getMessage());

@@ -74,12 +74,13 @@ public class GcpSecurityController {
 
     @GetMapping("/iam-drift")
     public CompletableFuture<ResponseEntity<?>> getIamPolicyDrift(
-            @RequestParam String accountId) {
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
-        log.info("[GcpSecurity] /iam-drift START — project={}", accountId);
+        log.info("[GcpSecurity] /iam-drift START — project={} forceRefresh={}", accountId, forceRefresh);
 
         return CompletableFuture
-                .supplyAsync(() -> gcpSecurityService.getIamPolicyDrift(accountId).join(),
+                .supplyAsync(() -> gcpSecurityService.getIamPolicyDrift(accountId, forceRefresh).join(),
                         backgroundTaskExecutor)
                 .orTimeout(30, TimeUnit.SECONDS)
                 .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
@@ -94,12 +95,13 @@ public class GcpSecurityController {
 
     @GetMapping("/container-vulnerabilities")
     public CompletableFuture<ResponseEntity<?>> getContainerVulnerabilities(
-            @RequestParam String accountId) {
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
 
-        log.info("[GcpSecurity] /container-vulnerabilities START — project={}", accountId);
+        log.info("[GcpSecurity] /container-vulnerabilities START — project={} forceRefresh={}", accountId, forceRefresh);
 
         return CompletableFuture
-                .supplyAsync(() -> gcpSecurityService.getContainerScanningResults(accountId).join(),
+                .supplyAsync(() -> gcpSecurityService.getContainerScanningResults(accountId, forceRefresh).join(),
                         backgroundTaskExecutor)
                 .orTimeout(30, TimeUnit.SECONDS)
                 .<ResponseEntity<?>>thenApply(ResponseEntity::ok)

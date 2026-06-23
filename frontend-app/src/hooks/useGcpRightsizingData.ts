@@ -123,7 +123,7 @@ export const useGcpRightsizingData = ({
       console.log(`[GCP Rightsizing] Fetching recommendations for account: ${selectedAccountId}, forceRefresh: ${forceRefresh}`);
 
       const response = await fetch(
-        `/api/xamops/gcp/rightsizing/recommendations?accountId=${selectedAccountId}`
+        `/api/xamops/gcp/rightsizing/recommendations?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`
       );
 
       if (!response.ok) {

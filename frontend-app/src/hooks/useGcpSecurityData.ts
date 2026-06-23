@@ -81,10 +81,10 @@ export const useGcpSecurityData = ({
 
       try {
         const [findingsData, iamDriftData, vulnerabilitiesData] = await Promise.all([
-          apiClient.get<GcpSecurityFinding[]>(`/api/xamops/gcp/security/findings?accountId=${selectedAccountId}`),
-          apiClient.get<GcpIamDrift[]>(`/api/xamops/gcp/security/iam-drift?accountId=${selectedAccountId}`),
+          apiClient.get<GcpSecurityFinding[]>(`/api/xamops/gcp/security/findings?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`),
+          apiClient.get<GcpIamDrift[]>(`/api/xamops/gcp/security/iam-drift?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`),
           apiClient.get<GcpContainerVulnerability[]>(
-            `/api/xamops/gcp/security/container-vulnerabilities?accountId=${selectedAccountId}`
+            `/api/xamops/gcp/security/container-vulnerabilities?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`
           ),
         ]);
 

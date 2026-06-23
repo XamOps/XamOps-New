@@ -146,9 +146,16 @@ public class GcpSecurityService {
     // -------------------------------------------------------------------------
 
     public CompletableFuture<List<GcpIamPolicyDriftDto>> getIamPolicyDrift(String gcpProjectId) {
+        return getIamPolicyDrift(gcpProjectId, false);
+    }
+
+    public CompletableFuture<List<GcpIamPolicyDriftDto>> getIamPolicyDrift(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = REDIS_IAM_DRIFT_PREFIX + gcpProjectId;
         return CompletableFuture.supplyAsync(() -> {
             try {
+                if (forceRefresh) {
+                    redisCacheService.evict(cacheKey);
+                }
                 Optional<List<GcpIamPolicyDriftDto>> cached = redisCacheService.get(
                         cacheKey, new TypeReference<>() {});
                 if (cached.isPresent()) return cached.get();
@@ -168,9 +175,16 @@ public class GcpSecurityService {
     // -------------------------------------------------------------------------
 
     public CompletableFuture<List<GcpContainerVulnerabilityDto>> getContainerScanningResults(String gcpProjectId) {
+        return getContainerScanningResults(gcpProjectId, false);
+    }
+
+    public CompletableFuture<List<GcpContainerVulnerabilityDto>> getContainerScanningResults(String gcpProjectId, boolean forceRefresh) {
         String cacheKey = REDIS_CONTAINER_PREFIX + gcpProjectId;
         return CompletableFuture.supplyAsync(() -> {
             try {
+                if (forceRefresh) {
+                    redisCacheService.evict(cacheKey);
+                }
                 Optional<List<GcpContainerVulnerabilityDto>> cached = redisCacheService.get(
                         cacheKey, new TypeReference<>() {});
                 if (cached.isPresent()) return cached.get();

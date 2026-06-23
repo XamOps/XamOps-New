@@ -34,9 +34,10 @@ public class GcpOptimizationController {
 
     @GetMapping("/rightsizing-recommendations")
     public CompletableFuture<ResponseEntity<List<GcpOptimizationRecommendation>>> getRightsizingRecommendations(
-            @RequestParam String accountId) {
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
         return CompletableFuture
-                .supplyAsync(() -> gcpOptimizationService.getRightsizingRecommendations(accountId),
+                .supplyAsync(() -> gcpOptimizationService.getRightsizingRecommendations(accountId, forceRefresh),
                         backgroundTaskExecutor)
                 .orTimeout(55, TimeUnit.SECONDS)
                 .<ResponseEntity<List<GcpOptimizationRecommendation>>>thenApply(ResponseEntity::ok)
