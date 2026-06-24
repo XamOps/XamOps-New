@@ -1,20 +1,4 @@
-/**
- * Live Dashboard Page
- *
- * Converted from: dashboard.html
- *
- * This is the main live dashboard with real-time updates, KPIs, resource inventory,
- * cost analytics, and optimization recommendations.
- *
- * Changes from original:
- * - Converted from Alpine.js to React functional component with hooks
- * - TypeScript for type safety
- * - Modern React patterns (hooks, context, composition)
- * - All backend integration preserved exactly (same endpoints, same logic)
- * - Visual appearance and functionality identical to original
- */
-
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Icon } from '@iconify/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccounts } from '../contexts/AccountContext';
@@ -23,47 +7,60 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useLayout } from '../hooks/useLayout';
 import type { ResourceInventory } from '../types/liveDashboard';
 
-// Component imports (will be created)
 import DashboardHeader from '../components/LiveDashboard/DashboardHeader';
 import KPISection from '../components/LiveDashboard/KPISection';
-import MapSection from '../components/LiveDashboard/MapSection';
 import InventorySection from '../components/LiveDashboard/InventorySection';
-import OptimizationSection from '../components/LiveDashboard/OptimizationSection';
+// import OptimizationSection from '../components/LiveDashboard/OptimizationSection';
 import CostSection from '../components/LiveDashboard/CostSection';
 import EmptyState from '../components/LiveDashboard/EmptyState';
 import LoadingSkeleton from '../components/LiveDashboard/LoadingSkeleton';
+import CostTrendSection from '../components/LiveDashboard/CostTrendSection';
+import TopServicesSection from '../components/LiveDashboard/TopServicesSection';
+import CostByRegionSection from '../components/LiveDashboard/CostByRegionSection';
+import SummaryCardsSection from '../components/LiveDashboard/SummaryCardsSection';
+import WidgetCustomizer from '../components/LiveDashboard/WidgetCustomizer';
+
+type TimePreset = '7d' | '30d' | '3m' | '6m' | '12m';
+
+const TIME_PRESETS: { id: TimePreset; label: string }[] = [
+  { id: '7d',  label: '7D'  },
+  { id: '30d', label: '30D' },
+  { id: '3m',  label: '3M'  },
+  { id: '6m',  label: '6M'  },
+  { id: '12m', label: '12M' },
+];
+
+const DEFAULT_VISIBLE: Record<string, boolean> = {
+  kpi: true, summaryCards: true, costTrend: true, inventory: true,
+  topServices: true, costByRegion: true, optimization: true, costSection: true,
+};
+
+const LS_WIDGETS = 'xamops_dashboard_widgets_v1';
+const LS_PRESET  = 'xamops_dashboard_preset_v1';
+
+const loadWidgets = (): Record<string, boolean> => {
+  try {
+    const raw = localStorage.getItem(LS_WIDGETS);
+    return raw ? { ...DEFAULT_VISIBLE, ...JSON.parse(raw) } : DEFAULT_VISIBLE;
+  } catch { return DEFAULT_VISIBLE; }
+};
 
 const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
   const ref = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-
-    // Small delay before observing so initially-visible elements still animate in
     const timer = setTimeout(() => {
-      const observer = new IntersectionObserver(
-        ([entry]) => {
-          if (entry.isIntersecting) {
-            el.classList.add('is-visible');
-            observer.unobserve(el);
-          }
-        },
-        { threshold: 0.06 },
-      );
+      const observer = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { el.classList.add('is-visible'); observer.unobserve(el); }
+      }, { threshold: 0.06 });
       observer.observe(el);
       return () => observer.disconnect();
     }, 60);
-
     return () => clearTimeout(timer);
   }, []);
-
   return (
-    <div
-      ref={ref}
-      className="section-reveal"
-      style={delay ? { transitionDelay: `${delay}s` } : undefined}
-    >
+    <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>
       {children}
     </div>
   );
@@ -74,55 +71,38 @@ export const Dashboard: React.FC = () => {
   const { selectedAccountIds, accounts, multiAccountMode } = useAccounts();
   const { layoutChanged, saveLayout, initializeSortable } = useLayout();
 
-  // Get dashboard data
   const {
-    dashboardData,
-    loadingState,
-    error,
-    isRefreshing,
-    refreshDashboard,
-    updateResourceInventory,
+    dashboardData, loadingState, error, isRefreshing, refreshDashboard, updateResourceInventory,
   } = useDashboardData({
     selectedAccountIds,
     isMultiAccountMode: multiAccountMode,
-    autoRefreshInterval: 60000, // 60 seconds
+    autoRefreshInterval: 60000,
   });
 
-  // Debug: Log component state on every render
-  console.log('🎯 [Dashboard] RENDER - Component state:', {
-    selectedAccountIds,
-    dashboardData: dashboardData ? { accountId: dashboardData.accountId, kpi: !!dashboardData.kpi } : null,
-    loadingState,
-    error,
-    hasDashboardData: !!dashboardData,
-    hasSelectedAccounts: selectedAccountIds.length > 0,
-  });
-
-  // Debug: Mount/Unmount logging
-  useEffect(() => {
-    console.log('🏁 [Dashboard] MOUNTED');
-    return () => {
-      console.log('🛑 [Dashboard] UNMOUNTED');
-    };
-  }, []);
-
-  // Debug: Log when dashboardData changes
-  useEffect(() => {
-    console.log('🎯 [Dashboard] dashboardData updated:', dashboardData);
-    if (dashboardData) {
-      console.log('🎯 [Dashboard] KPI data:', dashboardData.kpi);
-      console.log('🎯 [Dashboard] Inventory data:', dashboardData.resourceInventory);
-    }
-  }, [dashboardData]);
-
-  // Track last update time
   const [lastUpdateTime, setLastUpdateTime] = useState<string>('Connected');
+  const [timePreset, setTimePreset] = useState<TimePreset>(
+    () => (localStorage.getItem(LS_PRESET) as TimePreset) || '30d'
+  );
+  const [visibleWidgets, setVisibleWidgets] = useState<Record<string, boolean>>(loadWidgets);
+  const [customizerOpen, setCustomizerOpen] = useState(false);
 
-  // WebSocket for real-time inventory updates (single account only)
-  const handleInventoryUpdate = React.useCallback((inventory: ResourceInventory) => {
-    console.log('📦 Real-time inventory update received:', inventory);
+  const show = useCallback((id: string) => visibleWidgets[id] !== false, [visibleWidgets]);
+
+  const handlePreset = (p: TimePreset) => {
+    setTimePreset(p);
+    localStorage.setItem(LS_PRESET, p);
+  };
+
+  const handleToggleWidget = (id: string) => {
+    setVisibleWidgets(prev => {
+      const next = { ...prev, [id]: prev[id] === false };
+      localStorage.setItem(LS_WIDGETS, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleInventoryUpdate = useCallback((inventory: ResourceInventory) => {
     setLastUpdateTime(new Date().toLocaleTimeString());
-    // Update dashboard data with new inventory
     updateResourceInventory(inventory);
   }, [updateResourceInventory]);
 
@@ -132,71 +112,42 @@ export const Dashboard: React.FC = () => {
     onInventoryUpdate: handleInventoryUpdate,
   });
 
-  // Initialize SortableJS for widget reordering
   useEffect(() => {
     if (selectedAccountIds.length > 0 && dashboardData) {
-      // Wait for widgets to render, then initialize sortable
-      const timer = setTimeout(() => {
-        initializeSortable('widgets-container');
-      }, 500);
+      const timer = setTimeout(() => initializeSortable('widgets-container'), 500);
       return () => clearTimeout(timer);
     }
   }, [selectedAccountIds, dashboardData, initializeSortable]);
 
-  // Update last update time when data changes
   useEffect(() => {
     if (dashboardData?.lastUpdated) {
-      const time = new Date(dashboardData.lastUpdated);
-      setLastUpdateTime(time.toLocaleTimeString());
+      setLastUpdateTime(new Date(dashboardData.lastUpdated).toLocaleTimeString());
     }
   }, [dashboardData]);
 
-  // Listen for account selection changes (for soft navigation)
   useEffect(() => {
-    const handleAccountChanged = () => {
-      console.log('🔄 Account changed, reloading dashboard...');
-      refreshDashboard();
-    };
-
-    const handleMultiAccountChanged = () => {
-      console.log('🔄 Multi-account selection changed, reloading dashboard...');
-      refreshDashboard();
-    };
-
-    globalThis.addEventListener('account-changed', handleAccountChanged);
-    globalThis.addEventListener('multi-account-selection-changed', handleMultiAccountChanged);
-
+    const onAccountChanged = () => refreshDashboard();
+    globalThis.addEventListener('account-changed', onAccountChanged);
+    globalThis.addEventListener('multi-account-selection-changed', onAccountChanged);
     return () => {
-      globalThis.removeEventListener('account-changed', handleAccountChanged);
-      globalThis.removeEventListener('multi-account-selection-changed', handleMultiAccountChanged);
+      globalThis.removeEventListener('account-changed', onAccountChanged);
+      globalThis.removeEventListener('multi-account-selection-changed', onAccountChanged);
     };
   }, [refreshDashboard]);
 
-  // Helper function to generate provider-aware links
   const getLink = (basePath: string): string => {
     if (selectedAccountIds.length === 0) return basePath;
-
     const account = accounts.find(a => a.id === selectedAccountIds[0]);
     const provider = account?.provider || 'AWS';
-
-    // Map base paths to provider-specific paths
     const providerPaths: Record<string, Record<string, string>> = {
-      '/cloudmap': {
-        AWS: '/cloudmap',
-        GCP: '/cloudmap',
-        Azure: '/cloudmap',
-      },
-      '/calculator': {
-        AWS: '/calculator',
-        GCP: '/calculator',
-        Azure: '/calculator',
-      },
+      '/cloudmap':    { AWS: '/cloudmap',    GCP: '/cloudmap',    Azure: '/cloudmap'    },
+      '/calculator':  { AWS: '/calculator',  GCP: '/calculator',  Azure: '/calculator'  },
     };
-
     return providerPaths[basePath]?.[provider] || basePath;
   };
 
-  // Show error state
+  const accountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null;
+
   if (error) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
@@ -206,10 +157,8 @@ export const Dashboard: React.FC = () => {
           </div>
           <h2 className="text-xl font-bold text-center mb-4 text-[rgba(0,0,0,0.88)]">Connection Error</h2>
           <p className="text-center text-[rgba(0,0,0,0.5)] text-sm mb-6">{error.message}</p>
-          <button
-            onClick={() => globalThis.location.reload()}
-            className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
-          >
+          <button onClick={() => globalThis.location.reload()}
+            className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors">
             Try Again
           </button>
         </div>
@@ -234,53 +183,119 @@ export const Dashboard: React.FC = () => {
         getLink={getLink}
       />
 
+      {/* ── Global filter bar ── */}
+      {selectedAccountIds.length > 0 && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.35)]">Period</span>
+            <div className="flex items-center bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5 gap-0.5">
+              {TIME_PRESETS.map(p => (
+                <button key={p.id} onClick={() => handlePreset(p.id)}
+                  className={`px-2.5 py-1 rounded-md text-[12px] font-medium transition-all ${
+                    timePreset === p.id
+                      ? 'bg-white text-[rgba(0,0,0,0.88)] shadow-sm'
+                      : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.7)]'
+                  }`}>{p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={() => setCustomizerOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.04)] transition-colors">
+            <Icon icon="mdi:view-dashboard-edit-outline" width={14} />
+            Customize
+          </button>
+        </div>
+      )}
+
+      {/* Widget Customizer */}
+      <WidgetCustomizer
+        open={customizerOpen}
+        visibleWidgets={visibleWidgets}
+        onToggle={handleToggleWidget}
+        onClose={() => setCustomizerOpen(false)}
+      />
+
       {/* No Account State */}
-      {selectedAccountIds.length === 0 && !loadingState.global && (
-        <>
-          {console.log('🎯 [Dashboard] Rendering EmptyState')}
-          <EmptyState />
-        </>
-      )}
+      {selectedAccountIds.length === 0 && !loadingState.global && <EmptyState />}
 
-      {/* Loading Skeleton — also shown when account is selected but data hasn't arrived yet */}
-      {selectedAccountIds.length > 0 && (loadingState.global || (!dashboardData && !error)) && (
-        <>
-          {console.log('🎯 [Dashboard] Rendering LoadingSkeleton')}
-          <LoadingSkeleton />
-        </>
-      )}
+      {/* Loading */}
+      {selectedAccountIds.length > 0 && (loadingState.global || (!dashboardData && !error)) && <LoadingSkeleton />}
 
-      {/* Dashboard Content */}
+      {/* ── Dashboard Content ── */}
       {selectedAccountIds.length > 0 && dashboardData && (
-        <>
-          {console.log('🎯 [Dashboard] Rendering Dashboard Content with data:', dashboardData)}
-          <div id="widgets-container" className="space-y-5">
-            {/* KPI Cards — own stagger animation, no scroll-reveal needed */}
+        <div id="widgets-container" className="space-y-5">
+
+          {/* Row 1: KPI Cards */}
+          {show('kpi') && (
             <div id="widget-kpi" className="widget">
               <KPISection
                 kpiData={dashboardData.kpi}
                 costHistory={dashboardData.costHistory}
+                optimization={dashboardData.optimization}
+                resourceInventory={dashboardData.resourceInventory}
                 isLoading={loadingState.kpi}
               />
             </div>
+          )}
 
-            {/* Map + Inventory Widget */}
+          {/* Row 1b: Summary Cards — Alerts, Security, Waste, Rightsizing, Lambda */}
+          {show('summaryCards') && (
+            <RevealSection delay={0.02}>
+              <SummaryCardsSection
+                accountId={accountId}
+                isLoading={loadingState.optimization}
+              />
+            </RevealSection>
+          )}
+
+          {/* Row 2: Cost Trend + Resource Inventory */}
+          {(show('costTrend') || show('inventory')) && (
             <RevealSection>
-              <div id="widget-middle" className="widget grid gap-6 lg:grid-cols-5" style={{ height: '460px' }}>
-                <MapSection
-                  regionStatus={dashboardData.regionStatus || []}
-                  isLoading={loadingState.map}
-                />
-                <InventorySection
-                  inventory={dashboardData.resourceInventory}
-                  isLoading={loadingState.inventory}
-                  getLink={getLink}
-                />
+              <div className="grid gap-5 lg:grid-cols-5" style={{ minHeight: 380 }}>
+                {show('costTrend') && (
+                  <CostTrendSection
+                    costHistory={dashboardData.costHistory}
+                    isLoading={loadingState.cost}
+                  />
+                )}
+                {show('inventory') && (
+                  <InventorySection
+                    inventory={dashboardData.resourceInventory}
+                    isLoading={loadingState.inventory}
+                    getLink={getLink}
+                  />
+                )}
               </div>
             </RevealSection>
+          )}
 
-            {/* Optimization Hub Widget */}
-            <RevealSection delay={0.05}>
+          {/* Row 3: Top Services + Cost by Region */}
+          {(show('topServices') || show('costByRegion')) && (
+            <RevealSection delay={0.04}>
+              <div className="grid gap-5 lg:grid-cols-5" style={{ minHeight: 340 }}>
+                {show('topServices') && (
+                  <TopServicesSection
+                    billingSummary={dashboardData.billingSummary}
+                    accountId={accountId}
+                    timePreset={timePreset}
+                    isLoading={loadingState.cost}
+                  />
+                )}
+                {show('costByRegion') && (
+                  <CostByRegionSection
+                    accountId={accountId}
+                    timePreset={timePreset}
+                  />
+                )}
+              </div>
+            </RevealSection>
+          )}
+
+          {/* Row 4: Optimization Hub — temporarily hidden */}
+          {/* {show('optimization') && (
+            <RevealSection delay={0.06}>
               <div id="widget-optimization" className="widget">
                 <OptimizationSection
                   optimization={dashboardData.optimization}
@@ -290,20 +305,22 @@ export const Dashboard: React.FC = () => {
                 />
               </div>
             </RevealSection>
+          )} */}
 
-            {/* Cost History + Billing Widget */}
-            <RevealSection delay={0.05}>
-              <div id="widget-costs" className="widget grid gap-6 lg:grid-cols-5">
+          {/* Row 5: Cost Breakdown + Billing Summary */}
+          {show('costSection') && (
+            <RevealSection delay={0.08}>
+              <div id="widget-costs" className="widget grid gap-5 lg:grid-cols-5">
                 <CostSection
                   costHistory={dashboardData.costHistory}
                   billingSummary={dashboardData.billingSummary}
                   isLoading={loadingState.cost}
-                  accountId={selectedAccountIds.length === 1 ? selectedAccountIds[0] : null}
+                  accountId={accountId}
                 />
               </div>
             </RevealSection>
-          </div>
-        </>
+          )}
+        </div>
       )}
     </main>
   );

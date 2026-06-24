@@ -19,16 +19,16 @@ declare global {
 
 // Pill-chart palette — matches the Pump.co screenshot style
 const SERVICE_COLORS = [
-  '#8b5cf6', // purple  (EC2-style)
-  '#22d3ee', // cyan    (RDS-style)
-  '#f59e0b', // amber   (BigQuery-style)
-  '#6b7280', // slate   (VM/Other-style)
-  '#10b981', // emerald
-  '#f97316', // orange
-  '#3b82f6', // blue
-  '#ec4899', // pink
-  '#84cc16', // lime
-  '#14b8a6', // teal
+  '#60a5fa', // blue-400
+  '#fb923c', // orange-400
+  '#a78bfa', // violet-400
+  '#34d399', // emerald-400
+  '#f472b6', // pink-400
+  '#facc15', // yellow-400
+  '#2dd4bf', // teal-400
+  '#f87171', // red-400
+  '#4ade80', // green-400
+  '#818cf8', // indigo-400
 ];
 
 

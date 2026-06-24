@@ -23,6 +23,8 @@ import CloudMapTopbarControls from '../components/CloudMap/CloudMapTopbarControl
 import EnhancedDesignPalette, { GCP_DESIGN_ICONS, AZURE_DESIGN_ICONS } from '../components/CloudMap/EnhancedDesignPalette';
 import type { GenericShape } from '../components/CloudMap/EnhancedDesignPalette';
 import type { IconData } from '../components/CloudMap/IconPicker';
+import { iconLibrary } from '../components/CloudMap/IconPicker';
+import { renderToStaticMarkup } from 'react-dom/server';
 import DesignPropertiesPanel from '../components/CloudMap/DesignPropertiesPanel';
 import type { ElementProperties } from '../components/CloudMap/DesignPropertiesPanel';
 import DesignContextMenu from '../components/CloudMap/DesignContextMenu';
@@ -62,6 +64,26 @@ cytoscape.use(cytoscapeEdgehandles);
 cytoscape.use(cytoscapeCdnd);
 cytoscape.use(cytoscapeFcose);
 cytoscape.use(cytoscapeCola);
+
+// ─── Icon Library → SVG data URL map ────────────────────────────────────────
+// Pre-render each icon library component to an SVG data URL so Cytoscape can
+// use it as a background-image. Built once at module load time.
+const CUSTOM_ICON_URLS: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  iconLibrary.forEach(icon => {
+    const color = TAILWIND_COLORS[icon.color as keyof typeof TAILWIND_COLORS]?.[500] || '#6b7280';
+    try {
+      const svgStr = renderToStaticMarkup(
+        React.createElement(icon.icon as React.ComponentType<{ size?: number; color?: string }>, { size: 40, color })
+      );
+      const withNs = svgStr.includes('xmlns')
+        ? svgStr
+        : svgStr.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+      map[icon.id] = `data:image/svg+xml,${encodeURIComponent(withNs)}`;
+    } catch { /* skip icons that fail to render */ }
+  });
+  return map;
+})();
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -145,7 +167,9 @@ const applyElementStyle = (el: any) => {
       : cloudProvider === 'azure' ? AZURE_DESIGN_ICONS[cloudServiceType]
         : null;
     // _iconUrl is stored in data for reliable restore through jsons() serialization
-    const resolvedIconUrl = el.data('_iconUrl') || (!customIcon && type && AWS_ICONS[type] ? AWS_ICONS[type] : null) || cloudIconPath;
+    const iconId = el.data('iconId');
+    const customIconUrl = (type === 'custom-icon' && iconId) ? (CUSTOM_ICON_URLS[iconId] ?? null) : null;
+    const resolvedIconUrl = el.data('_iconUrl') || customIconUrl || (!customIcon && type && AWS_ICONS[type] ? AWS_ICONS[type] : null) || cloudIconPath;
     if (resolvedIconUrl && !el.isParent()) {
       if (!el.data('_iconUrl')) el.data('_iconUrl', resolvedIconUrl); // cache for future restores
       el.style('background-image', resolvedIconUrl);
@@ -3020,9 +3044,10 @@ ${xmlEdges}
 
     } else if (type === 'custom-icon' && iconDataStr) {
       const iconData: IconData = JSON.parse(iconDataStr);
+      const svgUrl = CUSTOM_ICON_URLS[iconData.id];
       const newNode = cyRef.current.add({
         group: 'nodes',
-        data: { id: 'node-' + Date.now(), label: iconData.name, type: 'custom-icon', iconId: iconData.id, customIcon: true },
+        data: { id: 'node-' + Date.now(), label: iconData.name, type: 'custom-icon', iconId: iconData.id, customIcon: true, ...(svgUrl ? { _iconUrl: svgUrl } : {}) },
         position: pos,
       });
       reparentIfInsideContainer(newNode);
@@ -3062,9 +3087,10 @@ ${xmlEdges}
     if (mode !== 'design' || !cyRef.current) return;
     takeSnapshotRef.current();
     const pos = getCanvasCenter();
+    const svgUrl = CUSTOM_ICON_URLS[icon.id];
     const newNode = cyRef.current.add({
       group: 'nodes',
-      data: { id: 'node-' + Date.now(), label: icon.name, type: 'custom-icon', iconId: icon.id, customIcon: true },
+      data: { id: 'node-' + Date.now(), label: icon.name, type: 'custom-icon', iconId: icon.id, customIcon: true, ...(svgUrl ? { _iconUrl: svgUrl } : {}) },
       position: { x: pos.x + Math.random() * 40 - 20, y: pos.y + Math.random() * 40 - 20 },
     });
     applyElementStyle(newNode);
