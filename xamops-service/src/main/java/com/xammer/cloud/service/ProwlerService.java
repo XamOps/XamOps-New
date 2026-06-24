@@ -298,8 +298,6 @@ public class ProwlerService {
                 Collections.addAll(command, complianceFrameworks);
             }
 
-            command.add("--jobs");
-            command.add("1");
             command.add("--output-modes");
             command.add("json-ocsf");
             command.add("--output-filename");
@@ -426,8 +424,6 @@ public class ProwlerService {
             Collections.addAll(command, complianceFrameworks);
         }
 
-        command.add("--jobs");
-        command.add("1");
         command.add("--output-modes");
         command.add("json-ocsf");
         command.add("--output-filename");
@@ -551,9 +547,6 @@ public class ProwlerService {
             command.add("--services");
             Collections.addAll(command, serviceGroups);
         }
-        // Limit parallelism to reduce memory usage on constrained hosts
-        command.add("--jobs");
-        command.add("1");
         command.add("--output-modes");
         command.add("json-ocsf");
         command.add("--output-filename");

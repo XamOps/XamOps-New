@@ -153,21 +153,19 @@ public class SecurityController {
                     "message", "A scan is already in progress for this account."));
         }
 
-        // Trigger full compliance scan with all services and frameworks
+        // Core frameworks only — running all 17 simultaneously causes OOM on constrained hosts
         String[] services = {
                 "s3", "ec2", "iam", "rds", "cloudtrail", "cloudwatch",
                 "kms", "lambda", "vpc", "config", "sns", "sqs",
                 "efs", "elb", "elbv2", "secretsmanager", "guardduty"
         };
         String[] complianceFrameworks = {
-                "cis_3.0_aws", "soc2_aws", "pci_3.2.1_aws",
-                "hipaa_aws", "nist_csf_1.1_aws", "nist_800_53_revision_5_aws",
-                "gdpr_aws", "iso27001_2013_aws", "mitre_attack_aws",
-                "cisa_aws", "fedramp_moderate_revision_4_aws",
-                "ffiec_aws", "rbi_cyber_security_framework_aws",
-                "ens_rd2022_aws", "aws_well_architected_framework_security_pillar_aws",
+                "cis_3.0_aws",
+                "soc2_aws",
+                "pci_3.2.1_aws",
+                "nist_csf_1.1_aws",
                 "aws_foundational_security_best_practices_aws",
-                "gxp_21_cfr_part_11_aws"
+                "iso27001_2013_aws"
         };
 
         prowlerService.triggerScanAsync(accountId, "us-east-1", services, complianceFrameworks);
