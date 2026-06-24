@@ -430,7 +430,7 @@ jobs:
               --name xamops-service \
               --restart unless-stopped \
               --network xamops-network \
-              --memory=2g --memory-swap=2g \
+              --memory=4g --memory-swap=4g \
               -p 8080:8080 \
               -e SPRING_PROFILES_ACTIVE=uat \
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
