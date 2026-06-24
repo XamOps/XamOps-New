@@ -87,7 +87,7 @@ public class SecurityScheduler {
                     if (awsAccountId == null || awsAccountId.isEmpty()) continue;
 
                     logger.info("🔍 Triggering AWS Prowler scan for account={}", awsAccountId);
-                    prowlerService.triggerScanAsync(awsAccountId, "us-east-1", AWS_SERVICES, AWS_FRAMEWORKS);
+                    prowlerService.triggerScanAsync(awsAccountId, "ap-south-1", AWS_SERVICES, AWS_FRAMEWORKS);
                     awsCount++;
                 }
 

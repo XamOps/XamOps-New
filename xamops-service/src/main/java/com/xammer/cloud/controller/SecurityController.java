@@ -168,7 +168,7 @@ public class SecurityController {
                 "iso27001_2013_aws"
         };
 
-        prowlerService.triggerScanAsync(accountId, "us-east-1", services, complianceFrameworks);
+        prowlerService.triggerScanAsync(accountId, "ap-south-1", services, complianceFrameworks);
 
         return ResponseEntity.ok(Map.of(
                 "status", "STARTED",

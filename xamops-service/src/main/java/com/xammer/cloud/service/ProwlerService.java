@@ -533,9 +533,11 @@ public class ProwlerService {
         List<String> command = new ArrayList<>();
         command.add(executable);
         command.add("aws");
-
-        // Prowler v5: removed --quiet (not supported) and --region (scan all regions)
         command.add("--no-banner");
+
+        // Limit to specific regions to prevent OOM on constrained hosts (scanning all regions is ~20x memory)
+        command.add("--region");
+        command.add(region);
 
         // Prowler does NOT allow --compliance and --services together.
         // If compliance frameworks are specified, use --compliance only.
