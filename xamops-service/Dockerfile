@@ -4,6 +4,12 @@ WORKDIR /app
 ARG EXPOSE_PORT=8080
 EXPOSE ${EXPOSE_PORT}
 
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 python3-pip && \
+    pip3 install --no-cache-dir prowler && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY target/*.jar app.jar
 
 ENTRYPOINT ["java", \
