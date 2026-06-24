@@ -14,7 +14,7 @@ COPY target/*.jar app.jar
 
 ENTRYPOINT ["java", \
   "-Xms512m", \
-  "-Xmx3g", \
+  "-Xmx1536m", \
   "-XX:+UseG1GC", \
   "-XX:MaxGCPauseMillis=200", \
   "-XX:MaxMetaspaceSize=512m", \
