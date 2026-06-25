@@ -1,0 +1,4 @@
+## 2026-06-25 - Broad API Exposure via Security Wildcards
+**Vulnerability:** Use of broad permitAll wildcards (e.g., `/api/v1/agent/**`) in Spring Security configuration exposed sensitive management and installation endpoints to unauthenticated access. Specifically, `/api/v1/agent/install-info` leaked the global agent API key, and `/api/v1/agent/db/**` endpoints exposed database configuration capabilities.
+**Learning:** Security wildcards are convenient but dangerous. They can inadvertently whitelist new endpoints added to a controller without a corresponding update to the security configuration, violating the principle of least privilege.
+**Prevention:** Avoid broad wildcards for permitAll matchers. Use explicit AntPathRequestMatchers for each public endpoint and default to requiring authentication for all others.
