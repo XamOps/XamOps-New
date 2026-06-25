@@ -1,0 +1,3 @@
+## 2026-06-25 - SuperAdminTopBar Accessibility
+**Learning:** Shared components that use native `<select>` elements without explicit IDs can lead to broken accessibility (labels not linked to controls). Standardizing on the `useId` hook ensures reliable, unique control association across multiple renders. Additionally, icon-only buttons in dense horizontal bars like the SuperAdminTopBar should use `TooltipWrapper` instead of just `title` to provide a consistent, accessible hover/focus experience.
+**Action:** Always use `useId` for linking labels to form controls in shared components, and wrap icon-only buttons in the project's standard `TooltipWrapper`.
