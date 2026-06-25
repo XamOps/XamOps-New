@@ -3,13 +3,60 @@ import { Icon } from '@iconify/react';
 import type { KPIData, CostHistory, OptimizationData, ResourceInventory } from '../../types/liveDashboard';
 import KPIManageModal, { ALL_KPI_CARDS, DEFAULT_SELECTED, type KPICardDef } from './KPIManageModal';
 
-const LS_KPI_CARDS = 'xamops_kpi_cards_v1';
+const LS_KEY = (provider: string) =>
+  provider === 'GCP' ? 'xamops_kpi_cards_gcp_v1'
+  : provider === 'Azure' ? 'xamops_kpi_cards_azure_v1'
+  : 'xamops_kpi_cards_v1';
 
-const loadKpiCards = (): string[] => {
+const loadKpiCards = (provider: string): string[] => {
   try {
-    const raw = localStorage.getItem(LS_KPI_CARDS);
+    const raw = localStorage.getItem(LS_KEY(provider));
     return raw ? JSON.parse(raw) : DEFAULT_SELECTED;
   } catch { return DEFAULT_SELECTED; }
+};
+
+// Provider-specific name/description overrides for AWS-named cards
+const PROVIDER_OVERRIDES: Record<string, Record<string, Partial<KPICardDef>>> = {
+  GCP: {
+    // Existing AWS→GCP renames
+    ec2Recs:               { title: 'GCE Rightsizing',                description: 'GCE instances over-provisioned and can be downsized.',              unit: 'instances' },
+    ebsRecs:               { title: 'Persistent Disk Waste',          description: 'Unattached or underutilized persistent disks to remove.',           unit: 'disks'     },
+    lambdaRecs:            { title: 'Cloud Function Optimization',    description: 'Cloud Functions with over-allocated memory to right-size.',         unit: 'functions' },
+    ec2Count:              { title: 'Compute Instances',              description: 'Number of currently running GCE compute instances.',                unit: 'instances' },
+    s3Count:               { title: 'Cloud Storage Buckets',          description: 'Total number of Cloud Storage buckets in this project.',            unit: 'buckets'   },
+    rdsCount:              { title: 'Cloud SQL Instances',            description: 'Active Cloud SQL database instances.',                              unit: 'instances' },
+    lambdaCount:           { title: 'Cloud Functions',                description: 'Total deployed Cloud Functions in this project.',                   unit: 'functions' },
+    // Platform overrides for GCP
+    flexComputeInstances:  { title: 'Preemptible Instances',          description: 'GCP preemptible VM instances running at reduced cost.',             unit: 'instances' },
+    flexComputeSavings:    { title: 'Preemptible Savings',            description: 'Monthly savings from preemptible VM usage.',                       },
+    autoSpottingSavings:   { title: 'AutoSpotting Savings',           description: 'Monthly savings from AutoSpotting spot instance management on GCP.' },
+    autoSpottingInstances: { title: 'AutoSpotting Instances',         description: 'GCP instances managed and optimized by AutoSpotting.',              unit: 'instances' },
+    diskRightsizing:       { title: 'Persistent Disk Rightsizing',    description: 'Persistent disk rightsizing opportunities to reduce storage costs.', unit: 'disks'    },
+    diskRightsizingSavings:{ title: 'Disk Rightsizing Savings',       description: 'Potential savings from persistent disk rightsizing on GCP.'        },
+    cicdPipelines:         { title: 'Cloud Build Pipelines',          description: 'Active Cloud Build pipelines monitored in this project.',           unit: 'pipelines' },
+    cicdFailures:          { title: 'Cloud Build Failures',           description: 'Failed Cloud Build pipeline runs requiring attention.',              unit: 'failures'  },
+    cicdDeployFrequency:   { title: 'Deploy Frequency',               description: 'Number of successful Cloud Build deployments this period.',         unit: 'deploys'   },
+  },
+  Azure: {
+    // Existing AWS→Azure renames
+    ec2Recs:               { title: 'VM Rightsizing',                 description: 'Azure VMs over-provisioned and can be downsized.',                 unit: 'VMs'       },
+    ebsRecs:               { title: 'Disk Waste',                     description: 'Unattached or underutilized managed disks to clean up.',           unit: 'disks'     },
+    lambdaRecs:            { title: 'Function App Optimization',      description: 'Azure Function Apps with over-allocated memory to right-size.',    unit: 'functions' },
+    ec2Count:              { title: 'Virtual Machines',               description: 'Number of currently running Azure Virtual Machines.',              unit: 'VMs'       },
+    s3Count:               { title: 'Storage Accounts',               description: 'Total number of Azure Storage Accounts.',                          unit: 'accounts'  },
+    rdsCount:              { title: 'SQL Databases',                  description: 'Active Azure SQL Database instances.',                             unit: 'databases' },
+    lambdaCount:           { title: 'Function Apps',                  description: 'Total deployed Azure Function Apps.',                              unit: 'functions' },
+    // Platform overrides for Azure
+    flexComputeInstances:  { title: 'Spot VM Instances',              description: 'Azure Spot VMs running workloads at reduced cost.',                unit: 'VMs'       },
+    flexComputeSavings:    { title: 'Spot VM Savings',                description: 'Monthly savings achieved through Azure Spot VM usage.'            },
+    autoSpottingSavings:   { title: 'Spot VM AutoSpotting Savings',   description: 'Monthly savings from AutoSpotting Spot VM management on Azure.'   },
+    autoSpottingInstances: { title: 'AutoSpotting Instances',         description: 'Azure VMs managed and optimized by AutoSpotting.',                 unit: 'VMs'       },
+    diskRightsizing:       { title: 'Managed Disk Rightsizing',       description: 'Azure managed disk rightsizing opportunities to reduce costs.',    unit: 'disks'     },
+    diskRightsizingSavings:{ title: 'Disk Rightsizing Savings',       description: 'Potential savings from managed disk rightsizing on Azure.'        },
+    cicdPipelines:         { title: 'Azure DevOps Pipelines',         description: 'Active Azure DevOps pipelines monitored in this subscription.',   unit: 'pipelines' },
+    cicdFailures:          { title: 'Pipeline Failures',              description: 'Failed Azure DevOps pipeline runs requiring attention.',            unit: 'failures'  },
+    cicdDeployFrequency:   { title: 'Deploy Frequency',               description: 'Number of successful Azure DevOps deployments this period.',       unit: 'deploys'   },
+  },
 };
 
 interface KPISectionProps {
@@ -18,7 +65,20 @@ interface KPISectionProps {
   optimization?: OptimizationData;
   resourceInventory?: ResourceInventory;
   isLoading: boolean;
+  provider?: 'AWS' | 'GCP' | 'Azure';
+  accountId?: string | null;
 }
+
+// IDs that need live API fetching beyond the main dashboard data
+const EXTENDED_CARD_IDS = new Set([
+  'aiopsIncidents', 'aiopsRemediated', 'aiopsPredictions',
+  'dbopsIssues', 'dbopsSavings', 'dbopsSlowQueries',
+  'autoSpottingSavings', 'autoSpottingInstances',
+  'flexComputeInstances', 'flexComputeSavings',
+  'cicdPipelines', 'cicdFailures', 'cicdDeployFrequency',
+  'diskRightsizing', 'diskRightsizingSavings',
+  'cloudSpotterSavings',
+]);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const hexToRgba = (hex: string, alpha: number): string => {
@@ -203,9 +263,117 @@ const KPICard: React.FC<KPICardProps> = ({ def, rawValue, change, changeLabel, t
 };
 
 // ── KPI Section ───────────────────────────────────────────────────────────────
-const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimization, resourceInventory, isLoading }) => {
-  const [selectedIds, setSelectedIds] = useState<string[]>(loadKpiCards);
+const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimization, resourceInventory, isLoading, provider = 'AWS', accountId }) => {
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => loadKpiCards(provider));
   const [manageOpen, setManageOpen]   = useState(false);
+  const [extValues, setExtValues]     = useState<Record<string, number>>({});
+
+  const providerOverrides = PROVIDER_OVERRIDES[provider] || {};
+  const activeCards: KPICardDef[] = useMemo(() =>
+    ALL_KPI_CARDS.map(card => ({
+      ...card,
+      ...(providerOverrides[card.id] || {}),
+    })),
+  [provider]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch data for extended KPI cards that are currently selected
+  useEffect(() => {
+    const active = selectedIds.filter(id => EXTENDED_CARD_IDS.has(id));
+    if (active.length === 0) return;
+
+    const has = (...ids: string[]) => ids.some(id => active.includes(id));
+    const dbProvider = provider === 'GCP' ? 'gcp' : provider === 'Azure' ? 'azure' : 'aws';
+    const fetches: Promise<void>[] = [];
+    const upd: Record<string, number> = {};
+
+    // AIOps anomalies (global — no accountId needed)
+    if (has('aiopsIncidents')) {
+      fetches.push(
+        fetch('/api/xamops/aiops/anomalies?period=30d', { credentials: 'include' })
+          .then(r => r.ok ? r.json() : [])
+          .then((d: any) => { upd.aiopsIncidents = Array.isArray(d) ? d.length : 0; })
+          .catch(() => {})
+      );
+    }
+
+    // DBOps summary (account-specific; also drives diskRightsizing)
+    if (accountId && has('dbopsIssues', 'dbopsSavings', 'diskRightsizing', 'diskRightsizingSavings')) {
+      fetches.push(
+        fetch(`/api/dbops/${dbProvider}/${accountId}/summary`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : null)
+          .then((s: any) => {
+            if (!s) return;
+            upd.dbopsIssues           = (s.idleInstances || 0) + (s.rightsizingCandidates || 0);
+            upd.dbopsSavings          = s.totalPotentialSavings || 0;
+            upd.diskRightsizing       = s.rightsizingCandidates || 0;
+            upd.diskRightsizingSavings = s.rightsizingSavingsPotential || s.rightsizingSavings || 0;
+          })
+          .catch(() => {})
+      );
+    }
+
+    // DBOps slow queries
+    if (accountId && has('dbopsSlowQueries')) {
+      fetches.push(
+        fetch(`/api/dbops/${dbProvider}/${accountId}/slow-queries`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : null)
+          .then((s: any) => {
+            if (!s) return;
+            upd.dbopsSlowQueries = (s.queries || (Array.isArray(s) ? s : [])).length;
+          })
+          .catch(() => {})
+      );
+    }
+
+    // AutoSpotting (AWS only, account-specific)
+    if (accountId && provider === 'AWS' && has('autoSpottingSavings', 'autoSpottingInstances')) {
+      fetches.push(
+        fetch(`/api/autospotting/costs/${accountId}`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : null)
+          .then((d: any) => {
+            if (!d) return;
+            upd.autoSpottingSavings    = (d.summary?.total_actual_savings || 0) * 730;
+            upd.autoSpottingInstances  = (d.asgs || []).length;
+          })
+          .catch(() => {})
+      );
+    }
+
+    // FlexCompute (global)
+    if (has('flexComputeInstances', 'flexComputeSavings')) {
+      const p = new URLSearchParams({ page: '1', pageSize: '500', sort: 'desc' });
+      p.append('statuses', 'ACTIVE');
+      fetches.push(
+        fetch(`/api/flexcompute/capacity?${p}`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : null)
+          .then((d: any) => {
+            if (!d) return;
+            const items: any[] = Array.isArray(d) ? d : (d.data || []);
+            upd.flexComputeInstances = items.filter((c: any) => c.status === 'ACTIVE').length;
+            upd.flexComputeSavings   = items.reduce((s: number, c: any) => s + (c.totalSavings || 0), 0);
+          })
+          .catch(() => {})
+      );
+    }
+
+    // CI/CD — fetch github + jenkins metrics in parallel
+    if (has('cicdPipelines', 'cicdFailures', 'cicdDeployFrequency')) {
+      fetches.push(
+        Promise.all([
+          fetch('/api/cicd/github/metrics?days=30',  { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch('/api/cicd/jenkins/metrics?days=30', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        ]).then(([gh, jk]) => {
+          const total    = (gh?.totalRuns || 0) + (jk?.totalRuns || 0);
+          const failures = (gh?.failureCount || 0) + (jk?.failureCount || 0);
+          upd.cicdPipelines       = total;
+          upd.cicdFailures        = failures;
+          upd.cicdDeployFrequency = Math.max(0, total - failures);
+        })
+      );
+    }
+
+    Promise.all(fetches).then(() => setExtValues(prev => ({ ...prev, ...upd })));
+  }, [accountId, provider, selectedIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const costs = costHistory?.costs || [];
   const mtdSpend        = kpiData.mtdSpend        || 0;
@@ -261,21 +429,60 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
         return { value: resourceInventory?.rdsCount || 0, change: 0, changeLabel: 'database instances', trendData: [] };
       case 'lambdaCount':
         return { value: resourceInventory?.lambdaCount || 0, change: 0, changeLabel: 'deployed functions', trendData: [] };
+
+      // ── AIOps ──────────────────────────────────────────────────────────
+      case 'aiopsIncidents':
+        return { value: extValues.aiopsIncidents ?? 0, change: 0, changeLabel: 'detected incidents', trendData: [] };
+      case 'aiopsRemediated':
+        return { value: extValues.aiopsRemediated ?? 0, change: 0, changeLabel: 'auto-resolved issues', trendData: [] };
+      case 'aiopsPredictions':
+        return { value: extValues.aiopsPredictions ?? 0, change: 0, changeLabel: 'upcoming alerts predicted', trendData: [] };
+
+      // ── DBOps ──────────────────────────────────────────────────────────
+      case 'dbopsIssues':
+        return { value: extValues.dbopsIssues ?? 0, change: 0, changeLabel: 'health issues found', trendData: [] };
+      case 'dbopsSavings':
+        return { value: extValues.dbopsSavings ?? 0, change: 0, changeLabel: 'db savings potential', trendData: [] };
+      case 'dbopsSlowQueries':
+        return { value: extValues.dbopsSlowQueries ?? 0, change: 0, changeLabel: 'slow queries detected', trendData: [] };
+
+      // ── Platform ───────────────────────────────────────────────────────
+      case 'cloudSpotterSavings':
+        return { value: extValues.cloudSpotterSavings ?? 0, change: 0, changeLabel: 'identified by Cloud Spotter', trendData: [] };
+      case 'flexComputeInstances':
+        return { value: extValues.flexComputeInstances ?? 0, change: 0, changeLabel: 'flex instances active', trendData: [] };
+      case 'flexComputeSavings':
+        return { value: extValues.flexComputeSavings ?? 0, change: 0, changeLabel: 'flex compute savings', trendData: [] };
+      case 'autoSpottingSavings':
+        return { value: extValues.autoSpottingSavings ?? 0, change: 0, changeLabel: 'monthly spot savings', trendData: [] };
+      case 'autoSpottingInstances':
+        return { value: extValues.autoSpottingInstances ?? 0, change: 0, changeLabel: 'instances managed', trendData: [] };
+      case 'diskRightsizing':
+        return { value: extValues.diskRightsizing ?? 0, change: 0, changeLabel: 'volumes to rightsize', trendData: [] };
+      case 'diskRightsizingSavings':
+        return { value: extValues.diskRightsizingSavings ?? 0, change: 0, changeLabel: 'disk savings potential', trendData: [] };
+      case 'cicdPipelines':
+        return { value: extValues.cicdPipelines ?? 0, change: 0, changeLabel: 'active pipelines', trendData: [] };
+      case 'cicdFailures':
+        return { value: extValues.cicdFailures ?? 0, change: 0, changeLabel: 'require attention', trendData: [] };
+      case 'cicdDeployFrequency':
+        return { value: extValues.cicdDeployFrequency ?? 0, change: 0, changeLabel: 'successful deploys', trendData: [] };
+
       default:
         return { value: 0, change: 0, changeLabel: '', trendData: [] };
     }
-  }, [mtdSpend, lastMonthSpend, forecastedSpend, potentialSavings, mtdChange, forecastChange, lastMonthChange, costs, optimization, resourceInventory, totalResources]);
+  }, [mtdSpend, lastMonthSpend, forecastedSpend, potentialSavings, mtdChange, forecastChange, lastMonthChange, costs, optimization, resourceInventory, totalResources, extValues]);
 
   const selectedCards: KPICardDef[] = useMemo(
     () => selectedIds
-      .map(id => ALL_KPI_CARDS.find(c => c.id === id))
+      .map(id => activeCards.find(c => c.id === id))
       .filter((c): c is KPICardDef => c !== undefined),
-    [selectedIds]
+    [selectedIds, activeCards]
   );
 
   const handleSave = (ids: string[]) => {
     setSelectedIds(ids);
-    localStorage.setItem(LS_KPI_CARDS, JSON.stringify(ids));
+    localStorage.setItem(LS_KEY(provider), JSON.stringify(ids));
   };
 
   if (isLoading) {
@@ -341,6 +548,7 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
         selectedIds={selectedIds}
         onSave={handleSave}
         onClose={() => setManageOpen(false)}
+        cards={activeCards}
       />
     </>
   );

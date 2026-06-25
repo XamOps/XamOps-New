@@ -1,30 +1,46 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Icon } from '@iconify/react';
 import {
   GcpDashboardData,
   GcpResourceType,
 } from '../types/gcpDashboard';
 import { useGcpDashboardData } from '../hooks/useGcpDashboardData';
-import {
-  mapInventoryToResources,
-} from '../api/gcpDashboardApi';
+import { mapInventoryToResources } from '../api/gcpDashboardApi';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAccounts } from '../contexts/AccountContext';
 import apiClient from '../utils/apiClient';
-// Import new components
-import GcpKPISection from '../components/GcpDashboard/GcpKPISection';
-import GcpMapSection from '../components/GcpDashboard/GcpMapSection';
+import type { CostHistory } from '../types/liveDashboard';
+
+import KPISection from '../components/LiveDashboard/KPISection';
+import SummaryCardsSection from '../components/LiveDashboard/SummaryCardsSection';
+import CostTrendSection from '../components/LiveDashboard/CostTrendSection';
+import TopServicesSection from '../components/LiveDashboard/TopServicesSection';
+import WidgetCustomizer from '../components/LiveDashboard/WidgetCustomizer';
 import GcpInventorySection from '../components/GcpDashboard/GcpInventorySection';
-import GcpCostSection from '../components/GcpDashboard/GcpCostSection';
-import GcpOptimizationSection from '../components/GcpDashboard/GcpOptimizationSection';
 
+type TimePreset = '7d' | '30d' | '3m' | '6m' | '12m';
 
-// Highcharts loaded from CDN (still needed for map if GcpMapSection uses window.Highcharts)
-declare global {
-  interface Window {
-    Highcharts: any;
-  }
-}
+const TIME_PRESETS: { id: TimePreset; label: string }[] = [
+  { id: '7d', label: '7D' },
+  { id: '30d', label: '30D' },
+  { id: '3m', label: '3M' },
+  { id: '6m', label: '6M' },
+  { id: '12m', label: '12M' },
+];
+
+const DEFAULT_VISIBLE: Record<string, boolean> = {
+  kpi: true, summaryCards: true, costTrend: true, inventory: true, topServices: true,
+};
+
+const LS_WIDGETS = 'xamops_gcp_dashboard_widgets_v1';
+const LS_PRESET  = 'xamops_gcp_dashboard_preset_v1';
+
+const loadWidgets = (): Record<string, boolean> => {
+  try {
+    const raw = localStorage.getItem(LS_WIDGETS);
+    return raw ? { ...DEFAULT_VISIBLE, ...JSON.parse(raw) } : DEFAULT_VISIBLE;
+  } catch { return DEFAULT_VISIBLE; }
+};
 
 const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -44,91 +60,74 @@ const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = (
 };
 
 const GcpDashboard: React.FC = () => {
-  // Get selected account IDs from session storage - initialized synchronously
   const [selectedAccountIds] = useState<string[]>(() => {
-    const storedAccountIds = sessionStorage.getItem('selectedAccountIds');
-    if (storedAccountIds) {
-      try {
-        return JSON.parse(storedAccountIds);
-      } catch (err) {
-        console.error('❌ GCP Dashboard: Failed to parse selected account IDs:', err);
-        return [];
-      }
+    const stored = sessionStorage.getItem('selectedAccountIds');
+    if (stored) {
+      try { return JSON.parse(stored); } catch { return []; }
     }
     return [];
   });
 
   const [multiAccountMode] = useState(() => {
-    const storedAccountIds = sessionStorage.getItem('selectedAccountIds');
-    const storedMultiAccountMode = sessionStorage.getItem('multiAccountMode');
-    if (storedAccountIds) {
+    const stored = sessionStorage.getItem('selectedAccountIds');
+    const multiMode = sessionStorage.getItem('multiAccountMode');
+    if (stored) {
       try {
-        const accountIds = JSON.parse(storedAccountIds);
-        return storedMultiAccountMode === 'true' && accountIds.length > 1;
-      } catch (err) {
-        return false;
-      }
+        const ids = JSON.parse(stored);
+        return multiMode === 'true' && ids.length > 1;
+      } catch { return false; }
     }
     return false;
   });
 
-  // Dashboard data hook
-  const { data, loading, error, refresh, lastUpdated } =
-    useGcpDashboardData({
-      accountIds: selectedAccountIds,
-      multiAccountMode,
-      autoRefresh: true,
-      refreshInterval: 60,
-    });
+  const { data, loading, error, refresh, lastUpdated } = useGcpDashboardData({
+    accountIds: selectedAccountIds,
+    multiAccountMode,
+    autoRefresh: true,
+    refreshInterval: 60,
+  });
 
   const { setActions, clearActions } = useTopbar();
   const { isLoading: accountsLoading } = useAccounts();
 
-  // Widget visibility state
-  const [widgetVisibility] = useState({
-    kpi: true,
-    map: true,
-    inventory: true,
-    cost: true,
-    optimization: true,
-    billing: true,
-  });
-
-  // Notifications state
-  const [notification, setNotification] = useState<{ message: string, type: 'info' | 'success' | 'warning' | 'error' } | null>(null);
-
-  // AutoSpotting savings state
+  const [timePreset, setTimePreset] = useState<TimePreset>(
+    () => (localStorage.getItem(LS_PRESET) as TimePreset) || '30d'
+  );
+  const [visibleWidgets, setVisibleWidgets] = useState<Record<string, boolean>>(loadWidgets);
+  const [customizerOpen, setCustomizerOpen] = useState(false);
   const [autoSpottingSavings, setAutoSpottingSavings] = useState<number>(0);
   const [, setIsLoadingAutoSpotting] = useState(false);
 
-  const showNotification = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 4000);
+  const show = useCallback((id: string) => visibleWidgets[id] !== false, [visibleWidgets]);
+
+  const handlePreset = (p: TimePreset) => {
+    setTimePreset(p);
+    localStorage.setItem(LS_PRESET, p);
   };
 
-  // Fetch AutoSpotting potential savings
+  const handleToggleWidget = (id: string) => {
+    setVisibleWidgets(prev => {
+      const next = { ...prev, [id]: prev[id] === false };
+      localStorage.setItem(LS_WIDGETS, JSON.stringify(next));
+      return next;
+    });
+  };
+
   const fetchAutoSpottingSavings = useCallback(async (accountId: string) => {
     try {
       setIsLoadingAutoSpotting(true);
       const migsData = await apiClient.get(`/api/gcp/autospotting/migs/all-regions/${accountId}`);
-
-      // Calculate total potential monthly savings from all MIGs
       const totalPotentialSavings = migsData.reduce((sum: number, mig: any) => {
-        const hourlySavings = mig.potentialHourlySavings || 0;
-        // Convert hourly to monthly (assuming 730 hours/month)
-        return sum + (hourlySavings * 730);
+        return sum + ((mig.potentialHourlySavings || 0) * 730);
       }, 0);
-
       setAutoSpottingSavings(totalPotentialSavings);
-    } catch (err) {
-      console.error('Failed to fetch AutoSpotting savings:', err);
+    } catch {
       setAutoSpottingSavings(0);
     } finally {
       setIsLoadingAutoSpotting(false);
     }
   }, []);
 
-  // Fetch AutoSpotting savings when account changes
   useEffect(() => {
     if (selectedAccountIds.length === 1 && !multiAccountMode) {
       fetchAutoSpottingSavings(selectedAccountIds[0]);
@@ -137,17 +136,13 @@ const GcpDashboard: React.FC = () => {
     }
   }, [selectedAccountIds, multiAccountMode, fetchAutoSpottingSavings]);
 
-  // Extract and transform dashboard data
   const dashboardData = useMemo(() => {
     if (!data) return null;
 
-    // Helper to transform single account data from backend DTO to frontend interface
     const transformSingle = (raw: any): GcpDashboardData => {
-      // Calculate total potential savings including AutoSpotting
       const optimizationSavings = raw.optimizationSummary?.totalPotentialSavings || 0;
       const totalPotentialSavings = optimizationSavings + autoSpottingSavings;
 
-      // If already in correct frontend format, enhance it with autospotting breakdown
       if (raw.kpi && raw.optimization && raw.billingSummary) {
         return {
           ...raw,
@@ -174,7 +169,6 @@ const GcpDashboard: React.FC = () => {
           forecastedSpend: raw.forecastedSpend || 0,
           lastMonthSpend: raw.lastMonthSpend || 0,
           potentialSavings: totalPotentialSavings,
-          // Add breakdown for tooltip/display
           potentialSavingsBreakdown: {
             optimization: optimizationSavings,
             autoSpotting: autoSpottingSavings,
@@ -200,7 +194,7 @@ const GcpDashboard: React.FC = () => {
           region: region.regionId || region.region,
           latitude: region.latitude,
           longitude: region.longitude,
-          resourceCount: 1, // Default if not provided
+          resourceCount: 1,
           status: region.status?.toLowerCase() === 'active' ? 'active' : 'inactive',
         })),
         costHistory: {
@@ -212,7 +206,6 @@ const GcpDashboard: React.FC = () => {
                 isAnomaly: !!item.isAnomaly,
               }));
             } else if (raw.costHistory && typeof raw.costHistory === 'object') {
-              // Handle parallel arrays format if backend sends it { labels: [], costs: [] }
               const labels = raw.costHistory.labels || [];
               const costs = raw.costHistory.costs || [];
               const anomalies = raw.costHistory.anomalies || [];
@@ -306,90 +299,73 @@ const GcpDashboard: React.FC = () => {
     }
 
     return transformSingle(data);
-  }, [data, selectedAccountIds]);
+  }, [data, selectedAccountIds, autoSpottingSavings]);
 
-  // Calculate total resources
+  const singleData = dashboardData ? ('accounts' in dashboardData ? null : (dashboardData as GcpDashboardData)) : null;
+
   const totalResources = useMemo(() => {
     if (!dashboardData) return 0;
-
-    if ('aggregated' in dashboardData) {
-      return (dashboardData as any).aggregated.totalResourceCount;
-    }
-
+    if ('aggregated' in dashboardData) return (dashboardData as any).aggregated.totalResourceCount;
     const inventory = (dashboardData as GcpDashboardData).resourceInventory;
     return Object.values(inventory).reduce((sum, count) => (sum as number) + (count as number), 0) as number;
   }, [dashboardData]);
 
-  // Get resource list
   const resources: GcpResourceType[] = useMemo(() => {
     if (!dashboardData || 'accounts' in dashboardData) return [];
-
-    const singleData = dashboardData as GcpDashboardData;
-    return mapInventoryToResources(singleData.resourceInventory);
+    return mapInventoryToResources((dashboardData as GcpDashboardData).resourceInventory);
   }, [dashboardData]);
 
-  const singleData = dashboardData ? ('accounts' in dashboardData ? null : (dashboardData as GcpDashboardData)) : null;
+  const gcpCostHistory: CostHistory = useMemo(() => ({
+    labels:    singleData?.costHistory?.monthlyCosts?.map((c: any) => c.date)        || [],
+    costs:     singleData?.costHistory?.monthlyCosts?.map((c: any) => c.cost)        || [],
+    anomalies: singleData?.costHistory?.monthlyCosts?.map((c: any) => c.isAnomaly || false) || [],
+  }), [singleData]);
 
-  // Register Topbar actions
+  const gcpBillingSummary = useMemo(() =>
+    (singleData?.billingSummary?.topServices || []).map((s: any) => ({
+      serviceName: s.serviceName,
+      monthToDateCost: s.cost,
+    })),
+  [singleData]);
+
+  const accountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null;
+
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
-        {/* Navigation Links */}
-        <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-xl border border-slate-200/50 mr-2">
-          <Link
-            to="/calculator"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all"
-          >
-            <i className="fas fa-calculator text-[10px]"></i>
-            <span>Calculator</span>
-          </Link>
-          <Link
-            to="/cloudshell"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all"
-          >
-            <i className="fas fa-terminal text-[10px]"></i>
-            <span>CloudShell</span>
-          </Link>
-        </div>
-
-        {/* Sync Status */}
         <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200/50">
-          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : 'Connected'}
           </span>
         </div>
-
-        {/* Refresh Button */}
         <button
           onClick={refresh}
           disabled={loading.global}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all disabled:opacity-50 shadow-lg shadow-blue-500/20"
         >
-          <i className={`fas fa-sync-alt ${loading.global ? 'animate-spin' : ''}`}></i>
-          <span>{loading.global ? 'Refetching...' : 'Refresh'}</span>
+          <Icon icon={loading.global ? 'mdi:loading' : 'mdi:refresh'} width={13} className={loading.global ? 'animate-spin' : ''} />
+          {loading.global ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, singleData, multiAccountMode, lastUpdated, refresh, loading.global]);
+  }, [setActions, clearActions, lastUpdated, refresh, loading.global]);
 
-  // Show loading while accounts are being fetched
   if (accountsLoading && selectedAccountIds.length === 0) {
     return (
       <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
         <div className="text-center p-8 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm max-w-lg w-full">
           <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <i className="fas fa-spinner fa-spin text-3xl text-blue-600"></i>
+            <Icon icon="mdi:loading" width={32} color="#2563eb" className="animate-spin" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Loading Accounts...</h2>
-          <p className="text-gray-500 mb-8">Please wait while we fetch your GCP projects.</p>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Loading Accounts…</h2>
+          <p className="text-gray-500">Please wait while we fetch your GCP projects.</p>
         </div>
       </div>
     );
   }
 
-  // Handle empty state
   if (selectedAccountIds.length === 0) {
     return (
       <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
@@ -398,28 +374,22 @@ const GcpDashboard: React.FC = () => {
             <img src="/icons/gcp-icon.png" alt="GCP" className="w-10 h-10 object-contain" />
           </div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">No GCP Project Selected</h2>
-          <p className="text-gray-500 mb-8">Please select a GCP project from the account selector to view your dashboard.</p>
+          <p className="text-gray-500">Please select a GCP project from the account selector to view your dashboard.</p>
         </div>
       </div>
     );
   }
 
-  // Handle Error State
   if (error && !dashboardData) {
     return (
       <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
         <div className="text-center p-8 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm max-w-lg w-full">
           <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+            <Icon icon="mdi:alert-triangle-outline" width={36} color="#ef4444" />
           </div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">Connection Error</h2>
           <p className="text-red-500 mb-6">{error.message}</p>
-          <button
-            onClick={refresh}
-            className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-lg shadow-red-500/30"
-          >
+          <button onClick={refresh} className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
             Try Again
           </button>
         </div>
@@ -428,82 +398,89 @@ const GcpDashboard: React.FC = () => {
   }
 
   return (
-    <main className="flex-1 p-8 bg-white space-y-6">
-      {/* Notification Toast */}
-      {notification && (
-        <div className={`fixed top-4 right-4 z-50 transform transition-all duration-300 ${notification ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
-          <div className={`flex items-center p-4 rounded-lg shadow-lg border ${notification.type === 'info' ? 'bg-blue-50 border-blue-100 text-blue-800' :
-            notification.type === 'success' ? 'bg-green-50 border-green-100 text-green-800' :
-              notification.type === 'warning' ? 'bg-yellow-50 border-yellow-100 text-yellow-800' :
-                'bg-red-50 border-red-100 text-red-800'
-            }`}>
-            {notification.message}
-            <button onClick={() => setNotification(null)} className="ml-4 hover:opacity-75 font-bold">&times;</button>
+    <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
+      {/* Period filter + customize */}
+      {selectedAccountIds.length > 0 && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.35)]">Period</span>
+            <div className="flex items-center bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5 gap-0.5">
+              {TIME_PRESETS.map(p => (
+                <button key={p.id} onClick={() => handlePreset(p.id)}
+                  className={`px-2.5 py-1 rounded-md text-[12px] font-medium transition-all ${
+                    timePreset === p.id
+                      ? 'bg-white text-[rgba(0,0,0,0.88)] shadow-sm'
+                      : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.7)]'
+                  }`}>{p.label}
+                </button>
+              ))}
+            </div>
           </div>
+          <button onClick={() => setCustomizerOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.04)] transition-colors">
+            <Icon icon="mdi:view-dashboard-edit-outline" width={14} />
+            Customize
+          </button>
         </div>
       )}
 
-      {/* KPI Section */}
-      {widgetVisibility.kpi && dashboardData && (
-        <GcpKPISection
-          kpiData={
-            'accounts' in dashboardData
-              ? (dashboardData as any).kpi
-              : (dashboardData as GcpDashboardData).kpi
-          }
-          costHistory={singleData ? {
-            costs: singleData.costHistory?.monthlyCosts?.map((c: any) => c.cost) || [],
-            labels: singleData.costHistory?.monthlyCosts?.map((c: any) => c.date) || []
-          } : undefined}
+      <WidgetCustomizer
+        open={customizerOpen}
+        visibleWidgets={visibleWidgets}
+        onToggle={handleToggleWidget}
+        onClose={() => setCustomizerOpen(false)}
+      />
+
+      {/* KPI Cards */}
+      {show('kpi') && dashboardData && (
+        <KPISection
+          kpiData={dashboardData.kpi as any}
+          costHistory={gcpCostHistory}
           isLoading={loading.kpi}
+          provider="GCP"
+          accountId={accountId}
         />
       )}
 
-      {/* Main Grid: Map & Inventory (3:2) */}
-      <RevealSection>
-        <div className="grid gap-6 lg:grid-cols-5" style={{ height: '460px' }}>
-          {widgetVisibility.map && (
-            <GcpMapSection
-              regionStatus={singleData?.regionStatus || []}
-              isLoading={loading.map}
-              onRegionClick={(name) => showNotification(`Dashboard filtered by: ${name}`, 'info')}
-            />
-          )}
-
-          {widgetVisibility.inventory && (
-            <GcpInventorySection
-              resources={resources}
-              totalResources={totalResources}
-              loading={loading.inventory}
-              accountIds={selectedAccountIds}
-            />
-          )}
-        </div>
-      </RevealSection>
-
-      {/* Optimization Section */}
-      {widgetVisibility.optimization && singleData && singleData.optimization && (
-        <RevealSection delay={0.05}>
-          <GcpOptimizationSection
-            optimization={singleData.optimization}
-            isLoading={loading.optimization}
-          />
+      {/* Summary Cards */}
+      {show('summaryCards') && (
+        <RevealSection delay={0.02}>
+          <SummaryCardsSection accountId={accountId} provider="GCP" isLoading={loading.kpi} />
         </RevealSection>
       )}
 
-      {/* Cost & Billing Grid */}
-      <RevealSection delay={0.1}>
-        <div className="grid gap-6 lg:grid-cols-3">
-          {(widgetVisibility.cost || widgetVisibility.billing) && singleData && (
-            <GcpCostSection
-              costHistory={singleData.costHistory}
-              billingSummary={singleData.billingSummary}
+      {/* Cost Trend + Inventory */}
+      {(show('costTrend') || show('inventory')) && (
+        <RevealSection>
+          <div className="grid gap-5 lg:grid-cols-5" style={{ minHeight: 380 }}>
+            {show('costTrend') && (
+              <CostTrendSection costHistory={gcpCostHistory} isLoading={loading.cost} />
+            )}
+            {show('inventory') && (
+              <GcpInventorySection
+                resources={resources}
+                totalResources={totalResources}
+                loading={loading.inventory}
+                accountIds={selectedAccountIds}
+              />
+            )}
+          </div>
+        </RevealSection>
+      )}
+
+      {/* Top Services */}
+      {show('topServices') && (
+        <RevealSection delay={0.04}>
+          <div className="grid gap-5 lg:grid-cols-5">
+            <TopServicesSection
+              billingSummary={gcpBillingSummary}
+              accountId={accountId}
+              timePreset={timePreset}
               isLoading={loading.cost}
-              accountId={selectedAccountIds[0]}
             />
-          )}
-        </div>
-      </RevealSection>
+          </div>
+        </RevealSection>
+      )}
     </main>
   );
 };

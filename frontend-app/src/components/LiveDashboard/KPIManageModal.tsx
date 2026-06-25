@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import { Icon } from '@iconify/react';
 
 export interface KPICardDef {
@@ -8,7 +9,7 @@ export interface KPICardDef {
   icon: string;
   iconBg: string;
   iconColor: string;
-  category: 'Cost' | 'Optimization' | 'Alerts' | 'Resources';
+  category: 'Cost' | 'Optimization' | 'Alerts' | 'Resources' | 'AIOps' | 'DBOps' | 'Platform';
   displayType: 'currency' | 'count' | 'percent';
   unit?: string;
   recommended?: boolean;
@@ -150,16 +151,153 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     iconBg: '#8b5cf614', iconColor: '#7c3aed',
     category: 'Resources', displayType: 'count', unit: 'functions',
   },
+
+  // ── AIOps ─────────────────────────────────────────────────────────────
+  {
+    id: 'aiopsIncidents',
+    title: 'AIOps Incidents',
+    description: 'AI-detected incidents and anomalies across your infrastructure.',
+    icon: 'mdi:robot-outline',
+    iconBg: '#a855f714', iconColor: '#9333ea',
+    category: 'AIOps', displayType: 'count', unit: 'incidents',
+  },
+  {
+    id: 'aiopsRemediated',
+    title: 'Auto-Remediated',
+    description: 'Issues automatically resolved by AIOps with no human intervention.',
+    icon: 'mdi:auto-fix',
+    iconBg: '#a855f714', iconColor: '#9333ea',
+    category: 'AIOps', displayType: 'count', unit: 'issues',
+  },
+  {
+    id: 'aiopsPredictions',
+    title: 'Predicted Alerts',
+    description: 'Upcoming incidents predicted by AIOps before they occur.',
+    icon: 'mdi:crystal-ball',
+    iconBg: '#a855f714', iconColor: '#9333ea',
+    category: 'AIOps', displayType: 'count', unit: 'predictions',
+  },
+
+  // ── DBOps ─────────────────────────────────────────────────────────────
+  {
+    id: 'dbopsIssues',
+    title: 'DB Health Issues',
+    description: 'Database performance problems and optimization opportunities detected.',
+    icon: 'mdi:database-alert-outline',
+    iconBg: '#0891b214', iconColor: '#0891b2',
+    category: 'DBOps', displayType: 'count', unit: 'issues',
+  },
+  {
+    id: 'dbopsSavings',
+    title: 'DB Optimization Savings',
+    description: 'Potential monthly savings from database rightsizing and query tuning.',
+    icon: 'mdi:database-arrow-down-outline',
+    iconBg: '#0891b214', iconColor: '#0891b2',
+    category: 'DBOps', displayType: 'currency',
+  },
+  {
+    id: 'dbopsSlowQueries',
+    title: 'Slow Queries',
+    description: 'Database queries exceeding performance thresholds requiring tuning.',
+    icon: 'mdi:database-clock-outline',
+    iconBg: '#0891b214', iconColor: '#0891b2',
+    category: 'DBOps', displayType: 'count', unit: 'queries',
+  },
+
+  // ── Platform ──────────────────────────────────────────────────────────
+  {
+    id: 'cloudSpotterSavings',
+    title: 'Cloud Spotter Savings',
+    description: 'Savings identified by Cloud Spotter across your infrastructure.',
+    icon: 'mdi:cloud-search-outline',
+    iconBg: '#0ea5e914', iconColor: '#0284c7',
+    category: 'Platform', displayType: 'currency',
+  },
+  {
+    id: 'flexComputeInstances',
+    title: 'Flex Compute Instances',
+    description: 'Flexible spot/preemptible compute instances running at reduced cost.',
+    icon: 'mdi:server-network',
+    iconBg: '#f9731614', iconColor: '#ea580c',
+    category: 'Platform', displayType: 'count', unit: 'instances',
+  },
+  {
+    id: 'flexComputeSavings',
+    title: 'Flex Compute Savings',
+    description: 'Monthly savings achieved through flexible compute instance usage.',
+    icon: 'mdi:server-minus',
+    iconBg: '#f9731614', iconColor: '#ea580c',
+    category: 'Platform', displayType: 'currency',
+  },
+  {
+    id: 'autoSpottingSavings',
+    title: 'AutoSpotting Savings',
+    description: 'Monthly savings from automatic spot/preemptible instance management.',
+    icon: 'mdi:lightning-bolt-outline',
+    iconBg: '#22c55e14', iconColor: '#16a34a',
+    category: 'Platform', displayType: 'currency',
+  },
+  {
+    id: 'autoSpottingInstances',
+    title: 'AutoSpotting Instances',
+    description: 'Number of instances managed and optimized by AutoSpotting.',
+    icon: 'mdi:lightning-bolt',
+    iconBg: '#22c55e14', iconColor: '#16a34a',
+    category: 'Platform', displayType: 'count', unit: 'instances',
+  },
+  {
+    id: 'diskRightsizing',
+    title: 'Disk Rightsizing',
+    description: 'Disk and volume rightsizing opportunities to reduce storage costs.',
+    icon: 'mdi:harddisk-plus',
+    iconBg: '#6366f114', iconColor: '#4f46e5',
+    category: 'Platform', displayType: 'count', unit: 'volumes',
+  },
+  {
+    id: 'diskRightsizingSavings',
+    title: 'Disk Rightsizing Savings',
+    description: 'Potential monthly savings from disk and volume rightsizing.',
+    icon: 'mdi:harddisk-remove',
+    iconBg: '#6366f114', iconColor: '#4f46e5',
+    category: 'Platform', displayType: 'currency',
+  },
+  {
+    id: 'cicdPipelines',
+    title: 'CI/CD Pipelines',
+    description: 'Total active CI/CD pipelines monitored across your infrastructure.',
+    icon: 'mdi:pipe',
+    iconBg: '#f4336614', iconColor: '#e11d48',
+    category: 'Platform', displayType: 'count', unit: 'pipelines',
+  },
+  {
+    id: 'cicdFailures',
+    title: 'Pipeline Failures',
+    description: 'Failed CI/CD pipeline runs that require immediate attention.',
+    icon: 'mdi:pipe-disconnected',
+    iconBg: '#f4336614', iconColor: '#e11d48',
+    category: 'Platform', displayType: 'count', unit: 'failures',
+  },
+  {
+    id: 'cicdDeployFrequency',
+    title: 'Deploy Frequency',
+    description: 'Number of successful deployments in the current period.',
+    icon: 'mdi:rocket-launch-outline',
+    iconBg: '#f4336614', iconColor: '#e11d48',
+    category: 'Platform', displayType: 'count', unit: 'deploys',
+  },
 ];
 
 export const DEFAULT_SELECTED = ['mtdSpend', 'forecast', 'lastMonth', 'potentialSavings'];
 export const MIN_SELECTED = 3;
-const CATEGORIES = ['Cost', 'Optimization', 'Alerts', 'Resources'] as const;
+const CATEGORIES = ['Cost', 'Optimization', 'Alerts', 'Resources', 'AIOps', 'DBOps', 'Platform'] as const;
 const CATEGORY_COLORS: Record<string, string> = {
-  Cost: 'bg-slate-100 text-slate-600',
+  Cost:         'bg-slate-100 text-slate-600',
   Optimization: 'bg-amber-50 text-amber-700',
-  Alerts: 'bg-red-50 text-red-600',
-  Resources: 'bg-blue-50 text-blue-600',
+  Alerts:       'bg-red-50 text-red-600',
+  Resources:    'bg-blue-50 text-blue-600',
+  AIOps:        'bg-purple-50 text-purple-700',
+  DBOps:        'bg-cyan-50 text-cyan-700',
+  Platform:     'bg-rose-50 text-rose-700',
 };
 
 interface KPIManageModalProps {
@@ -167,19 +305,22 @@ interface KPIManageModalProps {
   selectedIds: string[];
   onSave: (ids: string[]) => void;
   onClose: () => void;
+  cards?: KPICardDef[];
 }
 
-const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSave, onClose }) => {
+const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSave, onClose, cards }) => {
   const [local, setLocal]     = useState<string[]>(selectedIds);
   const [search, setSearch]   = useState('');
   const [tab, setTab]         = useState<'all' | 'selected'>('all');
   const [catFilter, setCatFilter] = useState<string>('All');
 
+  const cardList = cards || ALL_KPI_CARDS;
+
   // Sync when modal reopens
   React.useEffect(() => { if (open) { setLocal(selectedIds); setSearch(''); setTab('all'); setCatFilter('All'); } }, [open, selectedIds]);
 
   const filtered = useMemo(() => {
-    let cards = ALL_KPI_CARDS;
+    let cards = cardList;
     if (tab === 'selected') cards = cards.filter(c => local.includes(c.id));
     if (catFilter !== 'All') cards = cards.filter(c => c.category === catFilter);
     if (search.trim()) {
@@ -202,7 +343,7 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
 
   if (!open) return null;
 
-  return (
+  return ReactDOM.createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
@@ -226,7 +367,7 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
             </button>
           </div>
 
-          {/* Tabs + search row */}
+          {/* Row 1: Tabs + search */}
           <div className="flex items-center justify-between gap-3 mt-3">
             <div className="flex items-center gap-1">
               <button onClick={() => setTab('all')}
@@ -235,7 +376,7 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
                     ? 'bg-[rgba(0,0,0,0.88)] text-white'
                     : 'text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.05)]'
                 }`}>
-                All ({ALL_KPI_CARDS.length})
+                All ({cardList.length})
               </button>
               <button onClick={() => setTab('selected')}
                 className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${
@@ -245,16 +386,6 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
                 }`}>
                 Selected ({local.length})
               </button>
-              <div className="w-px h-5 bg-[rgba(0,0,0,0.1)] mx-1" />
-              {['All', ...CATEGORIES].map(cat => (
-                <button key={cat} onClick={() => setCatFilter(cat)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
-                    catFilter === cat
-                      ? 'bg-[rgba(0,0,0,0.07)] text-[rgba(0,0,0,0.88)]'
-                      : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.04)]'
-                  }`}>{cat}
-                </button>
-              ))}
             </div>
 
             <div className="relative flex-shrink-0">
@@ -265,6 +396,19 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
                 className="pl-8 pr-3 py-1.5 text-[12px] border border-[rgba(0,0,0,0.12)] rounded-lg outline-none focus:border-[rgba(0,0,0,0.35)] w-[180px] placeholder:text-[rgba(0,0,0,0.3)]"
               />
             </div>
+          </div>
+
+          {/* Row 2: Category filter chips */}
+          <div className="flex items-center gap-1 mt-2 overflow-x-auto pb-0.5 scrollbar-none">
+            {['All', ...CATEGORIES].map(cat => (
+              <button key={cat} onClick={() => setCatFilter(cat)}
+                className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+                  catFilter === cat
+                    ? 'bg-[rgba(0,0,0,0.07)] text-[rgba(0,0,0,0.88)]'
+                    : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.04)]'
+                }`}>{cat}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -358,7 +502,8 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

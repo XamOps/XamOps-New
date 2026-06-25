@@ -6,6 +6,7 @@ import { BarChart, Bar, Cell, PieChart, Pie, ResponsiveContainer, Tooltip } from
 interface SummaryCardsSectionProps {
   accountId: string | null;
   isLoading?: boolean;
+  provider?: 'AWS' | 'GCP' | 'Azure';
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -258,23 +259,23 @@ const AlertsCard: React.FC<{ summary: AlertSummary | null; loading: boolean }> =
 // ══════════════════════════════════════════════════════════════════════════════
 interface SecCounts { Critical: number; High: number; Medium: number; Low: number }
 
-const SecurityCard: React.FC<{ accountId: string | null }> = ({ accountId }) => {
+const SecurityCard: React.FC<{ accountId: string | null; apiBase: string }> = ({ accountId, apiBase }) => {
   const [counts, setCounts] = useState<SecCounts | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!accountId) return;
     setLoading(true);
-    fetch(`/api/xamops/security/findings?accountId=${accountId}`, { credentials: 'include' })
+    fetch(`${apiBase}/security/findings?accountId=${accountId}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then((data: any) => {
         if (!data) return;
         const arr: any[] = Array.isArray(data) ? data : (data.findings || []);
         setCounts({
-          Critical: arr.filter(f => f.severity === 'CRITICAL').length,
-          High:     arr.filter(f => f.severity === 'HIGH').length,
-          Medium:   arr.filter(f => f.severity === 'MEDIUM').length,
-          Low:      arr.filter(f => f.severity === 'LOW').length,
+          Critical: arr.filter(f => (f.severity || '').toUpperCase() === 'CRITICAL').length,
+          High:     arr.filter(f => (f.severity || '').toUpperCase() === 'HIGH').length,
+          Medium:   arr.filter(f => (f.severity || '').toUpperCase() === 'MEDIUM').length,
+          Low:      arr.filter(f => (f.severity || '').toUpperCase() === 'LOW').length,
         });
       })
       .catch(() => {})
@@ -384,7 +385,9 @@ const LambdaCard: React.FC<{ wasteSummary: WasteSummary | null; loading: boolean
 // ══════════════════════════════════════════════════════════════════════════════
 // Section — fetches data and distributes to cards
 // ══════════════════════════════════════════════════════════════════════════════
-const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, isLoading }) => {
+const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, isLoading, provider = 'AWS' }) => {
+  const apiBase = provider === 'GCP' ? '/api/xamops/gcp' : provider === 'Azure' ? '/api/xamops/azure' : '/api/xamops';
+
   const [alertSummary,      setAlertSummary]      = useState<AlertSummary | null>(null);
   const [wasteSummary,      setWasteSummary]      = useState<WasteSummary | null>(null);
   const [rightsizeSummary,  setRightsizeSummary]  = useState<RightsizingSummary | null>(null);
@@ -397,7 +400,7 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
 
     // Alerts
     setAlertLoading(true);
-    fetch(`/api/xamops/cloudguard/alerts?accountId=${accountId}`, { credentials: 'include' })
+    fetch(`${apiBase}/cloudguard/alerts?accountId=${accountId}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : [])
       .then((data: any) => {
         const arr: RawAlert[] = Array.isArray(data) ? data : (data.alerts || data.data || []);
@@ -408,7 +411,7 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
 
     // Waste
     setWasteLoading(true);
-    fetch(`/api/xamops/waste?accountIds=${accountId}`, { credentials: 'include' })
+    fetch(`${apiBase}/waste?accountIds=${accountId}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : [])
       .then((data: any) => {
         const arr: WasteResource[] = Array.isArray(data) ? data : (data.resources || data.data || []);
@@ -419,7 +422,7 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
 
     // Rightsizing
     setRightsizeLoading(true);
-    fetch(`/api/xamops/rightsizing/recommendations?accountId=${accountId}`, { credentials: 'include' })
+    fetch(`${apiBase}/rightsizing/recommendations?accountId=${accountId}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : [])
       .then((data: any) => {
         const arr: RightsizingRec[] = Array.isArray(data) ? data : (data.recommendations || data.data || []);
@@ -427,7 +430,7 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
       })
       .catch(() => setRightsizeSummary({ total: 0, totalSavings: 0, byInstance: [] }))
       .finally(() => setRightsizeLoading(false));
-  }, [accountId]);
+  }, [accountId, apiBase]);
 
   if (isLoading) {
     return (
@@ -440,7 +443,7 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
       <AlertsCard     summary={alertSummary}     loading={alertLoading} />
-      <SecurityCard   accountId={accountId} />
+      <SecurityCard   accountId={accountId} apiBase={apiBase} />
       <WasteCard      summary={wasteSummary}      loading={wasteLoading} />
       <RightsizingCard summary={rightsizeSummary} loading={rightsizeLoading} />
       <LambdaCard     wasteSummary={wasteSummary} loading={wasteLoading} />

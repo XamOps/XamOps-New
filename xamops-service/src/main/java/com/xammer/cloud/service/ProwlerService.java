@@ -22,12 +22,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 @Service
 public class ProwlerService {
 
     private static final Logger logger = LoggerFactory.getLogger(ProwlerService.class);
+
+    // Limits concurrent Prowler OS processes — each uses ~500MB-1GB RAM.
+    // 2 permits = safe for 4 GB container; raise to 4 when infra is 8 GB+.
+    private static final Semaphore SCAN_SEMAPHORE = new Semaphore(2, true);
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RedisCacheService redisCacheService;
     private final CloudAccountRepository cloudAccountRepository;
@@ -49,23 +55,45 @@ public class ProwlerService {
     }
 
     /**
-     * Trigger async Prowler scan with compliance frameworks.
+     * Trigger async Prowler scan across multiple regions with compliance frameworks.
+     * Acquires a semaphore permit before running so at most 2 Prowler processes
+     * run simultaneously — safe for 500-account queues on a 4 GB container.
      */
+    @Async("prowlerTaskExecutor")
+    public void triggerScanAsync(String accountId, List<String> regions, String[] serviceGroups,
+            String[] complianceFrameworks) {
+        SCAN_SEMAPHORE.acquireUninterruptibly();
+        try {
+            runAsyncScan(accountId, regions, serviceGroups, complianceFrameworks);
+        } finally {
+            SCAN_SEMAPHORE.release();
+        }
+    }
+
+    /** Convenience overload — single region. */
     @Async("prowlerTaskExecutor")
     public void triggerScanAsync(String accountId, String region, String[] serviceGroups,
             String[] complianceFrameworks) {
-        runAsyncScan(accountId, region, serviceGroups, complianceFrameworks);
+        SCAN_SEMAPHORE.acquireUninterruptibly();
+        try {
+            runAsyncScan(accountId, List.of(region), serviceGroups, complianceFrameworks);
+        } finally {
+            SCAN_SEMAPHORE.release();
+        }
     }
 
-    /**
-     * Backward-compatible trigger without compliance frameworks.
-     */
+    /** Convenience overload — single region, no compliance frameworks. */
     @Async("prowlerTaskExecutor")
     public void triggerScanAsync(String accountId, String region, String... serviceGroups) {
-        runAsyncScan(accountId, region, serviceGroups, new String[0]);
+        SCAN_SEMAPHORE.acquireUninterruptibly();
+        try {
+            runAsyncScan(accountId, List.of(region), serviceGroups, new String[0]);
+        } finally {
+            SCAN_SEMAPHORE.release();
+        }
     }
 
-    private void runAsyncScan(String accountId, String region, String[] serviceGroups,
+    private void runAsyncScan(String accountId, List<String> regions, String[] serviceGroups,
             String[] complianceFrameworks) {
         String statusKey = "prowler_status_" + accountId;
         String findingsKey = "prowler_findings_" + accountId;
@@ -91,8 +119,21 @@ public class ProwlerService {
             // Resolve temporary credentials
             AwsCredentials credentials = awsClientProvider.getCredentialsProvider(account).resolveCredentials();
 
-            // 3. Execute Scan (Pass credentials)
-            List<ProwlerFinding> findings = runInternalScan(region, credentials, serviceGroups, complianceFrameworks);
+            // 3. Execute scan — one region at a time to keep memory bounded,
+            // then merge all findings. Sequential is intentional: each Prowler
+            // process uses ~500 MB; running them in parallel multiplies that.
+            List<ProwlerFinding> findings = new ArrayList<>();
+            for (String region : regions) {
+                logger.info("Scanning region {} ({} of {}) for account {}",
+                        region, regions.indexOf(region) + 1, regions.size(), accountId);
+                status.put("message", "Scanning region " + region + " (" + (regions.indexOf(region) + 1) + "/" + regions.size() + ")...");
+                redisCacheService.put(statusKey, status, 1440);
+                try {
+                    findings.addAll(runInternalScan(region, credentials, serviceGroups, complianceFrameworks));
+                } catch (Exception regionEx) {
+                    logger.error("Failed to scan region {} for account {}: {}", region, accountId, regionEx.getMessage());
+                }
+            }
 
             // 4. Save Results & Update Status
             redisCacheService.put(findingsKey, findings, 1440); // Cache findings for 24 hours in Redis

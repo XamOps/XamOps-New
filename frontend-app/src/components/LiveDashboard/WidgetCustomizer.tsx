@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { Icon } from '@iconify/react';
 
 export interface WidgetConfig {
@@ -42,7 +43,7 @@ const WidgetCustomizer: React.FC<WidgetCustomizerProps> = ({
 
   const visibleCount = Object.values(visibleWidgets).filter(Boolean).length;
 
-  return (
+  return ReactDOM.createPortal(
     <>
       {/* Backdrop */}
       <div className={`fixed inset-0 z-40 bg-black/10 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} />
@@ -103,7 +104,8 @@ const WidgetCustomizer: React.FC<WidgetCustomizerProps> = ({
           </p>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 };
 

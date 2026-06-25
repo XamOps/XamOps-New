@@ -54,12 +54,16 @@ public class AsyncConfig implements AsyncConfigurer {
     public Executor prowlerTaskExecutor(TaskDecorator tenantTaskDecorator) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(5);
-        executor.setQueueCapacity(50);
+        executor.setMaxPoolSize(4);
+        // Queue must hold all accounts for the Saturday batch (target: 500+).
+        // Actual concurrency is capped by SCAN_SEMAPHORE(2) in ProwlerService,
+        // not by thread count — threads just block on the semaphore.
+        executor.setQueueCapacity(1000);
         executor.setThreadNamePrefix("ProwlerAsync-");
         executor.setTaskDecorator(tenantTaskDecorator);
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
-        log.info("prowlerTaskExecutor created: core={} max={} queue={}", 2, 5, 50);
+        log.info("prowlerTaskExecutor created: core={} max={} queue={}", 2, 4, 1000);
         return executor;
     }
 

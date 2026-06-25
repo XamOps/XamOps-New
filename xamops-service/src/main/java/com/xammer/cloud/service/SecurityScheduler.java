@@ -5,6 +5,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -33,7 +34,16 @@ public class SecurityScheduler {
             "iso27001_2013_aws"
     };
 
-    // Gap A: GCP Prowler frameworks — parity with AWS list
+    // Key regions that cover most AWS customer deployments.
+    // Scanned sequentially per account — memory stays bounded even for 500 accounts.
+    // IAM, S3, CloudTrail, Route53 are global and appear in any region scan.
+    private static final List<String> AWS_REGIONS = List.of(
+            "ap-south-1",    // Mumbai       — primary for India-based customers
+            "ap-south-2",    // Hyderabad    — newer India region
+            "us-east-1",     // N. Virginia  — many global-service endpoints report here
+            "ap-southeast-1" // Singapore    — common SE Asia
+    );
+
     private static final String[] GCP_FRAMEWORKS = {
             "cis_2.0_gcp", "soc2_gcp", "pci_3.2.1_gcp",
             "iso27001_2013_gcp", "mitre_attack_gcp",
@@ -48,10 +58,16 @@ public class SecurityScheduler {
     }
 
     /**
-     * 2:00 AM daily — triggers Prowler for ALL accounts (AWS + GCP).
+     * Every Saturday at 11:00 PM IST — scans ALL accounts (AWS + GCP) across
+     * all key regions. Results are saved to DB and Redis so the UI reads cached
+     * data until the user explicitly clicks "Run Compliance Scan".
+     *
+     * The Semaphore inside ProwlerService caps concurrent Prowler processes at 2,
+     * so all 500+ accounts queue up safely without OOM.
      */
-    public void runNightlySecurityScans() {
-        logger.info("🕒 Starting Nightly Security Scan for all accounts...");
+    @Scheduled(cron = "0 0 23 * * SAT", zone = "Asia/Kolkata")
+    public void runWeeklySaturdayScan() {
+        logger.info("Starting Weekly Saturday Compliance Scan for all accounts...");
 
         List<CloudAccount> accounts = cloudAccountRepository.findAll();
         if (accounts.isEmpty()) {
@@ -67,17 +83,16 @@ public class SecurityScheduler {
                 String provider = account.getProvider();
 
                 if ("GCP".equalsIgnoreCase(provider)) {
-                    // Gap A: GCP Prowler nightly scan
                     String gcpProjectId = account.getGcpProjectId();
                     if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
 
                     Map<String, Object> status = prowlerService.getGcpScanStatus(gcpProjectId);
                     if ("RUNNING".equals(status.get("status"))) {
-                        logger.info("⏭ GCP Prowler already running for project={} — skipping", gcpProjectId);
+                        logger.info("GCP Prowler already running for project={} — skipping", gcpProjectId);
                         continue;
                     }
 
-                    logger.info("🔍 Triggering GCP Prowler scan for project={}", gcpProjectId);
+                    logger.info("Triggering GCP Prowler scan for project={}", gcpProjectId);
                     prowlerService.triggerGcpScanAsync(gcpProjectId, GCP_FRAMEWORKS);
                     gcpCount++;
 
@@ -86,16 +101,23 @@ public class SecurityScheduler {
                     String awsAccountId = account.getAwsAccountId();
                     if (awsAccountId == null || awsAccountId.isEmpty()) continue;
 
-                    logger.info("🔍 Triggering AWS Prowler scan for account={}", awsAccountId);
-                    prowlerService.triggerScanAsync(awsAccountId, "ap-south-1", AWS_SERVICES, AWS_FRAMEWORKS);
+                    Map<String, Object> status = prowlerService.getScanStatus(awsAccountId);
+                    if ("RUNNING".equals(status.get("status"))) {
+                        logger.info("AWS Prowler already running for account={} — skipping", awsAccountId);
+                        continue;
+                    }
+
+                    logger.info("Triggering AWS Prowler scan for account={} across {} regions",
+                            awsAccountId, AWS_REGIONS.size());
+                    prowlerService.triggerScanAsync(awsAccountId, AWS_REGIONS, AWS_SERVICES, AWS_FRAMEWORKS);
                     awsCount++;
                 }
 
             } catch (Exception e) {
-                logger.error("Failed to trigger nightly scan for account {}", account.getId(), e);
+                logger.error("Failed to trigger Saturday scan for account {}", account.getId(), e);
             }
         }
 
-        logger.info("🕒 Nightly scans triggered — AWS: {} accounts, GCP: {} projects", awsCount, gcpCount);
+        logger.info("Saturday scan triggered — AWS: {} accounts, GCP: {} projects", awsCount, gcpCount);
     }
 }

@@ -26,6 +26,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+// Regions scanned on every compliance run — matches SecurityScheduler.AWS_REGIONS
+// IAM, S3, CloudTrail are global; the rest are per-region services.
+// Extend this list when customers expand to additional regions.
+final class ComplianceRegions {
+    static final List<String> AWS = List.of(
+            "ap-south-1",    // Mumbai
+            "ap-south-2",    // Hyderabad
+            "us-east-1",     // N. Virginia (global-service endpoints)
+            "ap-southeast-1" // Singapore
+    );
+    private ComplianceRegions() {}
+}
+
 @RestController
 @RequestMapping("/api/xamops/security")
 public class SecurityController {
@@ -168,7 +181,7 @@ public class SecurityController {
                 "iso27001_2013_aws"
         };
 
-        prowlerService.triggerScanAsync(accountId, "ap-south-1", services, complianceFrameworks);
+        prowlerService.triggerScanAsync(accountId, ComplianceRegions.AWS, services, complianceFrameworks);
 
         return ResponseEntity.ok(Map.of(
                 "status", "STARTED",
@@ -179,5 +192,11 @@ public class SecurityController {
     @GetMapping("/prowler/status")
     public ResponseEntity<Map<String, Object>> getProwlerStatus(@RequestParam String accountId) {
         return ResponseEntity.ok(prowlerService.getScanStatus(accountId));
+    }
+
+    // ✅ Raw Prowler findings in OCSF format — consumed by ComplianceOps UI
+    @GetMapping("/prowler/findings")
+    public ResponseEntity<List<?>> getProwlerFindings(@RequestParam String accountId) {
+        return ResponseEntity.ok(prowlerService.getCachedFindings(accountId));
     }
 }
