@@ -5,9 +5,10 @@
  * Environment-aware (Local/UAT vs Prod)
  */
 
-import React from 'react';
+import React, { useId } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import clsx from 'clsx';
+import { TooltipWrapper } from '../ui';
 
 const SuperAdminTopBar: React.FC = () => {
     const {
@@ -25,6 +26,10 @@ const SuperAdminTopBar: React.FC = () => {
         fetchTenantUsers,
         fetchTenantAccounts,
     } = useAuth();
+
+    const tenantId = useId();
+    const userId = useId();
+    const accountId = useId();
 
     const handleTenantChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const tenantId = e.target.value;
@@ -58,8 +63,9 @@ const SuperAdminTopBar: React.FC = () => {
 
             {/* Tenant Selector */}
             <div className="flex items-center space-x-2">
-                <label className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Tenant</label>
+                <label htmlFor={tenantId} className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Tenant</label>
                 <select
+                    id={tenantId}
                     value={selectedTenant}
                     onChange={handleTenantChange}
                     className="bg-white border border-indigo-100 text-indigo-900 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-all cursor-pointer hover:border-indigo-300 shadow-sm"
@@ -75,8 +81,9 @@ const SuperAdminTopBar: React.FC = () => {
 
             {/* User Selector */}
             <div className={clsx("flex items-center space-x-2", !selectedTenant && "opacity-40 grayscale pointer-events-none")}>
-                <label className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Impersonate</label>
+                <label htmlFor={userId} className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Impersonate</label>
                 <select
+                    id={userId}
                     value={impersonateUser}
                     onChange={handleUserChange}
                     disabled={!selectedTenant}
@@ -93,8 +100,9 @@ const SuperAdminTopBar: React.FC = () => {
 
             {/* Account Selector */}
             <div className={clsx("flex items-center space-x-2", (!impersonateUser || tenantAccounts.length === 0) && "opacity-40 grayscale pointer-events-none")}>
-                <label className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Account</label>
+                <label htmlFor={accountId} className="text-[10px] text-indigo-400 font-bold uppercase tracking-tight">Account</label>
                 <select
+                    id={accountId}
                     value={selectedAccountId}
                     onChange={handleAccountChange}
                     disabled={!impersonateUser || tenantAccounts.length === 0}
@@ -110,13 +118,15 @@ const SuperAdminTopBar: React.FC = () => {
             </div>
 
             {/* Reset Button */}
-            <button
-                onClick={resetContext}
-                className="ml-1 p-1.5 bg-rose-100 hover:bg-rose-500 text-rose-600 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center group shadow-sm border border-rose-200/50"
-                title="Reset Context"
-            >
-                <i className="fas fa-undo-alt text-xs group-hover:rotate-[-45deg] transition-transform" />
-            </button>
+            <TooltipWrapper tip="Reset Context">
+                <button
+                    onClick={resetContext}
+                    className="ml-1 p-1.5 bg-rose-100 hover:bg-rose-500 text-rose-600 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center group shadow-sm border border-rose-200/50"
+                    aria-label="Reset Context"
+                >
+                    <i className="fas fa-undo-alt text-xs group-hover:rotate-[-45deg] transition-transform" />
+                </button>
+            </TooltipWrapper>
 
             {/* Environment Badge */}
             <div className={clsx(
