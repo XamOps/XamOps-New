@@ -1,0 +1,3 @@
+## 2026-06-25 - Accessible Super Admin Controls
+**Learning:** Using the `useId` hook is a robust pattern for linking labels to form controls (selects, inputs) in shared components. This ensures that IDs remain unique even if the component is rendered multiple times on the same page, which is critical for screen reader accessibility. Additionally, wrapping icon-only buttons in a `TooltipWrapper` with a synchronized `aria-label` provides both visual and non-visual cues for the button's purpose.
+**Action:** Always use `useId` for form associations and provide explicit `aria-label` descriptions for icon-only interactive elements.
