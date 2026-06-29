@@ -4,8 +4,10 @@ import com.xammer.cloud.config.AwsConfig;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -14,6 +16,7 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 
 import java.io.*;
+import java.security.Principal;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -61,9 +64,29 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        // 1. Verify Authentication
+        Principal principal = session.getPrincipal();
+        if (!(principal instanceof UsernamePasswordAuthenticationToken)) {
+            log.warn("Unauthorized terminal access attempt (no principal) for session {}", session.getId());
+            sendMessageSafe(session, "Error: Unauthorized. Please log in.\r\n");
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
+
+        UsernamePasswordAuthenticationToken token = (UsernamePasswordAuthenticationToken) principal;
+        if (!(token.getPrincipal() instanceof ClientUserDetails)) {
+            log.warn("Unauthorized terminal access attempt (invalid principal) for session {}", session.getId());
+            sendMessageSafe(session, "Error: Unauthorized. Invalid user details.\r\n");
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
+
+        ClientUserDetails user = (ClientUserDetails) token.getPrincipal();
+        boolean isSuperAdmin = user.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+
         Map<String, String> queryParams = parseQueryParams(session.getUri().getQuery());
         String accountId = queryParams.get("accountId");
-        String tenantId = queryParams.get("tenantId");
 
         // Initialize session lock for thread-safe message sending
         sessionLocks.put(session.getId(), new Object());
@@ -74,12 +97,11 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        if (tenantId != null && !tenantId.equals("null")) {
-            TenantContext.setCurrentTenant(tenantId);
-        }
+        // 2. Set Tenant Context from authenticated user (prevents spoofing)
+        TenantContext.setCurrentTenant(user.getTenantId());
 
         try {
-            log.info("WS Connecting: Session={}, Account={}", session.getId(), accountId);
+            log.info("WS Connecting: Session={}, Account={}, User={}", session.getId(), accountId, user.getUsername());
 
             // Track session start time
             sessionStartTimes.put(session.getId(), System.currentTimeMillis());
@@ -88,6 +110,15 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             if (account == null) {
                 sendMessageSafe(session, "Error: Account not found.\r\n");
                 session.close();
+                return;
+            }
+
+            // 3. Authorization Check: Ensure user owns the account (unless super admin)
+            if (!isSuperAdmin && !account.getClient().getId().equals(user.getClientId())) {
+                log.warn("Forbidden terminal access attempt by user {} (clientId {}) for account {} (clientId {})",
+                        user.getUsername(), user.getClientId(), accountId, account.getClient().getId());
+                sendMessageSafe(session, "Error: Forbidden. You do not have access to this account.\r\n");
+                session.close(CloseStatus.POLICY_VIOLATION);
                 return;
             }
 

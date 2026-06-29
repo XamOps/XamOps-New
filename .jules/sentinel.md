@@ -1,0 +1,4 @@
+## 2026-06-25 - Unauthorized Cloud Shell Access via WebSocket
+**Vulnerability:** The `/terminal` WebSocket endpoint was unauthenticated in `SecurityConfig.java` and lacked authorization checks in `CloudShellSocketHandler.java`.
+**Learning:** WebSocket endpoints (`TextWebSocketHandler`) do not implicitly inherit session security context in a way that prevents unauthenticated connections if the path is not strictly secured. Furthermore, even when secured, they are susceptible to IDOR/tenant spoofing if they rely on query parameters instead of the session `Principal`.
+**Prevention:** 1) Explicitly require authentication for WebSocket paths in `SecurityConfig`. 2) Always verify the `Principal` in `afterConnectionEstablished`. 3) Use the `Principal`'s `tenantId`/`clientId` for all authorization and context setting instead of client-provided query parameters.
