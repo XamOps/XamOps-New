@@ -11,6 +11,7 @@ import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
 import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
 import { useTheme } from '../../contexts/ThemeContext';
+import { TooltipWrapper } from '../ui/Tooltip';
 import { isDemoMode } from '../../demo/demoConfig';
 
 const Topbar: React.FC = () => {
@@ -199,27 +200,32 @@ const Topbar: React.FC = () => {
 
                     {/* Help button */}
                     {onHelpClick && (
-                        <button
-                            onClick={onHelpClick}
-                            className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
-                            aria-label="Open help guide"
-                        >
-                            <i className="fas fa-question-circle text-[13px]"></i>
-                        </button>
+                        <TooltipWrapper tip="Help Guide">
+                            <button
+                                onClick={onHelpClick}
+                                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
+                                aria-label="Open help guide"
+                            >
+                                <i className="fas fa-question-circle text-[13px]"></i>
+                            </button>
+                        </TooltipWrapper>
                     )}
 
                     {/* Notifications */}
                     {!isBillOpsAdmin && (
                         <div className="relative" ref={notificationRef}>
-                            <button
-                                onClick={toggleNotifications}
-                                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors relative ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
-                            >
-                                <i className="fas fa-bell text-[13px]"></i>
-                                {counts.total > 0 && (
-                                    <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-rose-500 rounded-full ${theme === 'dark' ? 'border border-[#1f1f1f]' : 'border border-white'}`}></span>
-                                )}
-                            </button>
+                            <TooltipWrapper tip="Notifications">
+                                <button
+                                    onClick={toggleNotifications}
+                                    aria-label="Toggle notifications"
+                                    className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors relative ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.08)] hover:text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.4)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.7)]'}`}
+                                >
+                                    <i className="fas fa-bell text-[13px]"></i>
+                                    {counts.total > 0 && (
+                                        <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-rose-500 rounded-full ${theme === 'dark' ? 'border border-[#1f1f1f]' : 'border border-white'}`}></span>
+                                    )}
+                                </button>
+                            </TooltipWrapper>
 
                             {isNotificationOpen && (
                                 <>
@@ -261,7 +267,10 @@ const Topbar: React.FC = () => {
                             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-semibold flex-shrink-0 ${theme === 'dark' ? 'bg-[rgba(255,255,255,0.15)]' : 'bg-[rgba(0,0,0,0.88)]'}`}>
                                 {avatarInitial}
                             </div>
-                            <span className={`hidden lg:block text-[13px] font-medium max-w-[120px] truncate ${theme === 'dark' ? 'text-[rgba(255,255,255,0.7)]' : 'text-[rgba(0,0,0,0.7)]'}`}>
+                            <span
+                                aria-label={`Logged in as ${displayName}`}
+                                className={`hidden lg:block text-[13px] font-medium max-w-[120px] truncate ${theme === 'dark' ? 'text-[rgba(255,255,255,0.7)]' : 'text-[rgba(0,0,0,0.7)]'}`}
+                            >
                                 {displayName}
                             </span>
                             <i className={`fas fa-chevron-down text-[9px] transition-transform duration-150 ${theme === 'dark' ? 'text-[rgba(255,255,255,0.3)]' : 'text-[rgba(0,0,0,0.3)]'} ${isProfileOpen ? 'rotate-180' : ''}`}></i>
