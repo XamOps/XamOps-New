@@ -47,7 +47,7 @@ export function JobListControls({
         <select
           value={sortBy}
           onChange={(e) => onSortChange(e.target.value as SortField, sortDirection)}
-          className="px-2.5 py-1.5 border border-[rgba(0,0,0,0.10)] rounded-lg text-[12px] font-medium bg-white focus:ring-2 focus:ring-pink-400 focus:border-pink-400 outline-none"
+          className="px-2.5 py-1.5 border border-[rgba(0,0,0,0.10)] rounded-lg text-[12px] font-medium bg-white focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none"
         >
           {SORT_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -79,7 +79,7 @@ export function JobListControls({
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search jobs… (Ctrl+K)"
-          className="w-full pl-8 pr-8 py-1.5 border border-[rgba(0,0,0,0.10)] rounded-lg text-[12px] bg-white focus:ring-2 focus:ring-pink-400 focus:border-pink-400 outline-none placeholder-[rgba(0,0,0,0.3)]"
+          className="w-full pl-8 pr-8 py-1.5 border border-[rgba(0,0,0,0.10)] rounded-lg text-[12px] bg-white focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none placeholder-[rgba(0,0,0,0.3)]"
         />
         {searchQuery && (
           <button
@@ -94,7 +94,7 @@ export function JobListControls({
       {/* New Job Button */}
       <button
         onClick={onNewJob}
-        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[11px] font-bold rounded-lg shadow hover:shadow-md transition-all hover:scale-[1.02]"
+        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-[11px] font-bold rounded-lg shadow hover:shadow-md transition-all hover:scale-[1.02]"
         title="New Job (Ctrl+N)"
       >
         <Icon icon="mdi:plus" className="text-sm" />

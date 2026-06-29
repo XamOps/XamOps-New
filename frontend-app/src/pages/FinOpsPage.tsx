@@ -22,20 +22,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useFinOpsData } from '../hooks/useFinOpsData';
-import type { DateFilter, NewBudget, NewSchedule, PaginationState } from '../types/finops';
+import type { DateFilter, PaginationState } from '../types/finops';
 import { Icon } from '@iconify/react';
 
 // Component imports
 import FinOpsHeader from '../components/FinOps/FinOpsHeader';
 import FinOpsKPISection from '../components/FinOps/FinOpsKPISection';
-import FinOpsBudgets from '../components/FinOps/FinOpsBudgets';
-import FinOpsScheduledReports from '../components/FinOps/FinOpsScheduledReports';
 import FinOpsCharts from '../components/FinOps/FinOpsCharts';
 import FinOpsTaggingCompliance from '../components/FinOps/FinOpsTaggingCompliance';
 import FinOpsInsights from '../components/FinOps/FinOpsInsights';
-import BudgetModal from '../components/FinOps/BudgetModal';
-import ScheduleModal from '../components/FinOps/ScheduleModal';
-import Toast from '../components/FinOps/Toast';
 
 // Helper to get initial date range (start of month to today) - matches Cost page defaults
 const getInitialDates = (): DateFilter => {
@@ -83,30 +78,14 @@ export const FinOpsPage: React.FC = () => {
   const {
     reportData,
     sectionLoading,
-    reportSchedules,
     isLoading,
     isRefreshing,
     error,
     loadReport,
-    createBudget,
-    deleteBudget,
-    createSchedule,
-    deleteSchedule,
   } = useFinOpsData({
     selectedAccountId,
     dateFilter,
   });
-
-  // Modal states
-  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
-  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-  const [isBudgetCreating, setIsBudgetCreating] = useState(false);
-  const [isScheduleCreating, setIsScheduleCreating] = useState(false);
-
-  // Toast state
-  const [showSuccessToast, setShowSuccessToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
-  const [, setLastScheduleFrequency] = useState('');
 
   // Pagination states
   const [taggingPagination, setTaggingPagination] = useState<PaginationState>({
@@ -145,75 +124,6 @@ export const FinOpsPage: React.FC = () => {
     setDateFilter(initialDates);
     console.log('[FinOps] Date filter reset to current month');
     // Note: loadReport will be called via useEffect in useFinOpsData when dateFilter changes
-  };
-
-  // Budget handlers
-  const handleCreateBudget = async (budget: NewBudget) => {
-    if (!budget.budgetName || !budget.budgetLimit) {
-      alert('Please fill out all fields.');
-      return;
-    }
-
-    setIsBudgetCreating(true);
-
-    try {
-      await createBudget(budget);
-      setIsBudgetModalOpen(false);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create budget');
-    } finally {
-      setIsBudgetCreating(false);
-    }
-  };
-
-  const handleDeleteBudget = async (budgetName: string) => {
-    if (!confirm(`Are you sure you want to delete the budget "${budgetName}"?`)) {
-      return;
-    }
-
-    try {
-      await deleteBudget(budgetName);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete budget');
-    }
-  };
-
-  // Schedule handlers
-  const handleCreateSchedule = async (schedule: NewSchedule) => {
-    if (!schedule.email || !schedule.frequency || !schedule.cloudAccountId) {
-      alert('Please fill out all fields and ensure an account is selected.');
-      return;
-    }
-
-    setIsScheduleCreating(true);
-
-    try {
-      await createSchedule(schedule);
-      setIsScheduleModalOpen(false);
-
-      // Show success toast
-      setLastScheduleFrequency(schedule.frequency);
-      setToastMessage(`Your ${schedule.frequency.toLowerCase()} report is set up.`);
-      setShowSuccessToast(true);
-      setTimeout(() => setShowSuccessToast(false), 4000);
-    } catch (err) {
-      console.error('Create schedule error:', err);
-      alert(err instanceof Error ? err.message : 'Failed to create schedule');
-    } finally {
-      setIsScheduleCreating(false);
-    }
-  };
-
-  const handleDeleteSchedule = async (scheduleId: number) => {
-    if (!confirm('Are you sure you want to delete this report schedule?')) {
-      return;
-    }
-
-    try {
-      await deleteSchedule(scheduleId);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete schedule');
-    }
   };
 
   // Pagination handlers
@@ -291,27 +201,6 @@ export const FinOpsPage: React.FC = () => {
             <FinOpsKPISection kpis={reportData.kpis} />
           )}
 
-          {/* Budgets Section */}
-          <RevealSection>
-            {sectionLoading.budgets ? (
-              <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-40 w-full rounded-xl" />
-            ) : reportData && (
-              <FinOpsBudgets
-                budgets={reportData.budgets}
-                onCreateBudget={() => setIsBudgetModalOpen(true)}
-                onScheduleReport={() => setIsScheduleModalOpen(true)}
-                onDeleteBudget={handleDeleteBudget}
-              />
-            )}
-          </RevealSection>
-
-          {/* Scheduled Reports */}
-          {reportSchedules.length > 0 && (
-            <RevealSection>
-              <FinOpsScheduledReports schedules={reportSchedules} onDeleteSchedule={handleDeleteSchedule} />
-            </RevealSection>
-          )}
-
           {/* Charts Grid — shows when cost-history + cost-by-region resolve */}
           <RevealSection delay={0.05}>
             {sectionLoading.charts ? (
@@ -366,29 +255,6 @@ export const FinOpsPage: React.FC = () => {
         </>
       )}
 
-      {/* Modals */}
-      <BudgetModal
-        isOpen={isBudgetModalOpen}
-        isCreating={isBudgetCreating}
-        onClose={() => setIsBudgetModalOpen(false)}
-        onSubmit={handleCreateBudget}
-      />
-
-      <ScheduleModal
-        isOpen={isScheduleModalOpen}
-        isCreating={isScheduleCreating}
-        cloudAccountId={selectedAccountId}
-        onClose={() => setIsScheduleModalOpen(false)}
-        onSubmit={handleCreateSchedule}
-      />
-
-      {/* Toast Notification */}
-      <Toast
-        show={showSuccessToast}
-        message={toastMessage}
-        title="Schedule Created!"
-        onClose={() => setShowSuccessToast(false)}
-      />
     </main>
   );
 };

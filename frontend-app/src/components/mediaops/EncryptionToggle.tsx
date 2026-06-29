@@ -29,7 +29,7 @@ export function EncryptionToggle({ enabled, outputFormat, onChange }: Encryption
             !isHLS
               ? `${dark ? 'bg-[rgba(255,255,255,0.08)]' : 'bg-[rgba(0,0,0,0.08)]'} cursor-not-allowed`
               : enabled
-                ? 'bg-pink-500'
+                ? 'bg-blue-500'
                 : dark ? 'bg-[rgba(255,255,255,0.15)]' : 'bg-[rgba(0,0,0,0.15)]'
           }`}
           aria-label="Enable AES-128 encryption"

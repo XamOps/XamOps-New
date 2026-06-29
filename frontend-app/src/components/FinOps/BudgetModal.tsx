@@ -6,22 +6,33 @@ import { Icon } from '@iconify/react';
 interface BudgetModalProps {
   isOpen: boolean;
   isCreating: boolean;
+  availableServices?: string[];
   onClose: () => void;
   onSubmit: (budget: NewBudget) => void;
 }
 
-const BudgetModal: React.FC<BudgetModalProps> = ({ isOpen, isCreating, onClose, onSubmit }) => {
-  const [budget, setBudget] = useState<NewBudget>({ budgetName: '', budgetLimit: null, budgetUnit: 'USD' });
+const BudgetModal: React.FC<BudgetModalProps> = ({ isOpen, isCreating, availableServices = [], onClose, onSubmit }) => {
+  const [budget, setBudget] = useState<NewBudget>({ budgetName: '', budgetLimit: null, budgetUnit: 'USD', serviceName: null });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(budget);
-    setBudget({ budgetName: '', budgetLimit: null, budgetUnit: 'USD' });
+    setBudget({ budgetName: '', budgetLimit: null, budgetUnit: 'USD', serviceName: null });
   };
 
   const handleClose = () => {
-    setBudget({ budgetName: '', budgetLimit: null, budgetUnit: 'USD' });
+    setBudget({ budgetName: '', budgetLimit: null, budgetUnit: 'USD', serviceName: null });
     onClose();
+  };
+
+  const handleServiceChange = (serviceName: string) => {
+    const svc = serviceName || null;
+    setBudget(prev => ({
+      ...prev,
+      serviceName: svc,
+      // Auto-fill budget name with service name if empty
+      budgetName: prev.budgetName === '' && svc ? svc : prev.budgetName,
+    }));
   };
 
   const inputCls = 'w-full px-3 py-2.5 rounded-lg text-[13px] border border-[rgba(0,0,0,0.12)] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors';
@@ -51,13 +62,31 @@ const BudgetModal: React.FC<BudgetModalProps> = ({ isOpen, isCreating, onClose, 
         }
       >
         <form id="budget-form" onSubmit={handleSubmit} className="space-y-4">
+          {/* Service selector */}
+          {availableServices.length > 0 && (
+            <div>
+              <label htmlFor="budgetService" className={labelCls}>Service (optional)</label>
+              <select
+                id="budgetService"
+                value={budget.serviceName || ''}
+                onChange={(e) => handleServiceChange(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">All Services (account-level budget)</option>
+                {availableServices.map((svc) => (
+                  <option key={svc} value={svc}>{svc}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-[rgba(0,0,0,0.4)] mt-1">Select a service to create a per-service budget, or leave blank for overall account budget.</p>
+            </div>
+          )}
           <div>
             <label htmlFor="budgetName" className={labelCls}>Budget Name</label>
-            <input type="text" id="budgetName" value={budget.budgetName} onChange={(e) => setBudget({ ...budget, budgetName: e.target.value })} className={inputCls} required />
+            <input type="text" id="budgetName" value={budget.budgetName} onChange={(e) => setBudget({ ...budget, budgetName: e.target.value })} className={inputCls} required placeholder="e.g. EC2 Monthly Budget" />
           </div>
           <div>
             <label htmlFor="budgetLimit" className={labelCls}>Budget Limit (USD)</label>
-            <input type="number" id="budgetLimit" value={budget.budgetLimit || ''} onChange={(e) => setBudget({ ...budget, budgetLimit: Number(e.target.value) })} className={inputCls} required min="1" />
+            <input type="number" id="budgetLimit" value={budget.budgetLimit || ''} onChange={(e) => setBudget({ ...budget, budgetLimit: Number(e.target.value) })} className={inputCls} required min="1" placeholder="1000" />
           </div>
         </form>
       </DialogPanel>

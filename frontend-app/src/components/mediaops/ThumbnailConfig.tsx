@@ -48,7 +48,7 @@ export function ThumbnailConfig({
         <button
           type="button"
           onClick={() => onEnabledChange(!enabled)}
-          className={`relative w-9 h-5 rounded-full transition-colors ${enabled ? 'bg-pink-500' : (dark ? 'bg-[rgba(255,255,255,0.15)]' : 'bg-[rgba(0,0,0,0.15)]')}`}
+          className={`relative w-9 h-5 rounded-full transition-colors ${enabled ? 'bg-blue-500' : (dark ? 'bg-[rgba(255,255,255,0.15)]' : 'bg-[rgba(0,0,0,0.15)]')}`}
           aria-label="Enable thumbnail generation"
         >
           <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
@@ -100,7 +100,7 @@ export function ThumbnailConfig({
                   const val = parseInt(e.target.value, 10);
                   onIntervalChange(isNaN(val) || val < 1 ? null : val);
                 }}
-                className={`w-16 px-2 py-1.5 border rounded-lg text-[12px] text-center focus:ring-2 focus:ring-pink-400 outline-none ${
+                className={`w-16 px-2 py-1.5 border rounded-lg text-[12px] text-center focus:ring-2 focus:ring-blue-400 outline-none ${
                   dark ? 'bg-[#1e1e1e] border-[rgba(255,255,255,0.12)] text-white' : 'border-[rgba(0,0,0,0.12)]'
                 }`}
                 placeholder="10"
@@ -118,7 +118,7 @@ export function ThumbnailConfig({
                 value={timestamp ?? ''}
                 onChange={(e) => onTimestampChange(e.target.value || null)}
                 placeholder="HH:MM:SS"
-                className={`w-24 px-2 py-1.5 border rounded-lg text-[12px] text-center font-mono focus:ring-2 focus:ring-pink-400 outline-none ${
+                className={`w-24 px-2 py-1.5 border rounded-lg text-[12px] text-center font-mono focus:ring-2 focus:ring-blue-400 outline-none ${
                   dark ? 'bg-[#1e1e1e] border-[rgba(255,255,255,0.12)] text-white' : 'border-[rgba(0,0,0,0.12)]'
                 }`}
               />

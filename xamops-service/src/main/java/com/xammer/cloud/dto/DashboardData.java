@@ -637,7 +637,8 @@ public class DashboardData {
     private String budgetUnit;
     private BigDecimal actualSpend;
     private BigDecimal forecastedSpend;
-    private String notificationEmail; // Add this line
+    private String notificationEmail;
+    private String serviceName; // Optional: filter budget to a specific AWS service
 
     public BudgetDetails(
         String budgetName,

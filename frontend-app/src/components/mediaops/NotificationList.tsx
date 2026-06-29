@@ -60,7 +60,7 @@ export function NotificationList({ notifications, onMarkAsRead, onNavigateToJob,
       {/* Header */}
       <div className={`flex items-center justify-between px-4 py-3 border-b ${dark ? 'border-[rgba(255,255,255,0.06)]' : 'border-[rgba(0,0,0,0.06)]'}`}>
         <div className="flex items-center gap-2">
-          <Icon icon="mdi:bell" className="text-pink-500 text-sm" />
+          <Icon icon="mdi:bell" className="text-blue-500 text-sm" />
           <span className={`text-[13px] font-bold ${dark ? 'text-[rgba(255,255,255,0.88)]' : 'text-[rgba(0,0,0,0.88)]'}`}>Notifications</span>
         </div>
         <button onClick={onClose}
@@ -85,7 +85,7 @@ export function NotificationList({ notifications, onMarkAsRead, onNavigateToJob,
                 <button key={notification.id} onClick={() => handleClick(notification)}
                   className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors ${
                     dark ? 'hover:bg-[rgba(255,255,255,0.02)]' : 'hover:bg-[rgba(0,0,0,0.02)]'
-                  } ${!notification.read ? (dark ? 'bg-pink-900/10' : 'bg-pink-50/30') : ''}`}>
+                  } ${!notification.read ? (dark ? 'bg-blue-900/10' : 'bg-blue-50/30') : ''}`}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${bg}`}>
                     <Icon icon={icon} className={`text-sm ${color}`} />
                   </div>
@@ -99,7 +99,7 @@ export function NotificationList({ notifications, onMarkAsRead, onNavigateToJob,
                       {timeAgo(notification.createdAt)}
                     </p>
                   </div>
-                  {!notification.read && <span className="w-2 h-2 rounded-full bg-pink-500 flex-shrink-0 mt-2" />}
+                  {!notification.read && <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 mt-2" />}
                 </button>
               );
             })}

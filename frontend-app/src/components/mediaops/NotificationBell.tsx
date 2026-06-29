@@ -30,7 +30,7 @@ export function NotificationBell({ unreadCount, onClick }: NotificationBellProps
             animate={{ scale: 1 }}
             exit={{ scale: 0 }}
             transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-            className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[10px] font-bold px-1 shadow-sm"
+            className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white text-[10px] font-bold px-1 shadow-sm"
           >
             {unreadCount > 99 ? '99+' : unreadCount}
           </motion.span>

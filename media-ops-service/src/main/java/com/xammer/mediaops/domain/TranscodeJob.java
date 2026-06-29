@@ -135,6 +135,15 @@ public class TranscodeJob {
     @Column(name = "watermark_opacity")
     private Double watermarkOpacity;
 
+    @Column(name = "watermark_scale")
+    private Integer watermarkScale; // percentage of video width (default 15)
+
+    @Column(name = "watermark_x")
+    private Double watermarkX; // center X as % of video width (0-100), overrides position enum
+
+    @Column(name = "watermark_y")
+    private Double watermarkY; // center Y as % of video height (0-100), overrides position enum
+
     // Thumbnails
     @Column(name = "thumbnail_enabled")
     private boolean thumbnailEnabled = false;
@@ -197,6 +206,8 @@ public class TranscodeJob {
     }
 
     public enum WatermarkPosition {
-        TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT, CENTER
+        TOP_LEFT, TOP_CENTER, TOP_RIGHT,
+        MIDDLE_LEFT, CENTER, MIDDLE_RIGHT,
+        BOTTOM_LEFT, BOTTOM_CENTER, BOTTOM_RIGHT
     }
 }

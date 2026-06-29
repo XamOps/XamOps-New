@@ -7,7 +7,8 @@ import { PrioritySelector } from './PrioritySelector';
 import { SchedulePicker } from './SchedulePicker';
 import { TrimConfig } from './TrimConfig';
 import { SubtitleConfig, type SubtitleMode } from './SubtitleConfig';
-import { WatermarkConfig, type WatermarkType, type WatermarkPosition } from './WatermarkConfig';
+import { WatermarkConfig, type WatermarkType } from './WatermarkConfig';
+import { VideoPreviewPanel } from './VideoPreviewPanel';
 import { ThumbnailConfig } from './ThumbnailConfig';
 import { AudioConfig } from './AudioConfig';
 import { CustomParams } from './CustomParams';
@@ -30,8 +31,10 @@ export interface AdvancedModeState {
   watermarkType: WatermarkType | null;
   watermarkImage: File | null;
   watermarkText: string;
-  watermarkPosition: WatermarkPosition;
+  watermarkX: number;
+  watermarkY: number;
   watermarkOpacity: number;
+  watermarkScale: number;
   thumbnailEnabled: boolean;
   thumbnailIntervalSeconds: number | null;
   thumbnailTimestamp: string | null;
@@ -54,16 +57,23 @@ interface AdvancedModeProps {
   onBrowseS3?: () => void;
 }
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
+// ─── Layout helpers ───────────────────────────────────────────────────────────
 
-function AdvancedSection({ icon, label, children }: { icon: string; label: string; children?: React.ReactNode }) {
+function SectionGroup({ icon, title, first }: { icon: string; title: string; first?: boolean }) {
   return (
-    <div className="border border-[rgba(0,0,0,0.06)] rounded-xl p-4 bg-[rgba(0,0,0,0.01)]">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon icon={icon} className="text-pink-500 text-sm" />
-        <span className="text-[11px] font-bold text-[rgba(0,0,0,0.6)] uppercase tracking-wide">{label}</span>
-      </div>
-      {children}
+    <div className={`flex items-center gap-2 ${first ? 'pt-3' : 'pt-5'} pb-2`}>
+      <Icon icon={icon} className="text-blue-400 text-[12px]" />
+      <span className="text-[10px] font-bold text-[rgba(0,0,0,0.38)] uppercase tracking-[0.13em]">{title}</span>
+      <div className="flex-1 h-px bg-[rgba(0,0,0,0.07)]" />
+    </div>
+  );
+}
+
+function OptionRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-4 py-1.5">
+      <span className="text-[12px] text-[rgba(0,0,0,0.45)] w-[76px] shrink-0">{label}</span>
+      <div className="flex-1 min-w-0">{children}</div>
     </div>
   );
 }
@@ -87,8 +97,10 @@ export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canS
     watermarkType: null,
     watermarkImage: null,
     watermarkText: '',
-    watermarkPosition: 'BOTTOM_RIGHT',
+    watermarkX: 85,
+    watermarkY: 85,
     watermarkOpacity: 80,
+    watermarkScale: 15,
     thumbnailEnabled: false,
     thumbnailIntervalSeconds: 10,
     thumbnailTimestamp: null,
@@ -149,8 +161,8 @@ export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canS
   // Apply preset handler — applies both simple fields and advanced fields
   function handleApplyPreset(values: PresetValues) {
     const updates: Partial<SimpleModeFormState> = {};
-    if (values.outputFormat) updates.outputFormat = values.outputFormat;
-    if (values.resolution) updates.resolution = values.resolution;
+    if (values.outputFormat) updates.outputFormats = [values.outputFormat];
+    if (values.resolution) updates.resolutions = [values.resolution];
     if (values.bitrate) updates.bitrate = values.bitrate;
     onFormChange(updates);
 
@@ -166,7 +178,24 @@ export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canS
     onSubmit(advState);
   }, [onSubmit, advState]);
 
-  const isAudioOnlyFormat = AUDIO_ONLY_FORMATS.includes(formState.outputFormat.toUpperCase());
+  const isAudioOnlyFormat = formState.outputFormats.every(f => AUDIO_ONLY_FORMATS.includes(f.toUpperCase()));
+
+  // Convert between the HH:MM:SS trim state and seconds for the visual trim track
+  const hmsToSeconds = (str: string): number | null => {
+    if (!str) return null;
+    const parts = str.split(':').map(p => parseInt(p, 10));
+    if (parts.some(isNaN)) return null;
+    return parts.reduce((acc, p) => acc * 60 + p, 0);
+  };
+  const secondsToHms = (s: number): string => {
+    const t = Math.max(0, Math.round(s));
+    const hh = Math.floor(t / 3600), mm = Math.floor((t % 3600) / 60), ss = t % 60;
+    return [hh, mm, ss].map(n => String(n).padStart(2, '0')).join(':');
+  };
+  const handleTrimChange = (startSec: number, endSec: number) => {
+    updateAdv('startTime', startSec <= 0 ? '' : secondsToHms(startSec));
+    updateAdv('endTime', secondsToHms(endSec));
+  };
 
   return (
     <div className="space-y-5">
@@ -194,6 +223,49 @@ export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canS
       {/* File Probe Panel - shows between source and settings */}
       <FileProbePanel probeResult={probeResult} probing={probing} probeError={probeError} />
 
+      {/* Video Preview + Live Watermark — shown when a video source is available */}
+      {!isAudioOnlyFormat && (
+        formState.sourceMode === 'upload' && formState.localFile
+          ? (
+            <VideoPreviewPanel
+              sourceFile={formState.localFile}
+              sourceUrl=""
+              sourceMode="upload"
+              watermarkType={advState.watermarkType}
+              watermarkImage={advState.watermarkImage}
+              watermarkText={advState.watermarkText}
+              watermarkX={advState.watermarkX}
+              watermarkY={advState.watermarkY}
+              watermarkOpacity={advState.watermarkOpacity}
+              watermarkScale={advState.watermarkScale}
+              onPositionChange={(x, y) => { updateAdv('watermarkX', x); updateAdv('watermarkY', y); }}
+              onScaleChange={(s) => updateAdv('watermarkScale', s)}
+              trimStartSec={hmsToSeconds(advState.startTime)}
+              trimEndSec={hmsToSeconds(advState.endTime)}
+              onTrimChange={handleTrimChange}
+            />
+          )
+          : formState.sourceMode === 'url' && formState.sourceUrl.trim() ? (
+            <VideoPreviewPanel
+              sourceFile={null}
+              sourceUrl={formState.sourceUrl.trim()}
+              sourceMode="url"
+              watermarkType={advState.watermarkType}
+              watermarkImage={advState.watermarkImage}
+              watermarkText={advState.watermarkText}
+              watermarkX={advState.watermarkX}
+              watermarkY={advState.watermarkY}
+              watermarkOpacity={advState.watermarkOpacity}
+              watermarkScale={advState.watermarkScale}
+              onPositionChange={(x, y) => { updateAdv('watermarkX', x); updateAdv('watermarkY', y); }}
+              onScaleChange={(s) => updateAdv('watermarkScale', s)}
+              trimStartSec={hmsToSeconds(advState.startTime)}
+              trimEndSec={hmsToSeconds(advState.endTime)}
+              onTrimChange={handleTrimChange}
+            />
+          ) : null
+      )}
+
       {/* Divider */}
       <div className="relative py-1">
         <div className="absolute inset-0 flex items-center">
@@ -204,120 +276,118 @@ export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canS
         </div>
       </div>
 
-      {/* Advanced sections grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Preset Selector */}
-        <AdvancedSection icon="mdi:content-save-cog-outline" label="Preset">
+      {/* Advanced Options Panel */}
+      <div className="rounded-xl border border-[rgba(0,0,0,0.07)] bg-white px-4 pb-5">
+
+        {/* ── Encoding ── */}
+        <SectionGroup icon="mdi:cog-outline" title="Encoding" first />
+        <OptionRow label="Preset">
           <PresetSelector onApplyPreset={handleApplyPreset} />
-        </AdvancedSection>
-
-        {/* Codec Selection — hidden for audio-only */}
+        </OptionRow>
         {!isAudioOnlyFormat && (
-        <AdvancedSection icon="mdi:cog-outline" label="Codec">
-          <CodecSelector value={advState.codec} onChange={(codec) => updateAdv('codec', codec)} outputFormat={formState.outputFormat} />
-        </AdvancedSection>
+          <OptionRow label="Codec">
+            <CodecSelector value={advState.codec} onChange={(codec) => updateAdv('codec', codec)} outputFormat={formState.outputFormats[0] ?? 'HLS'} />
+          </OptionRow>
         )}
-
-        {/* Priority */}
-        <AdvancedSection icon="mdi:sort-variant" label="Priority">
+        <OptionRow label="Priority">
           <PrioritySelector value={advState.priority} onChange={(p) => updateAdv('priority', p)} />
-        </AdvancedSection>
+        </OptionRow>
 
-        {/* Trimming — video only */}
+        {/* ── Timing ── video only */}
         {!isAudioOnlyFormat && (
-        <AdvancedSection icon="mdi:content-cut" label="Trimming">
-          <TrimConfig
-            startTime={advState.startTime}
-            endTime={advState.endTime}
-            onStartTimeChange={(v) => updateAdv('startTime', v)}
-            onEndTimeChange={(v) => updateAdv('endTime', v)}
-          />
-        </AdvancedSection>
+          <>
+            <SectionGroup icon="mdi:content-cut" title="Timing" />
+            <TrimConfig
+              startTime={advState.startTime}
+              endTime={advState.endTime}
+              onStartTimeChange={(v) => updateAdv('startTime', v)}
+              onEndTimeChange={(v) => updateAdv('endTime', v)}
+            />
+            <OptionRow label="Schedule">
+              <SchedulePicker value={advState.scheduledAt} onChange={(s) => updateAdv('scheduledAt', s)} />
+            </OptionRow>
+          </>
         )}
 
-        {/* Subtitles — video only */}
-        {!isAudioOnlyFormat && (
-        <AdvancedSection icon="mdi:subtitles-outline" label="Subtitles">
-          <SubtitleConfig
-            subtitleFile={advState.subtitleFile}
-            subtitleMode={advState.subtitleMode}
-            onFileChange={(f) => updateAdv('subtitleFile', f)}
-            onModeChange={(m) => updateAdv('subtitleMode', m)}
-          />
-        </AdvancedSection>
-        )}
-
-        {/* Watermark — video only */}
-        {!isAudioOnlyFormat && (
-        <AdvancedSection icon="mdi:watermark" label="Watermark">
-          <WatermarkConfig
-            watermarkType={advState.watermarkType}
-            watermarkImage={advState.watermarkImage}
-            watermarkText={advState.watermarkText}
-            position={advState.watermarkPosition}
-            opacity={advState.watermarkOpacity}
-            onTypeChange={(t) => updateAdv('watermarkType', t)}
-            onImageChange={(f) => updateAdv('watermarkImage', f)}
-            onTextChange={(t) => updateAdv('watermarkText', t)}
-            onPositionChange={(p) => updateAdv('watermarkPosition', p)}
-            onOpacityChange={(o) => updateAdv('watermarkOpacity', o)}
-          />
-        </AdvancedSection>
-        )}
-
-        {/* Thumbnails — video only */}
-        {!isAudioOnlyFormat && (
-        <AdvancedSection icon="mdi:image-multiple-outline" label="Thumbnails">
-          <ThumbnailConfig
-            enabled={advState.thumbnailEnabled}
-            intervalSeconds={advState.thumbnailIntervalSeconds}
-            timestamp={advState.thumbnailTimestamp}
-            onEnabledChange={(e) => updateAdv('thumbnailEnabled', e)}
-            onIntervalChange={(i) => updateAdv('thumbnailIntervalSeconds', i)}
-            onTimestampChange={(t) => updateAdv('thumbnailTimestamp', t)}
-          />
-        </AdvancedSection>
-        )}
-
-        {/* Audio Parameters — shows for audio-only formats */}
+        {/* ── Audio ── audio-only formats */}
         {isAudioOnlyFormat && (
-        <AdvancedSection icon="mdi:music-note-outline" label="Audio">
-          <AudioConfig
-            audioBitrate={advState.audioBitrate}
-            audioSampleRate={advState.audioSampleRate}
-            audioChannels={advState.audioChannels}
-            isAudioOnlyFormat={true}
-            onBitrateChange={(b) => updateAdv('audioBitrate', b)}
-            onSampleRateChange={(r) => updateAdv('audioSampleRate', r)}
-            onChannelsChange={(c) => updateAdv('audioChannels', c)}
-          />
-        </AdvancedSection>
+          <>
+            <SectionGroup icon="mdi:music-note-outline" title="Audio" />
+            <AudioConfig
+              audioBitrate={advState.audioBitrate}
+              audioSampleRate={advState.audioSampleRate}
+              audioChannels={advState.audioChannels}
+              isAudioOnlyFormat
+              onBitrateChange={(b) => updateAdv('audioBitrate', b)}
+              onSampleRateChange={(r) => updateAdv('audioSampleRate', r)}
+              onChannelsChange={(c) => updateAdv('audioChannels', c)}
+            />
+          </>
         )}
 
-        {/* Custom Encoding Parameters */}
-        <AdvancedSection icon="mdi:console" label="Custom Encoding Params">
-          <CustomParams
-            value={advState.customFfmpegParams}
-            onChange={(v) => updateAdv('customFfmpegParams', v)}
-          />
-        </AdvancedSection>
+        {/* ── Watermark ── video only */}
+        {!isAudioOnlyFormat && (
+          <>
+            <SectionGroup icon="mdi:watermark" title="Watermark" />
+            <WatermarkConfig
+              watermarkType={advState.watermarkType}
+              watermarkImage={advState.watermarkImage}
+              watermarkText={advState.watermarkText}
+              watermarkX={advState.watermarkX}
+              watermarkY={advState.watermarkY}
+              opacity={advState.watermarkOpacity}
+              scale={advState.watermarkScale}
+              onTypeChange={(t) => updateAdv('watermarkType', t)}
+              onImageChange={(f) => updateAdv('watermarkImage', f)}
+              onTextChange={(t) => updateAdv('watermarkText', t)}
+              onPositionChange={(x, y) => { updateAdv('watermarkX', x); updateAdv('watermarkY', y); }}
+              onOpacityChange={(o) => updateAdv('watermarkOpacity', o)}
+              onScaleChange={(s) => updateAdv('watermarkScale', s)}
+            />
+          </>
+        )}
 
-        {/* Scheduling */}
-        <AdvancedSection icon="mdi:calendar-clock" label="Schedule">
-          <SchedulePicker
-            value={advState.scheduledAt}
-            onChange={(s) => updateAdv('scheduledAt', s)}
-          />
-        </AdvancedSection>
+        {/* ── Subtitles ── video only */}
+        {!isAudioOnlyFormat && (
+          <>
+            <SectionGroup icon="mdi:subtitles-outline" title="Subtitles" />
+            <SubtitleConfig
+              subtitleFile={advState.subtitleFile}
+              subtitleMode={advState.subtitleMode}
+              onFileChange={(f) => updateAdv('subtitleFile', f)}
+              onModeChange={(m) => updateAdv('subtitleMode', m)}
+            />
+          </>
+        )}
 
-        {/* Encryption — only for HLS */}
-        <AdvancedSection icon="mdi:lock-outline" label="Encryption">
-          <EncryptionToggle
-            enabled={advState.encryptionEnabled}
-            outputFormat={formState.outputFormat}
-            onChange={(e) => updateAdv('encryptionEnabled', e)}
-          />
-        </AdvancedSection>
+        {/* ── Output ── video only */}
+        {!isAudioOnlyFormat && (
+          <>
+            <SectionGroup icon="mdi:image-multiple-outline" title="Output" />
+            <ThumbnailConfig
+              enabled={advState.thumbnailEnabled}
+              intervalSeconds={advState.thumbnailIntervalSeconds}
+              timestamp={advState.thumbnailTimestamp}
+              onEnabledChange={(e) => updateAdv('thumbnailEnabled', e)}
+              onIntervalChange={(i) => updateAdv('thumbnailIntervalSeconds', i)}
+              onTimestampChange={(t) => updateAdv('thumbnailTimestamp', t)}
+            />
+            <OptionRow label="Encryption">
+              <EncryptionToggle
+                enabled={advState.encryptionEnabled}
+                outputFormat={formState.outputFormats[0] ?? 'HLS'}
+                onChange={(e) => updateAdv('encryptionEnabled', e)}
+              />
+            </OptionRow>
+          </>
+        )}
+
+        {/* ── Custom params ── */}
+        <SectionGroup icon="mdi:console" title="Custom Params" />
+        <CustomParams
+          value={advState.customFfmpegParams}
+          onChange={(v) => updateAdv('customFfmpegParams', v)}
+        />
       </div>
 
       {/* Size Estimate - near the submit button area */}
@@ -330,7 +400,7 @@ export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canS
 
       <div className="flex items-center gap-3 pt-1">
         <button onClick={handleSubmit} disabled={!canSubmit || submitLoading}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[12px] font-bold rounded-xl shadow disabled:opacity-50 transition-all hover:scale-[1.02]">
+          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-bold rounded-xl shadow-sm disabled:opacity-50 transition-colors">
           {submitLoading ? <Icon icon="mdi:loading" className="animate-spin" /> : <Icon icon="mdi:play" />}
           {submitLoading ? (formState.uploadProgress === 'uploading' ? 'Uploading…' : 'Submitting…') : (formState.sourceMode === 'upload' && formState.localFile ? 'Upload & Transcode' : 'Submit Job')}
         </button>

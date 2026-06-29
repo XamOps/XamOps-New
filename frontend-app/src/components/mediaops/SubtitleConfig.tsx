@@ -34,8 +34,8 @@ export function SubtitleConfig({ subtitleFile, subtitleMode, onFileChange, onMod
       <label
         className={`flex flex-col items-center justify-center gap-2 w-full border-2 border-dashed rounded-xl cursor-pointer transition-colors px-4 py-4 ${
           subtitleFile
-            ? 'border-pink-300 bg-pink-50'
-            : dark ? 'border-[rgba(255,255,255,0.12)] hover:border-pink-300 hover:bg-pink-50/10' : 'border-[rgba(0,0,0,0.12)] hover:border-pink-300 hover:bg-pink-50/40'
+            ? 'border-blue-300 bg-blue-50'
+            : dark ? 'border-[rgba(255,255,255,0.12)] hover:border-blue-300 hover:bg-blue-50/10' : 'border-[rgba(0,0,0,0.12)] hover:border-blue-300 hover:bg-blue-50/40'
         }`}
       >
         <input
@@ -46,8 +46,8 @@ export function SubtitleConfig({ subtitleFile, subtitleMode, onFileChange, onMod
         />
         {subtitleFile ? (
           <div className="flex items-center gap-3 w-full">
-            <div className="w-9 h-9 bg-pink-100 rounded-lg flex items-center justify-center flex-shrink-0">
-              <Icon icon="mdi:subtitles-outline" className="text-pink-500 text-lg" />
+            <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Icon icon="mdi:subtitles-outline" className="text-blue-500 text-lg" />
             </div>
             <div className="flex-1 min-w-0">
               <p className={`text-[12px] font-bold truncate ${dark ? 'text-[rgba(255,255,255,0.88)]' : 'text-[rgba(0,0,0,0.88)]'}`}>{subtitleFile.name}</p>
@@ -60,7 +60,7 @@ export function SubtitleConfig({ subtitleFile, subtitleMode, onFileChange, onMod
                 onFileChange(null);
                 onModeChange(null);
               }}
-              className="p-1.5 rounded-lg hover:bg-pink-100 transition-colors flex-shrink-0"
+              className="p-1.5 rounded-lg hover:bg-blue-100 transition-colors flex-shrink-0"
             >
               <Icon icon="mdi:close" className={`text-sm ${dark ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.4)]'}`} />
             </button>
@@ -85,7 +85,7 @@ export function SubtitleConfig({ subtitleFile, subtitleMode, onFileChange, onMod
                 name="subtitleMode"
                 checked={subtitleMode === 'BURN_IN'}
                 onChange={() => onModeChange('BURN_IN')}
-                className={`w-3.5 h-3.5 text-pink-500 focus:ring-pink-400 ${dark ? 'border-[rgba(255,255,255,0.2)]' : 'border-[rgba(0,0,0,0.2)]'}`}
+                className={`w-3.5 h-3.5 text-blue-500 focus:ring-blue-400 ${dark ? 'border-[rgba(255,255,255,0.2)]' : 'border-[rgba(0,0,0,0.2)]'}`}
               />
               <div>
                 <span className={`text-[12px] font-semibold ${dark ? 'text-[rgba(255,255,255,0.75)] group-hover:text-[rgba(255,255,255,0.9)]' : 'text-[rgba(0,0,0,0.75)] group-hover:text-[rgba(0,0,0,0.9)]'}`}>
@@ -100,7 +100,7 @@ export function SubtitleConfig({ subtitleFile, subtitleMode, onFileChange, onMod
                 name="subtitleMode"
                 checked={subtitleMode === 'SIDECAR'}
                 onChange={() => onModeChange('SIDECAR')}
-                className={`w-3.5 h-3.5 text-pink-500 focus:ring-pink-400 ${dark ? 'border-[rgba(255,255,255,0.2)]' : 'border-[rgba(0,0,0,0.2)]'}`}
+                className={`w-3.5 h-3.5 text-blue-500 focus:ring-blue-400 ${dark ? 'border-[rgba(255,255,255,0.2)]' : 'border-[rgba(0,0,0,0.2)]'}`}
               />
               <div>
                 <span className={`text-[12px] font-semibold ${dark ? 'text-[rgba(255,255,255,0.75)] group-hover:text-[rgba(255,255,255,0.9)]' : 'text-[rgba(0,0,0,0.75)] group-hover:text-[rgba(0,0,0,0.9)]'}`}>

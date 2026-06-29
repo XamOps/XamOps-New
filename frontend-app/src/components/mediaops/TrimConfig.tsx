@@ -29,6 +29,12 @@ export function TrimConfig({ startTime, endTime, onStartTimeChange, onEndTimeCha
 
   return (
     <div className="space-y-3">
+      {/* Hint pointing to the visual trimmer */}
+      <p className={`text-[10px] flex items-center gap-1 ${dark ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.4)]'}`}>
+        <Icon icon="mdi:gesture-tap-hold" className="text-[11px] flex-shrink-0" />
+        Tip: drag the handles on the video preview above to trim visually — or set exact times here.
+      </p>
+
       {/* Time inputs */}
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -44,7 +50,7 @@ export function TrimConfig({ startTime, endTime, onStartTimeChange, onEndTimeCha
               value={startTime}
               onChange={handleStartChange}
               placeholder="HH:MM:SS"
-              className={`w-full pl-8 pr-3 py-2 border rounded-xl text-[12px] font-mono focus:ring-2 focus:ring-pink-400 focus:border-pink-400 outline-none ${
+              className={`w-full pl-8 pr-3 py-2 border rounded-xl text-[12px] font-mono focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none ${
                 dark ? 'bg-[#1e1e1e] border-[rgba(255,255,255,0.12)] text-white placeholder-[rgba(255,255,255,0.25)]' : 'border-[rgba(0,0,0,0.12)] placeholder-[rgba(0,0,0,0.3)]'
               }`}
             />
@@ -63,7 +69,7 @@ export function TrimConfig({ startTime, endTime, onStartTimeChange, onEndTimeCha
               value={endTime}
               onChange={handleEndChange}
               placeholder="HH:MM:SS"
-              className={`w-full pl-8 pr-3 py-2 border rounded-xl text-[12px] font-mono focus:ring-2 focus:ring-pink-400 focus:border-pink-400 outline-none ${
+              className={`w-full pl-8 pr-3 py-2 border rounded-xl text-[12px] font-mono focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none ${
                 dark ? 'bg-[#1e1e1e] border-[rgba(255,255,255,0.12)] text-white placeholder-[rgba(255,255,255,0.25)]' : 'border-[rgba(0,0,0,0.12)] placeholder-[rgba(0,0,0,0.3)]'
               }`}
             />
@@ -73,9 +79,9 @@ export function TrimConfig({ startTime, endTime, onStartTimeChange, onEndTimeCha
 
       {/* Summary */}
       {hasBothTimes && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-pink-50 rounded-lg">
-          <Icon icon="mdi:content-cut" className="text-pink-500 text-sm flex-shrink-0" />
-          <p className="text-[11px] text-pink-700 font-medium">
+        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg">
+          <Icon icon="mdi:content-cut" className="text-blue-500 text-sm flex-shrink-0" />
+          <p className="text-[11px] text-blue-700 font-medium">
             Trims from <span className="font-bold font-mono">{startTime}</span> to{' '}
             <span className="font-bold font-mono">{endTime}</span>
           </p>

@@ -47,7 +47,7 @@ export function FileProbePanel({ probeResult, probing, probeError, onRetry }: Fi
     return (
       <div className={`border rounded-xl p-3 ${dark ? 'border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.01)]' : 'border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.01)]'}`}>
         <div className="flex items-center gap-2 mb-2.5">
-          <Icon icon="mdi:file-search-outline" className="text-pink-500 text-sm" />
+          <Icon icon="mdi:file-search-outline" className="text-blue-500 text-sm" />
           <span className={`text-[11px] font-bold uppercase tracking-wide ${dark ? 'text-[rgba(255,255,255,0.6)]' : 'text-[rgba(0,0,0,0.6)]'}`}>Source File Info</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-4 gap-y-2">
@@ -98,7 +98,7 @@ export function FileProbePanel({ probeResult, probing, probeError, onRetry }: Fi
   return (
     <div className={`border rounded-xl p-3 ${dark ? 'border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.01)]' : 'border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.01)]'}`}>
       <div className="flex items-center gap-2 mb-2.5">
-        <Icon icon="mdi:file-search-outline" className="text-pink-500 text-sm" />
+        <Icon icon="mdi:file-search-outline" className="text-blue-500 text-sm" />
         <span className={`text-[11px] font-bold uppercase tracking-wide ${dark ? 'text-[rgba(255,255,255,0.6)]' : 'text-[rgba(0,0,0,0.6)]'}`}>Source File Info</span>
         {probeResult.format && (
           <span className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded ${dark ? 'text-[rgba(255,255,255,0.4)] bg-[rgba(255,255,255,0.04)]' : 'text-[rgba(0,0,0,0.4)] bg-[rgba(0,0,0,0.04)]'}`}>

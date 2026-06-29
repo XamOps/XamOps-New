@@ -230,7 +230,31 @@ public class FFmpegService {
         try { Files.createDirectories(Paths.get(outputDir)); }
         catch (IOException e) { log.error("[MediaOps] Cannot create output dir: {}", e.getMessage()); return false; }
 
-        List<String> cmd = buildTranscodeCommand(job, outputDir);
+        // For audio-only formats, verify the source actually has an audio stream before attempting
+        if (isAudioOnlyFormat(job.getOutputFormat())) {
+            try {
+                FileProbeResult probe = probeFile(job.getSourceUrl());
+                if (probe.getAudioCodec() == null || probe.getAudioCodec().isEmpty()) {
+                    String msg = "Source file has no audio stream — cannot extract audio to "
+                            + job.getOutputFormat() + ". Use a video-to-video format instead.";
+                    log.warn("[MediaOps] Job {} skipped: {}", job.getId(), msg);
+                    job.setErrorMessage(msg);
+                    return false;
+                }
+            } catch (Exception e) {
+                log.warn("[MediaOps] Job {} probe check failed ({}); proceeding with FFmpeg", job.getId(), e.getMessage());
+            }
+        }
+
+        List<String> cmd;
+        try {
+            cmd = buildTranscodeCommand(job, outputDir);
+        } catch (RuntimeException e) {
+            // e.g. subtitle burn-in requested but ffmpeg lacks libass — surface a clear message
+            log.warn("[MediaOps] Job {} could not be built: {}", job.getId(), e.getMessage());
+            job.setErrorMessage(e.getMessage());
+            return false;
+        }
         job.setFfmpegCommand(String.join(" ", cmd));
         log.info("[MediaOps] Transcoding job {}: {}", job.getId(), job.getFfmpegCommand());
 
@@ -282,7 +306,7 @@ public class FFmpegService {
         List<String> cmd = Arrays.asList(
                 ffmpegPath, "-i", rtmpBaseUrl + "/" + streamKey,
                 "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-                "-vf", "scale=" + wh[0] + ":" + wh[1],
+                "-vf", "scale=" + wh[0] + ":" + wh[1] + ",format=yuv420p",
                 "-b:v", bitrate, "-c:a", "aac", "-b:a", "128k",
                 "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
                 Paths.get(hlsOutputDir, "index.m3u8").toString()
@@ -323,7 +347,7 @@ public class FFmpegService {
         if (job.getSourceUrl() != null && job.getSourceUrl().startsWith("-")) {
             throw new IllegalArgumentException("Invalid source URL");
         }
-        cmd.addAll(Arrays.asList("-i", "--", job.getSourceUrl()));
+        cmd.addAll(Arrays.asList("-i", job.getSourceUrl()));
 
         // End time (after -i)
         if (job.getEndTime() != null && !job.getEndTime().isEmpty()) {
@@ -385,16 +409,21 @@ public class FFmpegService {
         boolean hasSubtitleBurnIn = job.getSubtitleMode() == SubtitleMode.BURN_IN
                 && job.getSubtitlePath() != null && !job.getSubtitlePath().isEmpty();
         boolean hasWatermarkImage = job.getWatermarkImagePath() != null && !job.getWatermarkImagePath().isEmpty();
-        if (hasSubtitleBurnIn) validateStoragePath(job.getSubtitlePath());
+        if (hasSubtitleBurnIn) { requireSubtitlesFilter(); validateStoragePath(job.getSubtitlePath()); }
         boolean hasWatermarkText = !hasWatermarkImage
                 && job.getWatermarkText() != null && !job.getWatermarkText().isEmpty();
 
         String[] wh = toWH(job.getResolution());
         String scaleFilter = "scale=" + wh[0] + ":" + wh[1];
 
+        // Watermark width: user-configured % of output video width (default 15%), min 60px
+        int userWmScale = (job.getWatermarkScale() != null && job.getWatermarkScale() > 0) ? job.getWatermarkScale() : 15;
+        int wmWidth = Math.max(60, Integer.parseInt(wh[0].startsWith("-") ? "1920" : wh[0]) * userWmScale / 100);
+        String wmScale = "scale=" + wmWidth + ":-2,";
+
         if (hasWatermarkImage && hasSubtitleBurnIn) {
             // Both watermark image and subtitle: use filter_complex
-            String position = resolveOverlayPosition(job.getWatermarkPosition());
+            String position = resolveOverlayPositionForJob(job);
             String escapedSubPath = escapeFilterPath(job.getSubtitlePath());
 
             String opacityFilter = "";
@@ -403,13 +432,13 @@ public class FFmpegService {
             }
 
             String filterComplex = String.format(
-                    "[0:v]%s,subtitles=%s[base];[1:v]%s[wm];[base][wm]overlay=%s",
-                    scaleFilter, escapedSubPath, opacityFilter, position
+                    "[0:v]%s,subtitles=%s[base];[1:v]%s%s[wm];[base][wm]overlay=%s",
+                    scaleFilter, escapedSubPath, wmScale, opacityFilter, position
             );
             cmd.addAll(Arrays.asList("-filter_complex", filterComplex));
         } else if (hasWatermarkImage) {
             // Watermark image overlay only
-            String position = resolveOverlayPosition(job.getWatermarkPosition());
+            String position = resolveOverlayPositionForJob(job);
 
             String opacityFilter = "";
             if (job.getWatermarkOpacity() != null) {
@@ -417,14 +446,14 @@ public class FFmpegService {
             }
 
             String filterComplex = String.format(
-                    "[0:v]%s[base];[1:v]%s[wm];[base][wm]overlay=%s",
-                    scaleFilter, opacityFilter, position
+                    "[0:v]%s[base];[1:v]%s%s[wm];[base][wm]overlay=%s",
+                    scaleFilter, wmScale, opacityFilter, position
             );
             cmd.addAll(Arrays.asList("-filter_complex", filterComplex));
         } else if (hasSubtitleBurnIn && hasWatermarkText) {
             // Subtitle burn-in + text watermark: combine in -vf
             String escapedSubPath = escapeFilterPath(job.getSubtitlePath());
-            String drawtextPosition = resolveDrawtextPosition(job.getWatermarkPosition());
+            String drawtextPosition = resolveDrawtextPositionForJob(job);
             String alpha = job.getWatermarkOpacity() != null
                     ? String.format(":alpha=%s", job.getWatermarkOpacity()) : "";
 
@@ -438,7 +467,7 @@ public class FFmpegService {
             cmd.addAll(Arrays.asList("-vf", vf));
         } else if (hasWatermarkText) {
             // Text watermark only
-            String drawtextPosition = resolveDrawtextPosition(job.getWatermarkPosition());
+            String drawtextPosition = resolveDrawtextPositionForJob(job);
             String alpha = job.getWatermarkOpacity() != null
                     ? String.format(":alpha=%s", job.getWatermarkOpacity()) : "";
 
@@ -452,27 +481,45 @@ public class FFmpegService {
     }
 
     /**
-     * Applies video codec selection. Defaults to libx264 if not specified.
+     * Applies video codec selection.
+     * Defaults to libx264 for most formats, but WEBM requires VP8/VP9/AV1 —
+     * any H.264/H.265 selection is overridden to VP9 for WebM compatibility.
      */
     private void applyVideoCodec(List<String> cmd, TranscodeJob job) {
         String codec = job.getCodec();
+        boolean isWebM = job.getOutputFormat() == OutputFormat.WEBM;
+
         if (codec == null || codec.isEmpty()) {
-            codec = "H264";
+            // WebM requires VP9 by default; everything else defaults to H264
+            codec = isWebM ? "VP9" : "H264";
+        } else if (isWebM) {
+            String upper = codec.toUpperCase();
+            // H.264 and H.265 are incompatible with the WebM container — fall back to VP9
+            if (upper.equals("H264") || upper.equals("H265") || upper.equals("HEVC")) {
+                codec = "VP9";
+            }
         }
+
         switch (codec.toUpperCase()) {
             case "H265":
             case "HEVC":
-                cmd.addAll(Arrays.asList("-c:v", "libx265"));
+                // yuv420p + tag hvc1 so the output is decodable by Apple/QuickTime and most players
+                cmd.addAll(Arrays.asList("-c:v", "libx265", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"));
                 break;
             case "AV1":
                 cmd.addAll(Arrays.asList("-c:v", "libaom-av1"));
                 break;
             case "VP9":
+            case "VP8":
                 cmd.addAll(Arrays.asList("-c:v", "libvpx-vp9"));
                 break;
             case "H264":
             default:
-                cmd.addAll(Arrays.asList("-c:v", "libx264", "-preset", "fast"));
+                // -pix_fmt yuv420p + High profile = the universally-decodable baseline.
+                // Without yuv420p, sources in yuv444p/10-bit produce files many players
+                // (QuickTime, Safari, hardware decoders) show as black or audio-only.
+                cmd.addAll(Arrays.asList("-c:v", "libx264", "-preset", "fast",
+                        "-pix_fmt", "yuv420p", "-profile:v", "high"));
                 break;
         }
     }
@@ -541,8 +588,15 @@ public class FFmpegService {
             case DASH:
                 cmd.addAll(Arrays.asList("-f", "dash", "-seg_duration", "10"));
                 break;
+            case MP4:
+            case MOV:
+                // +faststart relocates the moov atom to the front so the file plays
+                // immediately when streamed from a URL (otherwise players must download
+                // the whole file before starting). Valid only for MP4/MOV containers.
+                cmd.addAll(Arrays.asList("-movflags", "+faststart"));
+                break;
             default:
-                // No special format flags needed for MP4, WEBM, MKV, MOV, or audio formats
+                // No special format flags needed for WEBM, MKV, or audio formats
                 break;
         }
     }
@@ -626,14 +680,18 @@ public class FFmpegService {
      * Returns x:y coordinate expression.
      */
     public String resolveOverlayPosition(WatermarkPosition pos) {
-        if (pos == null) return "10:10";
+        if (pos == null) return "W-w-10:H-h-10";
         switch (pos) {
-            case TOP_LEFT:     return "10:10";
-            case TOP_RIGHT:    return "W-w-10:10";
-            case BOTTOM_LEFT:  return "10:H-h-10";
-            case BOTTOM_RIGHT: return "W-w-10:H-h-10";
-            case CENTER:       return "(W-w)/2:(H-h)/2";
-            default:           return "10:10";
+            case TOP_LEFT:      return "10:10";
+            case TOP_CENTER:    return "(W-w)/2:10";
+            case TOP_RIGHT:     return "W-w-10:10";
+            case MIDDLE_LEFT:   return "10:(H-h)/2";
+            case CENTER:        return "(W-w)/2:(H-h)/2";
+            case MIDDLE_RIGHT:  return "W-w-10:(H-h)/2";
+            case BOTTOM_LEFT:   return "10:H-h-10";
+            case BOTTOM_CENTER: return "(W-w)/2:H-h-10";
+            case BOTTOM_RIGHT:  return "W-w-10:H-h-10";
+            default:            return "W-w-10:H-h-10";
         }
     }
 
@@ -642,15 +700,49 @@ public class FFmpegService {
      * Returns x=...:y=... expression.
      */
     public String resolveDrawtextPosition(WatermarkPosition pos) {
-        if (pos == null) return "x=10:y=10";
+        if (pos == null) return "x=w-tw-10:y=h-th-10";
         switch (pos) {
-            case TOP_LEFT:     return "x=10:y=10";
-            case TOP_RIGHT:    return "x=w-tw-10:y=10";
-            case BOTTOM_LEFT:  return "x=10:y=h-th-10";
-            case BOTTOM_RIGHT: return "x=w-tw-10:y=h-th-10";
-            case CENTER:       return "x=(w-tw)/2:y=(h-th)/2";
-            default:           return "x=10:y=10";
+            case TOP_LEFT:      return "x=10:y=10";
+            case TOP_CENTER:    return "x=(w-tw)/2:y=10";
+            case TOP_RIGHT:     return "x=w-tw-10:y=10";
+            case MIDDLE_LEFT:   return "x=10:y=(h-th)/2";
+            case CENTER:        return "x=(w-tw)/2:y=(h-th)/2";
+            case MIDDLE_RIGHT:  return "x=w-tw-10:y=(h-th)/2";
+            case BOTTOM_LEFT:   return "x=10:y=h-th-10";
+            case BOTTOM_CENTER: return "x=(w-tw)/2:y=h-th-10";
+            case BOTTOM_RIGHT:  return "x=w-tw-10:y=h-th-10";
+            default:            return "x=w-tw-10:y=h-th-10";
         }
+    }
+
+    /**
+     * Returns overlay x:y expression, preferring free-form x/y percentages over enum preset.
+     * x/y are center-based percentages: the center of the watermark is placed at (W*x/100, H*y/100).
+     */
+    private String resolveOverlayPositionForJob(TranscodeJob job) {
+        if (job.getWatermarkX() != null && job.getWatermarkY() != null) {
+            // Commas inside the overlay x:y expression must be escaped as "\," —
+            // otherwise the filtergraph parser treats them as filter separators
+            // (e.g. it tries to load a filter literally named "min(W-w").
+            return String.format(
+                "max(0\\,min(W-w\\,W*%.4f/100-w/2)):max(0\\,min(H-h\\,H*%.4f/100-h/2))",
+                job.getWatermarkX(), job.getWatermarkY()
+            );
+        }
+        return resolveOverlayPosition(job.getWatermarkPosition());
+    }
+
+    /**
+     * Returns drawtext x=:y= expression, preferring free-form x/y percentages over enum preset.
+     */
+    private String resolveDrawtextPositionForJob(TranscodeJob job) {
+        if (job.getWatermarkX() != null && job.getWatermarkY() != null) {
+            return String.format(
+                "x='max(0,min(w-tw,w*%.4f/100-tw/2))':y='max(0,min(h-th,h*%.4f/100-th/2))'",
+                job.getWatermarkX(), job.getWatermarkY()
+            );
+        }
+        return resolveDrawtextPosition(job.getWatermarkPosition());
     }
 
     /**
@@ -774,14 +866,22 @@ public class FFmpegService {
     }
 
     /**
-     * Escapes a file path for use inside FFmpeg filter expressions.
-     * Colons and backslashes need escaping in filter graphs.
+     * Escapes a file path for use as a filter argument (e.g. subtitles=...).
+     * The path is wrapped in single quotes so spaces and most special characters
+     * are taken literally by the filtergraph parser; the characters that remain
+     * special inside the quotes are then escaped:
+     *   '  → '\''  (close quote, literal quote, reopen)
+     *   \  → \\
+     *   :  → \:     (':' separates filter options, even inside quotes — e.g. Windows C:)
+     * Returns the value already wrapped in single quotes.
      */
     private String escapeFilterPath(String path) {
-        if (path == null) return "";
-        return path.replace("\\", "\\\\\\\\")
-                   .replace(":", "\\\\:")
-                   .replace("'", "'\\''");
+        if (path == null) return "''";
+        String escaped = path
+                .replace("\\", "\\\\")
+                .replace("'", "'\\''")
+                .replace(":", "\\:");
+        return "'" + escaped + "'";
     }
 
     /**
@@ -804,25 +904,111 @@ public class FFmpegService {
         return sb.toString();
     }
 
-    // ─── Legacy helper (kept for backward compat) ─────────────────────────────
+    // ─── Adaptive streaming builders ──────────────────────────────────────────
+
+    /** Parses an "HH:MM:SS" / "MM:SS" / "SS" string to seconds; null if blank/invalid. */
+    private Double parseTimeSeconds(String t) {
+        if (t == null || t.isEmpty()) return null;
+        try {
+            double s = 0;
+            for (String p : t.split(":")) s = s * 60 + Double.parseDouble(p.trim());
+            return s;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Adds an output duration limit (-t) for the adaptive path so end-time trimming works.
+     * Combined with an input -ss seek, this yields the [start, end] clip.
+     */
+    private void addOutputDurationLimit(List<String> cmd, TranscodeJob job, Double startSec) {
+        Double endSec = parseTimeSeconds(job.getEndTime());
+        if (endSec == null) return;
+        double dur = endSec - (startSec != null ? Math.max(0, startSec) : 0);
+        if (dur > 0) {
+            cmd.add("-t");
+            cmd.add(String.format(java.util.Locale.US, "%.3f", dur));
+        }
+    }
+
+    /** Returns ",subtitles=<escaped path>" for burn-in mode, or "" otherwise. */
+    private String adaptiveSubtitleChain(TranscodeJob job) {
+        boolean burnIn = job.getSubtitleMode() == SubtitleMode.BURN_IN
+                && job.getSubtitlePath() != null && !job.getSubtitlePath().isEmpty();
+        if (!burnIn) return "";
+        requireSubtitlesFilter();
+        validateStoragePath(job.getSubtitlePath());
+        return ",subtitles=" + escapeFilterPath(job.getSubtitlePath());
+    }
+
+    // Whether this ffmpeg build has the libass-backed "subtitles" filter (cached after first probe).
+    private volatile Boolean subtitlesFilterAvailable;
+
+    private boolean isSubtitlesFilterAvailable() {
+        Boolean cached = subtitlesFilterAvailable;
+        if (cached != null) return cached;
+        boolean available = false;
+        try {
+            Process p = new ProcessBuilder(ffmpegPath, "-hide_banner", "-filters")
+                    .redirectErrorStream(true).start();
+            try (java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(p.getInputStream()))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    if (line.matches(".*\\bsubtitles\\b.*")) { available = true; break; }
+                }
+            }
+            p.waitFor();
+        } catch (Exception e) {
+            log.warn("[MediaOps] Could not probe ffmpeg filters: {}", e.getMessage());
+        }
+        subtitlesFilterAvailable = available;
+        return available;
+    }
+
+    /** Fails fast with a clear message when subtitle burn-in is requested but libass is missing. */
+    private void requireSubtitlesFilter() {
+        if (!isSubtitlesFilterAvailable()) {
+            throw new IllegalStateException(
+                "Subtitle burn-in requires an ffmpeg build with libass (the 'subtitles' filter is missing). "
+                + "Install a libass-enabled ffmpeg — e.g. 'brew reinstall ffmpeg' — and retry.");
+        }
+    }
 
     private List<String> buildAdaptiveHls(TranscodeJob job, String outputDir) {
         boolean hasAudio = hasAudioStream(job.getSourceUrl());
-        List<String> cmd = new ArrayList<>(Arrays.asList(
-                ffmpegPath, "-i", job.getSourceUrl(), "-y",
-                "-filter_complex",
-                "[0:v]split=3[v1][v2][v3];" +
-                "[v1]scale=1920:1080[v1out];" +
-                "[v2]scale=1280:720[v2out];" +
-                "[v3]scale=854:480[v3out]",
-                "-map", "[v1out]", "-c:v:0", "libx264", "-b:v:0", "4500k",
-                "-map", "[v2out]", "-c:v:1", "libx264", "-b:v:1", "2500k",
-                "-map", "[v3out]", "-c:v:2", "libx264", "-b:v:2", "1000k"
+        boolean hasWatermarkImage = job.getWatermarkImagePath() != null && !job.getWatermarkImagePath().isEmpty();
+        boolean hasWatermarkText  = !hasWatermarkImage
+                && job.getWatermarkText() != null && !job.getWatermarkText().isEmpty();
+
+        List<String> cmd = new ArrayList<>();
+        cmd.add(ffmpegPath);
+        // Trim: fast input seek to start (end is enforced via -t on the output below)
+        Double startSec = parseTimeSeconds(job.getStartTime());
+        if (startSec != null && startSec > 0) {
+            cmd.add("-ss"); cmd.add(normalizeTime(job.getStartTime()));
+        }
+        cmd.add("-i"); cmd.add(job.getSourceUrl());
+        if (hasWatermarkImage) {
+            validateStoragePath(job.getWatermarkImagePath());
+            cmd.add("-i"); cmd.add(job.getWatermarkImagePath());
+        }
+        cmd.add("-y");
+
+        cmd.addAll(Arrays.asList("-filter_complex", buildAdaptiveFilterComplex(job, hasWatermarkImage, hasWatermarkText)));
+        cmd.addAll(Arrays.asList(
+                // yuv420p + High profile on every variant so the HLS stream is decodable
+                // by Safari/iOS and all standards-compliant players, regardless of source.
+                "-map", "[v1out]", "-c:v:0", "libx264", "-profile:v:0", "high", "-pix_fmt:v:0", "yuv420p", "-b:v:0", "4500k",
+                "-map", "[v2out]", "-c:v:1", "libx264", "-profile:v:1", "high", "-pix_fmt:v:1", "yuv420p", "-b:v:1", "2500k",
+                "-map", "[v3out]", "-c:v:2", "libx264", "-profile:v:2", "high", "-pix_fmt:v:2", "yuv420p", "-b:v:2", "1000k"
         ));
         if (hasAudio) {
             cmd.addAll(Arrays.asList("-map", "0:a", "-map", "0:a", "-map", "0:a",
                     "-c:a", "aac", "-b:a", "128k"));
         }
+        addOutputDurationLimit(cmd, job, startSec);
         cmd.addAll(Arrays.asList(
                 "-var_stream_map", hasAudio ? "v:0,a:0 v:1,a:1 v:2,a:2" : "v:0 v:1 v:2",
                 "-master_pl_name", "master.m3u8",
@@ -835,26 +1021,88 @@ public class FFmpegService {
 
     private List<String> buildAdaptiveDash(TranscodeJob job, String outputDir) {
         boolean hasAudio = hasAudioStream(job.getSourceUrl());
-        List<String> cmd = new ArrayList<>(Arrays.asList(
-                ffmpegPath, "-i", job.getSourceUrl(), "-y",
-                "-filter_complex",
-                "[0:v]split=3[v1][v2][v3];" +
-                "[v1]scale=1920:1080[v1out];" +
-                "[v2]scale=1280:720[v2out];" +
-                "[v3]scale=854:480[v3out]",
-                "-map", "[v1out]", "-c:v:0", "libx264", "-b:v:0", "4500k",
-                "-map", "[v2out]", "-c:v:1", "libx264", "-b:v:1", "2500k",
-                "-map", "[v3out]", "-c:v:2", "libx264", "-b:v:2", "1000k"
+        boolean hasWatermarkImage = job.getWatermarkImagePath() != null && !job.getWatermarkImagePath().isEmpty();
+        boolean hasWatermarkText  = !hasWatermarkImage
+                && job.getWatermarkText() != null && !job.getWatermarkText().isEmpty();
+
+        List<String> cmd = new ArrayList<>();
+        cmd.add(ffmpegPath);
+        // Trim: fast input seek to start (end is enforced via -t on the output below)
+        Double startSec = parseTimeSeconds(job.getStartTime());
+        if (startSec != null && startSec > 0) {
+            cmd.add("-ss"); cmd.add(normalizeTime(job.getStartTime()));
+        }
+        cmd.add("-i"); cmd.add(job.getSourceUrl());
+        if (hasWatermarkImage) {
+            validateStoragePath(job.getWatermarkImagePath());
+            cmd.add("-i"); cmd.add(job.getWatermarkImagePath());
+        }
+        cmd.add("-y");
+
+        cmd.addAll(Arrays.asList("-filter_complex", buildAdaptiveFilterComplex(job, hasWatermarkImage, hasWatermarkText)));
+        cmd.addAll(Arrays.asList(
+                // yuv420p + High profile on every variant for maximum player compatibility.
+                "-map", "[v1out]", "-c:v:0", "libx264", "-profile:v:0", "high", "-pix_fmt:v:0", "yuv420p", "-b:v:0", "4500k",
+                "-map", "[v2out]", "-c:v:1", "libx264", "-profile:v:1", "high", "-pix_fmt:v:1", "yuv420p", "-b:v:1", "2500k",
+                "-map", "[v3out]", "-c:v:2", "libx264", "-profile:v:2", "high", "-pix_fmt:v:2", "yuv420p", "-b:v:2", "1000k"
         ));
         if (hasAudio) {
             cmd.addAll(Arrays.asList("-map", "0:a", "-c:a", "aac", "-b:a", "128k"));
         }
+        addOutputDurationLimit(cmd, job, startSec);
         cmd.addAll(Arrays.asList(
                 "-f", "dash", "-seg_duration", "10",
                 "-use_template", "1", "-use_timeline", "1",
                 Paths.get(outputDir, "manifest.mpd").toString()
         ));
         return cmd;
+    }
+
+    /**
+     * Builds the -filter_complex string for adaptive (multi-variant) encoding.
+     * Applies watermark (text or image) consistently across all three quality levels.
+     *
+     * For text watermark:  scale + drawtext per branch.
+     * For image watermark: split watermark input into 3 pads (each pad can only be used once),
+     *                      then overlay on each scaled branch.
+     * No watermark:        plain split + scale.
+     */
+    private String buildAdaptiveFilterComplex(TranscodeJob job, boolean hasWatermarkImage, boolean hasWatermarkText) {
+        // Subtitle burn-in chain (",subtitles=...") appended after each variant's scale.
+        String sub = adaptiveSubtitleChain(job);
+
+        if (hasWatermarkText) {
+            String pos   = resolveDrawtextPositionForJob(job);
+            String alpha = job.getWatermarkOpacity() != null
+                    ? String.format(":alpha=%s", job.getWatermarkOpacity()) : "";
+            String dt = String.format("drawtext=text='%s':%s:fontsize=24:fontcolor=white%s",
+                    escapeDrawtext(job.getWatermarkText()), pos, alpha);
+            return "[0:v]split=3[v1][v2][v3];"
+                    + "[v1]scale=1920:1080" + sub + "," + dt + "[v1out];"
+                    + "[v2]scale=1280:720"  + sub + "," + dt + "[v2out];"
+                    + "[v3]scale=854:480"   + sub + "," + dt + "[v3out]";
+        }
+
+        if (hasWatermarkImage) {
+            String overlayPos = resolveOverlayPositionForJob(job);
+            String opacityChain = (job.getWatermarkOpacity() != null)
+                    ? String.format("format=rgba,colorchannelmixer=aa=%s,", job.getWatermarkOpacity()) : "";
+            int adpScale = (job.getWatermarkScale() != null && job.getWatermarkScale() > 0) ? job.getWatermarkScale() : 15;
+            int wm1920 = Math.max(60, 1920 * adpScale / 100);
+            int wm1280 = Math.max(40, 1280 * adpScale / 100);
+            int wm854  = Math.max(30,  854 * adpScale / 100);
+            return "[0:v]split=3[v1][v2][v3];"
+                    + "[1:v]" + opacityChain + "split=3[wm1][wm2][wm3];"
+                    + "[wm1]scale=" + wm1920 + ":-2[wm1r];[v1]scale=1920:1080" + sub + "[v1s];[v1s][wm1r]overlay=" + overlayPos + "[v1out];"
+                    + "[wm2]scale=" + wm1280 + ":-2[wm2r];[v2]scale=1280:720"  + sub + "[v2s];[v2s][wm2r]overlay="  + overlayPos + "[v2out];"
+                    + "[wm3]scale=" + wm854  + ":-2[wm3r];[v3]scale=854:480"   + sub + "[v3s];[v3s][wm3r]overlay="   + overlayPos + "[v3out]";
+        }
+
+        // No watermark — plain split + scale (+ optional subtitle burn-in)
+        return "[0:v]split=3[v1][v2][v3];"
+                + "[v1]scale=1920:1080" + sub + "[v1out];"
+                + "[v2]scale=1280:720"  + sub + "[v2out];"
+                + "[v3]scale=854:480"   + sub + "[v3out]";
     }
 
     private String[] toWH(String res) {

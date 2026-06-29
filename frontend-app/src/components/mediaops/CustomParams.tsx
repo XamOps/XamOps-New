@@ -64,7 +64,7 @@ export function CustomParams({ value, onChange }: CustomParamsProps) {
         onChange={(e) => onChange(e.target.value)}
         placeholder="-movflags +faststart -preset slow"
         rows={3}
-        className={`w-full px-3 py-2.5 border rounded-xl text-[12px] font-mono focus:ring-2 focus:ring-pink-400 focus:border-pink-400 outline-none resize-none leading-relaxed ${
+        className={`w-full px-3 py-2.5 border rounded-xl text-[12px] font-mono focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none resize-none leading-relaxed ${
           dark
             ? 'bg-[rgba(255,255,255,0.02)] border-[rgba(255,255,255,0.12)] text-white placeholder-[rgba(255,255,255,0.25)]'
             : 'bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.12)] placeholder-[rgba(0,0,0,0.25)]'

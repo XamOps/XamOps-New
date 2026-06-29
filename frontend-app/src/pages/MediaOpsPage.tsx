@@ -110,6 +110,33 @@ const TAB_DEFS: { id: Tab; label: string; icon: string; path: string }[] = [
   { id: 'cost-savings', label: 'Cost Savings', icon: 'mdi:piggy-bank-outline', path: '/media-ops/cost-savings' },
 ];
 
+// Signature condensed numeral treatment (matches FinOps/Account KPI cards)
+const JOB_NUM_STYLE: React.CSSProperties = {
+  fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
+  fontSize: '30px',
+  fontWeight: 400,
+  lineHeight: '30px',
+  color: 'rgb(10,10,10)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+// Interactive stat-filter cards — clicking a card filters the jobs table
+const STAT_DEFS: {
+  id: JobStatus | 'all';
+  label: string;
+  icon: string;
+  iconActiveBg: string;
+  iconActiveColor: string;
+  activeBorder: string;
+  activeRing: string;
+}[] = [
+  { id: 'all',        label: 'All Jobs',   icon: 'mdi:layers-triple-outline', iconActiveBg: 'bg-[rgba(0,0,0,0.88)]', iconActiveColor: 'text-white',              activeBorder: 'border-[rgba(0,0,0,0.30)]', activeRing: 'ring-[rgba(0,0,0,0.10)]' },
+  { id: 'processing', label: 'Processing', icon: 'mdi:progress-clock',        iconActiveBg: 'bg-blue-50',           iconActiveColor: 'text-blue-600',           activeBorder: 'border-blue-300',           activeRing: 'ring-blue-500/15' },
+  { id: 'queued',     label: 'Queued',     icon: 'mdi:tray-full',             iconActiveBg: 'bg-[rgba(0,0,0,0.06)]', iconActiveColor: 'text-[rgba(0,0,0,0.6)]', activeBorder: 'border-[rgba(0,0,0,0.25)]', activeRing: 'ring-[rgba(0,0,0,0.08)]' },
+  { id: 'completed',  label: 'Completed',  icon: 'mdi:check-circle-outline',  iconActiveBg: 'bg-emerald-50',        iconActiveColor: 'text-emerald-600',        activeBorder: 'border-emerald-300',        activeRing: 'ring-emerald-500/15' },
+  { id: 'failed',     label: 'Failed',     icon: 'mdi:alert-circle-outline',  iconActiveBg: 'bg-red-50',            iconActiveColor: 'text-red-600',            activeBorder: 'border-red-300',            activeRing: 'ring-red-500/15' },
+];
+
 function StatusBadge({ status }: { status: JobStatus | StreamStatus }) {
   const map: Record<string, { label: string; cls: string; dot: string }> = {
     processing: { label: 'Processing', cls: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.65)] border-[rgba(0,0,0,0.08)]', dot: 'bg-[rgba(0,0,0,0.4)] animate-pulse' },
@@ -352,6 +379,39 @@ interface TranscodeTabProps {
   onRetryJob: (id: number) => Promise<any>;
 }
 
+// Backend returns paths like /media/jobs/48/master.m3u8 — use as-is (proxied via Vite → 8084).
+// Only prepend /media/ for bare relative paths that don't already have it.
+function resolveMediaUrl(url: string): string {
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  if (url.startsWith('/')) return url;          // already absolute path
+  return `/media/${url}`;
+}
+
+// Player-compatibility note for a job's output format, shown next to the output URL.
+function outputCompatNote(format: string): { good: boolean; text: string } {
+  switch ((format || '').toUpperCase()) {
+    case 'MP4':
+    case 'MOV':
+      return { good: true, text: 'Universal — plays in any video player app or device.' };
+    case 'MP3':
+    case 'AAC':
+      return { good: true, text: 'Universal audio — plays in any player.' };
+    case 'HLS':
+    case 'DASH':
+      return { good: false, text: 'Streaming format — plays in browsers & VLC. For any device/player app, transcode to MP4.' };
+    case 'WEBM':
+      return { good: false, text: 'Plays in browsers, Android & VLC — not Apple/QuickTime. For universal playback, use MP4.' };
+    case 'MKV':
+      return { good: false, text: 'Plays in VLC & most desktop players — not browsers/Apple. For universal playback, use MP4.' };
+    case 'FLAC':
+    case 'OGG':
+      return { good: false, text: 'Plays in VLC & many players — limited on Apple. For universal audio, use MP3/AAC.' };
+    default:
+      return { good: true, text: 'Plays in compatible video players.' };
+  }
+}
+
 function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: TranscodeTabProps) {
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState<JobStatus | 'all'>('all');
@@ -359,20 +419,24 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
   const [sourceUrl, setSourceUrl] = useState('');
   const [localFile, setLocalFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<'idle' | 'uploading' | 'done'>('idle');
-  const [outputFmt, setOutputFmt] = useState('HLS');
-  const [resolution, setResolution] = useState('1080p');
+  const [outputFmts, setOutputFmts] = useState<string[]>(['HLS']);
+  const [resolutions, setResolutions] = useState<string[]>(['1080p']);
   const [bitrate, setBitrate] = useState('');
+  const [priorityFormat, setPriorityFormat] = useState<string | null>(null);
+  const [generateAdaptiveBundle, setGenerateAdaptiveBundle] = useState(false);
   const [s3PickerOpen, setS3PickerOpen] = useState(false);
   const [s3PickedFile, setS3PickedFile] = useState<import('../components/mediaops/S3PickerModal').S3PickedFile | null>(null);
   const [enableHLS, setEnableHLS] = useState(true);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedUrlId, setCopiedUrlId] = useState<string | null>(null);
   const [playerUrl, setPlayerUrl] = useState<string | null>(null);
   const [dashPlayerUrl, setDashPlayerUrl] = useState<string | null>(null);
   const [videoPlayerUrl, setVideoPlayerUrl] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<number | null>(null);
   const [expandedError, setExpandedError] = useState<string | null>(null);
+  const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
   const [embedJob, setEmbedJob] = useState<TranscodeJob | null>(null);
 
   // Mode toggle: persisted to localStorage
@@ -398,7 +462,9 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
   const canSubmit = sourceMode === 'url' ? !!sourceUrl.trim() : !!localFile;
 
   const formState: import('../components/mediaops/SimpleMode').SimpleModeFormState = {
-    sourceMode, sourceUrl, localFile, uploadProgress, outputFormat: outputFmt, resolution, bitrate, enableAdaptive: enableHLS, s3PickedFile,
+    sourceMode, sourceUrl, localFile, uploadProgress,
+    outputFormats: outputFmts, resolutions, bitrate,
+    enableAdaptive: enableHLS, generateAdaptiveBundle, priorityFormat, s3PickedFile,
   };
 
   const handleFormChange = useCallback((updates: Partial<import('../components/mediaops/SimpleMode').SimpleModeFormState>) => {
@@ -406,10 +472,12 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
     if (updates.sourceUrl !== undefined) setSourceUrl(updates.sourceUrl);
     if (updates.localFile !== undefined) setLocalFile(updates.localFile);
     if (updates.uploadProgress !== undefined) setUploadProgress(updates.uploadProgress);
-    if (updates.outputFormat !== undefined) setOutputFmt(updates.outputFormat);
-    if (updates.resolution !== undefined) setResolution(updates.resolution);
+    if (updates.outputFormats !== undefined) setOutputFmts(updates.outputFormats);
+    if (updates.resolutions !== undefined) setResolutions(updates.resolutions);
     if (updates.bitrate !== undefined) setBitrate(updates.bitrate);
     if (updates.enableAdaptive !== undefined) setEnableHLS(updates.enableAdaptive);
+    if (updates.generateAdaptiveBundle !== undefined) setGenerateAdaptiveBundle(updates.generateAdaptiveBundle);
+    if ('priorityFormat' in updates) setPriorityFormat(updates.priorityFormat ?? null);
     if ('s3PickedFile' in updates) setS3PickedFile(updates.s3PickedFile ?? null);
   }, []);
 
@@ -425,54 +493,109 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
         setUploadProgress('done');
         finalSourceUrl = uploaded.filePath;
       }
-      const request: CreateJobRequest = { sourceUrl: finalSourceUrl, outputFormat: outputFmt, resolution, enableAdaptive: enableHLS };
-      if (bitrate.trim()) request.bitrate = bitrate.trim();
 
-      // Include advanced fields if provided
-      if (advancedState) {
-        if (advancedState.presetId) request.presetId = advancedState.presetId;
-        if (advancedState.codec) request.codec = advancedState.codec;
-        if (advancedState.priority !== 'NORMAL') request.priority = advancedState.priority;
-        if (advancedState.startTime) request.startTime = advancedState.startTime;
-        if (advancedState.endTime) request.endTime = advancedState.endTime;
-
-        // Upload subtitle file first, then pass the server path
-        if (advancedState.subtitleFile) {
-          const uploadedSubtitle = await onUploadFile(advancedState.subtitleFile);
-          request.subtitlePath = uploadedSubtitle.filePath;
-        }
-        if (advancedState.subtitleMode) request.subtitleMode = advancedState.subtitleMode;
-
-        // Upload watermark image first, then pass the server path
-        if (advancedState.watermarkType === 'image' && advancedState.watermarkImage) {
-          const uploadedWatermark = await onUploadFile(advancedState.watermarkImage);
-          request.watermarkImagePath = uploadedWatermark.filePath;
-          request.watermarkPosition = advancedState.watermarkPosition;
-          request.watermarkOpacity = advancedState.watermarkOpacity / 100;
-        } else if (advancedState.watermarkType === 'text' && advancedState.watermarkText) {
-          request.watermarkText = advancedState.watermarkText;
-          request.watermarkPosition = advancedState.watermarkPosition;
-          request.watermarkOpacity = advancedState.watermarkOpacity / 100;
-        }
-
-        if (advancedState.thumbnailEnabled) {
-          request.thumbnailEnabled = true;
-          request.thumbnailIntervalSeconds = advancedState.thumbnailIntervalSeconds;
-          request.thumbnailTimestamp = advancedState.thumbnailTimestamp;
-        }
-        if (advancedState.audioBitrate && advancedState.audioBitrate !== '128k') request.audioBitrate = advancedState.audioBitrate;
-        if (advancedState.audioSampleRate) request.audioSampleRate = advancedState.audioSampleRate;
-        if (advancedState.audioChannels) request.audioChannels = advancedState.audioChannels;
-        if (advancedState.customFfmpegParams) request.customFfmpegParams = advancedState.customFfmpegParams;
-        if (advancedState.scheduledAt) request.scheduledAt = advancedState.scheduledAt;
-        if (advancedState.encryptionEnabled) request.encryptionEnabled = true;
+      // Pre-upload shared assets once (subtitle, watermark) to reuse across jobs
+      let subtitlePath: string | undefined;
+      let watermarkImagePath: string | undefined;
+      if (advancedState?.subtitleFile) {
+        const uploadedSubtitle = await onUploadFile(advancedState.subtitleFile);
+        subtitlePath = uploadedSubtitle.filePath;
+      }
+      if (advancedState?.watermarkType === 'image' && advancedState.watermarkImage) {
+        const uploadedWatermark = await onUploadFile(advancedState.watermarkImage);
+        watermarkImagePath = uploadedWatermark.filePath;
       }
 
-      await onCreateJob(request);
+      const buildRequest = (fmt: string, res: string, jobPriority: 'HIGH' | 'NORMAL' | 'LOW'): CreateJobRequest => {
+        const req: CreateJobRequest = {
+          sourceUrl: finalSourceUrl,
+          outputFormat: fmt,
+          resolution: res,
+          enableAdaptive: enableHLS && (fmt === 'HLS' || fmt === 'DASH'),
+        };
+        if (bitrate.trim()) req.bitrate = bitrate.trim();
+        if (jobPriority !== 'NORMAL') req.priority = jobPriority;
+
+        if (advancedState) {
+          if (advancedState.presetId) req.presetId = advancedState.presetId;
+          if (advancedState.codec) req.codec = advancedState.codec;
+          if (advancedState.priority !== 'NORMAL' && jobPriority === 'NORMAL') req.priority = advancedState.priority;
+          if (advancedState.startTime) req.startTime = advancedState.startTime;
+          if (advancedState.endTime) req.endTime = advancedState.endTime;
+          if (subtitlePath) req.subtitlePath = subtitlePath;
+          if (advancedState.subtitleMode) req.subtitleMode = advancedState.subtitleMode;
+          if (watermarkImagePath) {
+            req.watermarkImagePath = watermarkImagePath;
+            req.watermarkX = advancedState.watermarkX;
+            req.watermarkY = advancedState.watermarkY;
+            req.watermarkOpacity = advancedState.watermarkOpacity / 100;
+            req.watermarkScale = advancedState.watermarkScale;
+          } else if (advancedState.watermarkType === 'text' && advancedState.watermarkText) {
+            req.watermarkText = advancedState.watermarkText;
+            req.watermarkX = advancedState.watermarkX;
+            req.watermarkY = advancedState.watermarkY;
+            req.watermarkOpacity = advancedState.watermarkOpacity / 100;
+            req.watermarkScale = advancedState.watermarkScale;
+          }
+          if (advancedState.thumbnailEnabled) {
+            req.thumbnailEnabled = true;
+            req.thumbnailIntervalSeconds = advancedState.thumbnailIntervalSeconds;
+            req.thumbnailTimestamp = advancedState.thumbnailTimestamp;
+          }
+          if (advancedState.audioBitrate && advancedState.audioBitrate !== '128k') req.audioBitrate = advancedState.audioBitrate;
+          if (advancedState.audioSampleRate) req.audioSampleRate = advancedState.audioSampleRate;
+          if (advancedState.audioChannels) req.audioChannels = advancedState.audioChannels;
+          if (advancedState.customFfmpegParams) req.customFfmpegParams = advancedState.customFfmpegParams;
+          if (advancedState.scheduledAt) req.scheduledAt = advancedState.scheduledAt;
+          if (advancedState.encryptionEnabled) req.encryptionEnabled = true;
+        }
+        return req;
+      };
+
+      // Build ordered list of (format, resolution) combinations
+      // priorityFormat jobs go first (HIGH priority), rest are NORMAL
+      const orderedFormats = priorityFormat
+        ? [priorityFormat, ...outputFmts.filter(f => f !== priorityFormat)]
+        : outputFmts;
+
+      const AUDIO_ONLY = ['MP3', 'AAC', 'FLAC', 'OGG'];
+      const combinations: Array<{ fmt: string; res: string; prio: 'HIGH' | 'NORMAL' | 'LOW' }> = [];
+      for (const fmt of orderedFormats) {
+        const isAudio = AUDIO_ONLY.includes(fmt);
+        const resList = isAudio ? [''] : resolutions;
+        for (const res of resList) {
+          combinations.push({
+            fmt,
+            res: isAudio ? resolutions[0] ?? '1080p' : res,
+            prio: (priorityFormat && fmt === priorityFormat) ? 'HIGH' : 'NORMAL',
+          });
+        }
+      }
+
+      for (const { fmt, res, prio } of combinations) {
+        await onCreateJob(buildRequest(fmt, res, prio));
+      }
+
+      // Adaptive bundle jobs — one per HLS/DASH format (combined multi-variant, enableAdaptive=true)
+      if (generateAdaptiveBundle && !enableHLS && resolutions.length > 1) {
+        const bundleFormats = outputFmts.filter(f => f === 'HLS' || f === 'DASH');
+        for (const fmt of bundleFormats) {
+          const bundleReq: CreateJobRequest = {
+            sourceUrl: finalSourceUrl,
+            outputFormat: fmt,
+            resolution: '1080p',
+            enableAdaptive: true,
+          };
+          if (bitrate.trim()) bundleReq.bitrate = bitrate.trim();
+          await onCreateJob(bundleReq);
+        }
+      }
+
       setShowForm(false);
       setSourceUrl('');
       setLocalFile(null);
       setBitrate('');
+      setPriorityFormat(null);
       setUploadProgress('idle');
       setS3PickedFile(null);
     } catch (e: any) {
@@ -481,7 +604,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
     } finally {
       setSubmitLoading(false);
     }
-  }, [canSubmit, sourceMode, sourceUrl, localFile, outputFmt, resolution, enableHLS, onCreateJob, onUploadFile]);
+  }, [canSubmit, sourceMode, sourceUrl, localFile, outputFmts, resolutions, enableHLS, generateAdaptiveBundle, priorityFormat, bitrate, onCreateJob, onUploadFile]);
 
   const handleCancel = useCallback(() => {
     setShowForm(false);
@@ -492,6 +615,8 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
     setSourceMode('url');
     setUploadProgress('idle');
     setS3PickedFile(null);
+    setPriorityFormat(null);
+    setGenerateAdaptiveBundle(false);
   }, []);
 
   const copyCmd = useCallback((job: TranscodeJob) => {
@@ -502,86 +627,147 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
     setTimeout(() => setCopiedId(null), 1800);
   }, []);
 
-  const STATUS_FILTERS: { id: JobStatus | 'all'; label: string }[] = [
-    { id: 'all', label: 'All' },
-    { id: 'processing', label: 'Processing' },
-    { id: 'queued', label: 'Queued' },
-    { id: 'completed', label: 'Completed' },
-    { id: 'failed', label: 'Failed' },
-  ];
+  // Primary shareable output URL for a job (HLS → DASH → progressive video)
+  const jobOutputUrl = useCallback((job: TranscodeJob): string | null => {
+    const rel = job.hlsUrl || job.dashUrl || job.videoUrl;
+    if (!rel) return null;
+    const resolved = resolveMediaUrl(rel);
+    return resolved.startsWith('http') ? resolved : `${window.location.origin}${resolved}`;
+  }, []);
+
+  const copyOutputUrl = useCallback((job: TranscodeJob) => {
+    const url = jobOutputUrl(job);
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    setCopiedUrlId(job.id);
+    setTimeout(() => setCopiedUrlId(null), 1800);
+  }, [jobOutputUrl]);
+
+  const jobCounts: Record<JobStatus | 'all', number> = {
+    all: jobs.length,
+    processing: jobs.filter(j => j.status === 'processing').length,
+    queued: jobs.filter(j => j.status === 'queued').length,
+    completed: jobs.filter(j => j.status === 'completed').length,
+    failed: jobs.filter(j => j.status === 'failed').length,
+  };
 
   return (
     <div className="space-y-5">
-      {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 flex-wrap">
-          {STATUS_FILTERS.map(f => (
-            <button key={f.id} onClick={() => setFilterStatus(f.id)}
-              className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-all ${
-                filterStatus === f.id ? 'bg-[rgba(0,0,0,0.88)] text-white border-transparent' : 'bg-white text-[rgba(0,0,0,0.55)] border-[rgba(0,0,0,0.10)] hover:bg-[rgba(0,0,0,0.03)]'
-              }`}>{f.label}
-            </button>
-          ))}
+      {/* Title + primary action */}
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h2 className="text-[15px] font-bold text-[rgba(0,0,0,0.88)] leading-tight">Transcoding Jobs</h2>
+          <p className="text-[11.5px] text-[rgba(0,0,0,0.4)] leading-tight mt-0.5">Convert, package &amp; stream — track every job in real time</p>
         </div>
         <button onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl transition-all hover:bg-[rgba(0,0,0,0.75)]">
-          <Icon icon="mdi:plus" className="text-base" />
-          New Job
+          className="group flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl transition-all duration-200 hover:bg-[rgba(0,0,0,0.78)] active:scale-[0.97] shadow-sm flex-shrink-0">
+          <Icon icon="mdi:plus" className={`text-base transition-transform duration-300 ${showForm ? 'rotate-[135deg]' : 'group-hover:rotate-90'}`} />
+          {showForm ? 'Close' : 'New Job'}
         </button>
+      </div>
+
+      {/* Interactive stat-filter cards — click to filter the table below */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {STAT_DEFS.map((s, i) => {
+          const active = filterStatus === s.id;
+          const count = jobCounts[s.id];
+          return (
+            <motion.button
+              key={s.id}
+              onClick={() => setFilterStatus(s.id)}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.32, delay: 0.04 + i * 0.05, ease: [0.22, 1, 0.36, 1] }}
+              className={`group relative text-left bg-white border rounded-xl px-4 py-3 transition-all duration-200 active:scale-[0.98] card-hover-lift ${
+                active
+                  ? `${s.activeBorder} ring-2 ${s.activeRing} shadow-sm`
+                  : 'border-[rgba(0,0,0,0.10)] hover:border-[rgba(0,0,0,0.18)]'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[10.5px] font-bold uppercase tracking-[0.07em] transition-colors ${active ? 'text-[rgba(0,0,0,0.7)]' : 'text-[rgba(0,0,0,0.45)] group-hover:text-[rgba(0,0,0,0.6)]'}`}>{s.label}</span>
+                <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${active ? s.iconActiveBg : 'bg-[rgba(0,0,0,0.04)] group-hover:bg-[rgba(0,0,0,0.06)]'}`}>
+                  <Icon icon={s.icon} className={`text-[13px] transition-colors ${active ? s.iconActiveColor : 'text-[rgba(0,0,0,0.4)]'} ${s.id === 'processing' && count > 0 ? 'animate-pulse' : ''}`} />
+                </div>
+              </div>
+              <p style={JOB_NUM_STYLE}>{count}</p>
+            </motion.button>
+          );
+        })}
       </div>
 
       {/* New Job Form */}
       <AnimatePresence>
         {showForm && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}
-            className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] flex items-center gap-2">
-                <Icon icon="mdi:film-plus" className="text-[rgba(0,0,0,0.4)]" />
-                New Transcoding Job
-              </p>
-              {/* Mode Toggle */}
-              <div className="flex items-center gap-1 bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5">
-                <button onClick={() => handleModeChange('simple')}
-                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${transcodeMode === 'simple' ? 'bg-white shadow text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
-                  <span className="flex items-center gap-1">
-                    <Icon icon="mdi:lightning-bolt" className="text-sm" />
-                    Simple
-                  </span>
-                </button>
-                <button onClick={() => handleModeChange('advanced')}
-                  className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all ${transcodeMode === 'advanced' ? 'bg-white shadow text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.65)]'}`}>
-                  <span className="flex items-center gap-1">
-                    <Icon icon="mdi:tune-variant" className="text-sm" />
-                    Advanced
-                  </span>
-                </button>
+          <motion.div initial={{ opacity: 0, y: -10, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: 0.99 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="bg-white border border-[rgba(0,0,0,0.10)] rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_-16px_rgba(0,0,0,0.16)] overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-[rgba(0,0,0,0.06)] bg-gradient-to-b from-[rgba(0,0,0,0.018)] to-transparent">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[rgba(0,0,0,0.88)] flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <Icon icon="mdi:film-plus" className="text-white text-[18px]" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[14px] font-bold text-[rgba(0,0,0,0.88)] leading-tight">New Transcoding Job</p>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.4)] leading-tight mt-0.5 truncate">
+                    {transcodeMode === 'simple' ? 'Quick setup — pick a format and go' : 'Full control over codecs, watermarks, trimming & more'}
+                  </p>
+                </div>
+              </div>
+              {/* Segmented mode toggle with sliding indicator */}
+              <div className="flex items-center gap-0.5 bg-[rgba(0,0,0,0.045)] rounded-xl p-1 flex-shrink-0">
+                {([['simple', 'mdi:lightning-bolt', 'Simple'], ['advanced', 'mdi:tune-variant', 'Advanced']] as const).map(([mode, icon, label]) => {
+                  const active = transcodeMode === mode;
+                  return (
+                    <button key={mode} onClick={() => handleModeChange(mode)}
+                      className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11.5px] font-bold transition-colors duration-200 ${active ? 'text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.42)] hover:text-[rgba(0,0,0,0.62)]'}`}>
+                      {active && (
+                        <motion.span layoutId="transcodeModePill"
+                          className="absolute inset-0 bg-white rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.06),0_2px_8px_-2px_rgba(0,0,0,0.14)]"
+                          transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
+                      )}
+                      <Icon icon={icon} className="relative z-10 text-[15px]" />
+                      <span className="relative z-10">{label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {transcodeMode === 'simple' ? (
-              <SimpleMode
-                formState={formState}
-                onFormChange={handleFormChange}
-                onSubmit={submitJob}
-                onCancel={handleCancel}
-                canSubmit={canSubmit}
-                submitLoading={submitLoading}
-                submitError={submitError}
-                onBrowseS3={() => setS3PickerOpen(true)}
-              />
-            ) : (
-              <AdvancedMode
-                formState={formState}
-                onFormChange={handleFormChange}
-                onSubmit={submitJob}
-                onCancel={handleCancel}
-                canSubmit={canSubmit}
-                submitLoading={submitLoading}
-                submitError={submitError}
-                onBrowseS3={() => setS3PickerOpen(true)}
-              />
-            )}
+            {/* Body */}
+            <div className="p-5">
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div key={transcodeMode}
+                  initial={{ opacity: 0, x: transcodeMode === 'simple' ? -10 : 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: transcodeMode === 'simple' ? 10 : -10 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}>
+                  {transcodeMode === 'simple' ? (
+                    <SimpleMode
+                      formState={formState}
+                      onFormChange={handleFormChange}
+                      onSubmit={submitJob}
+                      onCancel={handleCancel}
+                      canSubmit={canSubmit}
+                      submitLoading={submitLoading}
+                      submitError={submitError}
+                      onBrowseS3={() => setS3PickerOpen(true)}
+                    />
+                  ) : (
+                    <AdvancedMode
+                      formState={formState}
+                      onFormChange={handleFormChange}
+                      onSubmit={submitJob}
+                      onCancel={handleCancel}
+                      canSubmit={canSubmit}
+                      submitLoading={submitLoading}
+                      submitError={submitError}
+                      onBrowseS3={() => setS3PickerOpen(true)}
+                    />
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -600,6 +786,20 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
 
       {/* Jobs Table */}
       <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-2xl shadow-sm overflow-hidden">
+        {/* Caption strip — active filter context + clear affordance */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[rgba(0,0,0,0.06)] bg-gradient-to-b from-[rgba(0,0,0,0.012)] to-transparent">
+          <div className="flex items-center gap-2">
+            <span className="text-[12.5px] font-bold text-[rgba(0,0,0,0.82)]">{STAT_DEFS.find(s => s.id === filterStatus)?.label ?? 'All Jobs'}</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-[rgba(0,0,0,0.05)] text-[10.5px] font-bold text-[rgba(0,0,0,0.5)] tabular-nums">{filtered.length}</span>
+          </div>
+          {filterStatus !== 'all' && (
+            <button onClick={() => setFilterStatus('all')}
+              className="flex items-center gap-1 text-[11px] font-semibold text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.8)] transition-colors">
+              <Icon icon="mdi:filter-remove-outline" className="text-[13px]" />
+              Clear filter
+            </button>
+          )}
+        </div>
         {loading ? (
           <div className="p-5 space-y-3">{Array.from({ length: 5 }).map((_, i) => <SkeletonBlock key={i} className="h-12" />)}</div>
         ) : (
@@ -615,11 +815,11 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
               <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
                 {filtered.map(job => (
                   <React.Fragment key={job.id}>
-                    <tr className={`transition-colors ${job.status === 'failed' ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-[rgba(0,0,0,0.01)]'}`}>
+                    <tr className={`group/row transition-colors ${job.status === 'failed' ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-[rgba(0,0,0,0.018)]'}`}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-lg bg-[rgba(0,0,0,0.04)] flex items-center justify-center flex-shrink-0">
-                            <Icon icon="mdi:file-video-outline" className="text-[rgba(0,0,0,0.4)] text-sm" />
+                          <div className="w-7 h-7 rounded-lg bg-[rgba(0,0,0,0.04)] group-hover/row:bg-blue-50 flex items-center justify-center flex-shrink-0 transition-colors">
+                            <Icon icon="mdi:file-video-outline" className="text-[rgba(0,0,0,0.4)] group-hover/row:text-blue-500 text-sm transition-colors" />
                           </div>
                           <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)] max-w-[160px] truncate">{job.name}</span>
                         </div>
@@ -657,7 +857,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                           )}
                           {job.hlsUrl && (
                             <>
-                              <button onClick={() => setPlayerUrl(job.hlsUrl!.startsWith('http') ? job.hlsUrl! : `/media/${job.hlsUrl!.replace(/^\//, '')}`)}
+                              <button onClick={() => setPlayerUrl(resolveMediaUrl(job.hlsUrl!))}
                                 title="Preview HLS"
                                 className="p-1.5 rounded-lg hover:bg-emerald-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-emerald-600">
                                 <Icon icon="mdi:play-circle-outline" className="text-sm" />
@@ -670,17 +870,24 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                             </>
                           )}
                           {job.dashUrl && (
-                            <button onClick={() => setDashPlayerUrl(job.dashUrl!.startsWith('http') ? job.dashUrl! : `/media/${job.dashUrl!.replace(/^\//, '')}`)}
+                            <button onClick={() => setDashPlayerUrl(resolveMediaUrl(job.dashUrl!))}
                               title="Preview DASH"
                               className="p-1.5 rounded-lg hover:bg-violet-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-violet-600">
                               <Icon icon="mdi:play-circle-outline" className="text-sm" />
                             </button>
                           )}
                           {job.videoUrl && (
-                            <button onClick={() => setVideoPlayerUrl(job.videoUrl!.startsWith('http') ? job.videoUrl! : `/media/${job.videoUrl!.replace(/^\//, '')}`)}
+                            <button onClick={() => setVideoPlayerUrl(resolveMediaUrl(job.videoUrl!))}
                               title={`Preview ${job.outputFormat}`}
                               className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-blue-600">
                               <Icon icon="mdi:play-circle-outline" className="text-sm" />
+                            </button>
+                          )}
+                          {jobOutputUrl(job) && (
+                            <button onClick={() => setExpandedUrl(expandedUrl === job.id ? null : job.id)}
+                              title="Output URL"
+                              className={`p-1.5 rounded-lg transition-colors ${expandedUrl === job.id ? 'bg-sky-50 text-sky-600' : 'hover:bg-sky-50 text-[rgba(0,0,0,0.35)] hover:text-sky-600'}`}>
+                              <Icon icon="mdi:link-variant" className="text-sm" />
                             </button>
                           )}
                           <button onClick={() => copyCmd(job)} title="Copy command"
@@ -708,6 +915,47 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                         </td>
                       </tr>
                     )}
+                    {expandedUrl === job.id && jobOutputUrl(job) && (
+                      <tr className="bg-sky-50/60">
+                        <td colSpan={9} className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-7 h-7 rounded-lg bg-sky-100 flex items-center justify-center flex-shrink-0">
+                              <Icon icon="mdi:link-variant" className="text-sky-600 text-sm" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-[rgba(0,0,0,0.45)] mb-1">
+                                {job.hlsUrl ? 'HLS Output URL (.m3u8)' : job.dashUrl ? 'DASH Output URL (.mpd)' : `${job.outputFormat} Output URL`}
+                              </p>
+                              <input readOnly value={jobOutputUrl(job) ?? ''}
+                                onFocus={e => e.currentTarget.select()}
+                                className="w-full px-3 py-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg text-[11px] font-mono text-[rgba(0,0,0,0.7)] outline-none focus:ring-2 focus:ring-sky-500/25 focus:border-sky-500" />
+                              {(() => {
+                                const c = outputCompatNote(job.outputFormat);
+                                return (
+                                  <p className={`text-[10px] mt-1 flex items-center gap-1 ${c.good ? 'text-emerald-600' : 'text-[rgba(0,0,0,0.45)]'}`}>
+                                    <Icon icon={c.good ? 'mdi:check-circle-outline' : 'mdi:information-outline'} className="text-[11px] flex-shrink-0" />
+                                    {c.text}
+                                  </p>
+                                );
+                              })()}
+                            </div>
+                            <button onClick={() => copyOutputUrl(job)}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[rgba(0,0,0,0.88)] text-white text-[11px] font-bold hover:bg-[rgba(0,0,0,0.78)] active:scale-[0.97] transition-all flex-shrink-0">
+                              <Icon icon={copiedUrlId === job.id ? 'mdi:check' : 'mdi:content-copy'} className="text-sm" />
+                              {copiedUrlId === job.id ? 'Copied' : 'Copy'}
+                            </button>
+                            <a href={jobOutputUrl(job) ?? '#'} target="_blank" rel="noreferrer"
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.65)] text-[11px] font-semibold hover:bg-[rgba(0,0,0,0.03)] active:scale-[0.97] transition-all flex-shrink-0">
+                              <Icon icon="mdi:open-in-new" className="text-sm" />
+                              Open
+                            </a>
+                            <button onClick={() => setExpandedUrl(null)} className="p-1 hover:bg-[rgba(0,0,0,0.06)] rounded flex-shrink-0">
+                              <Icon icon="mdi:close" className="text-[rgba(0,0,0,0.4)] text-sm" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </React.Fragment>
                 ))}
               </tbody>
@@ -727,7 +975,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
       {videoPlayerUrl && <NativeVideoPlayer src={videoPlayerUrl} onClose={() => setVideoPlayerUrl(null)} />}
       {embedJob?.hlsUrl && (
         <EmbedModal
-          hlsUrl={embedJob.hlsUrl!.startsWith('http') ? embedJob.hlsUrl! : `/media/${embedJob.hlsUrl!.replace(/^\//, '')}`}
+          hlsUrl={resolveMediaUrl(embedJob.hlsUrl!)}
           title={embedJob.name}
           onClose={() => setEmbedJob(null)}
         />
@@ -1032,7 +1280,34 @@ export function VideoPlayer() {
 
 function HlsPlayer({ src, title = 'Watch Live', onClose }: { src: string; title?: string; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<any>(null);
+  const [qualityLevels, setQualityLevels] = useState<string[]>([]);
+  const [activeLevel, setActiveLevel] = useState<number>(-1); // -1 = auto
+  const [showQualityMenu, setShowQualityMenu] = useState(false);
 
+  // Parse master.m3u8 directly to detect quality variants — reliable regardless of hls.js event timing.
+  useEffect(() => {
+    if (!src.includes('.m3u8')) return;
+    let cancelled = false;
+    fetch(src)
+      .then(r => r.text())
+      .then(text => {
+        if (cancelled) return;
+        const heights: number[] = [];
+        text.split('\n').forEach(line => {
+          const m = line.match(/RESOLUTION=\d+x(\d+)/i);
+          if (m) heights.push(parseInt(m[1], 10));
+        });
+        if (heights.length > 1) {
+          setQualityLevels(heights.map(h => `${h}p`));
+          setActiveLevel(-1);
+        }
+      })
+      .catch(() => {/* non-fatal */});
+    return () => { cancelled = true; };
+  }, [src]);
+
+  // Wire up hls.js for playback; quality switching uses hlsRef.current.currentLevel.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -1048,14 +1323,35 @@ function HlsPlayer({ src, title = 'Watch Live', onClose }: { src: string; title?
     // Chrome / Firefox — use hls.js
     import('hls.js').then(({ default: Hls }) => {
       if (!Hls.isSupported()) return;
-      hls = new Hls({ lowLatencyMode: true });
+      hls = new Hls({ lowLatencyMode: false, autoStartLoad: true });
+      hlsRef.current = hls;
       hls.loadSource(src);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {});
+      });
+
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_evt: any, data: any) => {
+        setActiveLevel(data.level);
+      });
     });
 
-    return () => { if (hls) hls.destroy(); };
+    return () => {
+      if (hls) hls.destroy();
+      hlsRef.current = null;
+    };
   }, [src]);
+
+  const switchQuality = (idx: number) => {
+    if (hlsRef.current) hlsRef.current.currentLevel = idx;
+    setActiveLevel(idx);
+    setShowQualityMenu(false);
+  };
+
+  const currentQualityLabel = activeLevel === -1
+    ? 'Auto'
+    : (qualityLevels[activeLevel] ?? `Level ${activeLevel + 1}`);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
@@ -1066,9 +1362,40 @@ function HlsPlayer({ src, title = 'Watch Live', onClose }: { src: string; title?
             <span className="text-white text-[13px] font-semibold">{title}</span>
             <code className="text-[11px] font-mono text-white/50 truncate max-w-xs">{src}</code>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10 transition-colors">
-            <Icon icon="mdi:close" className="text-white text-lg" />
-          </button>
+          <div className="flex items-center gap-2">
+            {qualityLevels.length > 1 && (
+              <div className="relative">
+                <button
+                  onClick={e => { e.stopPropagation(); setShowQualityMenu(v => !v); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-black/50 hover:bg-black/70 backdrop-blur-sm rounded-full text-[11px] font-bold text-white/80 hover:text-white transition-all border border-white/10">
+                  <Icon icon="mdi:quality-high" className="text-sm text-blue-400" />
+                  {currentQualityLabel}
+                  <Icon icon="mdi:chevron-down" className="text-xs text-white/50" />
+                </button>
+                {showQualityMenu && (
+                  <div className="absolute top-full right-0 mt-1 bg-[rgba(10,10,10,0.95)] border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50 min-w-[110px]">
+                    <button
+                      onClick={() => switchQuality(-1)}
+                      className={`w-full px-3 py-2 text-left text-[12px] font-semibold transition-colors flex items-center gap-2 ${activeLevel === -1 ? 'text-blue-400 bg-white/10' : 'text-white/70 hover:bg-white/05 hover:text-white'}`}>
+                      <Icon icon="mdi:auto-fix" className="text-xs" />
+                      Auto
+                    </button>
+                    {qualityLevels.map((q, i) => (
+                      <button key={q}
+                        onClick={() => switchQuality(i)}
+                        className={`w-full px-3 py-2 text-left text-[12px] font-semibold transition-colors flex items-center gap-2 ${activeLevel === i ? 'text-blue-400 bg-white/10' : 'text-white/70 hover:bg-white/05 hover:text-white'}`}>
+                        <Icon icon="mdi:quality-high" className="text-xs" />
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10 transition-colors">
+              <Icon icon="mdi:close" className="text-white text-lg" />
+            </button>
+          </div>
         </div>
         <video
           ref={videoRef}
@@ -1371,58 +1698,69 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
         </div>
       )}
 
-      {/* Header row */}
-      <div className="flex items-center justify-end">
+      {/* Title + primary action */}
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h2 className="text-[15px] font-bold text-[rgba(0,0,0,0.88)] leading-tight">Live Streams</h2>
+          <p className="text-[11.5px] text-[rgba(0,0,0,0.4)] leading-tight mt-0.5">Broadcast RTMP &amp; HLS in real time — zero AWS IVS cost</p>
+        </div>
         <button onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl transition-all hover:bg-[rgba(0,0,0,0.75)]">
-          <Icon icon="mdi:plus" className="text-base" />
-          New Stream
+          className="group flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl transition-all duration-200 hover:bg-[rgba(0,0,0,0.78)] active:scale-[0.97] shadow-sm flex-shrink-0">
+          <Icon icon="mdi:plus" className={`text-base transition-transform duration-300 ${showForm ? 'rotate-[135deg]' : 'group-hover:rotate-90'}`} />
+          {showForm ? 'Close' : 'New Stream'}
         </button>
       </div>
 
       {/* New Stream Form */}
       <AnimatePresence>
         {showForm && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}
-            className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
-            <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] mb-4 flex items-center gap-2">
-              <Icon icon="mdi:broadcast" className="text-[rgba(0,0,0,0.4)]" />
-              Create Live Stream
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-1">
-                <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Stream Name</label>
-                <input value={streamName} onChange={e => setStreamName(e.target.value)}
-                  placeholder="e.g. Main Stage, Game Stream"
-                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-[rgba(0,0,0,0.2)] outline-none" />
+          <motion.div initial={{ opacity: 0, y: -10, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: 0.99 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="bg-white border border-[rgba(0,0,0,0.10)] rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_-16px_rgba(0,0,0,0.16)] overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-[rgba(0,0,0,0.06)] bg-gradient-to-b from-[rgba(0,0,0,0.018)] to-transparent">
+              <div className="w-9 h-9 rounded-xl bg-[rgba(0,0,0,0.88)] flex items-center justify-center flex-shrink-0 shadow-sm">
+                <Icon icon="mdi:broadcast" className="text-white text-[18px]" />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Resolution</label>
-                <select value={streamResolution} onChange={e => setStreamResolution(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-[rgba(0,0,0,0.2)] outline-none bg-white">
-                  <option value="1080p">1080p</option>
-                  <option value="720p">720p</option>
-                  <option value="480p">480p</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Bitrate</label>
-                <select value={streamBitrate} onChange={e => setStreamBitrate(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-[rgba(0,0,0,0.2)] outline-none bg-white">
-                  <option value="6000k">6000k (High)</option>
-                  <option value="4500k">4500k (Medium)</option>
-                  <option value="2500k">2500k (Low)</option>
-                </select>
+                <p className="text-[14px] font-bold text-[rgba(0,0,0,0.88)] leading-tight">Create Live Stream</p>
+                <p className="text-[11px] text-[rgba(0,0,0,0.4)] leading-tight mt-0.5">Generates an RTMP ingest endpoint + HLS playback URL</p>
               </div>
             </div>
-            <div className="flex items-center gap-3 mt-4">
-              <button onClick={handleCreate} disabled={!streamName.trim() || createLoading}
-                className="flex items-center gap-2 px-5 py-2.5 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl disabled:opacity-50 transition-all hover:bg-[rgba(0,0,0,0.75)]">
-                {createLoading ? <Icon icon="mdi:loading" className="animate-spin" /> : <Icon icon="mdi:broadcast" />}
-                {createLoading ? 'Creating…' : 'Create Stream'}
-              </button>
-              <button onClick={() => { setShowForm(false); setStreamName(''); setCreateError(null); }}
-                className="px-4 py-2.5 text-[12px] font-semibold text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors">Cancel</button>
+            <div className="p-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-1">
+                  <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Stream Name</label>
+                  <input value={streamName} onChange={e => setStreamName(e.target.value)}
+                    placeholder="e.g. Main Stage, Game Stream"
+                    className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none transition-shadow" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Resolution</label>
+                  <select value={streamResolution} onChange={e => setStreamResolution(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none bg-white transition-shadow">
+                    <option value="1080p">1080p</option>
+                    <option value="720p">720p</option>
+                    <option value="480p">480p</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Bitrate</label>
+                  <select value={streamBitrate} onChange={e => setStreamBitrate(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none bg-white transition-shadow">
+                    <option value="6000k">6000k (High)</option>
+                    <option value="4500k">4500k (Medium)</option>
+                    <option value="2500k">2500k (Low)</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 mt-4">
+                <button onClick={handleCreate} disabled={!streamName.trim() || createLoading}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-[rgba(0,0,0,0.88)] text-white text-[12px] font-bold rounded-xl disabled:opacity-50 transition-all duration-200 hover:bg-[rgba(0,0,0,0.78)] active:scale-[0.97] shadow-sm">
+                  {createLoading ? <Icon icon="mdi:loading" className="animate-spin" /> : <Icon icon="mdi:broadcast" />}
+                  {createLoading ? 'Creating…' : 'Create Stream'}
+                </button>
+                <button onClick={() => { setShowForm(false); setStreamName(''); setCreateError(null); }}
+                  className="px-4 py-2.5 text-[12px] font-semibold text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors">Cancel</button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -1431,20 +1769,23 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Live Now', value: streams.filter(s => s.status === 'live').length, icon: 'mdi:broadcast' },
-          { label: 'Total Viewers', value: streams.reduce((a, s) => a + s.viewers, 0), icon: 'mdi:account-group-outline' },
-          { label: 'Bandwidth Used', value: formatBytes(totalBandwidth), icon: 'mdi:chart-line' },
-          { label: 'AWS IVS Saved', value: '$0 spent', icon: 'mdi:piggy-bank-outline' },
+          { label: 'Live Now', value: streams.filter(s => s.status === 'live').length, icon: 'mdi:broadcast', live: streams.some(s => s.status === 'live') },
+          { label: 'Total Viewers', value: streams.reduce((a, s) => a + s.viewers, 0), icon: 'mdi:account-group-outline', live: false },
+          { label: 'Bandwidth Used', value: formatBytes(totalBandwidth), icon: 'mdi:chart-line', live: false },
+          { label: 'AWS IVS Saved', value: '$0 spent', icon: 'mdi:piggy-bank-outline', live: false },
         ].map((s, i) => (
-          <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+          <motion.div key={i}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.32, delay: 0.04 + i * 0.05, ease: [0.22, 1, 0.36, 1] }}
+            className="bg-white border border-[rgba(0,0,0,0.10)] rounded-xl shadow-sm p-5 card-hover-lift">
             <div className="flex items-start justify-between mb-2">
               <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)]">{s.label}</p>
-              <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.04)] flex items-center justify-center flex-shrink-0">
-                <Icon icon={s.icon} width={16} color="rgba(0,0,0,0.4)" />
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${s.live ? 'bg-red-50' : 'bg-[rgba(0,0,0,0.04)]'}`}>
+                <Icon icon={s.icon} width={16} className={s.live ? 'text-red-500 animate-pulse' : 'text-[rgba(0,0,0,0.4)]'} />
               </div>
             </div>
             <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{String(s.value)}</p>
-          </div>
+          </motion.div>
         ))}
       </div>
 
@@ -1461,8 +1802,11 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {streams.map(stream => (
-            <div key={stream.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all hover:shadow-md ${
+          {streams.map((stream, si) => (
+            <motion.div key={stream.id}
+              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.32, delay: 0.05 + si * 0.06, ease: [0.22, 1, 0.36, 1] }}
+              className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all hover:shadow-md card-hover-lift ${
               stream.status === 'live' ? 'border-red-200' : stream.status === 'error' ? 'border-red-200' : 'border-[rgba(0,0,0,0.08)]'
             }`}>
               <div className="px-5 py-3 flex items-center justify-between border-b border-[rgba(0,0,0,0.06)]">
@@ -1563,7 +1907,7 @@ function StreamsTab({ streams, loading, onCreateStream, onStartStream, onStopStr
                   )}
                 </div>
               </div>
-            </div>
+            </motion.div>
           ))}
         </div>
       )}
@@ -1668,6 +2012,12 @@ function StorageTab({ files, overview, loading, onDeleteFile, onUploadFile }: St
 
   return (
     <div className="space-y-5">
+      {/* Title */}
+      <div>
+        <h2 className="text-[15px] font-bold text-[rgba(0,0,0,0.88)] leading-tight">Media Storage</h2>
+        <p className="text-[11.5px] text-[rgba(0,0,0,0.4)] leading-tight mt-0.5">Browse, upload &amp; manage every asset — sourced &amp; transcoded</p>
+      </div>
+
       {/* Storage usage */}
       <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-2xl shadow-sm p-5">
         <div className="flex items-center justify-between mb-4">
@@ -1710,19 +2060,19 @@ function StorageTab({ files, overview, loading, onDeleteFile, onUploadFile }: St
         <div className="relative flex-1">
           <Icon icon="mdi:magnify" className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)] text-sm pointer-events-none" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search files…"
-            className="w-full pl-9 pr-4 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-[rgba(0,0,0,0.2)] outline-none" />
+            className="w-full pl-9 pr-4 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none transition-shadow" />
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {(['all', 'video', 'hls', 'audio', 'image'] as const).map(t => (
             <button key={t} onClick={() => setTypeFilter(t)}
-              className={`px-3 py-2 rounded-xl text-[12px] font-semibold border transition-all ${
-                typeFilter === t ? 'bg-[rgba(0,0,0,0.88)] text-white border-transparent' : 'bg-white text-[rgba(0,0,0,0.55)] border-[rgba(0,0,0,0.10)] hover:bg-[rgba(0,0,0,0.03)]'
+              className={`px-3 py-2 rounded-xl text-[12px] font-semibold border transition-all duration-150 active:scale-[0.96] ${
+                typeFilter === t ? 'bg-[rgba(0,0,0,0.88)] text-white border-transparent shadow-sm' : 'bg-white text-[rgba(0,0,0,0.55)] border-[rgba(0,0,0,0.10)] hover:bg-[rgba(0,0,0,0.03)] hover:border-[rgba(0,0,0,0.18)]'
               }`}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>
           ))}
-          <label className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-bold border cursor-pointer transition-all ${
+          <label className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-bold border cursor-pointer transition-all duration-200 active:scale-[0.97] ${
             uploadState === 'uploading'
               ? 'bg-[rgba(0,0,0,0.04)] border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.45)] cursor-wait'
-              : 'bg-[rgba(0,0,0,0.88)] text-white border-transparent hover:bg-[rgba(0,0,0,0.75)]'
+              : 'bg-[rgba(0,0,0,0.88)] text-white border-transparent hover:bg-[rgba(0,0,0,0.78)] shadow-sm'
           }`}>
             <input ref={uploadInputRef} type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.mp4,.webm,.m4v,.flv"
               className="hidden" disabled={uploadState === 'uploading'} onChange={handleUpload} />
@@ -1744,13 +2094,16 @@ function StorageTab({ files, overview, loading, onDeleteFile, onUploadFile }: St
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map(file => {
+          {filtered.map((file, fi) => {
             const meta = TYPE_ICONS[file.type] || TYPE_ICONS.video;
             return (
-              <div key={file.id} className="bg-white border border-[rgba(0,0,0,0.08)] rounded-2xl p-4 hover:shadow-md transition-all cursor-pointer group">
+              <motion.div key={file.id}
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: Math.min(fi * 0.035, 0.3), ease: [0.22, 1, 0.36, 1] }}
+                className="bg-white border border-[rgba(0,0,0,0.08)] rounded-2xl p-4 hover:shadow-md transition-all cursor-pointer group card-hover-lift">
                 <div className="flex items-start gap-3">
-                  <div className={`w-11 h-11 ${meta.bg} rounded-xl flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform`}>
-                    <Icon icon={meta.icon} className={`${meta.color} text-xl`} />
+                  <div className={`w-11 h-11 ${meta.bg} rounded-xl flex items-center justify-center flex-shrink-0 group-hover:scale-105 group-hover:bg-blue-50 transition-all`}>
+                    <Icon icon={meta.icon} className={`${meta.color} group-hover:text-blue-500 text-xl transition-colors`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] truncate">{file.name ?? 'Unnamed'}</p>
@@ -1782,7 +2135,7 @@ function StorageTab({ files, overview, loading, onDeleteFile, onUploadFile }: St
                     </button>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
@@ -1802,28 +2155,39 @@ function CostSavingsTab({ overview }: CostSavingsTabProps) {
   const totalYearSavings = AWS_COMPARISON.reduce((a, r) => a + parseFloat(r.yearSavings.replace(/[$,]/g, '')), 0);
   const actualSaved = overview ? formatSavings(overview.totalSavedVsAws) : '—';
 
+  const EMERALD_NUM = { fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '34px', fontWeight: 400, lineHeight: '34px', color: 'rgb(5,150,105)', fontVariantNumeric: 'tabular-nums' } as React.CSSProperties;
+  const DARK_NUM = { fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '34px', fontWeight: 400, lineHeight: '34px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' } as React.CSSProperties;
+
   return (
     <div className="space-y-5">
-      {/* Hero savings banner */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-[rgba(0,0,0,0.06)]">
-          <div className="md:pr-6">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Potential Monthly Savings</p>
-            <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>${totalMonthlySavings.toLocaleString()}</p>
-            <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">vs AWS at 100 hrs/mo</p>
-          </div>
-          <div className="md:px-6 pt-4 md:pt-0">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Potential Annual Savings</p>
-            <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>${totalYearSavings.toLocaleString()}</p>
-            <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">Projected at current usage</p>
-          </div>
-          <div className="md:pl-6 pt-4 md:pt-0">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)] mb-2">Actual Tracked Savings</p>
-            <p style={{ fontFamily: "'Bebas Neue','Barlow Condensed',sans-serif", fontSize: '32px', fontWeight: 400, lineHeight: '32px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>{actualSaved}</p>
-            <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">Recorded by MediaOps</p>
-          </div>
-        </div>
+      {/* Title */}
+      <div>
+        <h2 className="text-[15px] font-bold text-[rgba(0,0,0,0.88)] leading-tight">Cost Savings</h2>
+        <p className="text-[11.5px] text-[rgba(0,0,0,0.4)] leading-tight mt-0.5">What AWS would charge for the same pipeline — and what you keep</p>
       </div>
+
+      {/* Hero savings banner */}
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+        className="bg-white border border-[rgba(0,0,0,0.10)] rounded-2xl shadow-sm p-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-[rgba(0,0,0,0.06)]">
+          {[
+            { label: 'Potential Monthly Savings', icon: 'mdi:calendar-month-outline', value: `$${totalMonthlySavings.toLocaleString()}`, sub: 'vs AWS at 100 hrs/mo', style: EMERALD_NUM, pad: 'md:pr-6' },
+            { label: 'Potential Annual Savings', icon: 'mdi:calendar-star', value: `$${totalYearSavings.toLocaleString()}`, sub: 'Projected at current usage', style: EMERALD_NUM, pad: 'md:px-6 pt-4 md:pt-0' },
+            { label: 'Actual Tracked Savings', icon: 'mdi:check-decagram-outline', value: actualSaved, sub: 'Recorded by MediaOps', style: DARK_NUM, pad: 'md:pl-6 pt-4 md:pt-0' },
+          ].map((c, i) => (
+            <div key={i} className={c.pad}>
+              <div className="flex items-center gap-2 mb-2">
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${i < 2 ? 'bg-emerald-50' : 'bg-[rgba(0,0,0,0.04)]'}`}>
+                  <Icon icon={c.icon} className={`text-[15px] ${i < 2 ? 'text-emerald-500' : 'text-[rgba(0,0,0,0.4)]'}`} />
+                </div>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">{c.label}</p>
+              </div>
+              <p style={c.style}>{c.value}</p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">{c.sub}</p>
+            </div>
+          ))}
+        </div>
+      </motion.div>
 
       {/* Comparison table */}
       <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-2xl shadow-sm overflow-hidden">
@@ -1857,7 +2221,7 @@ function CostSavingsTab({ overview }: CostSavingsTabProps) {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      <Icon icon="mdi:lightning-bolt" className="text-pink-500 text-sm" />
+                      <Icon icon="mdi:lightning-bolt" className="text-emerald-500 text-sm" />
                       <span className="text-[12px] font-mono font-semibold text-emerald-700">{row.ffmpegPrice}</span>
                     </div>
                   </td>
@@ -1887,17 +2251,20 @@ function CostSavingsTab({ overview }: CostSavingsTabProps) {
       {/* Why MediaOps */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { icon: 'mdi:currency-usd-off', title: 'Zero Licensing Cost', body: 'Our media engine has zero per-minute fees, no channel fees, and no egress markup — you only pay for compute.' },
-          { icon: 'mdi:server-network', title: 'Runs on Your Infra', body: 'Runs on any EC2, GCE, or on-prem server. Use Spot/Preemptible instances to cut compute costs further.' },
-          { icon: 'mdi:cogs', title: 'Full Format Support', body: 'Supports 500+ codecs and formats including H.264, H.265/HEVC, AV1, VP9, HLS, DASH, RTMP, SRT, and more.' },
+          { icon: 'mdi:currency-usd-off', title: 'Zero Licensing Cost', body: 'Our media engine has zero per-minute fees, no channel fees, and no egress markup — you only pay for compute.', tint: 'bg-emerald-50', color: 'text-emerald-500' },
+          { icon: 'mdi:server-network', title: 'Runs on Your Infra', body: 'Runs on any EC2, GCE, or on-prem server. Use Spot/Preemptible instances to cut compute costs further.', tint: 'bg-blue-50', color: 'text-blue-500' },
+          { icon: 'mdi:cogs', title: 'Full Format Support', body: 'Supports 500+ codecs and formats including H.264, H.265/HEVC, AV1, VP9, HLS, DASH, RTMP, SRT, and more.', tint: 'bg-violet-50', color: 'text-violet-500' },
         ].map((item, i) => (
-          <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
-            <div className="w-9 h-9 bg-[rgba(0,0,0,0.04)] rounded-lg flex items-center justify-center mb-3">
-              <Icon icon={item.icon} width={18} color="rgba(0,0,0,0.4)" />
+          <motion.div key={i}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.32, delay: 0.06 + i * 0.06, ease: [0.22, 1, 0.36, 1] }}
+            className="bg-white border border-[rgba(0,0,0,0.10)] rounded-xl shadow-sm p-5 card-hover-lift">
+            <div className={`w-9 h-9 ${item.tint} rounded-lg flex items-center justify-center mb-3`}>
+              <Icon icon={item.icon} width={18} className={item.color} />
             </div>
             <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] mb-1">{item.title}</p>
             <p className="text-[12px] text-[rgba(0,0,0,0.5)] leading-relaxed">{item.body}</p>
-          </div>
+          </motion.div>
         ))}
       </div>
     </div>

@@ -102,6 +102,9 @@ public class TranscodeJobService {
             } catch (IllegalArgumentException ignored) {}
         }
         job.setWatermarkOpacity(req.getWatermarkOpacity());
+        job.setWatermarkScale(req.getWatermarkScale());
+        job.setWatermarkX(req.getWatermarkX());
+        job.setWatermarkY(req.getWatermarkY());
 
         job.setThumbnailEnabled(req.isThumbnailEnabled());
         job.setThumbnailIntervalSeconds(req.getThumbnailIntervalSeconds());

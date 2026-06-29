@@ -35,6 +35,9 @@ public class TranscodeJobRequest {
     private String watermarkImagePath;
     private String watermarkPosition;
     private Double watermarkOpacity;
+    private Integer watermarkScale; // % of video width (default 15)
+    private Double watermarkX;      // center X % (0-100), overrides position enum
+    private Double watermarkY;      // center Y % (0-100), overrides position enum
 
     // Thumbnails
     private boolean thumbnailEnabled;

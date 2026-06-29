@@ -101,8 +101,8 @@ export function CodecSelector({ value, onChange, outputFormat, disabled }: Codec
           effectiveDisabled
             ? (dark ? 'bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-[rgba(255,255,255,0.35)] cursor-not-allowed' : 'bg-[rgba(0,0,0,0.03)] border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.35)] cursor-not-allowed')
             : open
-            ? (dark ? 'border-pink-400 ring-2 ring-pink-400 bg-[#1e1e1e]' : 'border-pink-400 ring-2 ring-pink-400 bg-white')
-            : (dark ? 'border-[rgba(255,255,255,0.12)] bg-[#1e1e1e] hover:border-pink-300' : 'border-[rgba(0,0,0,0.12)] bg-white hover:border-pink-300')
+            ? (dark ? 'border-blue-400 ring-2 ring-blue-400 bg-[#1e1e1e]' : 'border-blue-400 ring-2 ring-blue-400 bg-white')
+            : (dark ? 'border-[rgba(255,255,255,0.12)] bg-[#1e1e1e] hover:border-blue-300' : 'border-[rgba(0,0,0,0.12)] bg-white hover:border-blue-300')
         }`}
       >
         <span className={effectiveDisabled ? (dark ? 'text-[rgba(255,255,255,0.35)]' : 'text-[rgba(0,0,0,0.35)]') : (dark ? 'text-[rgba(255,255,255,0.8)] font-medium' : 'text-[rgba(0,0,0,0.8)] font-medium')}>
@@ -145,17 +145,17 @@ export function CodecSelector({ value, onChange, outputFormat, disabled }: Codec
                   !compatible
                     ? `opacity-40 cursor-not-allowed ${dark ? 'bg-[rgba(255,255,255,0.02)]' : 'bg-[rgba(0,0,0,0.02)]'}`
                     : isSelected
-                    ? 'bg-pink-50 border-l-2 border-l-pink-500'
+                    ? 'bg-blue-50 border-l-2 border-l-blue-500'
                     : `${dark ? 'hover:bg-[rgba(255,255,255,0.03)]' : 'hover:bg-[rgba(0,0,0,0.03)]'} border-l-2 border-l-transparent`
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <span className={`text-[13px] font-medium ${
-                    !compatible ? (dark ? 'text-[rgba(255,255,255,0.3)]' : 'text-[rgba(0,0,0,0.3)]') : isSelected ? 'text-pink-700' : (dark ? 'text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.8)]')
+                    !compatible ? (dark ? 'text-[rgba(255,255,255,0.3)]' : 'text-[rgba(0,0,0,0.3)]') : isSelected ? 'text-blue-700' : (dark ? 'text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.8)]')
                   }`}>
                     {option.label}
                   </span>
-                  {isSelected && compatible && <Icon icon="mdi:check" className="text-pink-500 text-sm" />}
+                  {isSelected && compatible && <Icon icon="mdi:check" className="text-blue-500 text-sm" />}
                   {!compatible && <span className="text-[9px] text-red-400 font-semibold">Not supported</span>}
                 </div>
                 <p className={`text-[11px] mt-0.5 ${dark ? 'text-[rgba(255,255,255,0.45)]' : 'text-[rgba(0,0,0,0.45)]'}`}>

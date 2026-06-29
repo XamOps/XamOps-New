@@ -18,7 +18,9 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useCostData } from '../hooks/useCostData';
+import { useFinOpsBudgetData } from '../hooks/useFinOpsBudgetData';
 import type { CostFilters, HistoricalData, ForecastData, CostDataItem, ForecastAccuracyMetrics } from '../types/cost';
+import type { NewBudget } from '../types/finops';
 import type { ResourceLabel } from '../types/resourceLabels';
 import { fetchLabels, fetchLabelCost } from '../services/resourceLabelsApi';
 import type { LabelCostResponse } from '../services/resourceLabelsApi';
@@ -29,6 +31,9 @@ import CostKPICards from '../components/Cost/CostKPICards';
 import CostBreakdownSection from '../components/Cost/CostBreakdownSection';
 import HistoricalTrendChart from '../components/Cost/HistoricalTrendChart';
 import CostForecastChart from '../components/Cost/CostForecastChart';
+import CostBudgetDashboard from '../components/Cost/CostBudgetDashboard';
+import BudgetModal from '../components/FinOps/BudgetModal';
+import Toast from '../components/FinOps/Toast';
 
 
 const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
@@ -122,6 +127,51 @@ const CostPage: React.FC = () => {
     selectedAccountId,
     filters,
   });
+
+  // Budget & schedule data
+  const {
+    budgets,
+    isLoading: budgetsLoading,
+    createBudget,
+    deleteBudget,
+  } = useFinOpsBudgetData({ selectedAccountId });
+
+  // Budget modal states
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [isBudgetCreating, setIsBudgetCreating] = useState(false);
+
+  // Toast state
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  // Budget handlers
+  const handleCreateBudget = async (budget: NewBudget) => {
+    if (!budget.budgetName || !budget.budgetLimit) {
+      alert('Please fill out all fields.');
+      return;
+    }
+    setIsBudgetCreating(true);
+    try {
+      await createBudget(budget);
+      setIsBudgetModalOpen(false);
+      setToastMessage('Budget created successfully!');
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 4000);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create budget');
+    } finally {
+      setIsBudgetCreating(false);
+    }
+  };
+
+  const handleDeleteBudget = async (budgetName: string) => {
+    if (!confirm(`Are you sure you want to delete the budget "${budgetName}"?`)) return;
+    try {
+      await deleteBudget(budgetName);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete budget');
+    }
+  };
 
   // Load labels once
   useEffect(() => {
@@ -280,6 +330,20 @@ const CostPage: React.FC = () => {
               labelFilterActive={!!labelFilterId}
             />
 
+            {/* Budgets & Alerts Dashboard */}
+            <RevealSection>
+              {budgetsLoading ? (
+                <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-[400px] w-full rounded-xl" />
+              ) : (
+                <CostBudgetDashboard
+                  budgets={budgets}
+                  costData={filteredCostData}
+                  onCreateBudget={() => setIsBudgetModalOpen(true)}
+                  onDeleteBudget={handleDeleteBudget}
+                />
+              )}
+            </RevealSection>
+
             {/* Cost Breakdown Section */}
             <RevealSection>
               <CostBreakdownSection
@@ -325,6 +389,23 @@ const CostPage: React.FC = () => {
           </>
         )}
       </div>
+
+      {/* Budget Modal */}
+      <BudgetModal
+        isOpen={isBudgetModalOpen}
+        isCreating={isBudgetCreating}
+        availableServices={availableServices}
+        onClose={() => setIsBudgetModalOpen(false)}
+        onSubmit={handleCreateBudget}
+      />
+
+      {/* Toast Notification */}
+      <Toast
+        show={showSuccessToast}
+        message={toastMessage}
+        title="Budget Created!"
+        onClose={() => setShowSuccessToast(false)}
+      />
     </main>
   );
 };

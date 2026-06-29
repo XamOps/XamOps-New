@@ -58,9 +58,9 @@ export function ThumbnailGrid({ thumbnailPaths, jobId }: ThumbnailGridProps) {
   return (
     <>
       <div className="flex items-center gap-2 mb-3">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-pink-50 rounded-lg">
-          <Icon icon="mdi:image-multiple-outline" className="text-pink-500 text-sm" />
-          <span className="text-[11px] font-bold text-pink-600">{thumbnailPaths.length} {thumbnailPaths.length === 1 ? 'image' : 'images'}</span>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 rounded-lg">
+          <Icon icon="mdi:image-multiple-outline" className="text-blue-500 text-sm" />
+          <span className="text-[11px] font-bold text-blue-600">{thumbnailPaths.length} {thumbnailPaths.length === 1 ? 'image' : 'images'}</span>
         </div>
       </div>
 
@@ -69,8 +69,8 @@ export function ThumbnailGrid({ thumbnailPaths, jobId }: ThumbnailGridProps) {
           const url = buildThumbnailUrl(jobId, path);
           return (
             <button key={`${path}-${idx}`} type="button" onClick={() => openLightbox(url, idx)}
-              className={`group relative aspect-video rounded-xl overflow-hidden shadow-sm border hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-pink-400 focus:ring-offset-1 ${
-                dark ? 'border-[rgba(255,255,255,0.06)] hover:border-pink-200' : 'border-[rgba(0,0,0,0.06)] hover:border-pink-200'
+              className={`group relative aspect-video rounded-xl overflow-hidden shadow-sm border hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 ${
+                dark ? 'border-[rgba(255,255,255,0.06)] hover:border-blue-200' : 'border-[rgba(0,0,0,0.06)] hover:border-blue-200'
               }`} aria-label={`View thumbnail ${idx + 1}`}>
               <img src={url} alt={`Thumbnail ${idx + 1}`} loading="lazy" className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-110" />
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">

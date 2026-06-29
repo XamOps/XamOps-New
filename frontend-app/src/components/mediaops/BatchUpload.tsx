@@ -60,8 +60,8 @@ export function BatchUpload({ files, sharedOutputFormat, sharedResolution, onFil
       {/* Drop Zone */}
       <div onDrop={handleDrop} onDragOver={handleDragOver} onClick={() => inputRef.current?.click()}
         className={`flex flex-col items-center justify-center gap-2 w-full border-2 border-dashed rounded-xl cursor-pointer transition-colors px-4 py-8 ${
-          files.length > 0 ? 'border-pink-300 bg-pink-50/40'
-            : dark ? 'border-[rgba(255,255,255,0.12)] hover:border-pink-300 hover:bg-pink-50/10' : 'border-[rgba(0,0,0,0.12)] hover:border-pink-300 hover:bg-pink-50/40'
+          files.length > 0 ? 'border-blue-300 bg-blue-50/40'
+            : dark ? 'border-[rgba(255,255,255,0.12)] hover:border-blue-300 hover:bg-blue-50/10' : 'border-[rgba(0,0,0,0.12)] hover:border-blue-300 hover:bg-blue-50/40'
         }`}>
         <input ref={inputRef} type="file" multiple accept={ACCEPTED_TYPES} className="hidden" onChange={handleFileSelect} />
         <Icon icon="mdi:file-multiple-outline" className={`text-3xl ${dark ? 'text-[rgba(255,255,255,0.2)]' : 'text-[rgba(0,0,0,0.2)]'}`} />
@@ -83,8 +83,8 @@ export function BatchUpload({ files, sharedOutputFormat, sharedResolution, onFil
                   className={`flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
                     dark ? 'border-[rgba(255,255,255,0.06)] bg-[#1e1e1e] hover:border-[rgba(255,255,255,0.12)]' : 'border-[rgba(0,0,0,0.06)] bg-white hover:border-[rgba(0,0,0,0.12)]'
                   }`}>
-                  <div className="w-8 h-8 bg-pink-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <Icon icon={file.type.startsWith('audio/') ? 'mdi:music-note-outline' : 'mdi:file-video-outline'} className="text-pink-500 text-base" />
+                  <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Icon icon={file.type.startsWith('audio/') ? 'mdi:music-note-outline' : 'mdi:file-video-outline'} className="text-blue-500 text-base" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={`text-[12px] font-semibold truncate ${dark ? 'text-[rgba(255,255,255,0.8)]' : 'text-[rgba(0,0,0,0.8)]'}`}>{file.name}</p>
@@ -105,14 +105,14 @@ export function BatchUpload({ files, sharedOutputFormat, sharedResolution, onFil
       {files.length > 0 && (
         <div className={`border rounded-xl p-4 ${dark ? 'border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)]' : 'border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.01)]'}`}>
           <div className="flex items-center gap-2 mb-3">
-            <Icon icon="mdi:cog-sync-outline" className="text-pink-500 text-sm" />
+            <Icon icon="mdi:cog-sync-outline" className="text-blue-500 text-sm" />
             <span className={`text-[11px] font-bold uppercase tracking-wide ${dark ? 'text-[rgba(255,255,255,0.6)]' : 'text-[rgba(0,0,0,0.6)]'}`}>Shared Config (applied to all files)</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={`block text-[11px] font-semibold mb-1.5 uppercase tracking-wide ${dark ? 'text-[rgba(255,255,255,0.5)]' : 'text-[rgba(0,0,0,0.5)]'}`}>Output Format</label>
               <select value={sharedOutputFormat} onChange={e => onConfigChange({ sharedOutputFormat: e.target.value })}
-                className={`w-full px-3 py-2.5 border rounded-xl text-[13px] focus:ring-2 focus:ring-pink-400 outline-none ${
+                className={`w-full px-3 py-2.5 border rounded-xl text-[13px] focus:ring-2 focus:ring-blue-400 outline-none ${
                   dark ? 'bg-[#1e1e1e] border-[rgba(255,255,255,0.12)] text-white' : 'bg-white border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.8)]'
                 }`}>
                 {OUTPUT_FORMATS.map(fmt => <option key={fmt} value={fmt}>{fmt}</option>)}
@@ -121,7 +121,7 @@ export function BatchUpload({ files, sharedOutputFormat, sharedResolution, onFil
             <div>
               <label className={`block text-[11px] font-semibold mb-1.5 uppercase tracking-wide ${dark ? 'text-[rgba(255,255,255,0.5)]' : 'text-[rgba(0,0,0,0.5)]'}`}>Resolution</label>
               <select value={sharedResolution} onChange={e => onConfigChange({ sharedResolution: e.target.value })}
-                className={`w-full px-3 py-2.5 border rounded-xl text-[13px] focus:ring-2 focus:ring-pink-400 outline-none ${
+                className={`w-full px-3 py-2.5 border rounded-xl text-[13px] focus:ring-2 focus:ring-blue-400 outline-none ${
                   dark ? 'bg-[#1e1e1e] border-[rgba(255,255,255,0.12)] text-white' : 'bg-white border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.8)]'
                 }`}>
                 {RESOLUTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
@@ -135,7 +135,7 @@ export function BatchUpload({ files, sharedOutputFormat, sharedResolution, onFil
       {files.length > 0 && (
         <div className="flex items-center gap-3 pt-1">
           <button onClick={onSubmit} disabled={files.length === 0 || submitLoading}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[12px] font-bold rounded-xl shadow disabled:opacity-50 transition-all hover:scale-[1.02]">
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-[12px] font-bold rounded-xl shadow disabled:opacity-50 transition-all hover:scale-[1.02]">
             {submitLoading ? <Icon icon="mdi:loading" className="animate-spin" /> : <Icon icon="mdi:playlist-play" />}
             {submitLoading ? 'Submitting Batch…' : `Submit Batch (${files.length} file${files.length !== 1 ? 's' : ''})`}
           </button>

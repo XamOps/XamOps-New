@@ -119,8 +119,8 @@ export function JobAnalytics({ jobs }: JobAnalyticsProps) {
       label: 'Storage Saved',
       value: analytics.totalStorageSaved,
       icon: 'mdi:content-save-outline',
-      iconBg: 'bg-pink-50',
-      iconColor: 'text-pink-500',
+      iconBg: 'bg-blue-50',
+      iconColor: 'text-blue-500',
     },
   ];
 

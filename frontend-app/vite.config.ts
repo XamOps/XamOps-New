@@ -244,6 +244,10 @@ export default defineConfig({
       // MediaOps — all REST endpoints direct to service (gateway returns 404 with session cookies)
       '/api/media-ops': { target: 'http://localhost:8084', changeOrigin: true, secure: false },
 
+      // MediaOps — static media files (HLS segments, DASH manifests, MP4 outputs, thumbnails)
+      // Use regex so this only matches /media/* and NOT /media-ops
+      '^/media/': { target: 'http://localhost:8084', changeOrigin: true, secure: false },
+
       // MediaOps — browser-based live streaming WebSocket
       '/browser-stream': {
         target: 'http://localhost:8084',

@@ -77,8 +77,11 @@ export interface CreateJobRequest {
   subtitlePath?: string;
   watermarkText?: string;
   watermarkImagePath?: string;
-  watermarkPosition?: string;
+  watermarkPosition?: string;   // kept for backward compat
+  watermarkX?: number;           // center %, overrides position enum when set
+  watermarkY?: number;
   watermarkOpacity?: number;
+  watermarkScale?: number;
   thumbnailEnabled?: boolean;
   thumbnailIntervalSeconds?: number | null;
   thumbnailTimestamp?: string | null;
@@ -492,7 +495,7 @@ export function useMediaOpsData() {
     name: j.sourceUrl ? (j.sourceUrl.split('/').pop() || j.sourceUrl) : 'Unknown',
     inputFormat: ((j.sourceUrl?.split('.').pop() || 'MP4').toUpperCase().slice(0, 4)),
     outputFormat: j.outputFormat ?? '—',
-    resolution: j.resolution ?? '—',
+    resolution: j.enableAdaptive ? 'Adaptive (1080p·720p·480p)' : (j.resolution ?? '—'),
     status: (j.status ?? 'queued').toLowerCase() as 'queued' | 'processing' | 'completed' | 'failed',
     progress: j.progress ?? 0,
     duration: formatSeconds(j.durationSeconds),

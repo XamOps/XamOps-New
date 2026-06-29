@@ -26,6 +26,9 @@ import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.Anomaly;
 import software.amazon.awssdk.services.costexplorer.model.AnomalyDateInterval;
 import software.amazon.awssdk.services.costexplorer.model.DateInterval;
+import software.amazon.awssdk.services.costexplorer.model.Dimension;
+import software.amazon.awssdk.services.costexplorer.model.DimensionValues;
+import software.amazon.awssdk.services.costexplorer.model.Expression;
 import software.amazon.awssdk.services.costexplorer.model.GetAnomaliesRequest;
 import software.amazon.awssdk.services.costexplorer.model.GetCostAndUsageRequest;
 import software.amazon.awssdk.services.costexplorer.model.Granularity;
@@ -350,13 +353,22 @@ public class FinOpsService {
             DescribeBudgetsRequest request = DescribeBudgetsRequest.builder().accountId(account.getAwsAccountId())
                     .build();
             List<Budget> budgets = budgetsClient.describeBudgets(request).budgets();
-            List<BudgetDetails> result = budgets.stream().map(b -> new BudgetDetails(
+            List<BudgetDetails> result = budgets.stream().map(b -> {
+                BudgetDetails details = new BudgetDetails(
                     b.budgetName(), b.budgetLimit().amount(), b.budgetLimit().unit(),
                     b.calculatedSpend() != null ? b.calculatedSpend().actualSpend().amount() : BigDecimal.ZERO,
                     b.calculatedSpend() != null && b.calculatedSpend().forecastedSpend() != null
                             ? b.calculatedSpend().forecastedSpend().amount()
-                            : BigDecimal.ZERO))
-                    .collect(Collectors.toList());
+                            : BigDecimal.ZERO);
+                // Extract service filter if present
+                if (b.hasCostFilters() && b.costFilters().containsKey("Service")) {
+                    List<String> services = b.costFilters().get("Service");
+                    if (services != null && !services.isEmpty()) {
+                        details.setServiceName(services.get(0));
+                    }
+                }
+                return details;
+            }).collect(Collectors.toList());
             redisCache.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
@@ -484,12 +496,20 @@ public class FinOpsService {
 
         try {
             Instant startOfMonth = LocalDate.now().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-            Budget budget = Budget.builder()
+            Budget.Builder budgetBuilder = Budget.builder()
                     .budgetName(budgetDetails.getBudgetName()).budgetType(BudgetType.COST).timeUnit(software.amazon.awssdk.services.budgets.model.TimeUnit.MONTHLY)
                     .timePeriod(TimePeriod.builder().start(startOfMonth).build())
                     .budgetLimit(Spend.builder().amount(budgetDetails.getBudgetLimit())
-                            .unit(budgetDetails.getBudgetUnit()).build())
-                    .build();
+                            .unit(budgetDetails.getBudgetUnit()).build());
+
+            // Add service filter if a specific service is requested
+            if (budgetDetails.getServiceName() != null && !budgetDetails.getServiceName().isBlank()) {
+                budgetBuilder.costFilters(Map.of("Service", Collections.singletonList(budgetDetails.getServiceName())));
+                logger.info("Creating per-service budget '{}' for service '{}' on account {}",
+                        budgetDetails.getBudgetName(), budgetDetails.getServiceName(), account.getAwsAccountId());
+            }
+
+            Budget budget = budgetBuilder.build();
 
             CreateBudgetRequest.Builder requestBuilder = CreateBudgetRequest.builder()
                     .accountId(account.getAwsAccountId())
@@ -550,11 +570,22 @@ public class FinOpsService {
                 CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
                 String monthStart = LocalDate.now().withDayOfMonth(1).toString();
                 String today = LocalDate.now().plusDays(1).toString();
-                GetCostAndUsageRequest ceRequest = GetCostAndUsageRequest.builder()
+                GetCostAndUsageRequest.Builder ceRequestBuilder = GetCostAndUsageRequest.builder()
                         .timePeriod(DateInterval.builder().start(monthStart).end(today).build())
                         .granularity(Granularity.MONTHLY)
-                        .metrics("UnblendedCost")
-                        .build();
+                        .metrics("UnblendedCost");
+
+                // Filter by service if this is a per-service budget
+                if (budgetDetails.getServiceName() != null && !budgetDetails.getServiceName().isBlank()) {
+                    ceRequestBuilder.filter(Expression.builder()
+                            .dimensions(DimensionValues.builder()
+                                    .key(Dimension.SERVICE)
+                                    .values(budgetDetails.getServiceName())
+                                    .build())
+                            .build());
+                }
+
+                GetCostAndUsageRequest ceRequest = ceRequestBuilder.build();
                 BigDecimal mtdCost = ce.getCostAndUsage(ceRequest).resultsByTime().stream()
                         .map(r -> new BigDecimal(r.total().get("UnblendedCost").amount()))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -591,6 +622,53 @@ public class FinOpsService {
 
             return budgetDetails;
 
+        } catch (software.amazon.awssdk.services.budgets.model.DuplicateRecordException dupEx) {
+            logger.warn("Budget '{}' already exists for account {} — returning existing budget info",
+                    budgetDetails.getBudgetName(), account.getAwsAccountId());
+            // Budget already exists — fetch its current spend and return it
+            try {
+                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
+                String monthStart = LocalDate.now().withDayOfMonth(1).toString();
+                String today = LocalDate.now().plusDays(1).toString();
+                GetCostAndUsageRequest.Builder ceRequestBuilder = GetCostAndUsageRequest.builder()
+                        .timePeriod(DateInterval.builder().start(monthStart).end(today).build())
+                        .granularity(Granularity.MONTHLY)
+                        .metrics("UnblendedCost");
+                if (budgetDetails.getServiceName() != null && !budgetDetails.getServiceName().isBlank()) {
+                    ceRequestBuilder.filter(Expression.builder()
+                            .dimensions(DimensionValues.builder()
+                                    .key(Dimension.SERVICE)
+                                    .values(budgetDetails.getServiceName())
+                                    .build())
+                            .build());
+                }
+                BigDecimal mtdCost = ce.getCostAndUsage(ceRequestBuilder.build()).resultsByTime().stream()
+                        .map(r -> new BigDecimal(r.total().get("UnblendedCost").amount()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                budgetDetails.setActualSpend(mtdCost);
+                int dayOfMonth = LocalDate.now().getDayOfMonth();
+                int daysInMonth = LocalDate.now().lengthOfMonth();
+                budgetDetails.setForecastedSpend(dayOfMonth > 0
+                        ? mtdCost.multiply(BigDecimal.valueOf(daysInMonth))
+                                 .divide(BigDecimal.valueOf(dayOfMonth), 2, java.math.RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO);
+            } catch (Exception fetchEx) {
+                budgetDetails.setActualSpend(BigDecimal.ZERO);
+                budgetDetails.setForecastedSpend(BigDecimal.ZERO);
+            }
+            return budgetDetails;
+        } catch (software.amazon.awssdk.services.budgets.model.AccessDeniedException accessEx) {
+            logger.warn("AWS Budget write permission denied for account {} — falling back to local budget storage. " +
+                    "The IAM role does not have budgets:ModifyBudget permission.", account.getAwsAccountId());
+            // Fall back: return the budget DTO with zero spend (local-only budget)
+            budgetDetails.setActualSpend(BigDecimal.ZERO);
+            budgetDetails.setForecastedSpend(BigDecimal.ZERO);
+
+            // Evict caches so next load picks up the change
+            redisCache.evict("budgets-" + accountId);
+            redisCache.evict("finopsReport-" + accountId);
+
+            return budgetDetails;
         } catch (Exception e) {
             logger.error("Failed to create AWS Budget '{}' for account {}", budgetDetails.getBudgetName(),
                     account.getAwsAccountId(), e);

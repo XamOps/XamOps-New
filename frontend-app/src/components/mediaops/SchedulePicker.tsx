@@ -90,7 +90,7 @@ export function SchedulePicker({ value, onChange }: SchedulePickerProps) {
             value={toDatetimeLocalValue(value)}
             onChange={handleChange}
             min={minDatetime}
-            className={`w-full px-3 py-2.5 border rounded-xl text-[13px] focus:ring-2 focus:ring-pink-400 focus:border-pink-400 outline-none ${
+            className={`w-full px-3 py-2.5 border rounded-xl text-[13px] focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none ${
               dark ? 'bg-[#1e1e1e] border-[rgba(255,255,255,0.12)] text-white' : 'bg-white border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.8)]'
             }`}
           />
@@ -115,9 +115,9 @@ export function SchedulePicker({ value, onChange }: SchedulePickerProps) {
       <div className="flex items-center gap-1.5">
         {hasSchedule ? (
           <>
-            <Icon icon="mdi:calendar-clock" className="text-pink-500 text-sm" />
+            <Icon icon="mdi:calendar-clock" className="text-blue-500 text-sm" />
             <span className={`text-[11px] ${dark ? 'text-[rgba(255,255,255,0.55)]' : 'text-[rgba(0,0,0,0.55)]'}`}>
-              Scheduled for <span className="font-semibold text-pink-600">{formatScheduleDisplay(value!)}</span>
+              Scheduled for <span className="font-semibold text-blue-600">{formatScheduleDisplay(value!)}</span>
             </span>
           </>
         ) : (

@@ -43,7 +43,7 @@ function StatusBadge({ status }: { status: BatchJobStatus }) {
   );
 }
 
-function ProgressBar({ value, color = 'bg-pink-500', dark }: { value: number; color?: string; dark: boolean }) {
+function ProgressBar({ value, color = 'bg-blue-500', dark }: { value: number; color?: string; dark: boolean }) {
   return (
     <div className={`w-full h-1.5 rounded-full overflow-hidden ${dark ? 'bg-[rgba(255,255,255,0.06)]' : 'bg-[rgba(0,0,0,0.06)]'}`}>
       <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
@@ -66,8 +66,8 @@ export function BatchProgress({ batchId, batchName, totalJobs, completedJobs, fa
       <div className={`px-5 py-4 border-b ${dark ? 'border-[rgba(255,255,255,0.06)]' : 'border-[rgba(0,0,0,0.06)]'}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-pink-50 rounded-lg flex items-center justify-center">
-              <Icon icon="mdi:playlist-play" className="text-pink-500 text-base" />
+            <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+              <Icon icon="mdi:playlist-play" className="text-blue-500 text-base" />
             </div>
             <div>
               <p className={`text-[13px] font-bold ${dark ? 'text-[rgba(255,255,255,0.88)]' : 'text-[rgba(0,0,0,0.88)]'}`}>{batchName}</p>
@@ -79,7 +79,7 @@ export function BatchProgress({ batchId, batchName, totalJobs, completedJobs, fa
 
         <motion.div initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: 0.4, ease: 'easeOut' }} style={{ transformOrigin: 'left' }}>
           <div className={`w-full h-2.5 rounded-full overflow-hidden ${dark ? 'bg-[rgba(255,255,255,0.06)]' : 'bg-[rgba(0,0,0,0.06)]'}`}>
-            <motion.div className="h-full rounded-full bg-gradient-to-r from-pink-500 to-rose-500"
+            <motion.div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-500"
               initial={{ width: 0 }} animate={{ width: `${aggregateProgress}%` }} transition={{ duration: 0.7, ease: 'easeOut' }} />
           </div>
         </motion.div>

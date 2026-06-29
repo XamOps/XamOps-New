@@ -65,6 +65,7 @@ export interface Budget {
   budgetUnit: string;
   actualSpend: number;
   forecastedSpend: number;
+  serviceName?: string | null;
 }
 
 export interface ReportSchedule {
@@ -89,6 +90,7 @@ export interface NewBudget {
   budgetName: string;
   budgetLimit: number | null;
   budgetUnit: string;
+  serviceName?: string | null;
 }
 
 export interface NewSchedule {
