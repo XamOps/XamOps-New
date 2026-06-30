@@ -4,8 +4,10 @@ import com.xammer.cloud.config.AwsConfig;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -68,8 +70,31 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
         // Initialize session lock for thread-safe message sending
         sessionLocks.put(session.getId(), new Object());
 
+        // CWE-285: Verify WebSocket Principal before establishing shell
+        if (session.getPrincipal() == null || !(session.getPrincipal() instanceof Authentication)) {
+            sendMessageSafe(session, "Error: Unauthorized. Please log in.\r\n");
+            session.close();
+            return;
+        }
+
+        Authentication auth = (Authentication) session.getPrincipal();
+        if (!(auth.getPrincipal() instanceof ClientUserDetails)) {
+            sendMessageSafe(session, "Error: Unauthorized. Invalid session.\r\n");
+            session.close();
+            return;
+        }
+        ClientUserDetails user = (ClientUserDetails) auth.getPrincipal();
+
         if (accountId == null) {
             sendMessageSafe(session, "Error: No accountId provided.\r\n");
+            session.close();
+            return;
+        }
+
+        // Prevent tenant-spoofing via query parameters
+        if (tenantId != null && !tenantId.equals("null") && !tenantId.equals(user.getTenantId())) {
+            log.warn("TENANT SPOOFING ATTEMPT: User {} tried to access tenant {}", user.getUsername(), tenantId);
+            sendMessageSafe(session, "Error: Unauthorized tenant context.\r\n");
             session.close();
             return;
         }
@@ -79,7 +104,7 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
         }
 
         try {
-            log.info("WS Connecting: Session={}, Account={}", session.getId(), accountId);
+            log.info("WS Connecting: Session={}, Account={}, User={}", session.getId(), accountId, user.getUsername());
 
             // Track session start time
             sessionStartTimes.put(session.getId(), System.currentTimeMillis());
@@ -87,6 +112,16 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             CloudAccount account = findAccount(accountId);
             if (account == null) {
                 sendMessageSafe(session, "Error: Account not found.\r\n");
+                session.close();
+                return;
+            }
+
+            // CWE-285: Implement ownership verification (IDOR protection)
+            if (account.getClient() == null || !user.getClientId().equals(account.getClient().getId())) {
+                log.warn("IDOR ATTEMPT: User {} (Client {}) tried to access Account {} (Client {})",
+                        user.getUsername(), user.getClientId(), accountId,
+                        account.getClient() != null ? account.getClient().getId() : "NULL");
+                sendMessageSafe(session, "Error: Unauthorized access to this account.\r\n");
                 session.close();
                 return;
             }
