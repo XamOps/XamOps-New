@@ -65,9 +65,22 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
   }, []);
 
   // Compute total budget, actual spend, remaining
+  // Use costData (already fetched for Cost Breakdown) instead of budget.actualSpend to avoid extra API calls
+  const totalCostFromData = useMemo(() => costData.reduce((sum, item) => sum + item.amount, 0), [costData]);
   const totalBudget = useMemo(() => budgets.reduce((sum, b) => sum + b.budgetLimit, 0), [budgets]);
-  const totalActual = useMemo(() => budgets.reduce((sum, b) => sum + b.actualSpend, 0), [budgets]);
+  const totalActual = totalCostFromData;
   const totalRemaining = totalBudget - totalActual;
+
+  // Helper: get actual spend for a budget using costData
+  const getActualSpend = (budget: Budget): number => {
+    if (budget.serviceName) {
+      // Find the matching service in costData
+      const match = costData.find(item => item.name === budget.serviceName);
+      return match ? match.amount : 0;
+    }
+    // Account-level budget: use total cost
+    return totalCostFromData;
+  };
 
   // Current month label
   const currentMonthLabel = useMemo(() => {
@@ -121,8 +134,8 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
     }
     // Sort by percentage spent descending
     result.sort((a, b) => {
-      const pctA = a.budgetLimit > 0 ? (a.actualSpend / a.budgetLimit) : 0;
-      const pctB = b.budgetLimit > 0 ? (b.actualSpend / b.budgetLimit) : 0;
+      const pctA = a.budgetLimit > 0 ? (getActualSpend(a) / a.budgetLimit) : 0;
+      const pctB = b.budgetLimit > 0 ? (getActualSpend(b) / b.budgetLimit) : 0;
       return pctB - pctA;
     });
     return result;
@@ -400,8 +413,9 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
       {/* ─── Table Rows ─── */}
       <div className="divide-y divide-[rgba(0,0,0,0.04)]">
         {filteredBudgets.map((budget, idx) => {
-          const percentage = budget.budgetLimit > 0 ? Math.min((budget.actualSpend / budget.budgetLimit) * 100, 100) : 0;
-          const remaining = Math.max(0, budget.budgetLimit - budget.actualSpend);
+          const actual = getActualSpend(budget);
+          const percentage = budget.budgetLimit > 0 ? Math.min((actual / budget.budgetLimit) * 100, 100) : 0;
+          const remaining = Math.max(0, budget.budgetLimit - actual);
           const triggerPct = 85; // Default trigger threshold
           const triggerAmount = budget.budgetLimit * (triggerPct / 100);
 
@@ -435,7 +449,7 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
                 <div className="flex justify-between text-[10px] mb-1.5">
                   <div>
                     <span className="uppercase tracking-wider text-[rgba(0,0,0,0.4)]">ACTUAL</span>
-                    <span className="ml-1.5 font-bold text-black">{fmt(budget.actualSpend)}</span>
+                    <span className="ml-1.5 font-bold text-black">{fmt(actual)}</span>
                   </div>
                   <div>
                     <span className="uppercase tracking-wider text-[rgba(0,0,0,0.4)]">REMAINING</span>

@@ -16,7 +16,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpCostData } from '../hooks/useGcpCostData';
+import { useGcpBudgetData } from '../hooks/useGcpBudgetData';
 import type { GcpCostFilters, GcpForecastDataPoint } from '../types/gcpCost';
+import type { NewBudget } from '../types/finops';
 
 // Component imports
 import {
@@ -25,6 +27,9 @@ import {
   GcpCostBreakdownSection,
   GcpCostForecastChart,
 } from '../components/GcpCost';
+import CostBudgetDashboard from '../components/Cost/CostBudgetDashboard';
+import BudgetModal from '../components/FinOps/BudgetModal';
+import Toast from '../components/FinOps/Toast';
 
 
 const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
@@ -81,6 +86,51 @@ const GcpCostPage: React.FC = () => {
     selectedAccountId,
     filters,
   });
+
+  // Budget data
+  const {
+    budgets,
+    isLoading: budgetsLoading,
+    createBudget,
+    deleteBudget,
+  } = useGcpBudgetData({ selectedAccountId });
+
+  // Budget modal states
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [isBudgetCreating, setIsBudgetCreating] = useState(false);
+
+  // Toast state
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  // Budget handlers
+  const handleCreateBudget = async (budget: NewBudget) => {
+    if (!budget.budgetName || !budget.budgetLimit) {
+      alert('Please fill out all fields.');
+      return;
+    }
+    setIsBudgetCreating(true);
+    try {
+      await createBudget(budget);
+      setIsBudgetModalOpen(false);
+      setToastMessage('Budget created successfully!');
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 4000);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create budget');
+    } finally {
+      setIsBudgetCreating(false);
+    }
+  };
+
+  const handleDeleteBudget = async (budgetName: string) => {
+    if (!confirm(`Are you sure you want to delete the budget "${budgetName}"?`)) return;
+    try {
+      await deleteBudget(budgetName);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete budget');
+    }
+  };
 
   // Update filters
   const handleFiltersChange = useCallback((updates: Partial<GcpCostFilters>) => {
@@ -186,6 +236,20 @@ const GcpCostPage: React.FC = () => {
               isLoading={isLoading}
             />
 
+            {/* Budgets & Alerts Dashboard */}
+            <RevealSection>
+              {budgetsLoading ? (
+                <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-[400px] w-full rounded-xl" />
+              ) : (
+                <CostBudgetDashboard
+                  budgets={budgets}
+                  costData={costData}
+                  onCreateBudget={() => setIsBudgetModalOpen(true)}
+                  onDeleteBudget={handleDeleteBudget}
+                />
+              )}
+            </RevealSection>
+
             {/* Cost Breakdown Section */}
             <RevealSection>
               <GcpCostBreakdownSection
@@ -211,6 +275,23 @@ const GcpCostPage: React.FC = () => {
           </>
         )}
       </div>
+
+      {/* Budget Modal */}
+      <BudgetModal
+        isOpen={isBudgetModalOpen}
+        isCreating={isBudgetCreating}
+        availableServices={costData.map(item => item.name).sort()}
+        onClose={() => setIsBudgetModalOpen(false)}
+        onSubmit={handleCreateBudget}
+      />
+
+      {/* Toast Notification */}
+      <Toast
+        show={showSuccessToast}
+        message={toastMessage}
+        title="Budget Created!"
+        onClose={() => setShowSuccessToast(false)}
+      />
     </main>
   );
 };

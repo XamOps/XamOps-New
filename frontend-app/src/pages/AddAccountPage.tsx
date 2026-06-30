@@ -42,6 +42,8 @@ import {
   JenkinsForm,
   GitHubForm,
   PolicyModal,
+  IntegrationsSection,
+  DataSourcesGrid,
 } from '../components/AddAccount';
 
 // Import styles
@@ -83,6 +85,8 @@ const AddAccountPage: React.FC = () => {
     copyToClipboard,
   } = useAddAccount();
 
+  const [showFormView, setShowFormView] = React.useState(false);
+
   const providerInfo = useMemo(() => {
     switch (provider) {
       case 'aws':
@@ -104,6 +108,17 @@ const AddAccountPage: React.FC = () => {
   const handleBackToAccounts = useCallback(() => {
     navigate('/account-manager');
   }, [navigate]);
+
+  // Handle provider selection from grid → switch to form view
+  const handleGridProviderSelect = useCallback((p: Provider) => {
+    setProvider(p);
+    setShowFormView(true);
+  }, [setProvider]);
+
+  // Back to grid view
+  const handleBackToGrid = useCallback(() => {
+    setShowFormView(false);
+  }, []);
 
   // Lock outer scroll and propagate a defined height through every ancestor
   // wrapper so height:100% resolves correctly down to .aa-form-scroll.
@@ -158,14 +173,24 @@ const AddAccountPage: React.FC = () => {
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
-        <button
-          onClick={handleBackToAccounts}
-          className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.07)] rounded-md transition-colors"
-        >
-          <Icon icon="mdi:arrow-left" width={14} />
-          Back to Accounts
-        </button>
-        {provider && (
+        {showFormView ? (
+          <button
+            onClick={handleBackToGrid}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.07)] rounded-md transition-colors"
+          >
+            <Icon icon="mdi:arrow-left" width={14} />
+            Back to Integrations
+          </button>
+        ) : (
+          <button
+            onClick={handleBackToAccounts}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-[rgba(0,0,0,0.6)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.07)] rounded-md transition-colors"
+          >
+            <Icon icon="mdi:arrow-left" width={14} />
+            Back to Accounts
+          </button>
+        )}
+        {showFormView && provider && (
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium aa-provider-badge-topbar ${providerInfo.colorClass}`}>
             <Icon icon={providerInfo.icon} width={14} />
             <span>{providerInfo.name}</span>
@@ -175,7 +200,7 @@ const AddAccountPage: React.FC = () => {
     );
 
     return () => clearActions();
-  }, [provider, providerInfo, setActions, clearActions, handleBackToAccounts]);
+  }, [provider, providerInfo, showFormView, setActions, clearActions, handleBackToAccounts, handleBackToGrid]);
 
   const renderProviderForm = () => {
     switch (provider) {
@@ -246,48 +271,41 @@ const AddAccountPage: React.FC = () => {
 
   return (
     <main className="aa-page-shell">
-      {/* ── Row 1: Provider Selector — sticky, never scrolls ── */}
-      <motion.div
-        className="aa-sticky-top"
-        variants={mainVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        <motion.div variants={itemVariants} className="aa-provider-row">
-          <ProviderSelector
-            selectedProvider={provider}
-            onSelectProvider={setProvider}
-          />
-        </motion.div>
-      </motion.div>
+      {showFormView ? (
+        <>
+          {/* ── Form View: centered, no sidebar ── */}
+          <div className="flex-1 overflow-y-auto scrollbar-hide">
+            <div className="max-w-3xl mx-auto px-8 py-8">
+              {/* Horizontal stepper */}
+              <ConnectionSteps provider={provider} currentStep={currentStep} />
 
-      {/* ── Row 2: Sidebar (sticky) + Form (scrollable) ── */}
-      <div className="aa-body-row">
-        {/* Sidebar sticks alongside the form area */}
-        <motion.aside
-          className="aa-sidebar-sticky"
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.4, delay: 0.15 }}
-        >
-          <ConnectionSteps provider={provider} currentStep={currentStep} />
-        </motion.aside>
+              {/* Form */}
+              <div className="mt-8">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={provider || 'empty'}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -12 }}
+                    transition={{ duration: 0.2, ease: 'easeInOut' }}
+                  >
+                    {renderProviderForm()}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        /* ── Grid View: Vantage-style integrations page ── */
+        <div className="flex-1 overflow-y-auto p-8 space-y-10">
+          {/* Data Sources */}
+          <DataSourcesGrid onSelectProvider={handleGridProviderSelect} />
 
-        {/* Form: the ONLY thing that scrolls */}
-        <div className="aa-form-scroll">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={provider || 'empty'}
-              initial={{ opacity: 0, x: 40 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -40 }}
-              transition={{ duration: 0.25, ease: 'easeInOut' }}
-            >
-              {renderProviderForm()}
-            </motion.div>
-          </AnimatePresence>
+          {/* Apps (Slack, Google Chat, Teams) */}
+          <IntegrationsSection />
         </div>
-      </div>
+      )}
 
       {/* Policy Modal */}
       <PolicyModal

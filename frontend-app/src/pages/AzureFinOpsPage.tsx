@@ -49,6 +49,8 @@ const AzureFinOpsPage: React.FC = () => {
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [lastFrequency, setLastFrequency] = useState('');
+  const [toastTitle, setToastTitle] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
   const [newSchedule, setNewSchedule] = useState<AzureNewSchedule>({
     email: '',
     frequency: '',
@@ -71,6 +73,8 @@ const AzureFinOpsPage: React.FC = () => {
       await handleCreateSchedule(newSchedule);
       setIsScheduleModalOpen(false);
       setLastFrequency(newSchedule.frequency);
+      setToastTitle('Schedule Created!');
+      setToastMessage(`Your ${newSchedule.frequency.toLowerCase()} report is set up.`);
       setShowToast(true);
       setTimeout(() => setShowToast(false), 4000);
       setNewSchedule({ email: '', frequency: '', cloudAccountId: subscriptionId });
@@ -225,9 +229,9 @@ const AzureFinOpsPage: React.FC = () => {
             <Icon icon="mdi:check-circle" width={18} color="#158045" />
           </div>
           <div>
-            <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">Schedule Created!</p>
+            <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{toastTitle || 'Schedule Created!'}</p>
             <p className="text-[11px] text-[rgba(0,0,0,0.45)]">
-              Your {lastFrequency.toLowerCase()} report is set up.
+              {toastMessage || `Your ${lastFrequency.toLowerCase()} report is set up.`}
             </p>
           </div>
           <button onClick={() => setShowToast(false)} className="ml-2 text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.6)] text-lg leading-none">&times;</button>

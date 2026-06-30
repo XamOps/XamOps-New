@@ -20,17 +20,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpFinOpsData } from '../hooks/useGcpFinOpsData';
-import type { DateFilter, GcpNewBudget, GcpNewSchedule } from '../types/gcpFinops';
+import type { DateFilter, GcpNewSchedule } from '../types/gcpFinops';
 import { Icon } from '@iconify/react';
 
 // Component imports
 import GcpFinOpsHeader from '../components/GcpFinOps/GcpFinOpsHeader';
 import GcpFinOpsKPISection from '../components/GcpFinOps/GcpFinOpsKPISection';
-import GcpFinOpsBudgets from '../components/GcpFinOps/GcpFinOpsBudgets';
 import GcpFinOpsScheduledReports from '../components/GcpFinOps/GcpFinOpsScheduledReports';
 import GcpFinOpsCharts from '../components/GcpFinOps/GcpFinOpsCharts';
 import GcpFinOpsInsights from '../components/GcpFinOps/GcpFinOpsInsights';
-import GcpBudgetModal from '../components/GcpFinOps/GcpBudgetModal';
 import GcpScheduleModal from '../components/GcpFinOps/GcpScheduleModal';
 import GcpToast from '../components/GcpFinOps/GcpToast';
 
@@ -69,8 +67,6 @@ export const GcpFinOpsPage: React.FC = () => {
     isRefreshing,
     error,
     loadReport,
-    createBudget,
-    deleteBudget,
     createSchedule,
     deleteSchedule,
   } = useGcpFinOpsData({
@@ -79,9 +75,7 @@ export const GcpFinOpsPage: React.FC = () => {
   });
 
   // Modal states
-  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-  const [isBudgetCreating, setIsBudgetCreating] = useState(false);
   const [isScheduleCreating, setIsScheduleCreating] = useState(false);
 
   // Toast state
@@ -108,43 +102,6 @@ export const GcpFinOpsPage: React.FC = () => {
   const clearDateFilter = () => {
     setDateFilter({ startDate: '', endDate: '' });
     console.log('[GCP FinOps] Date filter cleared, reloading report');
-  };
-
-  // Budget handlers
-  const handleCreateBudget = async (budget: GcpNewBudget) => {
-    if (!budget.budgetName || !budget.budgetLimit) {
-      alert('Please fill out all fields.');
-      return;
-    }
-
-    setIsBudgetCreating(true);
-
-    try {
-      await createBudget(budget);
-      setIsBudgetModalOpen(false);
-      setToastTitle('Budget Created!');
-      setToastMessage('Your GCP budget has been set up successfully.');
-      setShowSuccessToast(true);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create budget');
-    } finally {
-      setIsBudgetCreating(false);
-    }
-  };
-
-  const handleDeleteBudget = async (budgetName: string) => {
-    if (!confirm(`Are you sure you want to delete the budget "${budgetName}"?`)) {
-      return;
-    }
-
-    try {
-      await deleteBudget(budgetName);
-      setToastTitle('Budget Deleted');
-      setToastMessage('The budget has been removed.');
-      setShowSuccessToast(true);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete budget');
-    }
   };
 
   // Schedule handlers
@@ -299,19 +256,6 @@ export const GcpFinOpsPage: React.FC = () => {
         <>
           <GcpFinOpsKPISection kpis={reportData.kpis} />
 
-          <RevealSection>
-            <GcpFinOpsBudgets
-              budgets={(reportData.budgets || []).map((b) => ({
-                ...b,
-                actualSpend: b.actualSpend || reportData.kpis?.monthToDateSpend || 0,
-                forecastedSpend: b.forecastedSpend || reportData.kpis?.forecastedSpend || 0,
-              }))}
-              onCreateBudget={() => setIsBudgetModalOpen(true)}
-              onScheduleReport={() => setIsScheduleModalOpen(true)}
-              onDeleteBudget={handleDeleteBudget}
-            />
-          </RevealSection>
-
           {reportSchedules.length > 0 && (
             <RevealSection>
               <GcpFinOpsScheduledReports
@@ -349,13 +293,6 @@ export const GcpFinOpsPage: React.FC = () => {
       )}
 
       {/* Modals */}
-      <GcpBudgetModal
-        isOpen={isBudgetModalOpen}
-        isCreating={isBudgetCreating}
-        onClose={() => setIsBudgetModalOpen(false)}
-        onSubmit={handleCreateBudget}
-      />
-
       <GcpScheduleModal
         isOpen={isScheduleModalOpen}
         isCreating={isScheduleCreating}

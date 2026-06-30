@@ -15,6 +15,7 @@ public class AzureFinOpsReportDto {
     private double totalPotentialSavings;
     private List<RightsizingItem> rightsizingItems;
     private List<WasteItem> wasteItems;
+    private List<AzureBudgetDto> budgets;
 
     // Inner class for KPIs
     @Data

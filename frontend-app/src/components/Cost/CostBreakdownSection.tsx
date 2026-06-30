@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Chart, ChartConfiguration, ArcElement, DoughnutController, Tooltip, Legend } from 'chart.js';
+import { Icon } from '@iconify/react';
 import type { CostDataItem, CostFilters, GroupByType } from '../../types/cost';
 import type { ResourceLabel } from '../../types/resourceLabels';
 import type { TrackedResource } from '../../services/resourceLabelsApi';
@@ -127,14 +128,18 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
   }, [costData, sortedData, onHistoricalClick]);
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm widget-panel-hover">
+    <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
 
       {/* Header + Filters */}
       <div className="px-5 pt-5 pb-4 border-b border-[rgba(0,0,0,0.06)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost Breakdown</p>
-            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200/50 flex items-center justify-center flex-shrink-0">
+              <Icon icon="mdi:chart-donut" width={18} className="text-indigo-600" />
+            </div>
+            <div>
+              <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Cost Breakdown</p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">
               {labelFilterId && labels.length > 0
                 ? <>Filtered by label: <span className="font-semibold text-indigo-600">{labels.find(l => l.id === labelFilterId)?.name}</span>
                     {labelResourceLevel === true && <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">resource-level</span>}
@@ -142,6 +147,7 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
                   </>
                 : 'Spending analysis for selected range'}
             </p>
+            </div>
           </div>
 
           {/* Filters row */}

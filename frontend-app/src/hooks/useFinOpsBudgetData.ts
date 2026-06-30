@@ -33,13 +33,13 @@ export const useFinOpsBudgetData = ({
   const [reportSchedules, setReportSchedules] = useState<ReportSchedule[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load budgets
-  const loadBudgets = useCallback(async () => {
+  // Load budgets (uses cache for fast initial load)
+  const loadBudgets = useCallback(async (forceRefresh = false) => {
     if (!selectedAccountId) return;
     setIsLoading(true);
     try {
       const response = await fetch(
-        `/api/xamops/finops/budgets?accountId=${selectedAccountId}&forceRefresh=true`,
+        `/api/xamops/finops/budgets?accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`,
         { credentials: 'include' }
       );
       if (response.ok) {
@@ -90,8 +90,8 @@ export const useFinOpsBudgetData = ({
         throw new Error(errorText || `Failed to create budget (${response.status})`);
       }
       const created = await response.json();
-      // Reload full budget list from backend to get fresh data
-      await loadBudgets();
+      // Force-refresh budget list from AWS after creation
+      await loadBudgets(true);
       return created;
     },
     [selectedAccountId, loadBudgets]
@@ -106,9 +106,10 @@ export const useFinOpsBudgetData = ({
         { method: 'DELETE', credentials: 'include' }
       );
       if (!response.ok) throw new Error('Failed to delete budget');
-      setBudgets(prev => prev.filter(b => b.budgetName !== budgetName));
+      // Force-refresh to get updated list from AWS
+      await loadBudgets(true);
     },
-    [selectedAccountId]
+    [selectedAccountId, loadBudgets]
   );
 
   // Create schedule

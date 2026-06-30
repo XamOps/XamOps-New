@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.FinOpsReportSchedule;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.FinOpsReportScheduleDto;
+import com.xammer.cloud.dto.azure.AzureBudgetDto;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
 import com.xammer.cloud.dto.azure.AzureFinOpsReportDto;
 import com.xammer.cloud.dto.azure.AzureRightsizingRecommendation;
@@ -59,6 +60,9 @@ public class AzureFinOpsService {
 
     @Autowired
     private AzureCostQueryService costQueryService;
+
+    @Autowired
+    private AzureBudgetService azureBudgetService;
 
     /**
      * Generates the main FinOps report for an Azure subscription
@@ -262,6 +266,16 @@ public class AzureFinOpsService {
                 .mapToDouble(AzureFinOpsReportDto.WasteItem::getMonthlySavings).sum();
         report.setTotalPotentialSavings(totalPotentialSavings);
         logger.info("Total potential savings for {}: ${}", subscriptionId, totalPotentialSavings);
+
+        // --- STEP 7: Get Budgets ---
+        try {
+            List<AzureBudgetDto> budgets = azureBudgetService.getBudgetsSync(subscriptionId);
+            report.setBudgets(budgets);
+            logger.info("Added {} budgets to FinOps report for {}", budgets.size(), subscriptionId);
+        } catch (Exception e) {
+            logger.warn("Failed to get budgets for Azure subscription {}: {}", subscriptionId, e.getMessage());
+            report.setBudgets(Collections.emptyList());
+        }
 
         return report;
     }

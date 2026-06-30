@@ -4,3 +4,5 @@ export { default as AzureFinOpsCostCharts } from './AzureFinOpsCostCharts';
 export { default as AzureFinOpsInsightsSection } from './AzureFinOpsInsightsSection';
 export { default as AzureFinOpsScheduleSection } from './AzureFinOpsScheduleSection';
 export { default as AzureFinOpsSavingsCallout } from './AzureFinOpsSavingsCallout';
+export { default as AzureFinOpsBudgets } from './AzureFinOpsBudgets';
+export { default as AzureBudgetModal } from './AzureBudgetModal';

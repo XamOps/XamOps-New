@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.billops.domain.SupportMessage;
 import com.xammer.billops.domain.UserPlatformConnection;
+import com.xammer.billops.domain.MessagingIntegrationConfig;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.SupportMessageRepository;
 import com.xammer.billops.repository.UserPlatformConnectionRepository;
@@ -11,12 +12,20 @@ import com.xammer.billops.repository.MessagingIntegrationConfigRepository;
 import com.xammer.cloud.domain.AppUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
@@ -61,6 +70,9 @@ public class MessagingWebhookController {
     private final MessagingIntegrationConfigRepository configRepo;
     private final AppUserRepository appUserRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${support.upload.dir:${user.home}/billops-uploads}")
+    private String uploadDir;
 
     public MessagingWebhookController(SupportMessageRepository messageRepository,
             UserPlatformConnectionRepository connectionRepo,
@@ -113,14 +125,16 @@ public class MessagingWebhookController {
                 JsonNode event = payload.path("event");
                 String eventType = event.path("type").asText();
 
-                // Only handle regular messages:
-                // - skip subtypes (edits, deletes, channel_join, etc.)
+                // Only handle regular messages and file shares:
+                // - skip subtypes OTHER than file_share (edits, deletes, channel_join, etc.)
                 // - skip bot messages — bot_id present means the message was sent by a bot
                 // (including our own)
                 // - skip app_id messages — some Slack clients send app_id instead of bot_id for
                 // the same case
+                String subtype = event.path("subtype").asText(null);
+                boolean isFileShare = "file_share".equals(subtype);
                 if ("message".equals(eventType)
-                        && !event.has("subtype")
+                        && (subtype == null || isFileShare)
                         && !event.has("bot_id")
                         && !event.has("app_id")) {
 
@@ -129,25 +143,52 @@ public class MessagingWebhookController {
                     String text = event.path("text").asText();
                     String ts = event.path("ts").asText();
 
-                    if (text == null || text.isBlank()) {
-                        return ResponseEntity.ok(Map.of("ok", true));
-                    }
-
                     // Deduplicate: Slack retries delivery if we don't respond within 3s.
-                    // The ts (timestamp) is unique per message — skip if already saved.
                     if (ts != null && !ts.isBlank() && messageRepository.existsByExternalMessageId(ts)) {
                         log.debug("Slack: duplicate event ts={}, skipping", ts);
                         return ResponseEntity.ok(Map.of("ok", true));
                     }
 
-                    // Find the XamOps user by Slack channel ID
+                    // Find the XamOps user by Slack channel ID (resolve early so we can use bot token)
                     UserPlatformConnection conn = resolveConnection(channelId, slackUserId, "SLACK");
                     if (conn == null) {
                         log.warn("Slack: no user connection found for channel={} user={}", channelId, slackUserId);
                         return ResponseEntity.ok(Map.of("ok", true));
                     }
 
-                    saveInboundMessage(conn.getUserId(), text, "SLACK", ts);
+                    // Extract file attachments (Slack sends files in a "files" array)
+                    String fileUrl = null;
+                    String fileName = null;
+                    String fileMimetype = null;
+                    Long fileSize = null;
+                    if (event.has("files") && event.path("files").isArray() && event.path("files").size() > 0) {
+                        JsonNode firstFile = event.path("files").get(0);
+                        String slackFileUrl = firstFile.path("url_private").asText(null);
+                        fileName = firstFile.path("name").asText(null);
+                        fileMimetype = firstFile.path("mimetype").asText(null);
+                        if (firstFile.has("size")) {
+                            fileSize = firstFile.path("size").asLong();
+                        }
+
+                        // Download the file from Slack and store locally
+                        if (slackFileUrl != null && !slackFileUrl.isBlank()) {
+                            String botToken = getBotTokenForConnection(conn);
+                            if (botToken != null) {
+                                fileUrl = downloadSlackFile(slackFileUrl, botToken, fileName);
+                            }
+                            if (fileUrl == null) {
+                                fileUrl = slackFileUrl; // fallback
+                            }
+                        }
+                    }
+
+                    // Allow messages with only files (no text) — don't skip them
+                    if ((text == null || text.isBlank()) && fileUrl == null) {
+                        return ResponseEntity.ok(Map.of("ok", true));
+                    }
+
+                    saveInboundMessageWithAttachment(conn.getUserId(), text != null ? text : "",
+                            "SLACK", ts, fileUrl, fileName, fileMimetype, fileSize);
                 }
             }
         } catch (Exception e) {
@@ -302,19 +343,33 @@ public class MessagingWebhookController {
     }
 
     private void saveInboundMessage(Long userId, String text, String platform, String externalId) {
+        saveInboundMessageWithAttachment(userId, text, platform, externalId, null, null, null, null);
+    }
+
+    private void saveInboundMessageWithAttachment(Long userId, String text, String platform, String externalId,
+                                                   String attachmentUrl, String attachmentName,
+                                                   String attachmentType, Long attachmentSize) {
         // Fetch most recent message to carry over accountId / accountName /
         // cloudProvider
         SupportMessage last = messageRepository.findFirstByUserIdOrderByTimestampDesc(userId);
 
         SupportMessage msg = new SupportMessage();
         msg.setUserId(userId);
-        msg.setContent(text);
+        msg.setContent(text != null && !text.isBlank() ? text : (attachmentName != null ? "📎 " + attachmentName : ""));
         msg.setUserMessage(true);
         msg.setStatus("UNREAD");
         msg.setTimestamp(LocalDateTime.now(IST));
         msg.setSenderUsername(platform.toLowerCase() + "_user");
         msg.setExternalPlatform(platform);
         msg.setExternalMessageId(externalId);
+
+        // Set attachment fields if present
+        if (attachmentUrl != null && !attachmentUrl.isBlank()) {
+            msg.setAttachmentUrl(attachmentUrl);
+            msg.setAttachmentName(attachmentName);
+            msg.setAttachmentType(attachmentType);
+            msg.setAttachmentSize(attachmentSize);
+        }
 
         if (last != null) {
             msg.setAccountId(last.getAccountId());
@@ -323,7 +378,7 @@ public class MessagingWebhookController {
         }
 
         messageRepository.save(msg);
-        log.info("Saved inbound {} message for userId={}", platform, userId);
+        log.info("Saved inbound {} message for userId={} (hasAttachment={})", platform, userId, attachmentUrl != null);
     }
 
     /**
@@ -392,6 +447,66 @@ public class MessagingWebhookController {
         } catch (Exception e) {
             log.error("Slack signature verification error: {}", e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Gets the bot token to download files from Slack.
+     * Priority: per-user OAuth token > global bot token.
+     */
+    private String getBotTokenForConnection(UserPlatformConnection conn) {
+        // Per-user OAuth token (cross-org)
+        if (conn.getUserBotToken() != null && !conn.getUserBotToken().isBlank()) {
+            return conn.getUserBotToken();
+        }
+        // Global bot token
+        return configRepo.findByPlatform("SLACK")
+                .map(c -> c.getBotToken())
+                .orElse(null);
+    }
+
+    /**
+     * Downloads a file from Slack's url_private using the bot token and stores it locally.
+     * Returns the local serving URL (e.g. /api/billops/support/files/tenant/filename) or null on failure.
+     */
+    private String downloadSlackFile(String slackUrl, String botToken, String originalName) {
+        try {
+            URL url = new URL(slackUrl);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestProperty("Authorization", "Bearer " + botToken);
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(30000);
+
+            int status = connection.getResponseCode();
+            if (status != 200) {
+                log.warn("Slack file download failed with status {} for URL: {}", status, slackUrl);
+                return null;
+            }
+
+            // Generate safe filename
+            String safeName = originalName != null
+                    ? originalName.replaceAll("[^a-zA-Z0-9._\\-]", "_")
+                    : "slack_file";
+            String storedName = UUID.randomUUID().toString() + "_" + safeName;
+
+            // Use "slack-inbound" as the tenant subfolder
+            String tenant = "slack-inbound";
+            Path tenantDir = Paths.get(uploadDir, "support", tenant);
+            Files.createDirectories(tenantDir);
+
+            Path filePath = tenantDir.resolve(storedName);
+            try (InputStream is = connection.getInputStream()) {
+                Files.copy(is, filePath);
+            }
+
+            String localUrl = "/api/billops/support/files/" + tenant + "/" + storedName;
+            log.info("Slack file downloaded and stored: {} → {}", originalName, localUrl);
+            return localUrl;
+
+        } catch (Exception e) {
+            log.error("Failed to download Slack file: {}", e.getMessage());
+            return null;
         }
     }
 }

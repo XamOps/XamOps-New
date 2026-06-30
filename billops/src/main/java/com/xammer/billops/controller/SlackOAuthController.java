@@ -137,6 +137,109 @@ public class SlackOAuthController {
         return ResponseEntity.ok(result);
     }
 
+    // ── User-initiated Slack connection (self-service from Add Account page) ──
+
+    /**
+     * Called by the logged-in user directly to initiate Slack OAuth.
+     * Returns the Slack OAuth URL — frontend redirects the user to it.
+     * No admin role required — any authenticated user can connect their own Slack.
+     *
+     * GET /api/billops/slack/oauth/connect
+     */
+    @GetMapping("/connect")
+    public ResponseEntity<Map<String, Object>> userInitiateConnect(java.security.Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Not authenticated"));
+        }
+
+        // Find the logged-in user
+        AppUser user = appUserRepository.findByUsername(principal.getName()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "User not found"));
+        }
+
+        // Check Slack app configuration (admin must have configured Client ID once)
+        MessagingIntegrationConfig config = configRepo.findByPlatform("SLACK").orElse(null);
+        if (config == null || config.getClientId() == null || config.getClientId().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "error", "Slack integration not available. Contact your admin to configure Slack App credentials."
+            ));
+        }
+
+        // Check if already connected
+        UserPlatformConnection existing = connectionRepo.findByUserIdAndPlatform(user.getId(), "SLACK").orElse(null);
+        if (existing != null && existing.isActive() && existing.getUserBotToken() != null) {
+            return ResponseEntity.ok(Map.of(
+                "alreadyConnected", true,
+                "workspaceId", existing.getWorkspaceId() != null ? existing.getWorkspaceId() : "",
+                "message", "Slack is already connected."
+            ));
+        }
+
+        // Generate state token
+        String stateToken = UUID.randomUUID().toString().replace("-", "");
+        pendingStates.put(stateToken, new PendingState(user.getId(), System.currentTimeMillis()));
+        pendingStates.entrySet().removeIf(e -> System.currentTimeMillis() - e.getValue().createdAt > 30 * 60 * 1000L);
+
+        // Build Slack OAuth URL
+        String redirectUri = portalBaseUrl + "/api/billops/slack/oauth/callback";
+        String scopes = "app_mentions:read,assistant:write,channels:history,channels:join,channels:read,chat:write,files:read,groups:history,groups:read,im:history,im:read,im:write,mpim:history,mpim:read,users:read,users:read.email";
+        String installUrl = "https://slack.com/oauth/v2/authorize"
+                + "?client_id=" + config.getClientId()
+                + "&scope=" + scopes
+                + "&redirect_uri=" + encodeUrl(redirectUri)
+                + "&state=" + stateToken;
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("installUrl", installUrl);
+        result.put("alreadyConnected", false);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Returns the current user's Slack connection status.
+     * GET /api/billops/slack/oauth/my-status
+     */
+    @GetMapping("/my-status")
+    public ResponseEntity<Map<String, Object>> getMyConnectionStatus(java.security.Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Not authenticated"));
+        }
+        AppUser user = appUserRepository.findByUsername(principal.getName()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.ok(Map.of("connected", false));
+        }
+        UserPlatformConnection conn = connectionRepo.findByUserIdAndPlatform(user.getId(), "SLACK").orElse(null);
+        boolean connected = conn != null && conn.isActive() && conn.getUserBotToken() != null;
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("connected", connected);
+        result.put("workspaceId", conn != null ? conn.getWorkspaceId() : null);
+        result.put("updatedAt", conn != null && conn.getUpdatedAt() != null ? conn.getUpdatedAt().toString() : null);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Disconnect the current user's Slack connection.
+     * DELETE /api/billops/slack/oauth/disconnect
+     */
+    @DeleteMapping("/disconnect")
+    public ResponseEntity<Map<String, Object>> userDisconnect(java.security.Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Not authenticated"));
+        }
+        AppUser user = appUserRepository.findByUsername(principal.getName()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "User not found"));
+        }
+        UserPlatformConnection conn = connectionRepo.findByUserIdAndPlatform(user.getId(), "SLACK").orElse(null);
+        if (conn != null) {
+            conn.setActive(false);
+            conn.setUpdatedAt(LocalDateTime.now(IST));
+            connectionRepo.save(conn);
+        }
+        return ResponseEntity.ok(Map.of("disconnected", true));
+    }
+
     // ── Step 2: Slack redirects here after user approves ─────────────────────
 
     /**

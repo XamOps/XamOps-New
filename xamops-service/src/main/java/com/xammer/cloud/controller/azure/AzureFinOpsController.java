@@ -2,26 +2,40 @@ package com.xammer.cloud.controller.azure;
 
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.FinOpsReportScheduleDto;
+import com.xammer.cloud.dto.azure.AzureBudgetCreateRequestDto;
+import com.xammer.cloud.dto.azure.AzureBudgetDto;
 import com.xammer.cloud.dto.azure.AzureFinOpsReportDto;
 // --- FIX: Import UserRepository ---
 import com.xammer.cloud.repository.UserRepository; 
+import com.xammer.cloud.service.azure.AzureBudgetService;
 import com.xammer.cloud.service.azure.AzureFinOpsService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @RestController
 @RequestMapping("/api/azure")
 @CrossOrigin(origins = "*") 
 public class AzureFinOpsController {
 
+    private static final Logger log = LoggerFactory.getLogger(AzureFinOpsController.class);
+
     @Autowired
     private AzureFinOpsService azureFinOpsService;
+
+    @Autowired
+    private AzureBudgetService azureBudgetService;
 
     // --- FIX: Use UserRepository instead of UserService ---
     @Autowired
@@ -102,5 +116,69 @@ public class AzureFinOpsController {
         
         azureFinOpsService.deleteSchedule(scheduleId, user);
         return ResponseEntity.noContent().build();
+    }
+
+    // ==================== BUDGET MANAGEMENT ====================
+
+    /**
+     * GET /api/azure/finops/budgets
+     * Get all budgets for an Azure subscription.
+     */
+    @GetMapping("/finops/budgets")
+    public CompletableFuture<ResponseEntity<?>> getBudgets(@RequestParam String subscriptionId) {
+        log.info("Fetching budgets for Azure subscription: {}", subscriptionId);
+        return azureBudgetService.getBudgets(subscriptionId)
+                .orTimeout(55, TimeUnit.SECONDS)
+                .<ResponseEntity<?>>thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    if (cause instanceof TimeoutException) {
+                        log.warn("[AzureFinOps] budgets TIMEOUT for {}", subscriptionId);
+                        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Collections.emptyList());
+                    }
+                    log.error("[AzureFinOps] budgets ERROR for {}", subscriptionId, ex);
+                    return ResponseEntity.ok(Collections.emptyList());
+                });
+    }
+
+    /**
+     * POST /api/azure/finops/budgets
+     * Create a new budget for an Azure subscription.
+     */
+    @PostMapping("/finops/budgets")
+    public ResponseEntity<?> createBudget(
+            @RequestParam String subscriptionId,
+            @RequestBody AzureBudgetCreateRequestDto budgetRequest,
+            Principal principal) {
+        try {
+            String username = principal != null ? principal.getName() : "system";
+            log.info("Creating budget '{}' for Azure subscription {} by user {}",
+                    budgetRequest.getBudgetName(), subscriptionId, username);
+
+            AzureBudgetDto createdBudget = azureBudgetService.createBudget(subscriptionId, budgetRequest, username);
+            return ResponseEntity.status(HttpStatus.CREATED).body(createdBudget);
+        } catch (Exception e) {
+            log.error("Error creating budget for Azure subscription {}", subscriptionId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Collections.singletonMap("error", "Failed to create budget: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * DELETE /api/azure/finops/budgets
+     * Delete a budget for an Azure subscription.
+     */
+    @DeleteMapping("/finops/budgets")
+    public ResponseEntity<Void> deleteBudget(
+            @RequestParam String subscriptionId,
+            @RequestParam String budgetName) {
+        try {
+            log.info("Deleting budget '{}' for Azure subscription {}", budgetName, subscriptionId);
+            azureBudgetService.deleteBudget(subscriptionId, budgetName);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            log.error("Error deleting budget '{}' for Azure subscription {}", budgetName, subscriptionId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 }

@@ -93,7 +93,7 @@ public class ExternalMessagingService {
         try {
             switch (platform.toUpperCase()) {
                 case "SLACK":
-                    return sendToSlack(conn, message, adminName, userEmail);
+                    return sendToSlack(conn, message, adminName, userEmail, attachmentUrl, attachmentType, attachmentName);
                 case "TEAMS":
                     return sendToTeams(conn, message, adminName);
                 case "GOOGLE_CHAT":
@@ -120,7 +120,8 @@ public class ExternalMessagingService {
 
     // ── SLACK ─────────────────────────────────────────────────────────────────
 
-    private String sendToSlack(UserPlatformConnection conn, String message, String adminName, String userEmail) {
+    private String sendToSlack(UserPlatformConnection conn, String message, String adminName, String userEmail,
+                               String attachmentUrl, String attachmentType, String attachmentName) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
@@ -140,13 +141,13 @@ public class ExternalMessagingService {
 
             if (channelId != null && !channelId.isBlank()) {
                 log.info("Sending via per-user OAuth token for userId={}", conn.getUserId());
-                return postSlackMessage(conn.getUserBotToken(), channelId, message, adminName);
+                return postSlackMessage(conn.getUserBotToken(), channelId, message, adminName, attachmentUrl, attachmentType, attachmentName);
             }
         }
 
         // ── Priority 2: Incoming Webhook URL (cross-org, no bot token needed) ──
         if (conn.getWebhookUrl() != null && !conn.getWebhookUrl().isBlank()) {
-            Map<String, Object> body = buildSlackWebhookPayload(message, adminName);
+            Map<String, Object> body = buildSlackWebhookPayload(message, adminName, attachmentUrl, attachmentType, attachmentName);
             HttpEntity<Map<String, Object>> req = new HttpEntity<>(body, headers);
             ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
                     conn.getWebhookUrl(), HttpMethod.POST, req,
@@ -191,15 +192,16 @@ public class ExternalMessagingService {
             return null;
         }
 
-        return postSlackMessage(config.getBotToken(), channelId, message, adminName);
+        return postSlackMessage(config.getBotToken(), channelId, message, adminName, attachmentUrl, attachmentType, attachmentName);
     }
 
     /** Calls chat.postMessage with the given token and channel. */
-    private String postSlackMessage(String botToken, String channelId, String message, String adminName) {
+    private String postSlackMessage(String botToken, String channelId, String message, String adminName,
+                                    String attachmentUrl, String attachmentType, String attachmentName) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(botToken);
-        Map<String, Object> body = buildSlackWebhookPayload(message, adminName);
+        Map<String, Object> body = buildSlackWebhookPayload(message, adminName, attachmentUrl, attachmentType, attachmentName);
         body.put("channel", channelId);
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
@@ -284,7 +286,8 @@ public class ExternalMessagingService {
         return null;
     }
 
-    private Map<String, Object> buildSlackWebhookPayload(String message, String adminName) {
+    private Map<String, Object> buildSlackWebhookPayload(String message, String adminName,
+                                                            String attachmentUrl, String attachmentType, String attachmentName) {
         String portalLink = portalBaseUrl + "/billops/support";
 
         // Blocks API — rich formatting
@@ -310,6 +313,24 @@ public class ExternalMessagingService {
         sectionText.put("text", "*From:* " + escapeSlack(adminName) + "\n\n" + escapeSlack(message));
         section.put("text", sectionText);
         blocks.add(section);
+
+        // Image block (if attachment is an image)
+        if (attachmentUrl != null && !attachmentUrl.isBlank() && attachmentType != null && attachmentType.startsWith("image/")) {
+            Map<String, Object> imageBlock = new HashMap<>();
+            imageBlock.put("type", "image");
+            imageBlock.put("image_url", attachmentUrl);
+            imageBlock.put("alt_text", attachmentName != null ? attachmentName : "Attached image");
+            blocks.add(imageBlock);
+        } else if (attachmentUrl != null && !attachmentUrl.isBlank()) {
+            // Non-image file — add a link
+            Map<String, Object> fileSection = new HashMap<>();
+            fileSection.put("type", "section");
+            Map<String, Object> fileText = new HashMap<>();
+            fileText.put("type", "mrkdwn");
+            fileText.put("text", "📎 <" + attachmentUrl + "|" + (attachmentName != null ? attachmentName : "Attachment") + ">");
+            fileSection.put("text", fileText);
+            blocks.add(fileSection);
+        }
 
         // Reply button
         Map<String, Object> actions = new HashMap<>();

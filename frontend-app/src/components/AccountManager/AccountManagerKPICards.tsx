@@ -10,21 +10,6 @@ interface AccountManagerKPICardsProps {
   isGithubLoading: boolean;
 }
 
-const CloudSVG = () => (
-  <svg className="absolute right-2 bottom-2 opacity-[0.07]" width="80" height="60" viewBox="0 0 80 60">
-    <path d="M65 48H20a18 18 0 010-36c1 0 2 0 3 .1A24 24 0 0168 28h-.5A16 16 0 0165 48z" fill="currentColor" />
-  </svg>
-);
-
-const BEBAS: React.CSSProperties = {
-  fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
-  fontSize: '32px',
-  fontWeight: 400,
-  lineHeight: '32px',
-  color: 'rgb(10,10,10)',
-  fontVariantNumeric: 'tabular-nums',
-};
-
 const AccountManagerKPICards: React.FC<AccountManagerKPICardsProps> = ({
   accounts = [],
   githubConfigs = [],
@@ -40,99 +25,95 @@ const AccountManagerKPICards: React.FC<AccountManagerKPICardsProps> = ({
   const gcpCount = accounts.filter(a => a.provider === 'GCP').length;
   const azureCount = accounts.filter(a => a.provider === 'Azure').length;
 
+  if (isLoading) {
+    return (
+      <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+        <div className="grid grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)]">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="p-5 animate-pulse">
+              <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
+              <div className="h-7 w-12 bg-[rgba(0,0,0,0.06)] rounded mb-2" />
+              <div className="h-2 w-32 bg-[rgba(0,0,0,0.04)] rounded" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
-      {/* Total Cloud Accounts */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm relative overflow-hidden hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)]">
-            Total Cloud Accounts
-          </span>
-          <div className="w-8 h-8 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center">
-            <Icon icon="mdi:cloud-outline" width={16} color="#4F46E5" />
-          </div>
-        </div>
-        {isLoading ? (
-          <div className="h-8 w-16 bg-[rgba(0,0,0,0.06)] rounded-lg animate-pulse" />
-        ) : (
-          <p style={BEBAS}>{totalAccounts}</p>
-        )}
-        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[rgba(0,0,0,0.06)]">
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-orange-50 border border-orange-100 text-orange-600 text-[10px] font-bold">
-            <Icon icon="mdi:aws" width={11} />
-            <span>{isLoading ? '–' : awsCount}</span>
-          </div>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-blue-600 text-[10px] font-bold">
-            <Icon icon="mdi:google" width={11} />
-            <span>{isLoading ? '–' : gcpCount}</span>
-          </div>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-50 border border-cyan-100 text-cyan-600 text-[10px] font-bold">
-            <Icon icon="mdi:microsoft" width={11} />
-            <span>{isLoading ? '–' : azureCount}</span>
-          </div>
-        </div>
-        <CloudSVG />
-      </div>
+    <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+      <div className="grid grid-cols-1 md:grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)]">
 
-      {/* Active Connections */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm relative overflow-hidden hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)]">
-            Active Connections
-          </span>
-          <div className="w-8 h-8 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center justify-center">
-            <Icon icon="mdi:signal" width={16} color="#059669" />
+        {/* Total Cloud Accounts */}
+        <div className="p-5 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Icon icon="mdi:cloud-outline" width={20} className="text-indigo-600" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wider font-semibold text-[rgba(0,0,0,0.45)] mb-1.5">
+              CLOUD ACCOUNTS
+            </p>
+            <p className="text-[26px] font-bold text-black leading-none mb-2">{totalAccounts}</p>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[rgba(0,0,0,0.6)]">
+                <img src="/icons/aws-icon.png" alt="AWS" className="w-3.5 h-3.5 object-contain" /> {awsCount}
+              </span>
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[rgba(0,0,0,0.6)]">
+                <img src="/icons/gcp-icon.png" alt="GCP" className="w-3.5 h-3.5 object-contain" /> {gcpCount}
+              </span>
+              {azureCount > 0 && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[rgba(0,0,0,0.6)]">
+                  <img src="/icons/azure-icon.png" alt="Azure" className="w-3.5 h-3.5 object-contain" /> {azureCount}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-        {isLoading ? (
-          <div className="h-8 w-16 bg-[rgba(0,0,0,0.06)] rounded-lg animate-pulse" />
-        ) : (
-          <p style={{ ...BEBAS, color: activeConnections > 0 ? '#059669' : 'rgb(10,10,10)' }}>{activeConnections}</p>
-        )}
-        <div className="mt-3 pt-3 border-t border-[rgba(0,0,0,0.06)] space-y-1.5">
-          <div className="flex justify-between text-[10px] font-semibold uppercase tracking-wider">
-            <span className="text-[rgba(0,0,0,0.4)]">Health Rate</span>
-            <span className="text-emerald-600">{isLoading ? '–' : `${healthRate}%`}</span>
-          </div>
-          <div className="h-1.5 w-full bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 rounded-full transition-all duration-700"
-              style={{ width: isLoading ? '0%' : `${healthRate}%` }}
-            />
-          </div>
-        </div>
-        <CloudSVG />
-      </div>
 
-      {/* GitHub Repositories */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl p-5 shadow-sm relative overflow-hidden hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)]">
-            GitHub Repositories
-          </span>
-          <div className="w-8 h-8 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg flex items-center justify-center">
-            <Icon icon="mdi:github" width={16} color="rgba(0,0,0,0.7)" />
+        {/* Active Connections */}
+        <div className="p-5 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Icon icon="mdi:signal" width={20} className="text-emerald-600" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] uppercase tracking-wider font-semibold text-[rgba(0,0,0,0.45)] mb-1.5">
+              ACTIVE CONNECTIONS
+            </p>
+            <p className="text-[26px] font-bold text-emerald-600 leading-none mb-2">{activeConnections}</p>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${healthRate}%` }} />
+              </div>
+              <span className="text-[10px] font-semibold text-emerald-600">{healthRate}%</span>
+            </div>
           </div>
         </div>
-        {isGithubLoading ? (
-          <div className="h-8 w-16 bg-[rgba(0,0,0,0.06)] rounded-lg animate-pulse" />
-        ) : (
-          <p style={BEBAS}>{totalRepos}</p>
-        )}
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[rgba(0,0,0,0.06)]">
-          <div className="flex items-center gap-2 text-[10px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wide">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Webhooks Active
+
+        {/* GitHub Repositories */}
+        <div className="p-5 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Icon icon="mdi:github" width={20} className="text-[rgba(0,0,0,0.7)]" />
           </div>
-          <Link
-            to="/add-account"
-            className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 transition-colors uppercase tracking-widest"
-          >
-            <Icon icon="mdi:plus" width={12} />
-            Add Repo
-          </Link>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] uppercase tracking-wider font-semibold text-[rgba(0,0,0,0.45)] mb-1.5">
+              GITHUB REPOSITORIES
+            </p>
+            <p className="text-[26px] font-bold text-black leading-none mb-2">
+              {isGithubLoading ? '–' : totalRepos}
+            </p>
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[10px] font-medium text-[rgba(0,0,0,0.4)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Webhooks active
+              </span>
+              <Link to="/add-account" className="text-[10px] font-semibold text-black hover:underline flex items-center gap-0.5">
+                + Add Repo
+              </Link>
+            </div>
+          </div>
         </div>
-        <CloudSVG />
+
       </div>
     </div>
   );

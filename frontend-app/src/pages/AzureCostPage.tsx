@@ -13,9 +13,11 @@
  * - Manual refresh via POST /api/xamops/azure/dashboard/refresh
  */
 
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureCostData } from '../hooks/useAzureCostData';
+import { useAzureBudgetData } from '../hooks/useAzureBudgetData';
+import type { NewBudget } from '../types/finops';
 import {
   AzureCostHeader,
   AzureCostKPICards,
@@ -24,6 +26,9 @@ import {
   AzureCostForecastChart,
   AzureServiceTrendChart,
 } from '../components/AzureCost';
+import CostBudgetDashboard from '../components/Cost/CostBudgetDashboard';
+import BudgetModal from '../components/FinOps/BudgetModal';
+import Toast from '../components/FinOps/Toast';
 
 const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -61,9 +66,60 @@ const AzureCostPage: React.FC = () => {
     clearServiceTrend,
   } = useAzureCostData(selectedAccountId);
 
+  // Budget data
+  const {
+    budgets,
+    isLoading: budgetsLoading,
+    createBudget,
+    deleteBudget,
+  } = useAzureBudgetData({ selectedAccountId });
+
+  // Budget modal states
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [isBudgetCreating, setIsBudgetCreating] = useState(false);
+
+  // Toast state
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  // Budget handlers
+  const handleCreateBudget = async (budget: NewBudget) => {
+    if (!budget.budgetName || !budget.budgetLimit) {
+      alert('Please fill out all fields.');
+      return;
+    }
+    setIsBudgetCreating(true);
+    try {
+      await createBudget(budget);
+      setIsBudgetModalOpen(false);
+      setToastMessage('Budget created successfully!');
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 4000);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create budget');
+    } finally {
+      setIsBudgetCreating(false);
+    }
+  };
+
+  const handleDeleteBudget = async (budgetName: string) => {
+    if (!confirm(`Are you sure you want to delete the budget "${budgetName}"?`)) return;
+    try {
+      await deleteBudget(budgetName);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete budget');
+    }
+  };
+
   const handleRefresh = useCallback(async () => {
     await refresh();
   }, [refresh]);
+
+  // Map billingSummary to CostDataItem shape for the budget dashboard
+  const costDataForBudget = billingSummary.map(item => ({
+    name: item.serviceName,
+    amount: item.monthToDateCost,
+  }));
 
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-transparent">
@@ -92,6 +148,20 @@ const AzureCostPage: React.FC = () => {
               kpis={kpis}
               isLoading={isLoading}
             />
+
+            {/* Budgets & Alerts Dashboard */}
+            <RevealSection>
+              {budgetsLoading ? (
+                <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-[400px] w-full rounded-xl" />
+              ) : (
+                <CostBudgetDashboard
+                  budgets={budgets}
+                  costData={costDataForBudget}
+                  onCreateBudget={() => setIsBudgetModalOpen(true)}
+                  onDeleteBudget={handleDeleteBudget}
+                />
+              )}
+            </RevealSection>
 
             {/* Cost Breakdown */}
             <RevealSection>
@@ -133,6 +203,23 @@ const AzureCostPage: React.FC = () => {
           </>
         )}
       </div>
+
+      {/* Budget Modal */}
+      <BudgetModal
+        isOpen={isBudgetModalOpen}
+        isCreating={isBudgetCreating}
+        availableServices={billingSummary.map(item => item.serviceName).sort()}
+        onClose={() => setIsBudgetModalOpen(false)}
+        onSubmit={handleCreateBudget}
+      />
+
+      {/* Toast Notification */}
+      <Toast
+        show={showSuccessToast}
+        message={toastMessage}
+        title="Budget Created!"
+        onClose={() => setShowSuccessToast(false)}
+      />
     </main>
   );
 };

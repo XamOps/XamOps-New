@@ -12,10 +12,10 @@ interface CloudAccountsTableProps {
   onUpdateBillingTable?: (accountDbId: number, billingTable: string) => Promise<{ success: boolean; error?: string }>;
 }
 
-const providerConfig: Record<string, { icon: string; bg: string }> = {
-  AWS:   { icon: 'mdi:aws',       bg: 'bg-gradient-to-br from-orange-400 to-orange-600' },
-  GCP:   { icon: 'mdi:google',    bg: 'bg-gradient-to-br from-blue-400 to-green-500'   },
-  Azure: { icon: 'mdi:microsoft', bg: 'bg-gradient-to-br from-cyan-500 to-blue-600'    },
+const providerConfig: Record<string, { icon: string; bg: string; color: string }> = {
+  AWS:   { icon: '/icons/aws-icon.png',   bg: 'bg-[#FF9900]/10', color: 'text-[#FF9900]' },
+  GCP:   { icon: '/icons/gcp-icon.png',   bg: 'bg-[#4285F4]/10', color: 'text-[#4285F4]' },
+  Azure: { icon: '/icons/azure-icon.png', bg: 'bg-[#0078D4]/10', color: 'text-[#0078D4]' },
 };
 
 const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
@@ -61,20 +61,15 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
 
   return (
     <>
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(0,0,0,0.06)]">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center">
-              <Icon icon="mdi:cloud-outline" width={16} color="#4F46E5" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-[rgba(0,0,0,0.88)] leading-tight">Connected Cloud Accounts</h2>
-              <p className="text-[10px] font-medium text-[rgba(0,0,0,0.4)] uppercase tracking-wider">Multi-cloud inventory</p>
-            </div>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
+          <div className="flex items-center gap-2">
+            <Icon icon="mdi:cloud-check-outline" width={18} className="text-[rgba(0,0,0,0.4)]" />
+            <h2 className="text-[14px] font-semibold text-black">Connected Accounts</h2>
           </div>
-          <span className="text-xs text-[rgba(0,0,0,0.4)] bg-[rgba(0,0,0,0.04)] px-2 py-0.5 rounded-full">
-            {accounts.length} Accounts
+          <span className="text-[11px] text-[rgba(0,0,0,0.4)] font-medium">
+            {accounts.length} accounts
           </span>
         </div>
 
@@ -134,40 +129,37 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                       {/* Name */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <div className="flex items-center gap-3">
-                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${p.bg} flex-shrink-0`}>
-                            <Icon icon={p.icon} width={16} color="white" />
-                          </div>
+                          <img src={p.icon} alt={account.provider} className="w-6 h-6 object-contain flex-shrink-0" />
                           <div>
-                            <p className="font-bold text-[rgba(0,0,0,0.88)] leading-tight">{account.name}</p>
-                            <p className="text-[10px] font-bold text-[rgba(0,0,0,0.4)] uppercase tracking-wider mt-0.5">{account.provider}</p>
+                            <p className="text-[13px] font-semibold text-black leading-tight">{account.name}</p>
+                            <p className="text-[10px] text-[rgba(0,0,0,0.4)] mt-0.5">{account.provider}</p>
                           </div>
                         </div>
                       </td>
 
                       {/* ID */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <code className="text-[11px] font-mono font-semibold px-2 py-1 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] rounded-lg border border-[rgba(0,0,0,0.08)]">
+                        <span className="text-[12px] font-mono text-[rgba(0,0,0,0.55)]">
                           {getAccountId(account)}
-                        </code>
+                        </span>
                       </td>
 
                       {/* Access */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-[rgba(0,0,0,0.5)]">
-                          <Icon icon="mdi:shield-outline" width={13} color="rgba(0,0,0,0.3)" />
+                        <span className="text-[12px] text-[rgba(0,0,0,0.55)]">
                           {account.access || 'Contributor'}
-                        </div>
+                        </span>
                       </td>
 
                       {/* Status */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider ${
-                          isConnected ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
-                          isPending   ? 'bg-amber-50 border-amber-100 text-amber-600' :
-                                        'bg-rose-50 border-rose-100 text-rose-600'
+                        <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${
+                          isConnected ? 'text-emerald-600' :
+                          isPending   ? 'text-amber-600' :
+                                        'text-rose-600'
                         }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : isPending ? 'bg-amber-500' : 'bg-rose-500'}`} />
-                          {account.status}
+                          <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : isPending ? 'bg-amber-500' : 'bg-rose-500'}`} />
+                          {isConnected ? 'Connected' : isPending ? 'Pending' : account.status}
                         </span>
                       </td>
 

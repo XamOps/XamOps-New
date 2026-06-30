@@ -563,49 +563,10 @@ public class FinOpsService {
             redisCache.evict("budgets-" + accountId);
             redisCache.evict("finopsReport-" + accountId);
 
-            // AWS does NOT populate calculatedSpend immediately after budget creation — it
-            // can take minutes to hours. Instead, query Cost Explorer directly for the
-            // month-to-date unblended cost, which is always up-to-date.
-            try {
-                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
-                String monthStart = LocalDate.now().withDayOfMonth(1).toString();
-                String today = LocalDate.now().plusDays(1).toString();
-                GetCostAndUsageRequest.Builder ceRequestBuilder = GetCostAndUsageRequest.builder()
-                        .timePeriod(DateInterval.builder().start(monthStart).end(today).build())
-                        .granularity(Granularity.MONTHLY)
-                        .metrics("UnblendedCost");
-
-                // Filter by service if this is a per-service budget
-                if (budgetDetails.getServiceName() != null && !budgetDetails.getServiceName().isBlank()) {
-                    ceRequestBuilder.filter(Expression.builder()
-                            .dimensions(DimensionValues.builder()
-                                    .key(Dimension.SERVICE)
-                                    .values(budgetDetails.getServiceName())
-                                    .build())
-                            .build());
-                }
-
-                GetCostAndUsageRequest ceRequest = ceRequestBuilder.build();
-                BigDecimal mtdCost = ce.getCostAndUsage(ceRequest).resultsByTime().stream()
-                        .map(r -> new BigDecimal(r.total().get("UnblendedCost").amount()))
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                budgetDetails.setActualSpend(mtdCost);
-                // Simple linear forecast: project MTD spend to end of month
-                int dayOfMonth = LocalDate.now().getDayOfMonth();
-                int daysInMonth = LocalDate.now().lengthOfMonth();
-                BigDecimal forecasted = dayOfMonth > 0
-                        ? mtdCost.multiply(BigDecimal.valueOf(daysInMonth))
-                                 .divide(BigDecimal.valueOf(dayOfMonth), 2, java.math.RoundingMode.HALF_UP)
-                        : BigDecimal.ZERO;
-                budgetDetails.setForecastedSpend(forecasted);
-                logger.info("Budget '{}' created — MTD actual: {}, forecasted: {}",
-                        budgetDetails.getBudgetName(), mtdCost, forecasted);
-            } catch (Exception fetchEx) {
-                logger.warn("Could not fetch MTD spend for new budget '{}', defaulting to zero: {}",
-                        budgetDetails.getBudgetName(), fetchEx.getMessage());
-                budgetDetails.setActualSpend(BigDecimal.ZERO);
-                budgetDetails.setForecastedSpend(BigDecimal.ZERO);
-            }
+            // Frontend computes actualSpend from existing cost breakdown data,
+            // so no need for an extra Cost Explorer call here.
+            budgetDetails.setActualSpend(BigDecimal.ZERO);
+            budgetDetails.setForecastedSpend(BigDecimal.ZERO);
 
             // Send XamOps confirmation email with real spend values
             if (userEmail != null && !userEmail.isBlank()) {
@@ -625,37 +586,9 @@ public class FinOpsService {
         } catch (software.amazon.awssdk.services.budgets.model.DuplicateRecordException dupEx) {
             logger.warn("Budget '{}' already exists for account {} — returning existing budget info",
                     budgetDetails.getBudgetName(), account.getAwsAccountId());
-            // Budget already exists — fetch its current spend and return it
-            try {
-                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
-                String monthStart = LocalDate.now().withDayOfMonth(1).toString();
-                String today = LocalDate.now().plusDays(1).toString();
-                GetCostAndUsageRequest.Builder ceRequestBuilder = GetCostAndUsageRequest.builder()
-                        .timePeriod(DateInterval.builder().start(monthStart).end(today).build())
-                        .granularity(Granularity.MONTHLY)
-                        .metrics("UnblendedCost");
-                if (budgetDetails.getServiceName() != null && !budgetDetails.getServiceName().isBlank()) {
-                    ceRequestBuilder.filter(Expression.builder()
-                            .dimensions(DimensionValues.builder()
-                                    .key(Dimension.SERVICE)
-                                    .values(budgetDetails.getServiceName())
-                                    .build())
-                            .build());
-                }
-                BigDecimal mtdCost = ce.getCostAndUsage(ceRequestBuilder.build()).resultsByTime().stream()
-                        .map(r -> new BigDecimal(r.total().get("UnblendedCost").amount()))
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                budgetDetails.setActualSpend(mtdCost);
-                int dayOfMonth = LocalDate.now().getDayOfMonth();
-                int daysInMonth = LocalDate.now().lengthOfMonth();
-                budgetDetails.setForecastedSpend(dayOfMonth > 0
-                        ? mtdCost.multiply(BigDecimal.valueOf(daysInMonth))
-                                 .divide(BigDecimal.valueOf(dayOfMonth), 2, java.math.RoundingMode.HALF_UP)
-                        : BigDecimal.ZERO);
-            } catch (Exception fetchEx) {
-                budgetDetails.setActualSpend(BigDecimal.ZERO);
-                budgetDetails.setForecastedSpend(BigDecimal.ZERO);
-            }
+            // Frontend computes actualSpend from existing cost data — no CE call needed
+            budgetDetails.setActualSpend(BigDecimal.ZERO);
+            budgetDetails.setForecastedSpend(BigDecimal.ZERO);
             return budgetDetails;
         } catch (software.amazon.awssdk.services.budgets.model.AccessDeniedException accessEx) {
             logger.warn("AWS Budget write permission denied for account {} — falling back to local budget storage. " +

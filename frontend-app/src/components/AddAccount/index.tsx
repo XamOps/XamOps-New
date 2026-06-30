@@ -13,3 +13,5 @@ export { default as AzureForm } from './AzureForm';
 export { default as JenkinsForm } from './JenkinsForm';
 export { default as GitHubForm } from './GitHubForm';
 export { default as PolicyModal } from './PolicyModal';
+export { default as IntegrationsSection } from './IntegrationsSection';
+export { default as DataSourcesGrid } from './DataSourcesGrid';
