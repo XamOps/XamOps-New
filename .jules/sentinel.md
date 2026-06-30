@@ -1,0 +1,4 @@
+## 2026-06-30 - Hardening Cloud Shell and Agent API Security
+**Vulnerability:** Unauthenticated access to Cloud Shell (remote terminal) and broad exposure of Agent management APIs (leaking API keys and DB configs).
+**Learning:** Spring WebSocket handlers (`TextWebSocketHandler`) can establish connections even if the path is supposedly secured if the filter chain is not strictly configured or if the handler doesn't explicitly verify the `Principal`. Broad wildcards in `SecurityConfig` (e.g., `/api/v1/agent/**`) can inadvertently expose management endpoints intended for authenticated users alongside public-facing agent endpoints.
+**Prevention:** Always verify `session.getPrincipal()` in WebSocket `afterConnectionEstablished` and perform IDOR/ownership checks (e.g., matching `account.clientId` with `user.clientId`). Use explicit allow-lists for public APIs instead of broad wildcards to adhere to the principle of least privilege.
