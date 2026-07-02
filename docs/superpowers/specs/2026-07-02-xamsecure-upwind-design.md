@@ -9,6 +9,14 @@ Xammer holds Upwind (CNAPP) licenses. XamSecure is a white-label layer: XamOps
 customers see a native "XamSecure" section, while all security data comes from
 Upwind's API behind the scenes. Customers never interact with (or see) Upwind.
 
+**Parity goal: 1:1.** Every piece of data and every automation available in
+the Upwind console (findings, detections, inventory, dashboards, onboarding,
+sensor/agent deployment, response automations, notification rules, exceptions)
+is to be replicated in XamSecure as-is. The only ceiling is Upwind's API
+surface: XamSecure cannot show or do what the API does not expose. Features
+found to be console-only during the parity audit (below) are flagged to the
+product owner rather than silently dropped.
+
 ## Key decisions
 
 | Decision | Choice |
@@ -51,6 +59,19 @@ Upwind's API behind the scenes. Customers never interact with (or see) Upwind.
 5. Whether **Cloud account** and **Sensor** credentials can be created
    programmatically via the API (gates fully automated self-service
    onboarding vs the console-assisted fallback below).
+
+### Parity audit (first task once credentials exist)
+
+Walk the authenticated API docs (docs.upwind.io) and the console side by side;
+produce a feature-parity matrix: every console page/automation → its API
+endpoint(s) → target XamSecure tab/feature → phase. Known console areas to
+cover beyond the four documented domains: dashboards, Kubernetes/containers
+views, image/registry scanning, API Security (endpoint catalog, API threats),
+Identity/CIEM, compliance frameworks, sensors management, response
+automations, notification/integration rules, ignore/exception rules, events
+timeline. Console-only features (no API) are listed with a proposed
+workaround or explicitly deferred by the product owner. The matrix becomes
+the Phase 2+ backlog.
 
 ## UI
 
@@ -184,14 +205,22 @@ page with Overview/Threats/Vulnerabilities/Posture/Inventory/Onboarding tabs
 ships with the console-assisted fallback if credential creation isn't
 API-exposed.
 
-**Phase 2 (after API verification):** API Security tab, Identity tab,
-Compliance tab (if not in Phase 1), webhook ingestion replacing detection
-polling, fully automated credential provisioning for onboarding.
+**Phase 2 (after parity audit):** API Security tab, Identity tab, Compliance
+tab (if not in Phase 1), webhook ingestion replacing detection polling, fully
+automated credential provisioning for onboarding.
 
-## Out of scope (v1)
-- Remediation actions pushed back to Upwind
+**Phase 3+ (parity backlog from the audit matrix):** remaining console
+features and automations — response automations, notification rules,
+ignore/exception management, Kubernetes/container views, events timeline, and
+anything else the audit surfaces — until 1:1 parity is reached for everything
+the API exposes.
+
+## Out of scope for Phase 1 (moves to parity backlog, not dropped)
+- Remediation/response actions pushed back to Upwind
 - Historical trend charts (schema supports later via `first_seen`/`synced_at`)
-- Per-customer Upwind orgs
 - Customer-facing alerting/notifications from XamSecure findings
+
+## Permanently out of scope
+- Per-customer Upwind orgs (single-org, account-ID-filtered model chosen)
 - Hiding the Upwind name inside install commands / IAM roles (accepted
   white-label limitation)
