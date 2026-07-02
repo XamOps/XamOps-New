@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '@iconify/react';
+import { TooltipWrapper } from '../ui';
 
 interface PaginationProps {
   currentPage: number;
@@ -23,19 +24,51 @@ const Pagination: React.FC<PaginationProps> = ({ currentPage, totalPages, totalI
         Showing <span className="font-semibold text-[rgba(0,0,0,0.7)]">{start}</span>–<span className="font-semibold text-[rgba(0,0,0,0.7)]">{end}</span> of <span className="font-semibold text-[rgba(0,0,0,0.7)]">{totalItems}</span>
       </p>
       <div className="flex items-center gap-1">
-        <button onClick={() => onPageChange(1)} disabled={currentPage === 1} className={btnCls(currentPage === 1)}>
-          <Icon icon="mdi:chevron-double-left" width={14} />
-        </button>
-        <button onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} className={btnCls(currentPage === 1)}>
-          <Icon icon="mdi:chevron-left" width={14} />
-        </button>
+        <TooltipWrapper tip="First page">
+          <button
+            type="button"
+            onClick={() => onPageChange(1)}
+            disabled={currentPage === 1}
+            className={btnCls(currentPage === 1)}
+            aria-label="First page"
+          >
+            <Icon icon="mdi:chevron-double-left" width={14} />
+          </button>
+        </TooltipWrapper>
+        <TooltipWrapper tip="Previous page">
+          <button
+            type="button"
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+            className={btnCls(currentPage === 1)}
+            aria-label="Previous page"
+          >
+            <Icon icon="mdi:chevron-left" width={14} />
+          </button>
+        </TooltipWrapper>
         <span className="px-3 text-[11px] font-medium text-[rgba(0,0,0,0.6)]">Page {currentPage} of {totalPages}</span>
-        <button onClick={() => onPageChange(currentPage + 1)} disabled={currentPage >= totalPages} className={btnCls(currentPage >= totalPages)}>
-          <Icon icon="mdi:chevron-right" width={14} />
-        </button>
-        <button onClick={() => onPageChange(totalPages)} disabled={currentPage >= totalPages} className={btnCls(currentPage >= totalPages)}>
-          <Icon icon="mdi:chevron-double-right" width={14} />
-        </button>
+        <TooltipWrapper tip="Next page">
+          <button
+            type="button"
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage >= totalPages}
+            className={btnCls(currentPage >= totalPages)}
+            aria-label="Next page"
+          >
+            <Icon icon="mdi:chevron-right" width={14} />
+          </button>
+        </TooltipWrapper>
+        <TooltipWrapper tip="Last page">
+          <button
+            type="button"
+            onClick={() => onPageChange(totalPages)}
+            disabled={currentPage >= totalPages}
+            className={btnCls(currentPage >= totalPages)}
+            aria-label="Last page"
+          >
+            <Icon icon="mdi:chevron-double-right" width={14} />
+          </button>
+        </TooltipWrapper>
       </div>
     </div>
   );
