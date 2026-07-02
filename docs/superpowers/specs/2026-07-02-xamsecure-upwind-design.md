@@ -18,6 +18,7 @@ Upwind's API behind the scenes. Customers never interact with (or see) Upwind.
 | Data flow | Runtime hybrid: near-real-time path for threat detections (60s incremental poll, webhook upgrade path), scheduled sync (4h) for scan-based domains |
 | Placement | New "XamSecure" entry in the existing SecOps sidebar group |
 | Credentials | Xammer's single Upwind OAuth2 client credential, held in server config only |
+| Onboarding | Customer self-service: connect cloud account to Upwind and deploy sensors/agents from within XamSecure |
 
 ## Upwind API (verified via public integration docs)
 
@@ -31,6 +32,13 @@ Upwind's API behind the scenes. Customers never interact with (or see) Upwind.
 - Full API docs are behind console login (docs.upwind.io). API Security
   (endpoint catalog), Identity/CIEM, and compliance-framework endpoints are
   **unconfirmed** — verify once credentials exist.
+- Credential types confirmed in console (Settings → Access management →
+  Credentials): **Cloud account** (connect AWS/GCP/Azure), **Sensor** (Helm or
+  Bash install), **Third-party Integration**, **API** (call the Upwind API
+  service). Permission: Global Scope (Global Admin, default) or Custom.
+- For the sync credential: use type **API**; prefer a Custom read-only scope if
+  available, else Global Scope. Name credentials identifiably (e.g.
+  `xamsecure-sync`).
 
 ### Open items to verify with Upwind console access
 1. Whether webhook/notification destinations are available on the license
@@ -40,6 +48,9 @@ Upwind's API behind the scenes. Customers never interact with (or see) Upwind.
 3. Whether posture findings carry compliance-framework mappings (gates whether
    the Compliance tab ships in Phase 1 or 2).
 4. Rate limits and pagination specifics.
+5. Whether **Cloud account** and **Sensor** credentials can be created
+   programmatically via the API (gates fully automated self-service
+   onboarding vs the console-assisted fallback below).
 
 ## UI
 
@@ -56,6 +67,7 @@ theme, no emojis). Routes to `XamSecurePage.tsx` with Upwind-mirroring tabs:
 | Inventory | Monitored assets with linked vuln/detection counts | 1 |
 | API Security | Endpoint catalog + API threats | 2 (pending API confirmation) |
 | Identity | CIEM / identity risks | 2 (pending API confirmation) |
+| Onboarding | Self-service: connect cloud account, deploy sensors, coverage status | 1 |
 
 Tab architecture is a registry + one data hook per tab so Phase 2 tabs are
 additive. All tabs are scoped by the account selector (customer's selected or
@@ -67,6 +79,33 @@ interval instead of long-lived cache.
 Tables: filterable, severity chips in greys, row click opens a detail drawer
 rendered from the finding's raw payload. "Last synced" timestamp visible per
 tab; stale indicator when sync is failing.
+
+### Onboarding tab (customer self-service)
+
+Mirrors the Upwind onboarding flow, white-labeled in the XamOps UI:
+
+1. **Connect cloud account** — customer picks one of their XamOps
+   `CloudAccount`s; XamSecure provisions the Upwind connection (via API if
+   supported) and presents the required cloud-side step (CloudFormation stack
+   for AWS — same pattern as XamOps's existing `cloudformation/` onboarding —
+   or the gcloud/az script Upwind provides). Connection status shown per
+   account: Not connected / Pending / Connected.
+2. **Deploy sensors** — per connected account/cluster, XamSecure obtains a
+   sensor credential and renders the Helm or Bash install command with a copy
+   button. Post-install, sensor/coverage status is shown per cluster.
+3. **Coverage view** — which accounts/clusters are connected, sensor health,
+   what's unmonitored.
+
+**Fallback if credential creation isn't API-exposed:** a Xammer admin
+pre-generates Cloud account / Sensor credentials in the Upwind console and
+registers them in an admin-side XamSecure panel; the customer-facing flow is
+unchanged (they still click Connect / copy install commands), only the
+credential provisioning is manual behind the scenes.
+
+**White-label limitation (accepted):** install commands, Helm chart names, and
+cloud IAM roles are Upwind's own artifacts — the Upwind name is visible to
+customers at the infrastructure level even though the XamOps UI never mentions
+it.
 
 ## Backend (`xamops-service`)
 
@@ -106,7 +145,21 @@ inventory`
   backend unfiltered.
 - Server-side pagination + severity/status filters
 - Redis caching per account for scan-based endpoints (`RedisCacheService`);
-  threats endpoint uncached or short-TTL
+  threats endpoint short-TTL (≤60s)
+
+### Onboarding API — XamSecureOnboardingController
+`/api/xamsecure/onboarding/…`
+
+- `POST /connect` — provision the Upwind connection for one of the customer's
+  own `CloudAccount`s (ownership enforced server-side); returns the cloud-side
+  setup artifact (CloudFormation launch URL / script)
+- `GET /status` — connection + sensor/coverage status per account
+- `POST /sensor-credential` — obtain sensor credential and rendered Helm/Bash
+  install command for a connected account/cluster
+- New table `upwind_account_connection`: `cloud_account_id`, status
+  (NOT_CONNECTED / PENDING / CONNECTED), sensor coverage summary, timestamps.
+  Sensor credentials (if stored at all in the fallback flow) are encrypted at
+  rest and only ever rendered inside install commands for the owning customer.
 
 ### Error handling
 - Token/sync failures: log, retry with backoff, admin alert on persistent
@@ -126,15 +179,19 @@ inventory`
 ## Phasing
 
 **Phase 1:** UpwindApiClient, migrations, sync scheduler, read API, sidebar +
-page with Overview/Threats/Vulnerabilities/Posture/Inventory tabs (+ Compliance
-if framework mappings are in the posture payload).
+page with Overview/Threats/Vulnerabilities/Posture/Inventory/Onboarding tabs
+(+ Compliance if framework mappings are in the posture payload). Onboarding
+ships with the console-assisted fallback if credential creation isn't
+API-exposed.
 
 **Phase 2 (after API verification):** API Security tab, Identity tab,
 Compliance tab (if not in Phase 1), webhook ingestion replacing detection
-polling.
+polling, fully automated credential provisioning for onboarding.
 
 ## Out of scope (v1)
 - Remediation actions pushed back to Upwind
 - Historical trend charts (schema supports later via `first_seen`/`synced_at`)
 - Per-customer Upwind orgs
 - Customer-facing alerting/notifications from XamSecure findings
+- Hiding the Upwind name inside install commands / IAM roles (accepted
+  white-label limitation)
