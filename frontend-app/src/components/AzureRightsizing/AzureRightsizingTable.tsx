@@ -159,7 +159,7 @@ const AzureRightsizingTable: React.FC<AzureRightsizingTableProps> = ({
       {/* Subheader note */}
       <div className="flex items-center gap-2 px-5 py-2.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.01)]">
         <Icon icon="mdi:microsoft-azure" width={13} color="#0078D4" />
-        <span className="text-[11px] text-[rgba(0,0,0,0.4)] italic">Recommendations sourced directly from Azure Advisor</span>
+        <span className="text-[11px] text-[rgba(0,0,0,0.4)] italic">Sourced from Azure Advisor + XamOps Azure Monitor CPU analysis (14-day)</span>
       </div>
 
       {/* Empty / error state */}

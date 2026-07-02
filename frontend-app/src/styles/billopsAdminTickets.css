@@ -15,3 +15,12 @@
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+/* ── Hidden scrollbar (scrollable without visible bar) ───────────────────── */
+.raise-scroll-hide {
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* IE/Edge */
+}
+.raise-scroll-hide::-webkit-scrollbar {
+  display: none;                /* Chrome/Safari/Opera */
+}

@@ -31,6 +31,25 @@ const DEFAULT_FILTERS: TicketFilters = {
   assignee: ''
 };
 
+// Persisted (per browser tab) so filters/tab/search survive navigating into a
+// ticket and back. Cleared automatically when the tab/session ends.
+const FILTER_STATE_KEY = 'xamops_admin_tickets_filter_state_v1';
+
+interface SavedFilterState {
+  activeTab: AdminTicketTab;
+  search: string;
+  filters: TicketFilters;
+}
+
+const loadSavedFilterState = (): SavedFilterState | null => {
+  try {
+    const raw = sessionStorage.getItem(FILTER_STATE_KEY);
+    return raw ? (JSON.parse(raw) as SavedFilterState) : null;
+  } catch {
+    return null;
+  }
+};
+
 interface UseBillOpsAdminTicketsReturn {
   tickets: AdminTicket[];
   filteredTickets: AdminTicket[];
@@ -66,10 +85,46 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<AdminTicketTab>('All');
-  const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState<TicketFilters>(DEFAULT_FILTERS);
+  const [activeTab, setActiveTab] = useState<AdminTicketTab>(() => loadSavedFilterState()?.activeTab ?? 'All');
+  const [search, setSearch] = useState(() => loadSavedFilterState()?.search ?? '');
+  const [filters, setFilters] = useState<TicketFilters>(() => loadSavedFilterState()?.filters ?? DEFAULT_FILTERS);
   const [newlyUpdatedIds, setNewlyUpdatedIds] = useState<Set<number>>(new Set());
+  // Ticket IDs whose reply bodies match the current search term (server-side lookup,
+  // since the lightweight admin list does not carry reply text).
+  const [replyMatchIds, setReplyMatchIds] = useState<Set<number>>(new Set());
+
+  // Debounced reply-body search: when the query is long enough, ask the backend
+  // which tickets have a matching reply and merge those into the search filter.
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 2) {
+      setReplyMatchIds(new Set());
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/billops/tickets/search-replies?q=${encodeURIComponent(q)}`, {
+          credentials: 'include',
+        });
+        if (!res.ok) return;
+        const ids: number[] = await res.json();
+        setReplyMatchIds(new Set(ids));
+      } catch {
+        /* non-critical — subject/metadata search still works */
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Persist filter/tab/search to sessionStorage so they survive navigating into
+  // a ticket detail and returning via the back button.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(FILTER_STATE_KEY, JSON.stringify({ activeTab, search, filters }));
+    } catch {
+      /* storage full/unavailable — non-critical */
+    }
+  }, [activeTab, search, filters]);
 
   // Tracks the snapshot seen on the previous fetch to detect new/updated tickets
   const prevSnapshotRef = useRef<Map<number, { updatedAt: string; hasUnreadUserReply: boolean }>>(new Map());
@@ -130,7 +185,9 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
         (t.creatorId && t.creatorId.toString().includes(q)) ||
         (t.creatorUsername && t.creatorUsername.toLowerCase().includes(q)) ||
         (t.status && t.status.toLowerCase().includes(q)) ||
-        (t.assignedToUsername && t.assignedToUsername.toLowerCase().includes(q))
+        (t.assignedToUsername && t.assignedToUsername.toLowerCase().includes(q)) ||
+        // reply-body match (resolved server-side)
+        replyMatchIds.has(t.id)
       );
     }
 
@@ -160,7 +217,7 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
     }
 
     return result;
-  }, [tickets, activeTab, search, filters]);
+  }, [tickets, activeTab, search, filters, replyMatchIds]);
 
   /**
    * Get count of tickets for a specific category

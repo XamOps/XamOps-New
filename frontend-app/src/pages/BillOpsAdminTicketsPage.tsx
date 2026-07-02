@@ -288,7 +288,20 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   } = useBillOpsAdminTickets();
 
   const { setActions, clearActions } = useTopbarActions();
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(() => {
+    try {
+      return sessionStorage.getItem('xamops_admin_tickets_show_filters_v1') === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('xamops_admin_tickets_show_filters_v1', showFilters ? '1' : '0');
+    } catch {
+      /* non-critical */
+    }
+  }, [showFilters]);
 
   // Ticket category access control for sub-users
   // undefined = still loading (hide tabs until resolved to avoid flash)
@@ -304,6 +317,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   const [raiseStep, setRaiseStep] = useState<1 | 2 | 3>(1);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
   const [selectedClient, setSelectedClient] = useState<ClientOption | null>(null);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
@@ -323,6 +337,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     setSelectedClient(null);
     setSelectedAccount(null);
     setAccounts([]);
+    setClientSearch('');
     setRaiseForm({ category: 'Account and Billing', service: 'Billing Inquiry', severity: 'Normal', subject: '', description: '' });
     setRaiseError('');
     setShowRaiseModal(true);
@@ -350,6 +365,12 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     setSelectedAccount(account);
     setRaiseStep(3);
   }, []);
+
+  const filteredClients = React.useMemo(() => {
+    const q = clientSearch.trim().toLowerCase();
+    if (!q) return clients;
+    return clients.filter(c => c.name.toLowerCase().includes(q));
+  }, [clients, clientSearch]);
 
   const handleRaiseSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -424,7 +445,21 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   }, [allowedTicketTabs]);
   const [sortField, setSortField] = useState<SortField>('');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('none');
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(() => {
+    try {
+      const saved = sessionStorage.getItem('xamops_admin_tickets_quickfilter_v1');
+      return saved === 'breached' || saved === 'unassigned' ? saved : 'none';
+    } catch {
+      return 'none';
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('xamops_admin_tickets_quickfilter_v1', quickFilter);
+    } catch {
+      /* non-critical */
+    }
+  }, [quickFilter]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -593,7 +628,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tickets..."
+            placeholder="Search tickets & messages..."
             className="pl-9 pr-4 py-2 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.12)] rounded-md text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 w-64 transition-all outline-none"
           />
         </div>
@@ -1194,23 +1229,49 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                   ) : clients.length === 0 ? (
                     <p className="text-sm text-[rgba(0,0,0,0.4)] text-center py-6">No clients found.</p>
                   ) : (
-                    <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-                      {clients.map(c => (
-                        <button
-                          key={c.id}
-                          onClick={() => selectClient(c)}
-                          className="w-full flex items-center justify-between px-4 py-3 hover:bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.04)] hover:border-indigo-200 text-left transition-colors group"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-7 h-7 rounded-md bg-[rgba(0,0,0,0.06)] flex items-center justify-center text-[rgba(0,0,0,0.5)] text-xs font-semibold">
-                              {c.name.charAt(0).toUpperCase()}
-                            </div>
-                            <span className="text-[13px] font-medium text-[rgba(0,0,0,0.88)] group-hover:text-indigo-700">{c.name}</span>
-                          </div>
-                          <Icon icon="mdi:chevron-right" width={14} className="text-[rgba(0,0,0,0.2)] group-hover:text-indigo-400" />
-                        </button>
-                      ))}
-                    </div>
+                    <>
+                      {/* Search */}
+                      <div className="relative mb-2.5">
+                        <Icon icon="mdi:magnify" width={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)]" />
+                        <input
+                          type="text"
+                          autoFocus
+                          value={clientSearch}
+                          onChange={(e) => setClientSearch(e.target.value)}
+                          placeholder="Search client..."
+                          className="w-full pl-9 pr-8 py-2.5 text-[13px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.02)] focus:bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-[rgba(0,0,0,0.3)]"
+                        />
+                        {clientSearch && (
+                          <button
+                            onClick={() => setClientSearch('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.6)]"
+                          >
+                            <Icon icon="mdi:close-circle" width={15} />
+                          </button>
+                        )}
+                      </div>
+                      {filteredClients.length === 0 ? (
+                        <p className="text-[13px] text-[rgba(0,0,0,0.4)] text-center py-6">No clients match “{clientSearch}”.</p>
+                      ) : (
+                        <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1 raise-scroll-hide">
+                          {filteredClients.map(c => (
+                            <button
+                              key={c.id}
+                              onClick={() => selectClient(c)}
+                              className="w-full flex items-center justify-between px-4 py-3 hover:bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.04)] hover:border-indigo-200 text-left transition-colors group"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-7 h-7 rounded-md bg-[rgba(0,0,0,0.06)] flex items-center justify-center text-[rgba(0,0,0,0.5)] text-xs font-semibold">
+                                  {c.name.charAt(0).toUpperCase()}
+                                </div>
+                                <span className="text-[13px] font-medium text-[rgba(0,0,0,0.88)] group-hover:text-indigo-700">{c.name}</span>
+                              </div>
+                              <Icon icon="mdi:chevron-right" width={14} className="text-[rgba(0,0,0,0.2)] group-hover:text-indigo-400" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1242,7 +1303,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                       </button>
                     </div>
                   ) : (
-                    <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                    <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1 raise-scroll-hide">
                       {accounts.map(a => (
                         <button
                           key={a.id}

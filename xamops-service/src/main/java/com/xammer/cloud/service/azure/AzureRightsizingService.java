@@ -21,8 +21,12 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Service for fetching Azure Advisor Cost recommendations (rightsizing, shutdown suggestions, etc.)
@@ -41,6 +45,49 @@ public class AzureRightsizingService {
     private static final String CACHE_PREFIX = "azure:rightsizing:";
     private static final String DB_CACHE_PREFIX = "AZURE_RIGHTSIZING::";
     private static final int CACHE_TTL_MINUTES = 60;
+    private static final String ARM_BASE = "https://management.azure.com";
+
+    // Metric-based VM rightsizing (free Azure Monitor). A VM whose CPU peaked below
+    // this over 14 days is over-provisioned and a downsize candidate.
+    private static final double METRIC_CPU_THRESHOLD = 40.0;
+
+    // Next-smaller SKU within the same family (one tier down ≈ half the vCPUs/cost).
+    private static final Map<String, String> VM_DOWNSIZE = Map.ofEntries(
+            Map.entry("Standard_B1ms", "Standard_B1s"),
+            Map.entry("Standard_B2s",  "Standard_B1s"),
+            Map.entry("Standard_B2ms", "Standard_B1ms"),
+            Map.entry("Standard_B4ms", "Standard_B2ms"),
+            Map.entry("Standard_B8ms", "Standard_B4ms"),
+            Map.entry("Standard_D4s_v5",  "Standard_D2s_v5"),
+            Map.entry("Standard_D8s_v5",  "Standard_D4s_v5"),
+            Map.entry("Standard_D16s_v5", "Standard_D8s_v5"),
+            Map.entry("Standard_E4s_v5",  "Standard_E2s_v5"),
+            Map.entry("Standard_E8s_v5",  "Standard_E4s_v5"),
+            Map.entry("Standard_E16s_v5", "Standard_E8s_v5"),
+            Map.entry("Standard_F4s_v2",  "Standard_F2s_v2"),
+            Map.entry("Standard_F8s_v2",  "Standard_F4s_v2"),
+            Map.entry("Standard_F16s_v2", "Standard_F8s_v2"));
+
+    // Approximate on-demand monthly cost in INR (estimates for savings calc).
+    private static final Map<String, Double> VM_MONTHLY_INR = Map.ofEntries(
+            Map.entry("Standard_B1s", 1100.0),
+            Map.entry("Standard_B1ms", 2200.0),
+            Map.entry("Standard_B2s", 4400.0),
+            Map.entry("Standard_B2ms", 8800.0),
+            Map.entry("Standard_B4ms", 17600.0),
+            Map.entry("Standard_B8ms", 35200.0),
+            Map.entry("Standard_D2s_v5", 8000.0),
+            Map.entry("Standard_D4s_v5", 16000.0),
+            Map.entry("Standard_D8s_v5", 32000.0),
+            Map.entry("Standard_D16s_v5", 64000.0),
+            Map.entry("Standard_E2s_v5", 10500.0),
+            Map.entry("Standard_E4s_v5", 21000.0),
+            Map.entry("Standard_E8s_v5", 42000.0),
+            Map.entry("Standard_E16s_v5", 84000.0),
+            Map.entry("Standard_F2s_v2", 7000.0),
+            Map.entry("Standard_F4s_v2", 14000.0),
+            Map.entry("Standard_F8s_v2", 28000.0),
+            Map.entry("Standard_F16s_v2", 56000.0));
 
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
@@ -113,13 +160,22 @@ public class AzureRightsizingService {
     }
 
     private AzureRightsizingResponse fetchFromAdvisor(String subscriptionId) {
+        String bearerToken;
         try {
             TokenCredential credential = clientProvider.getCredential(subscriptionId);
             TokenRequestContext tokenCtx = new TokenRequestContext()
                     .addScopes("https://management.azure.com/.default");
-            String bearerToken = credential.getToken(tokenCtx).block().getToken();
+            bearerToken = credential.getToken(tokenCtx).block().getToken();
+        } catch (Exception e) {
+            log.error("Failed to obtain ARM token for Azure rightsizing {}: {}", subscriptionId, e.getMessage());
+            return new AzureRightsizingResponse(AzureRightsizingResponse.Status.API_ERROR, new ArrayList<>());
+        }
 
-            // Azure Advisor Cost recommendations API
+        List<AzureRightsizingRecommendation> recommendations = new ArrayList<>();
+        boolean advisorPermissionError = false;
+
+        // 1. Azure Advisor Cost recommendations (provider-native)
+        try {
             String uri = "https://management.azure.com/subscriptions/" + subscriptionId
                     + "/providers/Microsoft.Advisor/recommendations"
                     + "?api-version=2023-01-01&$filter=Category%20eq%20'Cost'";
@@ -139,34 +195,196 @@ public class AzureRightsizingService {
 
             if (httpResponse.statusCode() == 403) {
                 log.warn("SP may lack access to Azure Advisor for subscription {}. " +
-                        "Assign 'Advisor Reviews Reader' or 'Reader' role to enable rightsizing recommendations.",
-                        subscriptionId);
-                return new AzureRightsizingResponse(AzureRightsizingResponse.Status.PERMISSION_ERROR,
-                        new ArrayList<>());
-            }
-
-            if (httpResponse.statusCode() != 200) {
+                        "Falling back to metric-based detection only.", subscriptionId);
+                advisorPermissionError = true;
+            } else if (httpResponse.statusCode() == 200) {
+                recommendations.addAll(parseRecommendations(httpResponse.body()));
+            } else {
                 log.warn("Azure Advisor API returned {} for {}: {}",
                         httpResponse.statusCode(), subscriptionId,
                         httpResponse.body().substring(0, Math.min(200, httpResponse.body().length())));
-                return new AzureRightsizingResponse(AzureRightsizingResponse.Status.API_ERROR,
-                        new ArrayList<>());
             }
-
-            List<AzureRightsizingRecommendation> recommendations = parseRecommendations(httpResponse.body());
-            // Sort by monthly savings descending (highest savings first)
-            recommendations.sort(Comparator.comparingDouble(AzureRightsizingRecommendation::getMonthlySavings).reversed());
-            log.info("Azure Advisor returned {} Cost recommendations for {}", recommendations.size(), subscriptionId);
-
-            AzureRightsizingResponse.Status status = recommendations.isEmpty()
-                    ? AzureRightsizingResponse.Status.NO_DATA
-                    : AzureRightsizingResponse.Status.OK;
-            return new AzureRightsizingResponse(status, recommendations);
-
         } catch (Exception e) {
             log.error("Failed to fetch Azure Advisor recommendations for {}: {}", subscriptionId, e.getMessage(), e);
-            return new AzureRightsizingResponse(AzureRightsizingResponse.Status.API_ERROR, new ArrayList<>());
         }
+
+        // 2. Metric-based VM rightsizing (free Azure Monitor) — finds over-provisioned
+        //    VMs that Advisor missed, and adds CPU-utilization evidence.
+        try {
+            addMetricBasedVmRecommendations(subscriptionId, bearerToken, recommendations);
+        } catch (Exception e) {
+            log.warn("Metric-based VM rightsizing failed for {}: {}", subscriptionId, e.getMessage());
+        }
+
+        recommendations.sort(Comparator.comparingDouble(AzureRightsizingRecommendation::getMonthlySavings).reversed());
+        log.info("Azure rightsizing: {} total recommendations for {}", recommendations.size(), subscriptionId);
+
+        AzureRightsizingResponse.Status status;
+        if (!recommendations.isEmpty()) {
+            status = AzureRightsizingResponse.Status.OK;
+        } else if (advisorPermissionError) {
+            status = AzureRightsizingResponse.Status.PERMISSION_ERROR;
+        } else {
+            status = AzureRightsizingResponse.Status.NO_DATA;
+        }
+        return new AzureRightsizingResponse(status, recommendations);
+    }
+
+    /**
+     * Detects over-provisioned VMs via Azure Monitor CPU metrics (free) and adds
+     * downsize recommendations for any VM not already covered by Advisor.
+     * Deallocated VMs return no CPU data and are naturally skipped.
+     */
+    private void addMetricBasedVmRecommendations(String subscriptionId, String token,
+                                                 List<AzureRightsizingRecommendation> recs) {
+        Set<String> existingIds = recs.stream()
+                .map(r -> r.getResourceId() == null ? "" : r.getResourceId().toLowerCase())
+                .collect(Collectors.toSet());
+
+        String url = ARM_BASE + "/subscriptions/" + subscriptionId
+                + "/providers/Microsoft.Compute/virtualMachines?api-version=2023-07-01";
+
+        for (JsonNode vm : armList(url, token)) {
+            try {
+                String id = vm.path("id").asText("");
+                if (id.isEmpty() || existingIds.contains(id.toLowerCase())) continue;
+
+                String size = vm.path("properties").path("hardwareProfile").path("vmSize").asText("");
+                if (size.isEmpty()) continue;
+
+                double[] cpu = queryVmCpu(id, token);
+                if (cpu == null) continue; // no data (likely deallocated) — skip
+                double maxCpu = cpu[1];
+                if (maxCpu >= METRIC_CPU_THRESHOLD) continue; // sufficiently utilized
+
+                AzureRightsizingRecommendation rec = new AzureRightsizingRecommendation();
+                rec.setRecommendationId("xamops-metric-" + vm.path("name").asText(""));
+                rec.setResourceId(id);
+                rec.setResourceName(vm.path("name").asText(""));
+                rec.setResourceType("virtualMachines");
+                rec.setCategory("Cost");
+                rec.setImpact(maxCpu < 10 ? "High" : "Medium");
+                rec.setLocation(vm.path("location").asText(""));
+                rec.setCurrentSku(size);
+                rec.setCurrency("INR");
+                rec.setMaxCpuP95(String.format("%.1f%%", maxCpu));
+                rec.setProblem(String.format(
+                        "VM peaked at only %.1f%% CPU over 14 days — over-provisioned", maxCpu));
+
+                String target = VM_DOWNSIZE.get(size);
+                if (target != null) {
+                    rec.setTargetSku(target);
+                    double cur = VM_MONTHLY_INR.getOrDefault(size, 0.0);
+                    double tgt = VM_MONTHLY_INR.getOrDefault(target, 0.0);
+                    double savings = (cur > 0 && tgt > 0) ? cur - tgt : 0.0;
+                    rec.setMonthlySavings(Math.max(0, Math.round(savings * 100.0) / 100.0));
+                    rec.setAnnualSavings(rec.getMonthlySavings() * 12);
+                    rec.setSolution("Downsize from " + size + " to " + target
+                            + " to cut compute cost while retaining headroom (estimated savings)");
+                } else {
+                    rec.setTargetSku("Smaller SKU");
+                    rec.setMonthlySavings(0.0);
+                    rec.setSolution("Consider downsizing " + size + " to a smaller SKU in the same family");
+                }
+                recs.add(rec);
+                existingIds.add(id.toLowerCase());
+            } catch (Exception e) {
+                log.warn("Error building metric-based recommendation for VM: {}", e.getMessage());
+            }
+        }
+    }
+
+    /** Returns {avgCpu, maxCpu} over the last 14 days, or null if no data. */
+    private double[] queryVmCpu(String resourceId, String token) {
+        try {
+            String url = ARM_BASE + resourceId
+                    + "/providers/Microsoft.Insights/metrics"
+                    + "?metricnames=Percentage%20CPU"
+                    + "&timespan=P14D"
+                    + "&interval=P1D"
+                    + "&aggregation=Average,Maximum"
+                    + "&api-version=2018-01-01";
+
+            String body = armGet(url, token);
+            if (body == null) return null;
+
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode valueArr = root.path("value");
+            if (!valueArr.isArray() || valueArr.isEmpty()) return null;
+            JsonNode timeSeries = valueArr.get(0).path("timeseries");
+            if (!timeSeries.isArray() || timeSeries.isEmpty()) return null;
+            JsonNode dataArr = timeSeries.get(0).path("data");
+            if (!dataArr.isArray() || dataArr.isEmpty()) return null;
+
+            double avgSum = 0.0;
+            int avgCount = 0;
+            double max = 0.0;
+            boolean any = false;
+            for (JsonNode point : dataArr) {
+                JsonNode avg = point.path("average");
+                if (!avg.isMissingNode() && !avg.isNull()) {
+                    avgSum += avg.asDouble();
+                    avgCount++;
+                    any = true;
+                }
+                JsonNode mx = point.path("maximum");
+                if (!mx.isMissingNode() && !mx.isNull()) {
+                    max = Math.max(max, mx.asDouble());
+                    any = true;
+                }
+            }
+            if (!any) return null;
+            return new double[]{avgCount > 0 ? avgSum / avgCount : 0.0, max};
+        } catch (Exception e) {
+            log.debug("VM CPU metric query failed for {}: {}", resourceId, e.getMessage());
+            return null;
+        }
+    }
+
+    /** Authenticated GET against ARM REST. Returns body on 2xx, else null. */
+    private String armGet(String url, String token) {
+        try {
+            HttpClient httpClient = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                return response.body();
+            }
+            log.debug("ARM GET {} returned HTTP {}", url, response.statusCode());
+            return null;
+        } catch (Exception e) {
+            log.debug("ARM GET error for {}: {}", url, e.getMessage());
+            return null;
+        }
+    }
+
+    /** Lists all entries in the ARM "value" array, following nextLink pagination. */
+    private List<JsonNode> armList(String url, String token) {
+        List<JsonNode> out = new ArrayList<>();
+        String next = url;
+        int pages = 0;
+        while (next != null && !next.isBlank() && pages < 20) {
+            String body = armGet(next, token);
+            if (body == null) break;
+            try {
+                JsonNode root = objectMapper.readTree(body);
+                JsonNode value = root.path("value");
+                if (value.isArray()) {
+                    for (JsonNode n : value) out.add(n);
+                }
+                next = root.path("nextLink").asText(null);
+            } catch (Exception e) {
+                log.debug("armList parse error for {}: {}", url, e.getMessage());
+                break;
+            }
+            pages++;
+        }
+        return out;
     }
 
     private List<AzureRightsizingRecommendation> parseRecommendations(String json) throws Exception {

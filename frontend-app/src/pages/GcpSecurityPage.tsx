@@ -35,6 +35,21 @@ const SEVERITY_BADGE_BG: Record<GcpSeverityLevel, string> = {
   LOW:      'bg-blue-500 text-white',
 };
 
+type BadgeStyle = { label?: string; bg: string; text: string; border: string; dot: string };
+
+const IAM_RISK_CONFIG: Record<string, BadgeStyle> = {
+  PUBLIC_ACCESS:     { label: 'Public access',       bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-red-200',    dot: 'bg-red-500' },
+  SA_PRIMITIVE_ROLE: { label: 'SA over-privileged',  bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', dot: 'bg-orange-500' },
+  PRIMITIVE_ROLE:    { label: 'Primitive role',      bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200',  dot: 'bg-amber-500' },
+};
+
+const VULN_SEVERITY_CONFIG: Record<string, BadgeStyle> = {
+  CRITICAL: { bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-red-200',    dot: 'bg-red-500' },
+  HIGH:     { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', dot: 'bg-orange-500' },
+  MEDIUM:   { bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200',  dot: 'bg-amber-500' },
+  LOW:      { bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200',   dot: 'bg-blue-400' },
+};
+
 const GcpSecurityPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
@@ -182,8 +197,42 @@ const GcpSecurityPage: React.FC = () => {
                 </button>
                 <div style={{ display: 'grid', gridTemplateRows: openSections.includes('iamDrift') ? '1fr' : '0fr', transition: 'grid-template-rows 320ms cubic-bezier(0.4, 0, 0.2, 1)' }}>
                   <div style={{ overflow: 'hidden', minHeight: 0 }}>
-                    <div style={{ opacity: openSections.includes('iamDrift') ? 1 : 0, transform: openSections.includes('iamDrift') ? 'translateY(0)' : 'translateY(-6px)', transition: 'opacity 280ms ease, transform 280ms ease' }} className="p-6 bg-white border-t border-[rgba(0,0,0,0.08)]">
-                      <p className="text-sm text-gray-500 italic">IAM Drift details would appear here.</p>
+                    <div style={{ opacity: openSections.includes('iamDrift') ? 1 : 0, transform: openSections.includes('iamDrift') ? 'translateY(0)' : 'translateY(-6px)', transition: 'opacity 280ms ease, transform 280ms ease' }} className="bg-white border-t border-[rgba(0,0,0,0.08)]">
+                      <div className="px-5 pt-4 pb-2">
+                        <p className="text-xs text-gray-500">Over-privileged or publicly-exposed IAM bindings on this project. Replace primitive roles with least-privilege predefined roles and remove public members.</p>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-y border-gray-100">
+                            <tr>
+                              <th className="px-5 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Member</th>
+                              <th className="px-5 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Role</th>
+                              <th className="px-5 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Risk</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {iamDrift.map((drift, di) => (drift.driftDetails || []).map((d, idx) => {
+                              const risk = IAM_RISK_CONFIG[d.status] ?? { label: d.status, bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', dot: 'bg-gray-400' };
+                              return (
+                                <tr key={`${di}-${idx}`} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                  <td className="px-5 py-3">
+                                    <span className="text-gray-800 font-medium text-xs break-all">{d.member}</span>
+                                  </td>
+                                  <td className="px-5 py-3">
+                                    <span className="text-xs font-mono text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{d.role}</span>
+                                  </td>
+                                  <td className="px-5 py-3">
+                                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold ${risk.bg} ${risk.text} border ${risk.border}`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${risk.dot}`} />
+                                      {risk.label}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            }))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -210,8 +259,46 @@ const GcpSecurityPage: React.FC = () => {
                 </button>
                 <div style={{ display: 'grid', gridTemplateRows: openSections.includes('vulnerabilities') ? '1fr' : '0fr', transition: 'grid-template-rows 320ms cubic-bezier(0.4, 0, 0.2, 1)' }}>
                   <div style={{ overflow: 'hidden', minHeight: 0 }}>
-                    <div style={{ opacity: openSections.includes('vulnerabilities') ? 1 : 0, transform: openSections.includes('vulnerabilities') ? 'translateY(0)' : 'translateY(-6px)', transition: 'opacity 280ms ease, transform 280ms ease' }} className="p-6 bg-white border-t border-[rgba(0,0,0,0.08)]">
-                      <p className="text-sm text-gray-500 italic">Vulnerability details would appear here.</p>
+                    <div style={{ opacity: openSections.includes('vulnerabilities') ? 1 : 0, transform: openSections.includes('vulnerabilities') ? 'translateY(0)' : 'translateY(-6px)', transition: 'opacity 280ms ease, transform 280ms ease' }} className="bg-white border-t border-[rgba(0,0,0,0.08)]">
+                      <div className="px-5 pt-4 pb-2">
+                        <p className="text-xs text-gray-500">CVEs detected by Artifact Analysis in container images stored in this project. Rebuild images with patched packages to remediate.</p>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-y border-gray-100">
+                            <tr>
+                              <th className="px-5 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Severity</th>
+                              <th className="px-5 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-gray-500">CVE</th>
+                              <th className="px-5 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Package</th>
+                              <th className="px-5 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Image</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {vulnerabilities.map((v, idx) => {
+                              const sev = VULN_SEVERITY_CONFIG[(v.severity || '').toUpperCase()] ?? { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', dot: 'bg-gray-400' };
+                              return (
+                                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                  <td className="px-5 py-3">
+                                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold ${sev.bg} ${sev.text} border ${sev.border}`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${sev.dot}`} />
+                                      {v.severity || '—'}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-3">
+                                    <span className="text-xs font-mono text-gray-700">{v.cveId || '—'}</span>
+                                  </td>
+                                  <td className="px-5 py-3">
+                                    <span className="text-xs text-gray-700">{v.packageName || '—'}{v.version ? ` (${v.version})` : ''}</span>
+                                  </td>
+                                  <td className="px-5 py-3">
+                                    <span className="text-xs text-gray-500 break-all" title={v.imageName}>{v.imageName || '—'}</span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 </div>

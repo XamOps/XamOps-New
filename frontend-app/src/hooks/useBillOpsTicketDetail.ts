@@ -42,7 +42,7 @@ interface UseBillOpsTicketDetailReturn {
   isAdmin: boolean;
   adminUsers: AdminUser[];
   fetchTicketDetails: () => Promise<void>;
-  submitReply: (message: string, file: File | null, isInternal?: boolean) => Promise<void>;
+  submitReply: (message: string, files: File[], isInternal?: boolean) => Promise<void>;
   closeTicket: () => Promise<void>;
   reopenTicket: () => Promise<void>;
   submitRCA: (rcaData: RCAFormData) => Promise<void>;
@@ -149,7 +149,7 @@ export const useBillOpsTicketDetail = (
    * Submit a reply to the ticket (optionally as an internal admin note)
    */
   const submitReply = useCallback(
-    async (message: string, file: File | null, isInternal = false) => {
+    async (message: string, files: File[], isInternal = false) => {
       if (!ticketId || !currentUser) return;
 
       setIsSubmitting(true);
@@ -161,9 +161,7 @@ export const useBillOpsTicketDetail = (
         formData.append('authorId', currentUser.id.toString());
         formData.append('isInternal', isInternal.toString());
 
-        if (file) {
-          formData.append('file', file);
-        }
+        (files || []).forEach((f) => formData.append('files', f));
 
         const response = await fetch(
           `/api/billops/tickets/${ticketId}/replies`,
@@ -371,7 +369,10 @@ export const useBillOpsTicketDetail = (
           body: JSON.stringify({ message })
         });
 
-        if (!response.ok) throw new Error('Failed to edit reply');
+        if (!response.ok) {
+          const reason = await response.text().catch(() => '');
+          throw new Error(`HTTP ${response.status}${reason ? ` — ${reason}` : ''}`);
+        }
         await fetchTicketDetails();
       } catch (err) {
         console.error('Error editing reply:', err);

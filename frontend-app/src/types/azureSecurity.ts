@@ -22,10 +22,21 @@ export interface AzureSecurityAssessment {
   complianceControl?: string; // SOC2 control, e.g. "SOC2 CC6.1"
 }
 
+export interface AzureSecureScoreControl {
+  controlName: string;
+  currentScore: number;
+  maxScore: number;
+  percentage: number;            // 0-100
+  healthyResourceCount: number;
+  unhealthyResourceCount: number;
+  recoverableScore: number;      // maxScore - currentScore
+}
+
 export interface AzureSecurityData {
   status: AzureSecurityStatus;
   secureScore: number;    // 0-100
   maxScore: number;       // typically 100
   alerts: AzureSecurityAlert[];
   assessments: AzureSecurityAssessment[]; // Unhealthy only
+  scoreControls: AzureSecureScoreControl[]; // per-control breakdown
 }

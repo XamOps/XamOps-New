@@ -83,6 +83,20 @@ public class TicketController {
         return getAllTickets(false);
     }
 
+    /**
+     * Reply-body search — returns the IDs of tickets whose replies contain the
+     * given term (case-insensitive). The admin list is lightweight and does not
+     * carry reply text, so the frontend merges these IDs into its search filter.
+     */
+    @GetMapping("/tickets/search-replies")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    public ResponseEntity<List<Long>> searchReplyBodies(@RequestParam("q") String q) {
+        if (q == null || q.trim().length() < 2) {
+            return ResponseEntity.ok(java.util.Collections.emptyList());
+        }
+        return ResponseEntity.ok(ticketReplyRepository.findTicketIdsByReplyMessageContaining(q.trim()));
+    }
+
     @GetMapping("/tickets")
     public ResponseEntity<List<TicketDto>> getAllTickets(@RequestParam(defaultValue = "false") boolean forceRefresh) {
         logger.debug("GET /tickets called. ForceRefresh: {}", forceRefresh);
@@ -161,6 +175,7 @@ public class TicketController {
             @PathVariable Long id,
             @RequestParam(value = "message", required = false) String message,
             @RequestParam(value = "file", required = false) MultipartFile file,
+            @RequestParam(value = "files", required = false) java.util.List<MultipartFile> files,
             @RequestParam(value = "isInternal", required = false, defaultValue = "false") boolean isInternal,
             Authentication authentication) {
         try {
@@ -186,12 +201,17 @@ public class TicketController {
                 replyDto.setAuthorId(((ClientUserDetails) authentication.getPrincipal()).getId());
             }
 
-            if (file != null) {
-                logger.info("Received file for ticket reply: {}, size: {}, type: {}",
-                        file.getOriginalFilename(), file.getSize(), file.getContentType());
+            // Merge the multi-file param ("files") with the legacy single-file param
+            // ("file") so both new and old clients work.
+            java.util.List<MultipartFile> allFiles = new java.util.ArrayList<>();
+            if (files != null) allFiles.addAll(files);
+            if (file != null) allFiles.add(file);
+
+            if (!allFiles.isEmpty()) {
+                logger.info("Received {} file(s) for ticket reply on ticket {}", allFiles.size(), id);
             }
 
-            return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, file));
+            return ResponseEntity.ok(ticketService.addReplyToTicket(id, replyDto, allFiles));
         } catch (IllegalStateException e) {
             logger.error("Error adding reply to ticket {}: {}", id, e.getMessage());
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
@@ -207,6 +227,7 @@ public class TicketController {
     // ─── EDIT / DELETE REPLY ────────────────────────────────────────────────
 
     @PatchMapping("/tickets/replies/{replyId}")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<?> editReply(
             @PathVariable Long replyId,
             @RequestBody Map<String, String> payload,
@@ -217,26 +238,39 @@ public class TicketController {
             }
             Long userId = ((ClientUserDetails) authentication.getPrincipal()).getId();
 
-            return ticketReplyRepository.findById(replyId).map(reply -> {
-                // Only the author can edit their own message
-                if (!reply.getAuthor().getId().equals(userId)) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-                }
-                if (reply.isDeleted()) {
-                    return ResponseEntity.status(HttpStatus.GONE).build();
-                }
-                // 15-minute edit window
-                LocalDateTime cutoff = LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusMinutes(15);
-                if (reply.getCreatedAt().isBefore(cutoff)) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-                }
+            // Fetch the reply and all its ticket siblings in one query (authors initialized) —
+            // avoids lazy-loading on a detached entity (which was causing HTTP 500).
+            java.util.List<com.xammer.cloud.domain.TicketReply> siblings =
+                    ticketReplyRepository.findSiblingsByReplyId(replyId);
+            com.xammer.cloud.domain.TicketReply target = siblings.stream()
+                    .filter(r -> r.getId().equals(replyId)).findFirst().orElse(null);
+            if (target == null) {
+                return ResponseEntity.notFound().build();
+            }
+            // Only the author can edit their own message
+            if (target.getAuthor() == null || !target.getAuthor().getId().equals(userId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("NOT_AUTHOR");
+            }
+            if (target.isDeleted()) {
+                return ResponseEntity.status(HttpStatus.GONE).body("DELETED");
+            }
+            // Editable until the OTHER side has seen it — i.e. no non-internal reply from a
+            // different author exists after this one (by insertion id). No time limit.
+            Long targetAuthorId = target.getAuthor().getId();
+            boolean seenByOther = siblings.stream()
+                    .filter(r -> !r.isInternal() && !r.isDeleted()
+                            && r.getAuthor() != null && r.getId() != null)
+                    .anyMatch(r -> !r.getAuthor().getId().equals(targetAuthorId)
+                            && r.getId() > target.getId());
+            if (seenByOther) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("SEEN_BY_OTHER");
+            }
 
-                reply.setMessage(payload.getOrDefault("message", reply.getMessage()));
-                reply.setEdited(true);
-                reply.setEditedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
-                ticketReplyRepository.save(reply);
-                return ResponseEntity.ok().build();
-            }).orElse(ResponseEntity.notFound().build());
+            target.setMessage(payload.getOrDefault("message", target.getMessage()));
+            target.setEdited(true);
+            target.setEditedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            ticketReplyRepository.save(target);
+            return ResponseEntity.ok().body("OK");
         } catch (Exception e) {
             logger.error("Error editing reply {}: {}", replyId, e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -244,6 +278,7 @@ public class TicketController {
     }
 
     @DeleteMapping("/tickets/replies/{replyId}")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<?> deleteReply(
             @PathVariable Long replyId,
             Authentication authentication) {

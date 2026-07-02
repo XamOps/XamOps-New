@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { BarChart, Bar, Cell, PieChart, Pie, ResponsiveContainer, Tooltip } from 'recharts';
+import { fmtMoneyShort } from '../../utils/currency';
 
 interface SummaryCardsSectionProps {
   accountId: string | null;
@@ -10,12 +11,7 @@ interface SummaryCardsSectionProps {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-const fmt = (v: number) => {
-  if (!v || isNaN(v) || !isFinite(v)) return '$0';
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(1)}K`;
-  return `$${v.toFixed(2)}`;
-};
+const fmt = (v: number, provider?: string) => fmtMoneyShort(v, provider, 2);
 
 // ── skeleton ──────────────────────────────────────────────────────────────────
 const CardSkeleton = () => (
@@ -33,7 +29,7 @@ const CardSkeleton = () => (
 );
 
 // ── mini bar tooltip (custom to show label + value) ──────────────────────────
-const BarTooltip = ({ active, payload, valueLabel }: any) => {
+const BarTooltip = ({ active, payload, valueLabel, provider }: any) => {
   if (!active || !payload?.length) return null;
   const item    = payload[0];
   const name    = item?.payload?.label || '';
@@ -44,7 +40,7 @@ const BarTooltip = ({ active, payload, valueLabel }: any) => {
       {name && <p className="font-semibold text-[rgba(0,0,0,0.75)] mb-1 truncate max-w-[160px]">{name}</p>}
       <div className="flex items-center gap-1.5">
         <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
-        <span className="font-bold text-[rgba(0,0,0,0.88)] tabular-nums">{fmt(val)}</span>
+        <span className="font-bold text-[rgba(0,0,0,0.88)] tabular-nums">{fmt(val, provider)}</span>
         <span className="text-[rgba(0,0,0,0.4)]">{valueLabel}</span>
       </div>
     </div>
@@ -52,7 +48,7 @@ const BarTooltip = ({ active, payload, valueLabel }: any) => {
 };
 
 // ── mini no-axis bar chart ────────────────────────────────────────────────────
-const MiniBar: React.FC<{ data: { v: number; label?: string }[]; color: string; valueLabel?: string }> = ({ data, color, valueLabel = '/mo' }) => {
+const MiniBar: React.FC<{ data: { v: number; label?: string }[]; color: string; valueLabel?: string; provider?: string }> = ({ data, color, valueLabel = '/mo', provider }) => {
   const max = Math.max(...data.map(d => d.v), 1);
   return (
     <ResponsiveContainer width="100%" height={96}>
@@ -64,7 +60,7 @@ const MiniBar: React.FC<{ data: { v: number; label?: string }[]; color: string; 
         </Bar>
         <Tooltip
           cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-          content={<BarTooltip valueLabel={valueLabel} />}
+          content={<BarTooltip valueLabel={valueLabel} provider={provider} />}
         />
       </BarChart>
     </ResponsiveContainer>
@@ -230,7 +226,7 @@ const computeRightsizingSummary = (raw: RightsizingRec[]): RightsizingSummary =>
 // ══════════════════════════════════════════════════════════════════════════════
 // 1 ── ALERTS card  (real: /api/xamops/cloudguard/alerts)
 // ══════════════════════════════════════════════════════════════════════════════
-const AlertsCard: React.FC<{ summary: AlertSummary | null; loading: boolean }> = ({ summary, loading }) => {
+const AlertsCard: React.FC<{ summary: AlertSummary | null; loading: boolean; provider?: string }> = ({ summary, loading, provider }) => {
   if (loading) return (
     <CardShell accentColor="#ef4444" icon="mdi:bell-alert-outline" title="Alerts" subtitle="Loading…" link="/alerts">
       <div className="h-[96px] flex items-center justify-center">
@@ -246,7 +242,7 @@ const AlertsCard: React.FC<{ summary: AlertSummary | null; loading: boolean }> =
   return (
     <CardShell accentColor="#ef4444" icon="mdi:bell-alert-outline" title="Alerts & Anomalies" subtitle={subtitle} link="/alerts">
       {summary && summary.anomalies.length > 0
-        ? <MiniBar data={summary.anomalies} color="#ef4444" valueLabel="Unexpected Spend" />
+        ? <MiniBar data={summary.anomalies} color="#ef4444" valueLabel="Unexpected Spend" provider={provider} />
         : summary && summary.critical > 0
           ? <ChartEmpty color="#ef4444" icon="mdi:alert-circle" line1={`${summary.critical} critical`} line2="alerts require action" />
           : <ChartEmpty color="#10b981" icon="mdi:check-circle-outline" line1="No active alerts" />}
@@ -302,7 +298,7 @@ const SecurityCard: React.FC<{ accountId: string | null; apiBase: string }> = ({
 // ══════════════════════════════════════════════════════════════════════════════
 // 3 ── WASTE card  (real: /api/xamops/waste)
 // ══════════════════════════════════════════════════════════════════════════════
-const WasteCard: React.FC<{ summary: WasteSummary | null; loading: boolean }> = ({ summary, loading }) => {
+const WasteCard: React.FC<{ summary: WasteSummary | null; loading: boolean; provider?: string }> = ({ summary, loading, provider }) => {
   if (loading) return (
     <CardShell accentColor="#f59e0b" icon="mdi:delete-sweep-outline" title="Waste" subtitle="Loading…" link="/waste">
       <div className="h-[96px] flex items-center justify-center">
@@ -314,13 +310,13 @@ const WasteCard: React.FC<{ summary: WasteSummary | null; loading: boolean }> = 
   const count = summary?.total || 0;
   const savings = summary?.totalSavings || 0;
   const subtitle = count > 0
-    ? `${count} items · ${fmt(savings)}/mo savings`
+    ? `${count} items · ${fmt(savings, provider)}/mo savings`
     : 'No waste detected';
 
   return (
     <CardShell accentColor="#f59e0b" icon="mdi:delete-sweep-outline" title="Waste" subtitle={subtitle} link="/waste">
       {summary && summary.byType.length > 0
-        ? <MiniBar data={summary.byType} color="#f59e0b" valueLabel="Savings/mo" />
+        ? <MiniBar data={summary.byType} color="#f59e0b" valueLabel="Savings/mo" provider={provider} />
         : <ChartEmpty color="#10b981" icon="mdi:check-circle-outline" line1="No waste detected" />}
     </CardShell>
   );
@@ -329,7 +325,7 @@ const WasteCard: React.FC<{ summary: WasteSummary | null; loading: boolean }> = 
 // ══════════════════════════════════════════════════════════════════════════════
 // 4 ── RIGHTSIZING card  (real: /api/xamops/rightsizing/recommendations)
 // ══════════════════════════════════════════════════════════════════════════════
-const RightsizingCard: React.FC<{ summary: RightsizingSummary | null; loading: boolean }> = ({ summary, loading }) => {
+const RightsizingCard: React.FC<{ summary: RightsizingSummary | null; loading: boolean; provider?: string }> = ({ summary, loading, provider }) => {
   if (loading) return (
     <CardShell accentColor="#8b5cf6" icon="mdi:server-outline" title="Rightsizing" subtitle="Loading…" link="/rightsizing">
       <div className="h-[96px] flex items-center justify-center">
@@ -341,13 +337,13 @@ const RightsizingCard: React.FC<{ summary: RightsizingSummary | null; loading: b
   const count = summary?.total || 0;
   const savings = summary?.totalSavings || 0;
   const subtitle = count > 0
-    ? `${count} instance${count !== 1 ? 's' : ''} · ${fmt(savings)}/mo savings`
+    ? `${count} instance${count !== 1 ? 's' : ''} · ${fmt(savings, provider)}/mo savings`
     : 'All instances right-sized';
 
   return (
     <CardShell accentColor="#8b5cf6" icon="mdi:server-outline" title="Rightsizing" subtitle={subtitle} link="/rightsizing">
       {summary && summary.byInstance.length > 0
-        ? <MiniBar data={summary.byInstance} color="#8b5cf6" valueLabel="Savings/mo" />
+        ? <MiniBar data={summary.byInstance} color="#8b5cf6" valueLabel="Savings/mo" provider={provider} />
         : count > 0
           ? <ChartEmpty color="#8b5cf6" icon="mdi:server" line1={`${count} instance${count !== 1 ? 's' : ''}`} line2="awaiting savings data" />
           : <ChartEmpty color="#10b981" icon="mdi:check-circle-outline" line1="All right-sized" />}
@@ -358,7 +354,7 @@ const RightsizingCard: React.FC<{ summary: RightsizingSummary | null; loading: b
 // ══════════════════════════════════════════════════════════════════════════════
 // 5 ── LAMBDA card  (derived from waste data, resourceType === 'Lambda')
 // ══════════════════════════════════════════════════════════════════════════════
-const LambdaCard: React.FC<{ wasteSummary: WasteSummary | null; loading: boolean }> = ({ wasteSummary, loading }) => {
+const LambdaCard: React.FC<{ wasteSummary: WasteSummary | null; loading: boolean; provider?: string }> = ({ wasteSummary, loading, provider }) => {
   if (loading) return (
     <CardShell accentColor="#0ea5e9" icon="mdi:lightning-bolt-outline" title="Lambda" subtitle="Loading…" link="/waste">
       <div className="h-[96px] flex items-center justify-center">
@@ -370,13 +366,13 @@ const LambdaCard: React.FC<{ wasteSummary: WasteSummary | null; loading: boolean
   const count   = wasteSummary?.lambdaCount   || 0;
   const savings = wasteSummary?.lambdaSavings || 0;
   const subtitle = count > 0
-    ? `${count} function${count !== 1 ? 's' : ''} · ${fmt(savings)}/mo savings`
+    ? `${count} function${count !== 1 ? 's' : ''} · ${fmt(savings, provider)}/mo savings`
     : 'No Lambda waste';
 
   return (
     <CardShell accentColor="#0ea5e9" icon="mdi:lightning-bolt-outline" title="Lambda Waste" subtitle={subtitle} link="/waste">
       {count > 0
-        ? <ChartEmpty color="#0ea5e9" icon="mdi:lightning-bolt" line1={`${count} function${count !== 1 ? 's' : ''}`} line2={`${fmt(savings)}/mo waste detected`} />
+        ? <ChartEmpty color="#0ea5e9" icon="mdi:lightning-bolt" line1={`${count} function${count !== 1 ? 's' : ''}`} line2={`${fmt(savings, provider)}/mo waste detected`} />
         : <ChartEmpty color="#10b981" icon="mdi:check-circle-outline" line1="No Lambda waste" />}
     </CardShell>
   );
@@ -442,11 +438,11 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-      <AlertsCard     summary={alertSummary}     loading={alertLoading} />
+      <AlertsCard     summary={alertSummary}     loading={alertLoading} provider={provider} />
       <SecurityCard   accountId={accountId} apiBase={apiBase} />
-      <WasteCard      summary={wasteSummary}      loading={wasteLoading} />
-      <RightsizingCard summary={rightsizeSummary} loading={rightsizeLoading} />
-      <LambdaCard     wasteSummary={wasteSummary} loading={wasteLoading} />
+      <WasteCard      summary={wasteSummary}      loading={wasteLoading} provider={provider} />
+      <RightsizingCard summary={rightsizeSummary} loading={rightsizeLoading} provider={provider} />
+      <LambdaCard     wasteSummary={wasteSummary} loading={wasteLoading} provider={provider} />
     </div>
   );
 };

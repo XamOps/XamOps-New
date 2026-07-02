@@ -241,7 +241,7 @@ const AzureDashboard: React.FC = () => {
         <RevealSection>
           <div className="grid gap-5 lg:grid-cols-5" style={{ minHeight: 380 }}>
             {show('costTrend') && (
-              <CostTrendSection costHistory={azureCostHistory} isLoading={loading.cost} />
+              <CostTrendSection costHistory={azureCostHistory} isLoading={loading.cost} provider="Azure" />
             )}
             {show('inventory') && (
               <AzureInventorySection
@@ -264,6 +264,7 @@ const AzureDashboard: React.FC = () => {
               accountId={accountId}
               timePreset={timePreset}
               isLoading={loading.cost}
+              provider="Azure"
             />
           </div>
         </RevealSection>

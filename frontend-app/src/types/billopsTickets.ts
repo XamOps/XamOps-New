@@ -74,10 +74,17 @@ export interface TicketReply {
   attachmentUrl?: string;
   attachmentName?: string;
   attachmentType?: string;
+  attachments?: TicketReplyAttachment[];
   isInternal?: boolean;
   edited?: boolean;
   editedAt?: string;
   deleted?: boolean;
+}
+
+export interface TicketReplyAttachment {
+  url?: string;
+  name?: string;
+  type?: string;
 }
 
 export interface AdminUser {

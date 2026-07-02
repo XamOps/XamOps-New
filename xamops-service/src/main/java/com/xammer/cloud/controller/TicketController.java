@@ -141,6 +141,7 @@ public class TicketController {
     // ─── EDIT / DELETE REPLY ────────────────────────────────────────────────
 
     @PatchMapping("/tickets/replies/{replyId}")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<?> editReply(
             @PathVariable Long replyId,
             @RequestBody Map<String, String> payload,
@@ -151,24 +152,38 @@ public class TicketController {
             }
             Long userId = ((ClientUserDetails) authentication.getPrincipal()).getId();
 
-            return ticketReplyRepository.findById(replyId).map(reply -> {
-                if (!reply.getAuthor().getId().equals(userId)) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-                }
-                if (reply.isDeleted()) {
-                    return ResponseEntity.status(HttpStatus.GONE).build();
-                }
-                LocalDateTime cutoff = LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusMinutes(15);
-                if (reply.getCreatedAt().isBefore(cutoff)) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-                }
+            // Fetch the reply and all its ticket siblings in one query (authors initialized) —
+            // avoids lazy-loading on a detached entity (which caused HTTP 500).
+            java.util.List<com.xammer.cloud.domain.TicketReply> siblings =
+                    ticketReplyRepository.findSiblingsByReplyId(replyId);
+            com.xammer.cloud.domain.TicketReply target = siblings.stream()
+                    .filter(r -> r.getId().equals(replyId)).findFirst().orElse(null);
+            if (target == null) {
+                return ResponseEntity.notFound().build();
+            }
+            if (target.getAuthor() == null || !target.getAuthor().getId().equals(userId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("NOT_AUTHOR");
+            }
+            if (target.isDeleted()) {
+                return ResponseEntity.status(HttpStatus.GONE).body("DELETED");
+            }
+            // Editable until the OTHER side has seen it — i.e. no non-internal reply from a
+            // different author exists after this one (by insertion id). No time limit.
+            Long targetAuthorId = target.getAuthor().getId();
+            boolean seenByOther = siblings.stream()
+                    .filter(r -> !r.isInternal() && !r.isDeleted()
+                            && r.getAuthor() != null && r.getId() != null)
+                    .anyMatch(r -> !r.getAuthor().getId().equals(targetAuthorId)
+                            && r.getId() > target.getId());
+            if (seenByOther) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("SEEN_BY_OTHER");
+            }
 
-                reply.setMessage(payload.getOrDefault("message", reply.getMessage()));
-                reply.setEdited(true);
-                reply.setEditedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
-                ticketReplyRepository.save(reply);
-                return ResponseEntity.ok().build();
-            }).orElse(ResponseEntity.notFound().build());
+            target.setMessage(payload.getOrDefault("message", target.getMessage()));
+            target.setEdited(true);
+            target.setEditedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            ticketReplyRepository.save(target);
+            return ResponseEntity.ok().body("OK");
         } catch (Exception e) {
             logger.error("Error editing reply {}: {}", replyId, e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -176,6 +191,7 @@ public class TicketController {
     }
 
     @DeleteMapping("/tickets/replies/{replyId}")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<?> deleteReply(
             @PathVariable Long replyId,
             Authentication authentication) {

@@ -33,6 +33,10 @@ public class TicketReply {
 
     @Column(name = "attachment_type")
     private String attachmentType; // MIME type
+
+    @Lob
+    @Column(name = "attachments_json")
+    private String attachmentsJson; // JSON array: [{key,name,type}, ...] for multi-file replies
     // ----------------------------------
 
     @Column(name = "is_internal", nullable = false)
@@ -72,6 +76,9 @@ public class TicketReply {
 
     public String getAttachmentType() { return attachmentType; }
     public void setAttachmentType(String attachmentType) { this.attachmentType = attachmentType; }
+
+    public String getAttachmentsJson() { return attachmentsJson; }
+    public void setAttachmentsJson(String attachmentsJson) { this.attachmentsJson = attachmentsJson; }
 
     public boolean isInternal() { return isInternal; }
     public void setInternal(boolean isInternal) { this.isInternal = isInternal; }

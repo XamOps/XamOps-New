@@ -426,18 +426,24 @@ public class BillOpsAdminController {
         // Same cache keys written by DashboardDataService / CostService — identical to
         // what the Account Dashboard shows, and safe for hundreds of accounts.
         String currentMonth = YearMonth.now().toString();
+        // AWS date-scoped breakdown key parts — identical to what CostService/FinOps write for MTD.
+        String awsMonthStart = YearMonth.now().atDay(1).toString();
+        String awsMonthEnd   = YearMonth.now().atEndOfMonth().toString();
 
-        List<String> allCacheKeys = allAccounts.stream()
-                .map(a -> {
-                    String id = a.getProviderAccountId();
-                    if (id == null || id.isEmpty()) return null;
-                    if ("AWS".equalsIgnoreCase(a.getProvider()))   return "AWS_MTD_COST::" + id;
-                    if ("GCP".equalsIgnoreCase(a.getProvider()))   return "GCP_MONTHLY_TOTAL::" + id + "::" + currentMonth;
-                    if ("Azure".equalsIgnoreCase(a.getProvider())) return "AZURE_COST_BILLING_SUMMARY::" + id;
-                    return null;
-                })
-                .filter(k -> k != null)
-                .collect(Collectors.toList());
+        List<String> allCacheKeys = new ArrayList<>();
+        for (CloudAccount a : allAccounts) {
+            String id = a.getProviderAccountId();
+            if (id == null || id.isEmpty()) continue;
+            if ("AWS".equalsIgnoreCase(a.getProvider())) {
+                // PRIMARY: same date-scoped row the Cost & FinOps pages read; AWS_MTD_COST kept as fallback.
+                allCacheKeys.add("AWS_COST_BREAKDOWN::" + id + "::SERVICE::::" + awsMonthStart + "::" + awsMonthEnd);
+                allCacheKeys.add("AWS_MTD_COST::" + id);
+            } else if ("GCP".equalsIgnoreCase(a.getProvider())) {
+                allCacheKeys.add("GCP_MONTHLY_TOTAL::" + id + "::" + currentMonth);
+            } else if ("Azure".equalsIgnoreCase(a.getProvider())) {
+                allCacheKeys.add("AZURE_COST_BILLING_SUMMARY::" + id);
+            }
+        }
 
         Map<String, String> cacheJsonByKey = new HashMap<>();
         if (!allCacheKeys.isEmpty()) {
@@ -458,6 +464,21 @@ public class BillOpsAdminController {
             }
             try {
                 if ("AWS".equalsIgnoreCase(provider)) {
+                    // PRIMARY: date-scoped service breakdown — the same DB row (and value) the
+                    // Cost and FinOps pages show. Authoritative for the current month; if the row
+                    // exists we trust it even when the sum is 0.
+                    String bkJson = cacheJsonByKey.get(
+                            "AWS_COST_BREAKDOWN::" + providerAccId + "::SERVICE::::" + awsMonthStart + "::" + awsMonthEnd);
+                    if (bkJson != null) {
+                        List<Map<String, Object>> costs = objectMapper.readValue(
+                                bkJson, new TypeReference<List<Map<String, Object>>>() {});
+                        double total = costs.stream()
+                                .mapToDouble(s -> ((Number) s.getOrDefault("amount", 0.0)).doubleValue())
+                                .sum();
+                        costByAccountId.put(account.getId(), total);
+                        continue;
+                    }
+                    // FALLBACK: non-dated AWS_MTD_COST (may be stale — only used if breakdown absent).
                     String json = cacheJsonByKey.get("AWS_MTD_COST::" + providerAccId);
                     if (json != null) {
                         Double val = objectMapper.readValue(json, Double.class);

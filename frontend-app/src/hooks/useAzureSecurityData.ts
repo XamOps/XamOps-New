@@ -106,11 +106,12 @@ export const useAzureSecurityData = ({
           maxScore: raw.maxScore ?? 100,
           alerts: Array.isArray(raw.alerts) ? raw.alerts : [],
           assessments: Array.isArray(raw.assessments) ? raw.assessments : [],
+          scoreControls: Array.isArray(raw.scoreControls) ? raw.scoreControls : [],
         };
 
         console.log('[Azure Security] Received: status:', data.status,
           'score:', data.secureScore, 'alerts:', data.alerts.length,
-          'assessments:', data.assessments.length);
+          'assessments:', data.assessments.length, 'controls:', data.scoreControls.length);
 
         setSecurityData(data);
         saveToCache(data);
@@ -123,6 +124,7 @@ export const useAzureSecurityData = ({
             maxScore: 100,
             alerts: [],
             assessments: [],
+            scoreControls: [],
           });
         }
       } finally {

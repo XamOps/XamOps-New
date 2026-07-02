@@ -20,6 +20,26 @@ public class TicketReplyDto {
     private LocalDateTime editedAt;
     private boolean deleted;
 
+    // multi-file attachments (preferred over the single legacy fields above)
+    private java.util.List<AttachmentInfo> attachments;
+
+    public static class AttachmentInfo {
+        private String url;
+        private String name;
+        private String type;
+
+        public AttachmentInfo() {}
+        public AttachmentInfo(String url, String name, String type) {
+            this.url = url; this.name = name; this.type = type;
+        }
+        public String getUrl() { return url; }
+        public void setUrl(String url) { this.url = url; }
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+    }
+
     public TicketReplyDto() {
     }
 
@@ -146,5 +166,13 @@ public class TicketReplyDto {
 
     public void setDeleted(boolean deleted) {
         this.deleted = deleted;
+    }
+
+    public java.util.List<AttachmentInfo> getAttachments() {
+        return attachments;
+    }
+
+    public void setAttachments(java.util.List<AttachmentInfo> attachments) {
+        this.attachments = attachments;
     }
 }

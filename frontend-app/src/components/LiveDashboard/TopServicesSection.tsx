@@ -4,6 +4,7 @@ import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Legend, ResponsiveContainer,
 } from 'recharts';
+import { fmtMoneyShort } from '../../utils/currency';
 
 type View = 'service' | 'region';
 type ChartMode = 'bar' | 'pie';
@@ -16,6 +17,7 @@ interface TopServicesSectionProps {
   accountId: string | null;
   timePreset: string;
   isLoading: boolean;
+  provider?: 'AWS' | 'GCP' | 'Azure';
 }
 
 const COLORS = [
@@ -36,14 +38,11 @@ const getPresetDates = (preset: string) => {
   return { start: fmt(start), end: fmt(end) };
 };
 
-const fmt = (v: number): string => {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(1)}K`;
-  return `$${v.toFixed(2)}`;
-};
+const fmtFor = (provider?: string) => (v: number): string => fmtMoneyShort(v, provider, 2);
 
-const ChartTooltip = ({ active, payload, label }: any) => {
+const ChartTooltip = ({ active, payload, label, provider }: any) => {
   if (!active || !payload?.length) return null;
+  const fmt = fmtFor(provider);
   return (
     <div className="bg-white border border-[rgba(0,0,0,0.1)] rounded-xl shadow-lg px-3.5 py-2.5 min-w-[160px]">
       <p className="text-[12px] font-semibold text-[rgba(0,0,0,0.75)] mb-1.5 truncate">{label || payload[0]?.name}</p>
@@ -56,8 +55,9 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 };
 
 const TopServicesSection: React.FC<TopServicesSectionProps> = ({
-  billingSummary, accountId, timePreset, isLoading,
+  billingSummary, accountId, timePreset, isLoading, provider,
 }) => {
+  const fmt = fmtFor(provider);
   const [view, setView] = useState<View>('service');
   const [mode, setMode] = useState<ChartMode>('bar');
   const [regionData, setRegionData]     = useState<{ name: string; amount: number }[]>([]);
@@ -111,7 +111,7 @@ const TopServicesSection: React.FC<TopServicesSectionProps> = ({
           axisLine={false} tickLine={false} />
         <YAxis type="category" dataKey="name" width={150}
           tick={{ fontSize: 11, fill: 'rgba(0,0,0,0.65)' }} axisLine={false} tickLine={false} />
-        <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(0,0,0,0.025)' }} />
+        <Tooltip content={<ChartTooltip provider={provider} />} cursor={{ fill: 'rgba(0,0,0,0.025)' }} />
         <Bar dataKey="amount" radius={[0, 5, 5, 0]}>
           {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
         </Bar>

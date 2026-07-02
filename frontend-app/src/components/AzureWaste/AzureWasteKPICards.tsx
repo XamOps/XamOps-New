@@ -8,7 +8,7 @@ interface AzureWasteKPICardsProps {
 }
 
 const formatCurrency = (value: number): string =>
-  '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  '₹' + value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const splitValue = (str: string) => {
   const dot = str.lastIndexOf('.');

@@ -112,7 +112,7 @@ public class TicketService {
         try {
             String subject = String.format("New Ticket [ID: %d]: %s", savedTicket.getId(), savedTicket.getSubject());
             String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
-            List<String> adminEmails = getAdminEmailList();
+            List<String> adminEmails = getAdminEmailList(savedTicket.getCategory());
             if (!adminEmails.isEmpty()) {
                 emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
             }
@@ -167,7 +167,7 @@ public class TicketService {
             String subject = String.format("[Admin] New Ticket [ID: %d]: %s", savedTicket.getId(),
                     savedTicket.getSubject());
             String htmlBody = buildTicketEmailTemplate(savedTicket, creator, client);
-            List<String> adminEmails = getAdminEmailList();
+            List<String> adminEmails = getAdminEmailList(savedTicket.getCategory());
             if (!adminEmails.isEmpty()) {
                 emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
             }
@@ -384,7 +384,7 @@ public class TicketService {
     }
 
     @Transactional
-    public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto, MultipartFile file) {
+    public TicketDto addReplyToTicket(Long ticketId, TicketReplyDto replyDto, List<MultipartFile> files) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
 
@@ -412,15 +412,32 @@ public class TicketService {
 
         reply.setCreatedAt(java.time.LocalDateTime.now());
 
-        if (file != null && !file.isEmpty()) {
+        // Upload all provided files and store as a JSON array on a single reply.
+        List<MultipartFile> nonEmpty = (files != null)
+                ? files.stream().filter(f -> f != null && !f.isEmpty()).collect(Collectors.toList())
+                : java.util.Collections.emptyList();
+
+        if (!nonEmpty.isEmpty()) {
             try {
-                String key = fileStorageService.uploadFile(file);
-                reply.setAttachmentKey(key);
-                reply.setAttachmentName(file.getOriginalFilename());
-                reply.setAttachmentType(file.getContentType());
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                List<Map<String, String>> attachmentList = new java.util.ArrayList<>();
+                for (MultipartFile f : nonEmpty) {
+                    String key = fileStorageService.uploadFile(f);
+                    attachmentList.add(Map.of(
+                            "key", key,
+                            "name", f.getOriginalFilename() != null ? f.getOriginalFilename() : "attachment",
+                            "type", f.getContentType() != null ? f.getContentType() : "application/octet-stream"));
+                }
+                reply.setAttachmentsJson(mapper.writeValueAsString(attachmentList));
+                // Keep legacy single-file columns populated with the first file for
+                // backward compatibility with older readers.
+                Map<String, String> first = attachmentList.get(0);
+                reply.setAttachmentKey(first.get("key"));
+                reply.setAttachmentName(first.get("name"));
+                reply.setAttachmentType(first.get("type"));
             } catch (Exception e) {
-                logger.error("Failed to upload attachment for ticket " + ticketId, e);
-                throw new RuntimeException("Failed to upload attachment.", e);
+                logger.error("Failed to upload attachments for ticket " + ticketId, e);
+                throw new RuntimeException("Failed to upload attachments.", e);
             }
         }
 
@@ -475,31 +492,12 @@ public class TicketService {
                         emailService.sendHtmlEmail(ticketCreator.getEmail(), subject, htmlBody);
                     }
                 } else {
-                    if (ticket.getAssignedToId() != null) {
-                        userRepository.findById(ticket.getAssignedToId()).ifPresentOrElse(
-                                assignee -> {
-                                    if (assignee.getEmail() != null && !assignee.getEmail().isBlank()) {
-                                        emailService.sendHtmlEmail(assignee.getEmail(), subject, htmlBody);
-                                    } else {
-                                        List<String> adminEmails = getAdminEmailList();
-                                        if (!adminEmails.isEmpty()) {
-                                            emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]),
-                                                    subject, htmlBody);
-                                        }
-                                    }
-                                },
-                                () -> {
-                                    List<String> adminEmails = getAdminEmailList();
-                                    if (!adminEmails.isEmpty()) {
-                                        emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]),
-                                                subject, htmlBody);
-                                    }
-                                });
-                    } else {
-                        List<String> adminEmails = getAdminEmailList();
-                        if (!adminEmails.isEmpty()) {
-                            emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
-                        }
+                    // User reply → always notify the category admin inbox
+                    // (Account & Billing → billing inbox, otherwise technical inbox),
+                    // regardless of whether an admin is assigned.
+                    List<String> adminEmails = getAdminEmailList(ticket.getCategory());
+                    if (!adminEmails.isEmpty()) {
+                        emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
                     }
                 }
             } catch (Exception e) {
@@ -594,8 +592,22 @@ public class TicketService {
                 .collect(Collectors.toList());
     }
 
-    private List<String> getAdminEmailList() {
-        return List.of("techtickets@xamops.com");
+    @org.springframework.beans.factory.annotation.Value("${xamops.tickets.admin.technical-emails:techtickets@xamops.com}")
+    private String technicalAdminEmailsCsv;
+    @org.springframework.beans.factory.annotation.Value("${xamops.tickets.admin.billing-email:bizfin@xammer.com}")
+    private String billingAdminEmailsCsv;
+
+    /**
+     * Admin inbox for ticket notifications, resolved by category:
+     * "Account and Billing" → billing inbox; everything else (Technical) → technical inbox.
+     */
+    private List<String> getAdminEmailList(String category) {
+        String csv = "Account and Billing".equalsIgnoreCase(category)
+                ? billingAdminEmailsCsv
+                : technicalAdminEmailsCsv;
+        return java.util.Arrays.stream(csv.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
     }
 
     /**
@@ -1454,6 +1466,30 @@ public class TicketService {
             dto.setAttachmentType(reply.getAttachmentType());
             String presignedUrl = fileStorageService.generatePresignedUrl(reply.getAttachmentKey());
             dto.setAttachmentUrl(presignedUrl);
+        }
+
+        // Build multi-file attachments list: prefer the JSON field, fall back to the
+        // legacy single-file columns so both old and new replies render uniformly.
+        try {
+            if (reply.getAttachmentsJson() != null && !reply.getAttachmentsJson().isBlank()) {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                List<Map<String, String>> raw = mapper.readValue(
+                        reply.getAttachmentsJson(),
+                        mapper.getTypeFactory().constructCollectionType(List.class, Map.class));
+                List<TicketReplyDto.AttachmentInfo> infos = new java.util.ArrayList<>();
+                for (Map<String, String> entry : raw) {
+                    infos.add(new TicketReplyDto.AttachmentInfo(
+                            fileStorageService.generatePresignedUrl(entry.get("key")),
+                            entry.get("name"),
+                            entry.get("type")));
+                }
+                dto.setAttachments(infos);
+            } else if (reply.getAttachmentKey() != null) {
+                dto.setAttachments(List.of(new TicketReplyDto.AttachmentInfo(
+                        dto.getAttachmentUrl(), reply.getAttachmentName(), reply.getAttachmentType())));
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to parse attachments JSON for reply {}: {}", reply.getId(), e.getMessage());
         }
 
         dto.setEdited(reply.isEdited());

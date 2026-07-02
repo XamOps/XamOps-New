@@ -37,9 +37,17 @@ import java.util.stream.Collectors;
 public class TicketService {
 
     private static final Logger logger = LoggerFactory.getLogger(TicketService.class);
-    private static final java.util.List<String> ADMIN_TECHNICAL_EMAILS = java.util.List.of(
-            "techtickets@xamops.com");
-    private static final String ADMIN_BILLING_EMAIL = "nirbhay@xammer.in";
+
+    @org.springframework.beans.factory.annotation.Value("${xamops.tickets.admin.technical-emails:techtickets@xamops.com}")
+    private String technicalAdminEmailsCsv;
+    @org.springframework.beans.factory.annotation.Value("${xamops.tickets.admin.billing-email:bizfin@xammer.com}")
+    private String billingAdminEmail;
+
+    private java.util.List<String> adminTechnicalEmails() {
+        return java.util.Arrays.stream(technicalAdminEmailsCsv.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty())
+                .collect(java.util.stream.Collectors.toList());
+    }
 
     @Autowired
     private TicketRepository ticketRepository;
@@ -167,9 +175,9 @@ public class TicketService {
                 "</table></td></tr></table></body></html>";
 
             if ("Account and Billing".equalsIgnoreCase(savedTicket.getCategory())) {
-                emailService.sendHtmlEmail(ADMIN_BILLING_EMAIL, subject, html);
+                emailService.sendHtmlEmail(billingAdminEmail, subject, html);
             } else {
-                for (String email : ADMIN_TECHNICAL_EMAILS) {
+                for (String email : adminTechnicalEmails()) {
                     emailService.sendHtmlEmail(email, subject, html);
                 }
             }
@@ -370,9 +378,9 @@ public class TicketService {
                 }
             } else {
                 if ("Account and Billing".equalsIgnoreCase(ticket.getCategory())) {
-                    emailService.sendHtmlEmail(ADMIN_BILLING_EMAIL, subject, html);
+                    emailService.sendHtmlEmail(billingAdminEmail, subject, html);
                 } else {
-                    for (String email : ADMIN_TECHNICAL_EMAILS) {
+                    for (String email : adminTechnicalEmails()) {
                         emailService.sendHtmlEmail(email, subject, html);
                     }
                 }

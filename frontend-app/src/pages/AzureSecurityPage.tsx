@@ -9,11 +9,12 @@ import {
   AzureSecurityHeader,
   AzureSecurityKPICards,
   AzureSecurityAssessmentsSection,
+  AzureSecurityScoreControls,
   AzureSecurityAlertsTable,
   AzureSecurityStatusBanner,
 } from '../components/AzureSecurity';
 
-type ActiveTab = 'assessments' | 'alerts';
+type ActiveTab = 'assessments' | 'controls' | 'alerts';
 
 const AzureSecurityPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -26,6 +27,7 @@ const AzureSecurityPage: React.FC = () => {
 
   const assessments = securityData?.assessments ?? [];
   const alerts = securityData?.alerts ?? [];
+  const scoreControls = securityData?.scoreControls ?? [];
 
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-gray-50">
@@ -70,6 +72,20 @@ const AzureSecurityPage: React.FC = () => {
                   ),
                 },
                 {
+                  id: 'controls',
+                  label: (
+                    <>
+                      <Icon icon="mdi:gauge" width={13} className="mr-1 inline" />
+                      Score Controls
+                      {!isLoading && scoreControls.length > 0 && (
+                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600">
+                          {scoreControls.length}
+                        </span>
+                      )}
+                    </>
+                  ),
+                },
+                {
                   id: 'alerts',
                   label: (
                     <>
@@ -92,6 +108,11 @@ const AzureSecurityPage: React.FC = () => {
               {activeTab === 'assessments' && (
                 <motion.div key="assessments" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
                   <AzureSecurityAssessmentsSection assessments={assessments} isLoading={isLoading} />
+                </motion.div>
+              )}
+              {activeTab === 'controls' && (
+                <motion.div key="controls" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+                  <AzureSecurityScoreControls controls={scoreControls} isLoading={isLoading} />
                 </motion.div>
               )}
               {activeTab === 'alerts' && (

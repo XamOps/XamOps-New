@@ -454,7 +454,7 @@ const GcpDashboard: React.FC = () => {
         <RevealSection>
           <div className="grid gap-5 lg:grid-cols-5" style={{ minHeight: 380 }}>
             {show('costTrend') && (
-              <CostTrendSection costHistory={gcpCostHistory} isLoading={loading.cost} />
+              <CostTrendSection costHistory={gcpCostHistory} isLoading={loading.cost} provider="GCP" />
             )}
             {show('inventory') && (
               <GcpInventorySection
@@ -477,6 +477,7 @@ const GcpDashboard: React.FC = () => {
               accountId={accountId}
               timePreset={timePreset}
               isLoading={loading.cost}
+              provider="GCP"
             />
           </div>
         </RevealSection>

@@ -8,6 +8,7 @@ import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.dto.azure.AzureSecurityAlert;
 import com.xammer.cloud.dto.azure.AzureSecurityAssessment;
 import com.xammer.cloud.dto.azure.AzureSecurityResponse;
+import com.xammer.cloud.dto.azure.AzureSecureScoreControl;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
@@ -125,16 +126,17 @@ public class AzureSecurityService {
             double secureScore = fetchSecureScore(subscriptionId, bearerToken, httpClient);
             List<AzureSecurityAlert> alerts = fetchAlerts(subscriptionId, bearerToken, httpClient);
             List<AzureSecurityAssessment> assessments = fetchAssessments(subscriptionId, bearerToken, httpClient);
+            List<AzureSecureScoreControl> scoreControls = fetchSecureScoreControls(subscriptionId, bearerToken, httpClient);
 
             boolean hasData = secureScore > 0 || !alerts.isEmpty() || !assessments.isEmpty();
             AzureSecurityResponse.Status status = hasData
                     ? AzureSecurityResponse.Status.OK
                     : AzureSecurityResponse.Status.NO_DATA;
 
-            log.info("Azure Security: score={}, alerts={}, assessments(unhealthy)={} for {}",
-                    secureScore, alerts.size(), assessments.size(), subscriptionId);
+            log.info("Azure Security: score={}, alerts={}, assessments(unhealthy)={}, controls={} for {}",
+                    secureScore, alerts.size(), assessments.size(), scoreControls.size(), subscriptionId);
 
-            return new AzureSecurityResponse(status, secureScore, 100, alerts, assessments);
+            return new AzureSecurityResponse(status, secureScore, 100, alerts, assessments, scoreControls);
 
         } catch (PermissionException e) {
             log.warn("SP lacks Security Reader role for subscription {}. " +
@@ -166,6 +168,55 @@ public class AzureSecurityService {
         // Take the first score entry (typically "ascScore" — the overall subscription score)
         JsonNode scoreNode = value.get(0).path("properties").path("score");
         return scoreNode.path("current").asDouble(0);
+    }
+
+    // ── Secure Score Controls (per-control breakdown) ──────────────────────────
+
+    /**
+     * Fetches the per-control secure score breakdown so users can see which
+     * controls drag down their score and how many points are recoverable.
+     * Sorted by recoverable score (biggest opportunity first).
+     */
+    private List<AzureSecureScoreControl> fetchSecureScoreControls(String subscriptionId, String bearerToken,
+                                                                   HttpClient httpClient) throws Exception {
+        String uri = BASE_URL + subscriptionId
+                + "/providers/Microsoft.Security/secureScoreControls"
+                + "?api-version=2020-01-01-preview";
+
+        String body = doGet(uri, bearerToken, httpClient, subscriptionId, "secureScoreControls");
+        if (body == null) return new ArrayList<>();
+
+        List<AzureSecureScoreControl> result = new ArrayList<>();
+        JsonNode root = objectMapper.readTree(body);
+        JsonNode value = root.path("value");
+        if (!value.isArray()) return result;
+
+        for (JsonNode node : value) {
+            try {
+                JsonNode props = node.path("properties");
+                String name = props.path("displayName").asText(node.path("name").asText(""));
+
+                JsonNode score = props.path("score");
+                double current = score.path("current").asDouble(0);
+                double max = score.path("max").asDouble(0);
+                double percentage = score.path("percentage").asDouble(0) * 100; // API gives 0-1
+
+                int healthy = props.path("healthyResourceCount").asInt(0);
+                int unhealthy = props.path("unhealthyResourceCount").asInt(0);
+
+                // Skip controls with no scoring weight (max 0) — they add no signal
+                if (max <= 0) continue;
+
+                result.add(new AzureSecureScoreControl(name, current, max,
+                        Math.round(percentage * 10) / 10.0, healthy, unhealthy));
+            } catch (Exception e) {
+                log.warn("Failed to parse secure score control item: {}", e.getMessage());
+            }
+        }
+
+        // Biggest recoverable opportunity first
+        result.sort((a, b) -> Double.compare(b.getRecoverableScore(), a.getRecoverableScore()));
+        return result;
     }
 
     // ── Security Alerts ───────────────────────────────────────────────────────

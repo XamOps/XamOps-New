@@ -1,10 +1,15 @@
 package com.xammer.cloud.service.gcp;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.cloud.resourcemanager.v3.ProjectsClient;
 import com.google.cloud.securitycenter.v2.Finding;
 import com.google.cloud.securitycenter.v2.ListFindingsRequest;
 import com.google.cloud.securitycenter.v2.SecurityCenterClient;
+import com.google.iam.v1.Binding;
+import com.google.iam.v1.GetIamPolicyRequest;
+import com.google.iam.v1.Policy;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.dto.ProwlerFinding;
 import com.xammer.cloud.dto.gcp.GcpContainerVulnerabilityDto;
@@ -16,6 +21,10 @@ import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -47,10 +56,6 @@ public class GcpSecurityService {
             "iso27001_2013_gcp", "mitre_attack_gcp",
             "hipaa_gcp", "gdpr_gcp", "nist_csf_1.1_gcp"
     };
-
-    private static final Map<String, List<GcpIamPolicyDriftDto.DriftDetail>> BASELINE_IAM = Map.of(
-            "roles/owner",
-            List.of(new GcpIamPolicyDriftDto.DriftDetail("user:admin@example.com", "roles/owner", "BASELINE")));
 
     public GcpSecurityService(GcpClientProvider gcpClientProvider,
                               RedisCacheService redisCacheService,
@@ -142,7 +147,11 @@ public class GcpSecurityService {
     }
 
     // -------------------------------------------------------------------------
-    // IAM Policy Drift — Redis-only cache (placeholder data, real check pending)
+    // IAM Policy Drift — flags risky/over-privileged project IAM bindings
+    //   • allUsers / allAuthenticatedUsers (public access)
+    //   • primitive roles (roles/owner, roles/editor) granted to users/groups
+    //   • service accounts holding primitive owner/editor roles
+    // Source: Resource Manager getIamPolicy (free, read-only).
     // -------------------------------------------------------------------------
 
     public CompletableFuture<List<GcpIamPolicyDriftDto>> getIamPolicyDrift(String gcpProjectId) {
@@ -155,12 +164,18 @@ public class GcpSecurityService {
             try {
                 if (forceRefresh) {
                     redisCacheService.evict(cacheKey);
+                } else {
+                    Optional<List<GcpIamPolicyDriftDto>> cached = redisCacheService.get(
+                            cacheKey, new TypeReference<>() {});
+                    if (cached.isPresent()) {
+                        log.info("✅ Redis hit for GCP IAM drift project={}", gcpProjectId);
+                        return cached.get();
+                    }
                 }
-                Optional<List<GcpIamPolicyDriftDto>> cached = redisCacheService.get(
-                        cacheKey, new TypeReference<>() {});
-                if (cached.isPresent()) return cached.get();
 
-                List<GcpIamPolicyDriftDto> result = new ArrayList<>();
+                List<GcpIamPolicyDriftDto> result = analyzeIamPolicy(gcpProjectId);
+                log.info("[GcpSecurity] IAM drift analysis found {} risky bindings for project={}",
+                        result.size(), gcpProjectId);
                 redisCacheService.put(cacheKey, result, REDIS_TTL_MINUTES);
                 return result;
             } catch (Throwable t) {
@@ -170,8 +185,66 @@ public class GcpSecurityService {
         }, executor);
     }
 
+    private List<GcpIamPolicyDriftDto> analyzeIamPolicy(String gcpProjectId) {
+        List<GcpIamPolicyDriftDto> result = new ArrayList<>();
+        Optional<ProjectsClient> clientOpt = gcpClientProvider.getProjectsClient(gcpProjectId);
+        if (clientOpt.isEmpty()) {
+            log.warn("[GcpSecurity] ProjectsClient unavailable for IAM drift project={}", gcpProjectId);
+            return result;
+        }
+
+        try (ProjectsClient client = clientOpt.get()) {
+            GetIamPolicyRequest request = GetIamPolicyRequest.newBuilder()
+                    .setResource("projects/" + gcpProjectId)
+                    .build();
+            Policy policy = client.getIamPolicy(request);
+
+            for (Binding binding : policy.getBindingsList()) {
+                String role = binding.getRole();
+                boolean primitive = "roles/owner".equals(role) || "roles/editor".equals(role);
+
+                for (String member : binding.getMembersList()) {
+                    boolean isPublic = "allUsers".equals(member) || "allAuthenticatedUsers".equals(member);
+                    boolean isServiceAccount = member.startsWith("serviceAccount:");
+
+                    String status = null;
+                    if (isPublic) {
+                        status = "PUBLIC_ACCESS";
+                    } else if (primitive && isServiceAccount) {
+                        status = "SA_PRIMITIVE_ROLE";
+                    } else if (primitive) {
+                        status = "PRIMITIVE_ROLE";
+                    }
+
+                    if (status != null) {
+                        result.add(new GcpIamPolicyDriftDto(
+                                "projects/" + gcpProjectId,
+                                List.of(new GcpIamPolicyDriftDto.DriftDetail(member, role, status))));
+                    }
+                }
+            }
+        } catch (com.google.api.gax.rpc.PermissionDeniedException e) {
+            log.warn("[GcpSecurity] No permission to read IAM policy for project={} " +
+                    "(needs resourcemanager.projects.getIamPolicy)", gcpProjectId);
+        } catch (Exception e) {
+            log.error("[GcpSecurity] Failed to analyze IAM policy for project={}: {}", gcpProjectId, e.getMessage(), e);
+        }
+
+        // Most severe first: public access, then SA primitive, then user primitive
+        result.sort(Comparator.comparingInt(d -> {
+            String s = d.getDriftDetails().get(0).getStatus();
+            if ("PUBLIC_ACCESS".equals(s)) return 0;
+            if ("SA_PRIMITIVE_ROLE".equals(s)) return 1;
+            return 2;
+        }));
+        return result;
+    }
+
     // -------------------------------------------------------------------------
-    // Container Vulnerabilities — Redis-only cache (placeholder data, real check pending)
+    // Container Vulnerabilities — Artifact/Container Analysis occurrences
+    // Lists VULNERABILITY occurrences for images scanned in this project.
+    // Source: containeranalysis.googleapis.com (free; requires the
+    // Container Scanning API enabled + containeranalysis.occurrences.list).
     // -------------------------------------------------------------------------
 
     public CompletableFuture<List<GcpContainerVulnerabilityDto>> getContainerScanningResults(String gcpProjectId) {
@@ -184,12 +257,18 @@ public class GcpSecurityService {
             try {
                 if (forceRefresh) {
                     redisCacheService.evict(cacheKey);
+                } else {
+                    Optional<List<GcpContainerVulnerabilityDto>> cached = redisCacheService.get(
+                            cacheKey, new TypeReference<>() {});
+                    if (cached.isPresent()) {
+                        log.info("✅ Redis hit for GCP container vulnerabilities project={}", gcpProjectId);
+                        return cached.get();
+                    }
                 }
-                Optional<List<GcpContainerVulnerabilityDto>> cached = redisCacheService.get(
-                        cacheKey, new TypeReference<>() {});
-                if (cached.isPresent()) return cached.get();
 
-                List<GcpContainerVulnerabilityDto> result = new ArrayList<>();
+                List<GcpContainerVulnerabilityDto> result = fetchContainerVulnerabilities(gcpProjectId);
+                log.info("[GcpSecurity] Container scanning found {} vulnerabilities for project={}",
+                        result.size(), gcpProjectId);
                 redisCacheService.put(cacheKey, result, REDIS_TTL_MINUTES);
                 return result;
             } catch (Throwable t) {
@@ -197,6 +276,116 @@ public class GcpSecurityService {
                 return Collections.emptyList();
             }
         }, executor);
+    }
+
+    private List<GcpContainerVulnerabilityDto> fetchContainerVulnerabilities(String gcpProjectId) {
+        List<GcpContainerVulnerabilityDto> result = new ArrayList<>();
+        Optional<String> tokenOpt = gcpClientProvider.getAccessToken(gcpProjectId);
+        if (tokenOpt.isEmpty()) {
+            log.warn("[GcpSecurity] No access token for container scanning project={}", gcpProjectId);
+            return result;
+        }
+
+        try {
+            HttpClient httpClient = HttpClient.newHttpClient();
+            String pageToken = null;
+            int pages = 0;
+
+            do {
+                String uri = "https://containeranalysis.googleapis.com/v1/projects/" + gcpProjectId
+                        + "/occurrences?filter=" + java.net.URLEncoder.encode("kind=\"VULNERABILITY\"",
+                                java.nio.charset.StandardCharsets.UTF_8)
+                        + "&pageSize=500"
+                        + (pageToken != null ? "&pageToken=" + pageToken : "");
+
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(uri))
+                        .header("Authorization", "Bearer " + tokenOpt.get())
+                        .header("Content-Type", "application/json")
+                        .GET()
+                        .build();
+
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                int status = response.statusCode();
+
+                if (status == 403) {
+                    log.warn("[GcpSecurity] Container Scanning API not enabled or no permission for project={}", gcpProjectId);
+                    return result;
+                }
+                if (status != 200) {
+                    log.warn("[GcpSecurity] Container Analysis returned {} for project={}: {}", status, gcpProjectId,
+                            response.body().substring(0, Math.min(200, response.body().length())));
+                    return result;
+                }
+
+                JsonNode root = objectMapper.readTree(response.body());
+                JsonNode occurrences = root.path("occurrences");
+                if (occurrences.isArray()) {
+                    for (JsonNode occ : occurrences) {
+                        parseVulnerabilityOccurrence(occ, result);
+                    }
+                }
+                pageToken = root.path("nextPageToken").asText(null);
+                pages++;
+            } while (pageToken != null && !pageToken.isBlank() && pages < 10);
+
+        } catch (Exception e) {
+            log.error("[GcpSecurity] Failed to fetch container vulnerabilities for project={}: {}",
+                    gcpProjectId, e.getMessage(), e);
+        }
+
+        // Highest severity first
+        result.sort(Comparator.comparingInt(v -> severityRank(v.getSeverity())));
+        return result;
+    }
+
+    private void parseVulnerabilityOccurrence(JsonNode occ, List<GcpContainerVulnerabilityDto> result) {
+        try {
+            JsonNode vuln = occ.path("vulnerability");
+            if (vuln.isMissingNode()) return;
+
+            String resourceUri = occ.path("resourceUri").asText("");
+            String imageName = resourceUri.replaceFirst("^https?://", "");
+
+            String severity = vuln.path("effectiveSeverity").asText(vuln.path("severity").asText("MEDIUM"));
+
+            // CVE id: noteName tail (providers/.../notes/CVE-XXXX) or shortDescription
+            String cveId = vuln.path("shortDescription").asText("");
+            String noteName = occ.path("noteName").asText("");
+            if ((cveId == null || cveId.isBlank()) && noteName.contains("/notes/")) {
+                cveId = noteName.substring(noteName.lastIndexOf("/notes/") + 7);
+            }
+
+            String description = occ.path("vulnerability").path("longDescription").asText(
+                    vuln.path("shortDescription").asText(""));
+
+            // First affected package
+            String packageName = "";
+            String version = "";
+            JsonNode pkgIssues = vuln.path("packageIssue");
+            if (pkgIssues.isArray() && !pkgIssues.isEmpty()) {
+                JsonNode first = pkgIssues.get(0);
+                packageName = first.path("affectedPackage").asText("");
+                version = first.path("affectedVersion").path("fullName").asText(
+                        first.path("affectedVersion").path("name").asText(""));
+            }
+
+            result.add(new GcpContainerVulnerabilityDto(
+                    imageName, severity, packageName, version, cveId, description));
+        } catch (Exception e) {
+            log.warn("[GcpSecurity] Failed to parse vulnerability occurrence: {}", e.getMessage());
+        }
+    }
+
+    private int severityRank(String severity) {
+        if (severity == null) return 4;
+        switch (severity.toUpperCase()) {
+            case "CRITICAL": return 0;
+            case "HIGH":     return 1;
+            case "MEDIUM":   return 2;
+            case "LOW":      return 3;
+            default:         return 4;
+        }
     }
 
     // -------------------------------------------------------------------------

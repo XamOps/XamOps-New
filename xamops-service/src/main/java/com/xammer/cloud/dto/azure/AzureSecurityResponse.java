@@ -21,17 +21,26 @@ public class AzureSecurityResponse {
     private int maxScore;         // max possible score (usually 100)
     private List<AzureSecurityAlert> alerts;
     private List<AzureSecurityAssessment> assessments; // Unhealthy only
+    private List<AzureSecureScoreControl> scoreControls; // per-control score breakdown
 
     public AzureSecurityResponse() {}
 
     public AzureSecurityResponse(Status status, double secureScore, int maxScore,
                                   List<AzureSecurityAlert> alerts,
                                   List<AzureSecurityAssessment> assessments) {
+        this(status, secureScore, maxScore, alerts, assessments, new java.util.ArrayList<>());
+    }
+
+    public AzureSecurityResponse(Status status, double secureScore, int maxScore,
+                                  List<AzureSecurityAlert> alerts,
+                                  List<AzureSecurityAssessment> assessments,
+                                  List<AzureSecureScoreControl> scoreControls) {
         this.status = status;
         this.secureScore = secureScore;
         this.maxScore = maxScore;
         this.alerts = alerts;
         this.assessments = assessments;
+        this.scoreControls = scoreControls;
     }
 
     public Status getStatus() { return status; }
@@ -48,4 +57,7 @@ public class AzureSecurityResponse {
 
     public List<AzureSecurityAssessment> getAssessments() { return assessments; }
     public void setAssessments(List<AzureSecurityAssessment> assessments) { this.assessments = assessments; }
+
+    public List<AzureSecureScoreControl> getScoreControls() { return scoreControls; }
+    public void setScoreControls(List<AzureSecureScoreControl> scoreControls) { this.scoreControls = scoreControls; }
 }

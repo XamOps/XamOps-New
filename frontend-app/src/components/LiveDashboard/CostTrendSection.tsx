@@ -5,10 +5,12 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import type { CostHistory } from '../../types/liveDashboard';
+import { fmtMoney, fmtMoneyShort } from '../../utils/currency';
 
 interface CostTrendSectionProps {
   costHistory: CostHistory;
   isLoading: boolean;
+  provider?: 'AWS' | 'GCP' | 'Azure';
 }
 
 type Slice = '3m' | '6m' | '12m' | 'all';
@@ -20,27 +22,22 @@ const SLICES: { id: Slice; label: string; months: number }[] = [
   { id: 'all', label: 'All', months: 999 },
 ];
 
-const fmt = (v: number): string => {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(1)}K`;
-  return `$${v.toFixed(0)}`;
-};
-
-const ChartTooltip = ({ active, payload, label }: any) => {
+const ChartTooltip = ({ active, payload, label, provider }: any) => {
   if (!active || !payload?.length) return null;
   const value: number = payload[0]?.value ?? 0;
   return (
     <div className="bg-white border border-[rgba(0,0,0,0.1)] rounded-xl shadow-lg px-3.5 py-2.5 min-w-[130px]">
       <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] mb-1">{label}</p>
       <p className="text-[16px] font-bold text-[rgba(0,0,0,0.88)] tabular-nums">
-        {`$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+        {fmtMoney(value, provider)}
       </p>
     </div>
   );
 };
 
-const CostTrendSection: React.FC<CostTrendSectionProps> = ({ costHistory, isLoading }) => {
+const CostTrendSection: React.FC<CostTrendSectionProps> = ({ costHistory, isLoading, provider }) => {
   const [slice, setSlice] = useState<Slice>('6m');
+  const fmt = (v: number) => fmtMoneyShort(v, provider);
 
   const chartData = useMemo(() => {
     if (!costHistory?.labels?.length) return [];
@@ -148,7 +145,7 @@ const CostTrendSection: React.FC<CostTrendSectionProps> = ({ costHistory, isLoad
                 axisLine={false} tickLine={false} />
               <YAxis tickFormatter={fmt} tick={{ fontSize: 10, fill: 'rgba(0,0,0,0.35)' }}
                 axisLine={false} tickLine={false} width={50} />
-              <Tooltip content={<ChartTooltip />} />
+              <Tooltip content={<ChartTooltip provider={provider} />} />
               {avgCost > 0 && (
                 <ReferenceLine y={avgCost} stroke="rgba(0,0,0,0.15)" strokeDasharray="4 3"
                   label={{ value: 'avg', position: 'insideTopRight', fontSize: 9, fill: 'rgba(0,0,0,0.3)' }} />

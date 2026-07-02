@@ -158,6 +158,23 @@ public class GcpClientProvider {
         }
     }
 
+    /**
+     * Returns a short-lived OAuth2 access token for the project's service account,
+     * for calling Google REST APIs that don't have a gapic client wired here
+     * (e.g. Container Analysis / Artifact Analysis occurrences).
+     */
+    public Optional<String> getAccessToken(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                credentials.refreshIfExpired();
+                return credentials.getAccessToken().getTokenValue();
+            } catch (IOException e) {
+                log.error("Failed to obtain access token for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
     public Optional<CloudBuildClient> getCloudBuildClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {

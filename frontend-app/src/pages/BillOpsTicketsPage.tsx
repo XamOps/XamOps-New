@@ -27,6 +27,7 @@ import {
   TicketSeverity,
   SERVICE_OPTIONS,
 } from '../types/billopsTickets';
+import { SEVERITY_OPTIONS } from '../constants/ticketSeverity';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -619,10 +620,11 @@ const BillOpsTicketsPage: React.FC = () => {
                     required
                   >
                     <option disabled value="">Select Severity</option>
-                    <option value="Low">Low</option>
-                    <option value="Medium">Medium</option>
-                    <option value="High">High</option>
-                    <option value="Critical">Critical</option>
+                    {SEVERITY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label} — {option.hint}
+                      </option>
+                    ))}
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-[rgba(0,0,0,0.4)]">
                     <Icon icon="mdi:chevron-down" width={16} />

@@ -1,6 +1,10 @@
 /**
  * BillOps Admin Dashboard Page — Tabbed Layout
  *
+ * Redesigned to match the crisp AWS / FinOps aesthetic:
+ *  - Clean white cards, tinted icon badges, condensed metric numerals
+ *  - Iconify icons, segmented pill tabs, rounded status badges
+ *
  * Tabs:
  *  1. Overview  — Stats, Charts, Top 10 Accounts (with MoM % change)
  *  2. Clients   — Per-client spend grouped from top accounts
@@ -11,6 +15,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chart from 'chart.js/auto';
+import { Icon } from '@iconify/react';
 import { useBillOpsAdminDashboard } from '../hooks/useBillOpsAdminDashboard';
 import { useTopbar } from '../contexts/TopbarContext';
 import type { TopSpendingAccount, AdminInvoice, AdminTicket, SpendingTrendItem } from '../types/billopsAdminDashboard';
@@ -45,11 +50,32 @@ interface ClientsApiData {
 type ActiveTab = 'overview' | 'clients' | 'invoices' | 'tickets';
 
 const TABS: { id: ActiveTab; label: string; icon: string }[] = [
-  { id: 'overview', label: 'Overview', icon: 'fas fa-chart-pie' },
-  { id: 'clients', label: 'Clients', icon: 'fas fa-users' },
-  { id: 'invoices', label: 'Invoices', icon: 'fas fa-file-invoice-dollar' },
-  { id: 'tickets', label: 'Tickets', icon: 'fas fa-ticket-alt' },
+  { id: 'overview', label: 'Overview', icon: 'mdi:chart-pie' },
+  { id: 'clients', label: 'Clients', icon: 'mdi:account-group-outline' },
+  { id: 'invoices', label: 'Invoices', icon: 'mdi:file-document-outline' },
+  { id: 'tickets', label: 'Tickets', icon: 'mdi:ticket-outline' },
 ];
+
+const PROVIDER_META: Record<string, { icon: string; color: string }> = {
+  AWS: { icon: 'mdi:aws', color: '#FF9900' },
+  GCP: { icon: 'mdi:google-cloud', color: '#34A853' },
+  Azure: { icon: 'mdi:microsoft-azure', color: '#0078D4' },
+};
+
+// Condensed numeral style used across FinOps/Cost pages
+const NUM_STYLE: React.CSSProperties = {
+  fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
+  fontSize: '30px',
+  fontWeight: 400,
+  lineHeight: '30px',
+  letterSpacing: '0.01em',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const splitCurrency = (str: string): { main: string; cents: string } => {
+  const dot = str.lastIndexOf('.');
+  return dot === -1 ? { main: str, cents: '' } : { main: str.slice(0, dot), cents: str.slice(dot) };
+};
 
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, isRefreshingTopSpending, error, refreshDashboard, refreshTopSpending } = useBillOpsAdminDashboard();
@@ -268,12 +294,15 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     HIGH: 'admin-severity-high', CRITICAL: 'admin-severity-critical',
   }[severity || ''] || '');
 
-
-  const getProviderIconClass = (provider: string): string => ({
-    AWS: 'fab fa-aws admin-provider-aws',
-    GCP: 'fab fa-google admin-provider-gcp',
-    Azure: 'fab fa-microsoft admin-provider-azure',
-  }[provider] || 'fas fa-cloud');
+  const ProviderBadge: React.FC<{ provider: string }> = ({ provider }) => {
+    const meta = PROVIDER_META[provider] ?? { icon: 'mdi:cloud-outline', color: '#6b7280' };
+    return (
+      <span className="admin-provider-badge">
+        <Icon icon={meta.icon} width={13} color={meta.color} />
+        <span>{provider}</span>
+      </span>
+    );
+  };
 
   // ── Charts ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -287,9 +316,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     if (values.every(v => v === 0)) return;
     const total = values.reduce((s, v) => s + v, 0);
     const colorMap: Record<string, { bar: string; hover: string }> = {
-      AWS:   { bar: '#F59E0B', hover: '#D97706' },
-      Azure: { bar: '#3B82F6', hover: '#2563EB' },
-      GCP:   { bar: '#10B981', hover: '#059669' },
+      AWS:   { bar: '#FF9900', hover: '#E88B00' },
+      Azure: { bar: '#0078D4', hover: '#0369B4' },
+      GCP:   { bar: '#34A853', hover: '#2C9247' },
     };
     const bgColors   = labels.map(l => colorMap[l]?.bar   ?? '#6366f1');
     const hoverColors = labels.map(l => colorMap[l]?.hover ?? '#4f46e5');
@@ -303,7 +332,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
           hoverBackgroundColor: hoverColors,
           borderRadius: 6,
           borderSkipped: false,
-          barThickness: 32,
+          barThickness: 30,
         }],
       },
       options: {
@@ -313,13 +342,15 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#1f2937',
-            titleColor: '#f9fafb',
-            bodyColor: '#d1d5db',
-            borderColor: '#374151',
+            backgroundColor: '#ffffff',
+            titleColor: '#0a0a0a',
+            bodyColor: 'rgba(0,0,0,0.6)',
+            borderColor: 'rgba(0,0,0,0.1)',
             borderWidth: 1,
             padding: 12,
-            cornerRadius: 6,
+            cornerRadius: 10,
+            titleFont: { family: 'Inter', size: 12, weight: '600' },
+            bodyFont: { family: 'Inter', size: 12 },
             callbacks: {
               label: (item) => {
                 const pct = total > 0 ? ((item.raw as number) / total * 100).toFixed(1) : '0.0';
@@ -330,16 +361,16 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         },
         scales: {
           x: {
-            grid: { color: '#f3f4f6' },
+            grid: { color: 'rgba(0,0,0,0.05)' },
             ticks: {
               font: { family: 'Inter', size: 11 },
-              color: '#9ca3af',
+              color: 'rgba(0,0,0,0.4)',
               callback: (v) => `$${Number(v).toLocaleString()}`,
             },
           },
           y: {
             grid: { display: false },
-            ticks: { font: { family: 'Inter', size: 13, weight: '600' }, color: '#111827' },
+            ticks: { font: { family: 'Inter', size: 13, weight: '600' }, color: 'rgba(0,0,0,0.75)' },
           },
         },
       },
@@ -352,11 +383,11 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     if (trendChartInstance.current) trendChartInstance.current.destroy();
     const ctx = trendChartRef.current.getContext('2d');
     if (!ctx) return;
-    // Vertical gradient fill: indigo at top → transparent at bottom
+    // Vertical gradient fill: blue at top → transparent at bottom
     const gradient = ctx.createLinearGradient(0, 0, 0, 220);
-    gradient.addColorStop(0, 'rgba(99,102,241,0.22)');
-    gradient.addColorStop(0.6, 'rgba(99,102,241,0.06)');
-    gradient.addColorStop(1, 'rgba(99,102,241,0)');
+    gradient.addColorStop(0, 'rgba(66,133,244,0.20)');
+    gradient.addColorStop(0.6, 'rgba(66,133,244,0.05)');
+    gradient.addColorStop(1, 'rgba(66,133,244,0)');
 
     trendChartInstance.current = new Chart(ctx, {
       type: 'line',
@@ -365,17 +396,17 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         datasets: [{
           label: 'Monthly Spending (USD)',
           data: convertedData.spendingTrend.map((i: SpendingTrendItem) => i.cost),
-          borderColor: '#6366f1',
+          borderColor: '#4285F4',
           backgroundColor: gradient,
           borderWidth: 2.5,
           fill: true,
           tension: 0.45,
-          pointBackgroundColor: '#6366f1',
+          pointBackgroundColor: '#4285F4',
           pointBorderColor: '#fff',
           pointBorderWidth: 2,
-          pointRadius: 5,
-          pointHoverRadius: 7,
-          pointHoverBackgroundColor: '#4f46e5',
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointHoverBackgroundColor: '#1a73e8',
           pointHoverBorderColor: '#fff',
           pointHoverBorderWidth: 2,
         }],
@@ -387,14 +418,16 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#1f2937',
-            titleColor: '#f9fafb',
-            bodyColor: '#d1d5db',
-            borderColor: '#374151',
+            backgroundColor: '#ffffff',
+            titleColor: '#0a0a0a',
+            bodyColor: 'rgba(0,0,0,0.6)',
+            borderColor: 'rgba(0,0,0,0.1)',
             borderWidth: 1,
             padding: 12,
-            cornerRadius: 6,
+            cornerRadius: 10,
             displayColors: false,
+            titleFont: { family: 'Inter', size: 12, weight: '600' },
+            bodyFont: { family: 'Inter', size: 12 },
             callbacks: {
               title: (items) => items[0].label,
               label: (item) => `  Spend: ${formatCurrency(item.raw as number)}`,
@@ -404,11 +437,11 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         scales: {
           y: {
             beginAtZero: false,
-            grid: { color: '#f3f4f6', lineWidth: 1 },
+            grid: { color: 'rgba(0,0,0,0.05)', lineWidth: 1 },
             ticks: {
               callback: (v) => `$${Number(v).toLocaleString()}`,
               font: { family: 'Inter', size: 11 },
-              color: '#9ca3af',
+              color: 'rgba(0,0,0,0.4)',
               maxTicksLimit: 5,
             },
           },
@@ -416,7 +449,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             grid: { display: false },
             ticks: {
               font: { family: 'Inter', size: 11 },
-              color: '#6b7280',
+              color: 'rgba(0,0,0,0.45)',
             },
           },
         },
@@ -428,13 +461,18 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   // ── Topbar actions ─────────────────────────────────────────────────────────
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#1BE68B] animate-pulse flex-shrink-0" />
+          <span className="text-[11px] font-medium uppercase tracking-wide text-[rgba(0,0,0,0.4)]">Live</span>
+        </div>
+        <span className="text-[rgba(0,0,0,0.15)] text-[12px] select-none">|</span>
         <button
           onClick={refreshDashboard} disabled={isRefreshing}
-          className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-40"
         >
-          <i className={`fas fa-sync-alt text-[10px] ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
+          <Icon icon="mdi:refresh" width={14} className={isRefreshing ? 'animate-spin' : ''} />
+          {isRefreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
     );
@@ -443,264 +481,316 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
   // ── Shimmer skeleton ───────────────────────────────────────────────────────
   const Shimmer = ({ className }: { className: string }) => (
-    <div className={`admin-shimmer rounded ${className}`} />
+    <div className={`admin-shimmer rounded-md ${className}`} />
   );
+
+  // ── Reusable metric card ─────────────────────────────────────────────────
+  interface MetricCardProps {
+    label: string;
+    icon: string;
+    iconColor: string;
+    index: number;
+    loading?: boolean;
+    onClick?: () => void;
+    currency?: string;      // pre-formatted currency string ($1,234.56)
+    count?: React.ReactNode; // plain numeric / node value
+    sub?: React.ReactNode;
+    right?: React.ReactNode;
+  }
+  const MetricCard: React.FC<MetricCardProps> = ({ label, icon, iconColor, index, loading, onClick, currency, count, sub, right }) => {
+    const split = currency ? splitCurrency(currency) : null;
+    return (
+      <div
+        onClick={onClick}
+        className={`bo-card p-5 relative overflow-hidden card-hover-lift ${onClick ? 'cursor-pointer' : ''}`}
+        style={{ animation: `fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${0.05 + index * 0.08}s both` }}
+      >
+        <div className="bo-metric-cloud" aria-hidden>
+          <Icon icon="mdi:cloud" width={120} />
+        </div>
+        <div className="relative z-10">
+          <div className="flex items-start justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.55)]">{label}</p>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: `${iconColor}14` }}>
+              <Icon icon={icon} width={17} color={iconColor} />
+            </div>
+          </div>
+          {loading ? (
+            <div className="space-y-2 mt-3"><Shimmer className="h-7 w-28" /><Shimmer className="h-2.5 w-24" /></div>
+          ) : (
+            <div className="admin-fade-in mt-2.5">
+              <div className="flex items-end justify-between">
+                <p className="leading-none flex items-baseline gap-0.5 text-[rgba(10,10,10,1)]">
+                  {split ? (
+                    <>
+                      <span style={NUM_STYLE}>{split.main}</span>
+                      {split.cents && <span className="text-[14px] text-[rgba(0,0,0,0.5)]">{split.cents}</span>}
+                    </>
+                  ) : (
+                    <span style={NUM_STYLE}>{count}</span>
+                  )}
+                </p>
+                {right}
+              </div>
+              {sub && <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-2">{sub}</p>}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Section card header ──────────────────────────────────────────────────
+  const SectionHeader: React.FC<{ icon: string; color: string; title: string; subtitle: string; right?: React.ReactNode }> =
+    ({ icon, color, title, subtitle, right }) => (
+      <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-[rgba(0,0,0,0.06)]">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ background: `linear-gradient(135deg, ${color}22, ${color}11)` }}>
+            <Icon icon={icon} width={18} color={color} />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] truncate">{title}</h3>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] truncate">{subtitle}</p>
+          </div>
+        </div>
+        {right && <div className="flex-shrink-0">{right}</div>}
+      </div>
+    );
+
+  // Segmented filter pills (Cost Explorer style)
+  const FilterPills: React.FC<{ options: { value: string; label: string }[]; value: string; onChange: (v: string) => void }> =
+    ({ options, value, onChange }) => (
+      <div className="flex items-center bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5 gap-0.5">
+        {options.map(o => (
+          <button key={o.value} onClick={() => onChange(o.value)}
+            className={`px-2.5 py-1 rounded-md text-[12px] font-medium transition-all ${
+              value === o.value ? 'bg-white text-[rgba(0,0,0,0.88)] shadow-sm' : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.7)]'
+            }`}>{o.label}</button>
+        ))}
+      </div>
+    );
+
+  const totalInvoices = (data?.pendingInvoices || 0) + (data?.finalizedInvoices || 0);
 
   // ══════════════════════════════════════════════════════════════════════════
   return (
-    <div className="admin-dashboard flex-1 flex flex-col h-full bg-transparent overflow-hidden">
-      <main className="flex-1 overflow-y-auto p-5 space-y-4 admin-scrollbar">
+    <div className="admin-dashboard flex-1 flex flex-col h-full overflow-hidden">
+      <main className="flex-1 overflow-y-auto px-6 pt-4 pb-6 space-y-5 admin-scrollbar">
 
         {/* Error */}
         {error && (
-          <div className="admin-error-alert p-3 rounded">
-            <div className="flex items-center gap-2">
-              <i className="fas fa-exclamation-circle text-red-500" />
-              <span className="text-red-700 text-sm font-medium">{error}</span>
-            </div>
+          <div className="bo-card border-l-4 border-l-red-500 p-3.5 flex items-center gap-2.5">
+            <Icon icon="mdi:alert-circle-outline" width={18} color="#dc2626" />
+            <span className="text-red-700 text-[13px] font-medium">{error}</span>
           </div>
         )}
 
         {/* ── Stats Grid (always visible) ─────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Total Spend */}
-          <div className="admin-glass-card admin-metric-card admin-border-indigo rounded-md p-4">
-            <div className="flex items-start justify-between">
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Total System Spend</p>
-              <div className="admin-icon-indigo w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0">
-                <i className="fas fa-dollar-sign text-indigo-600 text-xs" />
-              </div>
-            </div>
-            {!loading && !clientsLoading ? (
-              <div className="admin-fade-in mt-3">
-                <span className="text-[26px] font-bold admin-metric-value leading-none tracking-tight">
-                  {formatCurrency(clientsSpend?.total ?? convertedData?.totalSpending)}
-                </span>
-                <p className="text-[11px] text-gray-400 mt-2">All clients · current month</p>
-              </div>
-            ) : <div className="space-y-2 mt-3"><Shimmer className="h-7 w-32" /><Shimmer className="h-2.5 w-24" /></div>}
-          </div>
+          <MetricCard
+            index={0}
+            label="Total System Spend"
+            icon="mdi:currency-usd"
+            iconColor="#4285F4"
+            loading={loading || clientsLoading}
+            currency={formatCurrency(clientsSpend?.total ?? convertedData?.totalSpending)}
+            sub="All clients · current month"
+          />
 
-          {/* Total Accounts */}
-          <div className="admin-glass-card admin-metric-card admin-border-purple rounded-md p-4">
-            <div className="flex items-start justify-between">
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Cloud Accounts</p>
-              <div className="admin-icon-purple w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0">
-                <i className="fas fa-layer-group text-purple-600 text-xs" />
+          <MetricCard
+            index={1}
+            label="Cloud Accounts"
+            icon="mdi:layers-triple-outline"
+            iconColor="#7C3AED"
+            loading={loading}
+            count={data?.totalAccounts || 0}
+            right={
+              <div className="admin-provider-stack mb-0.5">
+                <div className="admin-provider-icon" title="AWS"><Icon icon="mdi:aws" width={12} color="#FF9900" /></div>
+                <div className="admin-provider-icon" title="GCP"><Icon icon="mdi:google-cloud" width={12} color="#34A853" /></div>
+                <div className="admin-provider-icon" title="Azure"><Icon icon="mdi:microsoft-azure" width={12} color="#0078D4" /></div>
               </div>
-            </div>
-            {!loading ? (
-              <div className="admin-fade-in mt-3">
-                <div className="flex items-end justify-between">
-                  <span className="text-[26px] font-bold admin-metric-value leading-none tracking-tight">{data?.totalAccounts || 0}</span>
-                  <div className="admin-provider-stack mb-0.5">
-                    <div className="admin-provider-icon" title="AWS"><i className="fab fa-aws admin-provider-aws" /></div>
-                    <div className="admin-provider-icon" title="GCP"><i className="fab fa-google admin-provider-gcp" /></div>
-                    <div className="admin-provider-icon" title="Azure"><i className="fab fa-microsoft admin-provider-azure" /></div>
-                  </div>
-                </div>
-                <p className="text-[11px] text-gray-400 mt-2">
-                  {data?.awsAccountsCount || 0} AWS · {data?.gcpAccountsCount || 0} GCP · {data?.azureAccountsCount || 0} Azure
-                </p>
-              </div>
-            ) : <div className="space-y-2 mt-3"><Shimmer className="h-7 w-16" /><Shimmer className="h-2.5 w-full" /></div>}
-          </div>
+            }
+            sub={`${data?.awsAccountsCount || 0} AWS · ${data?.gcpAccountsCount || 0} GCP · ${data?.azureAccountsCount || 0} Azure`}
+          />
 
-          {/* Invoices */}
-          <div
-            className="admin-glass-card admin-metric-card admin-border-blue rounded-md p-4 cursor-pointer"
+          <MetricCard
+            index={2}
+            label="Invoices"
+            icon="mdi:file-document-multiple-outline"
+            iconColor="#0891B2"
+            loading={loading}
             onClick={() => setActiveTab('invoices')}
-            title="Click to view invoices"
-          >
-            <div className="flex items-start justify-between">
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Invoices</p>
-              <div className="admin-icon-blue w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0">
-                <i className="fas fa-file-invoice-dollar text-blue-600 text-xs" />
-              </div>
-            </div>
-            {!loading ? (
-              <div className="admin-fade-in mt-3">
-                <span className="text-[26px] font-bold admin-metric-value leading-none tracking-tight">
-                  {(data?.pendingInvoices || 0) + (data?.finalizedInvoices || 0)}
-                </span>
-                <p className="text-[11px] text-gray-400 mt-2">
-                  <span className="text-amber-600 font-semibold">{data?.pendingInvoices || 0} pending</span>
-                  <span className="mx-1 text-gray-300">·</span>
-                  <span className="text-green-600 font-semibold">{data?.finalizedInvoices || 0} finalized</span>
-                </p>
-              </div>
-            ) : <div className="space-y-2 mt-3"><Shimmer className="h-7 w-20" /><Shimmer className="h-2.5 w-28" /></div>}
-          </div>
+            count={totalInvoices}
+            sub={
+              <>
+                <span className="text-amber-600 font-semibold">{data?.pendingInvoices || 0} pending</span>
+                <span className="mx-1 text-[rgba(0,0,0,0.2)]">·</span>
+                <span className="text-[#158045] font-semibold">{data?.finalizedInvoices || 0} finalized</span>
+              </>
+            }
+          />
 
-          {/* Tickets */}
-          <div
-            className="admin-glass-card admin-metric-card admin-border-orange rounded-md p-4 cursor-pointer"
+          <MetricCard
+            index={3}
+            label="Open Tickets"
+            icon="mdi:ticket-confirmation-outline"
+            iconColor="#EA580C"
+            loading={loading}
             onClick={() => setActiveTab('tickets')}
-            title="Click to view tickets"
-          >
-            <div className="flex items-start justify-between">
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Open Tickets</p>
-              <div className="admin-icon-orange w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0">
-                <i className="fas fa-ticket-alt text-orange-600 text-xs" />
-              </div>
-            </div>
-            {!loading ? (
-              <div className="admin-fade-in mt-3">
-                <span className="text-[26px] font-bold admin-metric-value leading-none tracking-tight">{data?.openTickets || 0}</span>
-                <p className="text-[11px] text-gray-400 mt-2">
-                  <span className="text-gray-600 font-semibold">{data?.totalClients || 0}</span> total clients
-                </p>
-              </div>
-            ) : <div className="space-y-2 mt-3"><Shimmer className="h-7 w-20" /><Shimmer className="h-2.5 w-28" /></div>}
-          </div>
+            count={data?.openTickets || 0}
+            sub={<><span className="text-[rgba(0,0,0,0.7)] font-semibold">{data?.totalClients || 0}</span> total clients</>}
+          />
         </div>
 
         {/* ── Tab Navigation ───────────────────────────────────────────────── */}
-        <div className="flex items-center gap-0.5 border-b border-gray-200">
-          {TABS.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                activeTab === tab.id
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <i className={`${tab.icon} text-xs`} />
-              {tab.label}
-              {tab.id === 'invoices' && (data?.pendingInvoices || 0) > 0 && (
-                <span className="ml-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-amber-100 text-amber-700 text-[10px] font-bold rounded">
-                  {data?.pendingInvoices}
-                </span>
-              )}
-              {tab.id === 'tickets' && (data?.openTickets || 0) > 0 && (
-                <span className="ml-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-100 text-red-600 text-[10px] font-bold rounded">
-                  {data?.openTickets}
-                </span>
-              )}
-            </button>
-          ))}
+        <div className="flex items-center bg-[rgba(0,0,0,0.04)] rounded-xl p-1 gap-1 w-fit">
+          {TABS.map(tab => {
+            const isActive = activeTab === tab.id;
+            const badge =
+              tab.id === 'invoices' && (data?.pendingInvoices || 0) > 0 ? { text: String(data?.pendingInvoices), cls: 'bg-amber-100 text-amber-700' }
+              : tab.id === 'tickets' && (data?.openTickets || 0) > 0 ? { text: String(data?.openTickets), cls: 'bg-red-100 text-red-600' }
+              : null;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-medium transition-all ${
+                  isActive ? 'bg-white text-[rgba(0,0,0,0.88)] shadow-sm' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.8)]'
+                }`}
+              >
+                <Icon icon={tab.icon} width={15} />
+                {tab.label}
+                {badge && (
+                  <span className={`ml-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold rounded-full ${badge.cls}`}>
+                    {badge.text}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* ══════════════════════════════════════════════════════════════════
             TAB 1 — OVERVIEW
         ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'overview' && (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="admin-glass-card admin-border-top-indigo rounded-md p-5 flex flex-col">
-                <div className="mb-4 pb-3 border-b border-gray-100">
-                  <h3 className="text-[13px] font-semibold text-gray-900 tracking-tight">Global Spending Distribution</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">By cloud provider · current month</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="bo-card flex flex-col">
+                <SectionHeader
+                  icon="mdi:chart-donut" color="#4285F4"
+                  title="Global Spending Distribution"
+                  subtitle="By cloud provider · current month"
+                />
+                <div className="p-5">
+                  {!loading && !Object.values(clientsSpend?.byProvider ?? convertedData?.spendingByProvider ?? {}).some(v => v > 0) ? (
+                    <div className="flex flex-col items-center justify-center h-[220px] text-[rgba(0,0,0,0.25)]">
+                      <Icon icon="mdi:chart-pie" width={44} />
+                      <p className="text-[13px] font-medium mt-2 text-[rgba(0,0,0,0.35)]">No spending data available</p>
+                    </div>
+                  ) : (
+                    <div className="admin-chart-container"><canvas ref={providerChartRef} /></div>
+                  )}
                 </div>
-                {!loading && !Object.values(clientsSpend?.byProvider ?? convertedData?.spendingByProvider ?? {}).some(v => v > 0) ? (
-                  <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-                    <div className="text-center"><i className="fas fa-chart-pie text-2xl mb-2 text-gray-200 block" />No spending data available</div>
-                  </div>
-                ) : (
-                  <div className="admin-chart-container"><canvas ref={providerChartRef} /></div>
-                )}
               </div>
 
-              <div className="admin-glass-card admin-border-top-purple rounded-md p-5 flex flex-col">
-                <div className="mb-4 pb-3 border-b border-gray-100">
-                  <h3 className="text-[13px] font-semibold text-gray-900 tracking-tight">Spending Trend</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">Aggregated cloud spend in USD · last 6 months</p>
+              <div className="bo-card flex flex-col">
+                <SectionHeader
+                  icon="mdi:chart-areaspline" color="#7C3AED"
+                  title="Spending Trend"
+                  subtitle="Aggregated cloud spend in USD · last 6 months"
+                />
+                <div className="p-5">
+                  {!loading && !convertedData?.spendingTrend?.length ? (
+                    <div className="flex flex-col items-center justify-center h-[220px] text-[rgba(0,0,0,0.25)]">
+                      <Icon icon="mdi:chart-line" width={44} />
+                      <p className="text-[13px] font-medium mt-2 text-[rgba(0,0,0,0.35)]">No trend data available</p>
+                    </div>
+                  ) : (
+                    <div className="admin-chart-container"><canvas ref={trendChartRef} /></div>
+                  )}
                 </div>
-                {!loading && !convertedData?.spendingTrend?.length ? (
-                  <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-                    <div className="text-center"><i className="fas fa-chart-line text-2xl mb-2 text-gray-200 block" />No trend data available</div>
-                  </div>
-                ) : (
-                  <div className="admin-chart-container"><canvas ref={trendChartRef} /></div>
-                )}
               </div>
             </div>
 
             {/* Top 10 Accounts */}
-            <div className="admin-glass-card admin-border-cyan rounded-md p-5">
-              <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-                <div>
-                  <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
-                    <i className="fas fa-trophy text-cyan-600 text-xs" />Top 10 Spending Accounts
-                  </h3>
-                  <p className="text-xs text-gray-400 mt-0.5">Ranked by current month spend</p>
-                </div>
-                <button
-                  onClick={refreshTopSpending}
-                  disabled={isRefreshingTopSpending}
-                  title="Fetch live current-month cost from CE API"
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-cyan-700 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <i className={`fas fa-bolt text-[10px] ${isRefreshingTopSpending ? 'animate-pulse' : ''}`} />
-                  {isRefreshingTopSpending ? 'Fetching...' : 'Live Refresh'}
-                </button>
-              </div>
-              <div className="overflow-x-auto rounded-md border border-gray-100">
+            <div className="bo-card overflow-hidden">
+              <SectionHeader
+                icon="mdi:trophy-outline" color="#0891B2"
+                title="Top 10 Spending Accounts"
+                subtitle="Ranked by current month spend"
+                right={
+                  <button
+                    onClick={refreshTopSpending}
+                    disabled={isRefreshingTopSpending}
+                    title="Fetch live current-month cost from CE API"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-[#0891B2] bg-[#0891B212] hover:bg-[#0891B21f] border border-[#0891B233] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Icon icon="mdi:lightning-bolt" width={13} className={isRefreshingTopSpending ? 'animate-pulse' : ''} />
+                    {isRefreshingTopSpending ? 'Fetching…' : 'Live Refresh'}
+                  </button>
+                }
+              />
+              <div className="overflow-x-auto">
                 {clientsLoading ? (
-                  <div className="p-4 space-y-2">
-                    {[1, 2, 3].map(i => <Shimmer key={i} className="h-9 w-full" />)}
-                  </div>
+                  <div className="p-5 space-y-2">{[1, 2, 3].map(i => <Shimmer key={i} className="h-9 w-full" />)}</div>
                 ) : (
-                  <table className="min-w-full divide-y divide-gray-200">
+                  <table className="bo-table min-w-full">
                     <thead>
                       <tr>
-                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">#</th>
-                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Account</th>
-                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Provider</th>
-                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Client</th>
-                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Status</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">This Month</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Last Month</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">MoM</th>
+                        <th className="bo-th text-left">#</th>
+                        <th className="bo-th text-left">Account</th>
+                        <th className="bo-th text-left">Provider</th>
+                        <th className="bo-th text-left">Client</th>
+                        <th className="bo-th text-left">Status</th>
+                        <th className="bo-th text-right">This Month</th>
+                        <th className="bo-th text-right">Last Month</th>
+                        <th className="bo-th text-right">MoM</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody>
                       {top10FromClients?.length ? (
                         top10FromClients.map((account: TopSpendingAccount, idx: number) => {
                           const mom = getMoMChange(account.currentMonthSpending, account.lastMonthSpending);
                           return (
-                            <tr key={account.id} className="admin-table-row">
-                              <td className="px-4 py-3 text-xs text-gray-400 font-medium">{idx + 1}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <div className="text-sm font-medium text-gray-900">{account.accountName}</div>
+                            <tr key={account.id} className="bo-row">
+                              <td className="bo-td text-[rgba(0,0,0,0.35)] font-medium">
+                                <span className={`bo-rank ${idx < 3 ? 'bo-rank-top' : ''}`}>{idx + 1}</span>
+                              </td>
+                              <td className="bo-td whitespace-nowrap">
+                                <div className="text-[13px] font-medium text-[rgba(0,0,0,0.85)]">{account.accountName}</div>
                                 {account.accountIdentifier && (
-                                  <div className="text-[10px] text-gray-400 font-mono mt-0.5">{account.accountIdentifier}</div>
+                                  <div className="text-[10px] text-[rgba(0,0,0,0.4)] font-mono mt-0.5">{account.accountIdentifier}</div>
                                 )}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <span className="admin-provider-badge">
-                                  <i className={getProviderIconClass(account.provider)} />
-                                  <span>{account.provider}</span>
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{account.clientName}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">
+                              <td className="bo-td whitespace-nowrap"><ProviderBadge provider={account.provider} /></td>
+                              <td className="bo-td whitespace-nowrap text-[13px] text-[rgba(0,0,0,0.6)]">{account.clientName}</td>
+                              <td className="bo-td whitespace-nowrap">
                                 <span className={`admin-status-badge ${getStatusClass(account.status)}`}>{account.status}</span>
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
+                              <td className="bo-td whitespace-nowrap text-[13px] text-right font-semibold text-[rgba(0,0,0,0.85)]">
                                 {formatCurrency(account.currentMonthSpending)}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-400">
+                              <td className="bo-td whitespace-nowrap text-[13px] text-right text-[rgba(0,0,0,0.4)]">
                                 {formatCurrency(account.lastMonthSpending)}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-right">
+                              <td className="bo-td whitespace-nowrap text-[13px] text-right">
                                 {mom ? (
-                                  <span className={`inline-flex items-center gap-1 font-semibold text-xs ${mom.up ? 'text-red-600' : 'text-green-600'}`}>
-                                    <i className={`fas fa-arrow-${mom.up ? 'up' : 'down'} text-[9px]`} />
+                                  <span className={`inline-flex items-center gap-1 font-semibold text-[12px] ${mom.up ? 'text-red-600' : 'text-[#158045]'}`}>
+                                    <Icon icon={mom.up ? 'mdi:trending-up' : 'mdi:trending-down'} width={13} />
                                     {mom.pct.toFixed(1)}%
                                   </span>
-                                ) : <span className="text-gray-300 text-xs">—</span>}
+                                ) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}
                               </td>
                             </tr>
                           );
                         })
                       ) : (
-                        <tr>
-                          <td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-sm">No account data available</td>
-                        </tr>
+                        <tr><td colSpan={8} className="px-4 py-10 text-center text-[rgba(0,0,0,0.4)] text-[13px]">No account data available</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -709,44 +799,44 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             </div>
 
             {/* AutoSpotting Savings */}
-            <div className="admin-glass-card admin-border-green rounded-md p-5">
-              <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-                <div>
-                  <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
-                    <i className="fas fa-bolt text-green-600 text-xs" />AutoSpotting Savings
-                  </h3>
-                  <p className="text-xs text-gray-400 mt-0.5">Customers with AutoSpotting enabled</p>
-                </div>
-                <Link to="/autospotting-admin" className="text-xs font-medium text-green-600 hover:text-green-800 hover:underline">
-                  Full Report →
-                </Link>
-              </div>
-              <div className="overflow-x-auto rounded-md border border-gray-100">
+            <div className="bo-card overflow-hidden">
+              <SectionHeader
+                icon="mdi:lightning-bolt-outline" color="#16A34A"
+                title="AutoSpotting Savings"
+                subtitle="Customers with AutoSpotting enabled"
+                right={
+                  <Link to="/autospotting-admin" className="text-[12px] font-medium text-[#16A34A] hover:text-[#0f7a37] hover:underline">
+                    Full Report →
+                  </Link>
+                }
+              />
+              <div className="overflow-x-auto">
                 {customerSavingsLoading ? (
-                  <div className="p-4 space-y-2">{[1, 2, 3].map(i => <Shimmer key={i} className="h-9 w-full" />)}</div>
+                  <div className="p-5 space-y-2">{[1, 2, 3].map(i => <Shimmer key={i} className="h-9 w-full" />)}</div>
                 ) : customerSavings.length === 0 ? (
-                  <div className="px-6 py-10 text-center text-gray-400 text-sm">
-                    <i className="fas fa-bolt text-gray-300 text-2xl mb-2 block" />No customers have AutoSpotting enabled yet
+                  <div className="px-6 py-12 text-center text-[rgba(0,0,0,0.4)] text-[13px]">
+                    <Icon icon="mdi:lightning-bolt-outline" width={40} className="mx-auto mb-2 text-[rgba(0,0,0,0.2)]" />
+                    No customers have AutoSpotting enabled yet
                   </div>
                 ) : (
-                  <table className="min-w-full divide-y divide-gray-200">
+                  <table className="bo-table min-w-full">
                     <thead>
                       <tr>
-                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Customer</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50"><i className="fab fa-aws admin-provider-aws mr-1" />AWS</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50"><i className="fab fa-google admin-provider-gcp mr-1" />GCP</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50"><i className="fab fa-microsoft admin-provider-azure mr-1" />Azure</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Total Saved</th>
+                        <th className="bo-th text-left">Customer</th>
+                        <th className="bo-th text-right"><Icon icon="mdi:aws" width={13} color="#FF9900" className="inline mr-1" />AWS</th>
+                        <th className="bo-th text-right"><Icon icon="mdi:google-cloud" width={13} color="#34A853" className="inline mr-1" />GCP</th>
+                        <th className="bo-th text-right"><Icon icon="mdi:microsoft-azure" width={13} color="#0078D4" className="inline mr-1" />Azure</th>
+                        <th className="bo-th text-right">Total Saved</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody>
                       {customerSavings.map(row => (
-                        <tr key={row.clientId} className="admin-table-row">
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{row.clientName}</td>
-                          <td className="px-4 py-3 text-sm text-right text-gray-600">{row.awsSavings > 0 ? formatCurrency(row.awsSavings) : <span className="text-gray-300">—</span>}</td>
-                          <td className="px-4 py-3 text-sm text-right text-gray-600">{row.gcpSavings > 0 ? formatCurrency(row.gcpSavings) : <span className="text-gray-300">—</span>}</td>
-                          <td className="px-4 py-3 text-sm text-right text-gray-600">{row.azureSavings > 0 ? formatCurrency(row.azureSavings) : <span className="text-gray-300">—</span>}</td>
-                          <td className="px-4 py-3 text-sm text-right font-semibold text-green-700">{formatCurrency(row.totalSavings)}</td>
+                        <tr key={row.clientId} className="bo-row">
+                          <td className="bo-td text-[13px] font-medium text-[rgba(0,0,0,0.85)]">{row.clientName}</td>
+                          <td className="bo-td text-[13px] text-right text-[rgba(0,0,0,0.6)]">{row.awsSavings > 0 ? formatCurrency(row.awsSavings) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
+                          <td className="bo-td text-[13px] text-right text-[rgba(0,0,0,0.6)]">{row.gcpSavings > 0 ? formatCurrency(row.gcpSavings) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
+                          <td className="bo-td text-[13px] text-right text-[rgba(0,0,0,0.6)]">{row.azureSavings > 0 ? formatCurrency(row.azureSavings) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
+                          <td className="bo-td text-[13px] text-right font-semibold text-[#158045]">{formatCurrency(row.totalSavings)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -761,70 +851,62 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             TAB 2 — CLIENTS
         ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'clients' && (
-          <div className="admin-glass-card admin-border-purple rounded-md p-5">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-              <div>
-                <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
-                  <i className="fas fa-users text-purple-600 text-xs" />Client Spending Summary
-                </h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {clientGroups.length} client{clientGroups.length !== 1 ? 's' : ''} · grouped from top spending accounts
-                </p>
-              </div>
-            </div>
-            <div className="overflow-x-auto rounded-md border border-gray-100">
+          <div className="bo-card overflow-hidden">
+            <SectionHeader
+              icon="mdi:account-group-outline" color="#7C3AED"
+              title="Client Spending Summary"
+              subtitle={`${clientGroups.length} client${clientGroups.length !== 1 ? 's' : ''} · grouped from top spending accounts`}
+            />
+            <div className="overflow-x-auto">
               {loading ? (
-                <div className="p-4 space-y-2">{[1, 2, 3].map(i => <Shimmer key={i} className="h-12 w-full" />)}</div>
+                <div className="p-5 space-y-2">{[1, 2, 3].map(i => <Shimmer key={i} className="h-12 w-full" />)}</div>
               ) : clientGroups.length === 0 ? (
-                <div className="px-6 py-10 text-center text-gray-400 text-sm">
-                  <i className="fas fa-users text-2xl mb-2 text-gray-200 block" />No client data available
+                <div className="px-6 py-12 text-center text-[rgba(0,0,0,0.4)] text-[13px]">
+                  <Icon icon="mdi:account-group-outline" width={40} className="mx-auto mb-2 text-[rgba(0,0,0,0.2)]" />
+                  No client data available
                 </div>
               ) : (
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="bo-table min-w-full">
                   <thead>
                     <tr>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Client</th>
-                      <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Accounts</th>
-                      <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Providers</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">This Month</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Top Account</th>
+                      <th className="bo-th text-left">Client</th>
+                      <th className="bo-th text-center">Accounts</th>
+                      <th className="bo-th text-center">Providers</th>
+                      <th className="bo-th text-right">This Month</th>
+                      <th className="bo-th text-left">Top Account</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody>
                     {clientGroups.map(group => {
                       const providers = [...new Set(group.accounts.map(a => a.provider))];
                       const topAccount = group.accounts[0];
                       return (
-                        <tr key={group.clientName} className="admin-table-row">
-                          <td className="px-4 py-3 whitespace-nowrap">
+                        <tr key={group.clientName} className="bo-row">
+                          <td className="bo-td whitespace-nowrap">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-7 h-7 rounded-md bg-indigo-600 flex items-center justify-center text-white font-semibold text-xs">
+                              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#7C3AED] to-[#6366f1] flex items-center justify-center text-white font-semibold text-[12px]">
                                 {group.clientName.charAt(0).toUpperCase()}
                               </div>
-                              <span className="text-sm font-medium text-gray-900">{group.clientName}</span>
+                              <span className="text-[13px] font-medium text-[rgba(0,0,0,0.85)]">{group.clientName}</span>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="inline-flex items-center justify-center px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-semibold rounded">
+                          <td className="bo-td text-center">
+                            <span className="inline-flex items-center justify-center px-2 py-0.5 bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)] text-[12px] font-semibold rounded-full">
                               {group.accounts.length}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="bo-td text-center">
                             <div className="flex items-center justify-center gap-1">
-                              {providers.map(p => (
-                                <span key={p} className="admin-provider-badge">
-                                  <i className={getProviderIconClass(p)} /><span>{p}</span>
-                                </span>
-                              ))}
+                              {providers.map(p => <ProviderBadge key={p} provider={p} />)}
                             </div>
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-gray-900 text-sm">
+                          <td className="bo-td whitespace-nowrap text-right font-semibold text-[rgba(0,0,0,0.85)] text-[13px]">
                             {formatCurrency(group.totalSpend)}
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                          <td className="bo-td whitespace-nowrap text-[13px] text-[rgba(0,0,0,0.5)]">
                             {topAccount?.accountName}
                             {topAccount?.accountIdentifier && (
-                              <span className="ml-2 text-[10px] text-gray-400 font-mono">{topAccount.accountIdentifier}</span>
+                              <span className="ml-2 text-[10px] text-[rgba(0,0,0,0.4)] font-mono">{topAccount.accountIdentifier}</span>
                             )}
                           </td>
                         </tr>
@@ -841,74 +923,66 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             TAB 3 — INVOICES
         ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'invoices' && (
-          <div className="admin-glass-card rounded-md p-5">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-              <div>
-                <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
-                  <i className="fas fa-file-invoice-dollar text-blue-600 text-xs" />Recent Invoices
-                </h3>
-                <p className="text-xs text-gray-400 mt-0.5">Last 10 invoices across all clients</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex gap-0.5 border border-gray-200 rounded-md overflow-hidden">
-                  {['ALL', 'DRAFT', 'FINALIZED', 'PAID', 'OVERDUE'].map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setInvoiceFilter(f)}
-                      className={`px-3 py-1.5 text-xs font-medium transition-colors ${invoiceFilter === f ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'}`}
-                    >
-                      {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
-                    </button>
-                  ))}
+          <div className="bo-card overflow-hidden">
+            <SectionHeader
+              icon="mdi:file-document-outline" color="#0891B2"
+              title="Recent Invoices"
+              subtitle="Last 10 invoices across all clients"
+              right={
+                <div className="flex items-center gap-3">
+                  <FilterPills
+                    value={invoiceFilter}
+                    onChange={setInvoiceFilter}
+                    options={[
+                      { value: 'ALL', label: 'All' }, { value: 'DRAFT', label: 'Draft' },
+                      { value: 'FINALIZED', label: 'Finalized' }, { value: 'PAID', label: 'Paid' },
+                      { value: 'OVERDUE', label: 'Overdue' },
+                    ]}
+                  />
+                  <Link to="/billops-admin-invoices" className="text-[12px] font-medium text-[#4285F4] hover:underline whitespace-nowrap">
+                    View All →
+                  </Link>
                 </div>
-                <Link to="/billops-admin-invoices" className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">
-                  View All →
-                </Link>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto rounded-md border border-gray-100">
+              }
+            />
+            <div className="overflow-x-auto">
               {loading ? (
-                <div className="p-4 space-y-2">{[1, 2, 3, 4].map(i => <Shimmer key={i} className="h-10 w-full" />)}</div>
+                <div className="p-5 space-y-2">{[1, 2, 3, 4].map(i => <Shimmer key={i} className="h-10 w-full" />)}</div>
               ) : filteredInvoices.length === 0 ? (
-                <div className="px-6 py-10 text-center text-gray-400 text-sm">
-                  <i className="fas fa-file-invoice text-2xl mb-2 text-gray-200 block" />
+                <div className="px-6 py-12 text-center text-[rgba(0,0,0,0.4)] text-[13px]">
+                  <Icon icon="mdi:file-document-outline" width={40} className="mx-auto mb-2 text-[rgba(0,0,0,0.2)]" />
                   {invoiceFilter === 'ALL' ? 'No recent invoices found' : `No ${invoiceFilter.toLowerCase()} invoices`}
                 </div>
               ) : (
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="bo-table min-w-full">
                   <thead>
                     <tr>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Invoice #</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Client</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Account</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Provider</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Amount</th>
-                      <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Status</th>
+                      <th className="bo-th text-left">Invoice #</th>
+                      <th className="bo-th text-left">Client</th>
+                      <th className="bo-th text-left">Account</th>
+                      <th className="bo-th text-left">Provider</th>
+                      <th className="bo-th text-right">Amount</th>
+                      <th className="bo-th text-center">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody>
                     {filteredInvoices.map((invoice: AdminInvoice) => (
-                      <tr key={invoice.id} className={`admin-table-row ${invoice.status === 'OVERDUE' ? 'bg-red-50/50' : ''}`}>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                      <tr key={invoice.id} className={`bo-row ${invoice.status === 'OVERDUE' ? 'bg-red-50/40' : ''}`}>
+                        <td className="bo-td whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            {invoice.status === 'OVERDUE' && <i className="fas fa-exclamation-circle text-red-500 text-xs" />}
-                            <span className="text-sm font-medium text-gray-900">{invoice.invoiceNumber}</span>
+                            {invoice.status === 'OVERDUE' && <Icon icon="mdi:alert-circle" width={14} color="#ef4444" />}
+                            <span className="text-[13px] font-medium text-[rgba(0,0,0,0.85)]">{invoice.invoiceNumber}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{invoice.clientName}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{invoice.accountName}</td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {invoice.provider && (
-                            <span className="admin-provider-badge">
-                              <i className={getProviderIconClass(invoice.provider)} /><span>{invoice.provider}</span>
-                            </span>
-                          )}
+                        <td className="bo-td whitespace-nowrap text-[13px] text-[rgba(0,0,0,0.7)]">{invoice.clientName}</td>
+                        <td className="bo-td whitespace-nowrap text-[13px] text-[rgba(0,0,0,0.5)]">{invoice.accountName}</td>
+                        <td className="bo-td whitespace-nowrap">
+                          {invoice.provider && <ProviderBadge provider={invoice.provider} />}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
+                        <td className="bo-td whitespace-nowrap text-[13px] text-right font-semibold text-[rgba(0,0,0,0.85)]">
                           {formatCurrency(invoice.amount)}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-center">
+                        <td className="bo-td whitespace-nowrap text-center">
                           <span className={`admin-status-badge ${getStatusClass(invoice.status)}`}>{invoice.status}</span>
                         </td>
                       </tr>
@@ -924,70 +998,66 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             TAB 4 — TICKETS
         ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'tickets' && (
-          <div className="admin-glass-card rounded-md p-5">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-              <div>
-                <h3 className="text-[13px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
-                  <i className="fas fa-ticket-alt text-orange-600 text-xs" />Recent Tickets
-                </h3>
-                <p className="text-xs text-gray-400 mt-0.5">Last 10 tickets across all clients</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex gap-0.5 border border-gray-200 rounded-md overflow-hidden">
-                  {['ALL', 'OPEN', 'IN_PROGRESS', 'CLOSED', 'HIGH', 'CRITICAL'].map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setTicketFilter(f)}
-                      className={`px-3 py-1.5 text-xs font-medium transition-colors ${ticketFilter === f ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'}`}
-                    >
-                      {f === 'ALL' ? 'All' : f === 'IN_PROGRESS' ? 'In Progress' : f.charAt(0) + f.slice(1).toLowerCase()}
-                    </button>
-                  ))}
+          <div className="bo-card overflow-hidden">
+            <SectionHeader
+              icon="mdi:ticket-outline" color="#EA580C"
+              title="Recent Tickets"
+              subtitle="Last 10 tickets across all clients"
+              right={
+                <div className="flex items-center gap-3">
+                  <FilterPills
+                    value={ticketFilter}
+                    onChange={setTicketFilter}
+                    options={[
+                      { value: 'ALL', label: 'All' }, { value: 'OPEN', label: 'Open' },
+                      { value: 'IN_PROGRESS', label: 'In Progress' }, { value: 'CLOSED', label: 'Closed' },
+                      { value: 'HIGH', label: 'High' }, { value: 'CRITICAL', label: 'Critical' },
+                    ]}
+                  />
+                  <Link to="/billops-admin-tickets" className="text-[12px] font-medium text-[#4285F4] hover:underline whitespace-nowrap">
+                    View All →
+                  </Link>
                 </div>
-                <Link to="/billops-admin-tickets" className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">
-                  View All →
-                </Link>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto rounded-md border border-gray-100">
+              }
+            />
+            <div className="overflow-x-auto">
               {loading ? (
-                <div className="p-4 space-y-2">{[1, 2, 3, 4].map(i => <Shimmer key={i} className="h-10 w-full" />)}</div>
+                <div className="p-5 space-y-2">{[1, 2, 3, 4].map(i => <Shimmer key={i} className="h-10 w-full" />)}</div>
               ) : filteredTickets.length === 0 ? (
-                <div className="px-6 py-10 text-center text-gray-400 text-sm">
-                  <i className="fas fa-ticket-alt text-2xl mb-2 text-gray-200 block" />
+                <div className="px-6 py-12 text-center text-[rgba(0,0,0,0.4)] text-[13px]">
+                  <Icon icon="mdi:ticket-outline" width={40} className="mx-auto mb-2 text-[rgba(0,0,0,0.2)]" />
                   {ticketFilter === 'ALL' ? 'No recent tickets found' : `No ${ticketFilter.toLowerCase()} tickets`}
                 </div>
               ) : (
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="bo-table min-w-full">
                   <thead>
                     <tr>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Subject</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Category</th>
-                      <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Severity</th>
-                      <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-gray-50">Status</th>
+                      <th className="bo-th text-left">Subject</th>
+                      <th className="bo-th text-left">Category</th>
+                      <th className="bo-th text-center">Severity</th>
+                      <th className="bo-th text-center">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody>
                     {filteredTickets.map((ticket: AdminTicket) => (
-                      <tr key={ticket.id} className={`admin-table-row ${ticket.severity === 'CRITICAL' ? 'bg-red-50/30' : ''}`}>
-                        <td className="px-4 py-3">
+                      <tr key={ticket.id} className={`bo-row ${ticket.severity === 'CRITICAL' ? 'bg-red-50/30' : ''}`}>
+                        <td className="bo-td">
                           <div className="flex items-center gap-2">
-                            {ticket.severity === 'CRITICAL' && <i className="fas fa-fire text-red-500 text-xs" />}
-                            <span className="text-sm font-medium text-gray-900">{ticket.subject}</span>
+                            {ticket.severity === 'CRITICAL' && <Icon icon="mdi:fire" width={14} color="#ef4444" />}
+                            <span className="text-[13px] font-medium text-[rgba(0,0,0,0.85)]">{ticket.subject}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 uppercase font-medium tracking-wide">
+                        <td className="bo-td whitespace-nowrap text-[11px] text-[rgba(0,0,0,0.5)] uppercase font-medium tracking-wide">
                           {ticket.category}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-center">
+                        <td className="bo-td whitespace-nowrap text-center">
                           {ticket.severity ? (
-                            <span className={`text-xs font-semibold uppercase ${getSeverityClass(ticket.severity)}`}>
+                            <span className={`text-[11px] font-semibold uppercase ${getSeverityClass(ticket.severity)}`}>
                               {ticket.severity}
                             </span>
-                          ) : <span className="text-gray-300 text-xs">—</span>}
+                          ) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-center">
+                        <td className="bo-td whitespace-nowrap text-center">
                           <span className={`admin-status-badge ${getStatusClass(ticket.status)}`}>
                             {ticket.status.replace('_', ' ')}
                           </span>
@@ -1000,7 +1070,6 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             </div>
           </div>
         )}
-
 
       </main>
     </div>

@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { Icon } from '@iconify/react';
 import type { KPIData, CostHistory, OptimizationData, ResourceInventory } from '../../types/liveDashboard';
+import { fmtMoney } from '../../utils/currency';
 import KPIManageModal, { ALL_KPI_CARDS, DEFAULT_SELECTED, type KPICardDef } from './KPIManageModal';
 
 const LS_KEY = (provider: string) =>
@@ -88,9 +89,6 @@ const hexToRgba = (hex: string, alpha: number): string => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-const fmtCurrency = (n: number) =>
-  '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
 const fmtCount = (n: number) =>
   Math.round(n).toLocaleString('en-US');
 
@@ -102,9 +100,10 @@ interface KPICardProps {
   changeLabel: string;
   trendData: number[];
   index: number;
+  provider?: 'AWS' | 'GCP' | 'Azure';
 }
 
-const KPICard: React.FC<KPICardProps> = ({ def, rawValue, change, changeLabel, trendData, index }) => {
+const KPICard: React.FC<KPICardProps> = ({ def, rawValue, change, changeLabel, trendData, index, provider }) => {
   const chartInstanceRef = useRef<any>(null);
   const animRef          = useRef<number | undefined>(undefined);
   const prevRawValue     = useRef(0);
@@ -177,7 +176,7 @@ const KPICard: React.FC<KPICardProps> = ({ def, rawValue, change, changeLabel, t
   let mainPart = '';
   let decPart  = '';
   if (isCurrency) {
-    display  = fmtCurrency(animCount);
+    display  = fmtMoney(animCount, provider);
     mainPart = display.includes('.') ? display.slice(0, display.lastIndexOf('.')) : display;
     decPart  = display.includes('.') ? display.slice(display.lastIndexOf('.'))    : '';
   } else {
@@ -537,6 +536,7 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
               changeLabel={data.changeLabel}
               trendData={data.trendData}
               index={i}
+              provider={provider}
             />
           );
         })}

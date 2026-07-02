@@ -15,14 +15,24 @@ export interface GcpSecurityFinding {
   complianceControl?: string; // SOC2 control, e.g. "SOC2 CC6.1"
 }
 
+export interface GcpIamDriftDetail {
+  member: string;
+  role: string;
+  status: string; // "PUBLIC_ACCESS" | "PRIMITIVE_ROLE" | "SA_PRIMITIVE_ROLE"
+}
+
 export interface GcpIamDrift {
-  // IAM drift data structure
-  [key: string]: any;
+  resourceName: string;
+  driftDetails: GcpIamDriftDetail[];
 }
 
 export interface GcpContainerVulnerability {
-  // Container vulnerability data structure
-  [key: string]: any;
+  imageName: string;
+  severity: string;       // "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+  packageName: string;
+  version: string;
+  cveId: string;
+  description: string;
 }
 
 export interface GcpSecurityData {

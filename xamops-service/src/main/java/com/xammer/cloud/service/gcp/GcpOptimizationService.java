@@ -850,16 +850,19 @@ public class GcpOptimizationService {
         fastFutures.add(findExcessiveLogRetention(gcpProjectId));
 
         List<CompletableFuture<List<GcpWasteItem>>> safeFast = fastFutures.stream()
-                .map(f -> f.exceptionally(e -> {
-                    log.warn("[GcpWaste] Fast detector failed: {}", e.getMessage());
-                    return Collections.<GcpWasteItem>emptyList();
-                }))
+                .map(f -> f
+                        .completeOnTimeout(Collections.<GcpWasteItem>emptyList(), 45, java.util.concurrent.TimeUnit.SECONDS)
+                        .exceptionally(e -> {
+                            log.warn("[GcpWaste] Fast detector failed: {}", e.getMessage());
+                            return Collections.<GcpWasteItem>emptyList();
+                        }))
                 .collect(Collectors.toList());
 
         List<GcpWasteItem> fastResults;
         try {
+            // Group await is now just a safety net — each detector already self-limits to 45s.
             CompletableFuture.allOf(safeFast.toArray(new CompletableFuture[0]))
-                    .get(45, java.util.concurrent.TimeUnit.SECONDS);
+                    .get(50, java.util.concurrent.TimeUnit.SECONDS);
             fastResults = safeFast.stream().map(CompletableFuture::join)
                     .flatMap(List::stream).collect(Collectors.toList());
         } catch (Exception e) {
@@ -887,21 +890,24 @@ public class GcpOptimizationService {
         );
 
         List<CompletableFuture<List<GcpWasteItem>>> safeSlow = slowFutures.stream()
-                .map(f -> f.exceptionally(e -> {
-                    log.warn("[GcpWaste] Slow detector failed: {}", e.getMessage());
-                    return Collections.<GcpWasteItem>emptyList();
-                }))
+                .map(f -> f
+                        .completeOnTimeout(Collections.<GcpWasteItem>emptyList(), 90, java.util.concurrent.TimeUnit.SECONDS)
+                        .exceptionally(e -> {
+                            log.warn("[GcpWaste] Slow detector failed: {}", e.getMessage());
+                            return Collections.<GcpWasteItem>emptyList();
+                        }))
                 .collect(Collectors.toList());
 
         boolean partial = false;
         List<GcpWasteItem> slowResults;
         try {
+            // Each slow detector self-limits to 90s; group await is a safety net slightly above that.
             CompletableFuture.allOf(safeSlow.toArray(new CompletableFuture[0]))
-                    .get(80, java.util.concurrent.TimeUnit.SECONDS);
+                    .get(95, java.util.concurrent.TimeUnit.SECONDS);
             slowResults = safeSlow.stream().map(CompletableFuture::join)
                     .flatMap(List::stream).collect(Collectors.toList());
         } catch (Exception e) {
-            log.warn("[GcpWaste] Slow group timed out — returning partial results: {}", e.getMessage());
+            log.warn("[GcpWaste] Slow group exceeded safety net — returning per-detector results: {}", e.getMessage());
             partial = true;
             slowResults = safeSlow.stream()
                     .filter(f -> f.isDone() && !f.isCompletedExceptionally())
@@ -909,9 +915,25 @@ public class GcpOptimizationService {
                     .flatMap(List::stream).collect(Collectors.toList());
         }
 
-        List<GcpWasteItem> allWaste = new ArrayList<>(fastResults);
-        allWaste.addAll(slowResults);
-        log.info("[GcpWaste] Total: {} items (partial={}) for project {}", allWaste.size(), partial, gcpProjectId);
+        List<GcpWasteItem> combined = new ArrayList<>(fastResults);
+        combined.addAll(slowResults);
+
+        // Deduplicate by resourceId — the same resource can be flagged by both a
+        // Recommender-based detector and a direct-SDK detector. Keep the entry with
+        // the higher monthly savings so we don't double-count or show duplicates.
+        java.util.Map<String, GcpWasteItem> deduped = new java.util.LinkedHashMap<>();
+        for (GcpWasteItem item : combined) {
+            String key = item.getResourceId() != null && !item.getResourceId().isBlank()
+                    ? item.getResourceId()
+                    : item.getResourceName() + "|" + item.getType();
+            GcpWasteItem existing = deduped.get(key);
+            if (existing == null || item.getMonthlySavings() > existing.getMonthlySavings()) {
+                deduped.put(key, item);
+            }
+        }
+        List<GcpWasteItem> allWaste = new ArrayList<>(deduped.values());
+        log.info("[GcpWaste] Total: {} items ({} before dedupe, partial={}) for project {}",
+                allWaste.size(), combined.size(), partial, gcpProjectId);
 
         saveToDb("WASTE::" + gcpProjectId + "::" + java.time.LocalDate.now(), allWaste);
 
@@ -1668,9 +1690,13 @@ public class GcpOptimizationService {
             }
         }
 
+        // Convert USD → INR so waste items are consistent with direct-SDK detectors
+        // (which already use INR constants) and the rest of the GCP cost UI.
+        double monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE;
+
         String reason = rec.getDescription().isEmpty() ? wasteType + " identified by GCP Recommender" : rec.getDescription();
 
-        return new GcpWasteItem(resourceName, resourceName, wasteType, extractLocation(rec.getName()), monthlySavingsUsd, reason);
+        return new GcpWasteItem(resourceName, resourceName, wasteType, extractLocation(rec.getName()), monthlySavingsInr, reason);
     }
 
     private GcpOptimizationRecommendation mapToRightsizingDto(Recommendation rec) {

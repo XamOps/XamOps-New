@@ -479,6 +479,20 @@ const TicketDetailPage: React.FC = () => {
     if (isAdmin) return reply.admin === true;
     return !reply.admin && String(reply.authorId) === String(userProfile?.id);
   };
+  /**
+   * A reply is "seen by the other side" once the opposite party has posted a
+   * non-internal reply after it. Until then it remains editable (no time limit).
+   */
+  const isReplySeen = (reply: TicketReply): boolean => {
+    if (!ticket?.replies) return false;
+    // Seen once someone OTHER than the author posts a later (higher-id) non-internal,
+    // non-deleted reply. Uses reply id (insertion order) for reliable ordering.
+    return ticket.replies.some(r =>
+      r.authorId !== reply.authorId &&
+      !r.isInternal && !r.deleted &&
+      r.id > reply.id
+    );
+  };
   const getInitials = (name: string) => name ? name.charAt(0).toUpperCase() : 'U';
   const getSeverityClass = (sev: string) => {
     if (['High', 'Critical', 'Urgent'].includes(sev)) return 'text-rose-600';
@@ -620,7 +634,7 @@ const TicketDetailPage: React.FC = () => {
                         {/* ── Edit / Delete hover buttons ── */}
                         {isMe(reply) && !reply.deleted && ticket.status !== 'CLOSED' && (
                           <div className={`absolute top-2 ${isMe(reply) ? 'left-2' : 'right-2'} opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1 z-10`}>
-                            {(Date.now() - new Date(reply.createdAt).getTime()) < 15 * 60 * 1000 && (
+                            {!isReplySeen(reply) && (
                               <button
                                 onClick={() => {
                                   setEditingReplyId(reply.id);
@@ -629,7 +643,7 @@ const TicketDetailPage: React.FC = () => {
                                   setEditContent(tmp.textContent || tmp.innerText || '');
                                 }}
                                 className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-                                title="Edit (within 15 min)"
+                                title="Edit (until seen by the other side)"
                               >
                                 <Icon icon="mdi:pencil-outline" width={10} className="text-white/70 hover:text-white" />
                               </button>
@@ -670,7 +684,7 @@ const TicketDetailPage: React.FC = () => {
                                     const htmlMsg = editContent.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
                                     await editReply(reply.id, htmlMsg);
                                     setEditingReplyId(null);
-                                  } catch { globalThis.alert('Failed to edit. The 15-minute window may have passed.'); }
+                                  } catch { globalThis.alert('Failed to edit. The other side may have already seen this message.'); }
                                 }}
                                 className="text-xs px-3 py-1 rounded-lg bg-white text-indigo-700 font-semibold hover:bg-indigo-50"
                               >Save</button>

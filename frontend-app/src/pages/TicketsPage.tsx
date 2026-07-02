@@ -24,6 +24,7 @@ import { useTopbarActions } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
 import { AnimatedItem } from '../components/Shared/AnimatedList';
 import { DialogRoot, DialogPanel } from '../components/ui';
+import { SEVERITY_OPTIONS } from '../constants/ticketSeverity';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,7 +78,6 @@ const SERVICE_OPTIONS: Record<string, string[]> = {
   ],
 };
 
-const SEVERITY_OPTIONS = ['Info', 'Low', 'Normal', 'High', 'Urgent'];
 const POLL_INTERVAL_MS = 30_000;
 
 const DEFAULT_FORM: Omit<TicketForm, 'accountId'> = {
@@ -706,7 +706,9 @@ const TicketsPage: React.FC = () => {
                   >
                     <option disabled value="">Select Severity</option>
                     {SEVERITY_OPTIONS.map((option) => (
-                      <option key={option} value={option}>{option}</option>
+                      <option key={option.value} value={option.value}>
+                        {option.label} — {option.hint}
+                      </option>
                     ))}
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-[rgba(0,0,0,0.4)]">

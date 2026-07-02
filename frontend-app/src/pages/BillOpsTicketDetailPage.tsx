@@ -18,6 +18,7 @@ import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
 import { RCAFormData, RCAFormSection, TicketReply } from '../types/billopsTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
+import CannedResponsesPicker from '../components/tickets/CannedResponsesPicker';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 import '../styles/billopsTicketDetail.css';
@@ -66,10 +67,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const quillRef = useRef<HTMLDivElement>(null);
   const quillInstance = useRef<Quill | null>(null);
   const [newReplyHasContent, setNewReplyHasContent] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Edit / Delete state
   const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [editWidth, setEditWidth] = useState<number | null>(null);
 
   // Internal note toggle (kept for submit path only)
   const [isInternalNote, setIsInternalNote] = useState(false);
@@ -78,6 +82,9 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const [showNotePanel, setShowNotePanel] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
   const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Holds the latest loaded/edited note HTML so the Quill init can seed content
+  // without relying on async state timing.
+  const noteHtmlRef = useRef('');
 
   // Note panel — enhancements
   const [noteTab, setNoteTab] = useState<'note' | 'tasks'>('note');
@@ -98,9 +105,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const isDraggingRef = useRef(false);
   const hasInitialScrolled = useRef(false);
 
-  // File attachment
-  const [attachment, setAttachment] = useState<File | null>(null);
-  const [fileName, setFileName] = useState('');
+  // File attachments (multiple)
+  const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Assignment dropdown state
@@ -193,21 +199,36 @@ const BillOpsTicketDetailPage: React.FC = () => {
   }, [navigate, isAdmin]);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 50 * 1024 * 1024) {
-        globalThis.alert('File is too large. Max size is 50MB.');
-        return;
-      }
-      setAttachment(file);
-      setFileName(file.name);
+    const selected = Array.from(event.target.files || []);
+    if (selected.length === 0) return;
+    const tooBig = selected.find((f) => f.size > 50 * 1024 * 1024);
+    if (tooBig) {
+      globalThis.alert(`"${tooBig.name}" is too large. Max size is 50MB per file.`);
+      return;
     }
+    setAttachments((prev) => [...prev, ...selected]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const clearFile = useCallback(() => {
-    setAttachment(null);
-    setFileName('');
+    setAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
+
+  /** Insert a canned-response template into the reply editor at the cursor. */
+  const insertCannedResponse = useCallback((body: string) => {
+    const quill = quillInstance.current;
+    if (!quill) return;
+    const sel = quill.getSelection(true);
+    const index = sel ? sel.index : quill.getLength();
+    quill.insertText(index, body);
+    quill.setSelection(index + body.length, 0);
+    quill.focus();
+    setNewReplyHasContent(quill.getText().trim().length > 0);
   }, []);
 
   const handleAssign = async (adminId: number, adminUsername: string) => {
@@ -242,10 +263,34 @@ const BillOpsTicketDetailPage: React.FC = () => {
       }
     });
 
+    // Restore any autosaved draft for this ticket (survives refresh/navigation)
+    const draftKey = ticketId ? `xamops_ticket_draft_${ticketId}` : '';
+    if (draftKey) {
+      const savedDraft = localStorage.getItem(draftKey);
+      if (savedDraft) {
+        quillInstance.current.root.innerHTML = savedDraft;
+        setNewReplyHasContent(quillInstance.current.getText().trim().length > 0);
+        setDraftRestored(true);
+      }
+    }
+
     quillInstance.current.on('text-change', () => {
       if (quillInstance.current) {
         const text = quillInstance.current.getText().trim();
         setNewReplyHasContent(text.length > 0);
+        // Debounced draft autosave
+        if (draftKey) {
+          if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+          draftSaveTimerRef.current = setTimeout(() => {
+            if (!quillInstance.current) return;
+            if (quillInstance.current.getText().trim().length > 0) {
+              localStorage.setItem(draftKey, quillInstance.current.root.innerHTML);
+            } else {
+              localStorage.removeItem(draftKey);
+              setDraftRestored(false);
+            }
+          }, 400);
+        }
       }
     });
 
@@ -264,8 +309,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
               globalThis.alert('Pasted image is too large. Max size is 50MB.');
               return;
             }
-            setAttachment(file);
-            setFileName('pasted-image.png');
+            setAttachments((prev) => [...prev, file]);
           });
       }
       return new Delta(); // empty delta — block the image from entering the editor
@@ -305,32 +349,104 @@ const BillOpsTicketDetailPage: React.FC = () => {
   }, [ticket?.replies]);
 
   /**
-   * Load all note data (HTML, tasks, color, history) from localStorage.
-   * Migrates old plain-text notes to HTML automatically.
+   * Persist one or more note fields to the backend (partial update).
+   * The note pad is shared per-ticket across all agents.
+   */
+  const saveNoteFields = useCallback(async (fields: {
+    noteHtml?: string;
+    tasksJson?: string;
+    color?: string;
+    historyJson?: string;
+  }) => {
+    if (!ticketId) return;
+    try {
+      await fetch(`/api/billops/tickets/${ticketId}/note`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields),
+      });
+    } catch (e) {
+      console.error('Failed to save ticket note', e);
+    }
+  }, [ticketId]);
+
+  /**
+   * Load the shared note (HTML, tasks, color, history) from the backend.
+   * One-time migration: if the server has no note yet but this browser has
+   * legacy localStorage notes, seed the server from them and clear the keys.
    */
   useEffect(() => {
-    if (!ticketId) return;
-    const oldText = localStorage.getItem(`xamops_ticket_note_${ticketId}`);
-    const html = localStorage.getItem(`xamops_ticket_note_html_${ticketId}`)
-      || (oldText ? `<p>${oldText.replace(/\n/g, '</p><p>')}</p>` : '');
-    setNoteHtml(html);
-    if (html) {
-      const tmp = document.createElement('div');
-      tmp.innerHTML = html;
-      const text = (tmp.textContent || '').trim();
-      setNoteWordCount(text ? text.split(/\s+/).filter(Boolean).length : 0);
-    }
-    try {
-      const tasks = JSON.parse(localStorage.getItem(`xamops_ticket_tasks_${ticketId}`) || '[]');
-      setNoteTasks(tasks);
-    } catch { setNoteTasks([]); }
-    const savedColor = localStorage.getItem(`xamops_ticket_note_color_${ticketId}`) as keyof typeof NOTE_COLORS | null;
-    if (savedColor && NOTE_COLORS[savedColor]) setNoteColor(savedColor);
-    try {
-      const hist = JSON.parse(localStorage.getItem(`xamops_ticket_note_history_${ticketId}`) || '[]');
-      setNoteHistory(hist);
-    } catch { setNoteHistory([]); }
-  }, [ticketId]);
+    if (!ticketId || !isAdmin) return;
+    let cancelled = false;
+
+    const applyHtml = (html: string) => {
+      noteHtmlRef.current = html;
+      setNoteHtml(html);
+      if (html) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        const text = (tmp.textContent || '').trim();
+        setNoteWordCount(text ? text.split(/\s+/).filter(Boolean).length : 0);
+      } else {
+        setNoteWordCount(0);
+      }
+    };
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/billops/tickets/${ticketId}/note`, { credentials: 'include' });
+        const data = res.ok ? await res.json() : {};
+        if (cancelled) return;
+
+        const hasServerNote = data && (data.noteHtml || data.tasksJson || data.color || data.historyJson);
+        if (hasServerNote) {
+          applyHtml(data.noteHtml || '');
+          try { setNoteTasks(data.tasksJson ? JSON.parse(data.tasksJson) : []); } catch { setNoteTasks([]); }
+          if (data.color && NOTE_COLORS[data.color as keyof typeof NOTE_COLORS]) {
+            setNoteColor(data.color as keyof typeof NOTE_COLORS);
+          }
+          try { setNoteHistory(data.historyJson ? JSON.parse(data.historyJson) : []); } catch { setNoteHistory([]); }
+          return;
+        }
+
+        // No server note — migrate from legacy localStorage (if any)
+        const oldText = localStorage.getItem(`xamops_ticket_note_${ticketId}`);
+        const legacyHtml = localStorage.getItem(`xamops_ticket_note_html_${ticketId}`)
+          || (oldText ? `<p>${oldText.replace(/\n/g, '</p><p>')}</p>` : '');
+        let legacyTasks = '[]';
+        try { legacyTasks = localStorage.getItem(`xamops_ticket_tasks_${ticketId}`) || '[]'; } catch { /* ignore */ }
+        const legacyColor = localStorage.getItem(`xamops_ticket_note_color_${ticketId}`) || '';
+        const legacyHistory = localStorage.getItem(`xamops_ticket_note_history_${ticketId}`) || '[]';
+
+        applyHtml(legacyHtml);
+        try { setNoteTasks(JSON.parse(legacyTasks)); } catch { setNoteTasks([]); }
+        if (legacyColor && NOTE_COLORS[legacyColor as keyof typeof NOTE_COLORS]) {
+          setNoteColor(legacyColor as keyof typeof NOTE_COLORS);
+        }
+        try { setNoteHistory(JSON.parse(legacyHistory)); } catch { setNoteHistory([]); }
+
+        if (legacyHtml || legacyTasks !== '[]' || legacyColor) {
+          await saveNoteFields({
+            noteHtml: legacyHtml,
+            tasksJson: legacyTasks,
+            color: legacyColor || 'yellow',
+            historyJson: legacyHistory,
+          });
+          // Clear migrated keys so they don't override the server later
+          localStorage.removeItem(`xamops_ticket_note_${ticketId}`);
+          localStorage.removeItem(`xamops_ticket_note_html_${ticketId}`);
+          localStorage.removeItem(`xamops_ticket_tasks_${ticketId}`);
+          localStorage.removeItem(`xamops_ticket_note_color_${ticketId}`);
+          localStorage.removeItem(`xamops_ticket_note_history_${ticketId}`);
+        }
+      } catch (e) {
+        console.error('Failed to load ticket note', e);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [ticketId, isAdmin, saveNoteFields]);
 
   /** Keyboard shortcut: Ctrl/Cmd + Shift + N toggles note panel (admin only) */
   useEffect(() => {
@@ -386,26 +502,24 @@ const BillOpsTicketDetailPage: React.FC = () => {
         },
       });
 
-      // Load saved content directly from storage to avoid stale-state timing issues
-      const savedHtml = ticketId
-        ? (localStorage.getItem(`xamops_ticket_note_html_${ticketId}`) || '')
-        : '';
+      // Seed content from the loaded note (ref avoids stale-state timing issues)
+      const savedHtml = noteHtmlRef.current || '';
       if (savedHtml) noteQuillInstance.current.root.innerHTML = savedHtml;
 
       noteQuillInstance.current.on('text-change', () => {
         if (!noteQuillInstance.current) return;
         const html = noteQuillInstance.current.root.innerHTML;
         const text = noteQuillInstance.current.getText().trim();
+        noteHtmlRef.current = html;
         setNoteHtml(html);
         setNoteWordCount(text ? text.split(/\s+/).filter(Boolean).length : 0);
         if (noteSaveTimerRef.current) clearTimeout(noteSaveTimerRef.current);
         noteSaveTimerRef.current = setTimeout(() => {
           if (!ticketId) return;
-          localStorage.setItem(`xamops_ticket_note_html_${ticketId}`, html);
           const entry = { html, savedAt: Date.now() };
           setNoteHistory(prev => {
             const updated = [entry, ...prev.slice(0, 2)];
-            localStorage.setItem(`xamops_ticket_note_history_${ticketId}`, JSON.stringify(updated));
+            saveNoteFields({ noteHtml: html, historyJson: JSON.stringify(updated) });
             return updated;
           });
           setNoteSaved(true);
@@ -414,7 +528,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
       });
     }, 50);
     return () => clearTimeout(timer);
-  }, [showNotePanel, ticketId]);
+  }, [showNotePanel, ticketId, saveNoteFields]);
 
   /**
    * Redirect if no ticket ID
@@ -782,7 +896,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
     const textContent = quillInstance.current.getText().trim();
     const rawHtml = quillInstance.current.root.innerHTML;
     const hasEmbeddedImage = /<img[^>]+src="data:/i.test(rawHtml);
-    if (!textContent && !attachment && !hasEmbeddedImage) return;
+    if (!textContent && attachments.length === 0 && !hasEmbeddedImage) return;
 
     try {
       let htmlMessage = (textContent || hasEmbeddedImage) ? rawHtml : '';
@@ -790,24 +904,26 @@ const BillOpsTicketDetailPage: React.FC = () => {
       // Extract any base64 image from the HTML and convert to a file attachment.
       // This handles cases where Quill embeds a pasted image before our clipboard
       // matcher can capture it, or when the async fetch hasn't completed yet.
-      let fileToSend = attachment;
+      const filesToSend = [...attachments];
       const b64Match = htmlMessage.match(/<img[^>]+src="(data:image\/[^;]+;base64,[^"]+)"[^>]*>/i);
-      if (b64Match && !fileToSend) {
+      if (b64Match && filesToSend.length === 0) {
         const dataUrl = b64Match[1];
         const byteString = atob(dataUrl.split(',')[1]);
         const mimeType = dataUrl.match(/data:([^;]+)/)?.[1] || 'image/png';
         const ab = new ArrayBuffer(byteString.length);
         const ia = new Uint8Array(ab);
         for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-        fileToSend = new File([ab], 'pasted-image.png', { type: mimeType });
+        filesToSend.push(new File([ab], 'pasted-image.png', { type: mimeType }));
       }
       // Always strip base64 images from the message HTML
       htmlMessage = htmlMessage.replace(/<img[^>]+src="data:[^"]*"[^>]*>/gi, '');
 
-      await submitReply(htmlMessage, fileToSend, isInternalNote);
+      await submitReply(htmlMessage, filesToSend, isInternalNote);
 
       quillInstance.current.root.innerHTML = '';
       setNewReplyHasContent(false);
+      if (ticketId) localStorage.removeItem(`xamops_ticket_draft_${ticketId}`);
+      setDraftRestored(false);
       clearFile();
       setIsInternalNote(false);
 
@@ -887,14 +1003,14 @@ const BillOpsTicketDetailPage: React.FC = () => {
    */
   const isReplySeen = useCallback((reply: TicketReply): boolean => {
     if (!ticket?.replies) return false;
-    const replyTime = new Date(reply.createdAt).getTime();
-    if (reply.admin) {
-      // Admin's outgoing → seen once a non-internal user reply follows
-      return ticket.replies.some(r => !r.admin && !r.isInternal && new Date(r.createdAt).getTime() > replyTime);
-    } else {
-      // User's outgoing → seen once a non-internal admin reply follows
-      return ticket.replies.some(r => r.admin && !r.isInternal && new Date(r.createdAt).getTime() > replyTime);
-    }
+    // Seen once someone OTHER than the author posts a later (higher-id) non-internal,
+    // non-deleted reply. Uses reply id (insertion order) — reliable regardless of
+    // timezone/createdAt formatting.
+    return ticket.replies.some(r =>
+      r.authorId !== reply.authorId &&
+      !r.isInternal && !r.deleted &&
+      r.id > reply.id
+    );
   }, [ticket?.replies]);
 
   /**
@@ -924,19 +1040,19 @@ const BillOpsTicketDetailPage: React.FC = () => {
     const updated = [...noteTasks, task];
     setNoteTasks(updated);
     setNewTaskText('');
-    if (ticketId) localStorage.setItem(`xamops_ticket_tasks_${ticketId}`, JSON.stringify(updated));
+    saveNoteFields({ tasksJson: JSON.stringify(updated) });
   };
 
   const toggleTask = (id: string) => {
     const updated = noteTasks.map(t => t.id === id ? { ...t, done: !t.done } : t);
     setNoteTasks(updated);
-    if (ticketId) localStorage.setItem(`xamops_ticket_tasks_${ticketId}`, JSON.stringify(updated));
+    saveNoteFields({ tasksJson: JSON.stringify(updated) });
   };
 
   const deleteTask = (id: string) => {
     const updated = noteTasks.filter(t => t.id !== id);
     setNoteTasks(updated);
-    if (ticketId) localStorage.setItem(`xamops_ticket_tasks_${ticketId}`, JSON.stringify(updated));
+    saveNoteFields({ tasksJson: JSON.stringify(updated) });
   };
 
   const handleCopyNote = useCallback(() => {
@@ -954,7 +1070,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
     if (!noteQuillInstance.current.getText().trim()) return;
     setIsPostingNote(true);
     try {
-      await submitReply(html, null, true);
+      await submitReply(html, [], true);
     } catch {
       globalThis.alert('Failed to post as internal note.');
     } finally {
@@ -994,7 +1110,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
   const setNoteColorAndSave = (color: keyof typeof NOTE_COLORS) => {
     setNoteColor(color);
-    if (ticketId) localStorage.setItem(`xamops_ticket_note_color_${ticketId}`, color);
+    saveNoteFields({ color });
   };
 
   const renderRcaSection = (arrayName: keyof RCAFormData, sections: RCAFormSection[]) => (
@@ -1240,17 +1356,18 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           {/* ── Edit / Delete hover buttons ── */}
                           {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
                             <div className="absolute top-2 right-2 opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1 z-10">
-                              {/* Edit — only within 15 min */}
-                              {(Date.now() - new Date(reply.createdAt).getTime()) < 15 * 60 * 1000 && (
+                              {/* Edit — allowed until the other side has seen (replied after) this message */}
+                              {!isReplySeen(reply) && (
                                 <button
                                   onClick={() => {
                                     setEditingReplyId(reply.id);
+                                    setEditWidth(null);
                                     const tmp = document.createElement('div');
                                     tmp.innerHTML = reply.message;
                                     setEditContent(tmp.textContent || tmp.innerText || '');
                                   }}
                                   className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-                                  title="Edit (within 15 min)"
+                                  title="Edit (until seen by the other side)"
                                 >
                                   <Icon icon="mdi:pencil-outline" width={12} className="text-white/70" />
                                 </button>
@@ -1271,14 +1388,44 @@ const BillOpsTicketDetailPage: React.FC = () => {
                               <span className="text-sm">This message was deleted</span>
                             </div>
                           ) : editingReplyId === reply.id ? (
-                            <div className="flex flex-col gap-2 min-w-[200px]">
-                              <textarea
-                                value={editContent}
-                                onChange={e => setEditContent(e.target.value)}
-                                className="w-full rounded-lg border border-[rgba(0,0,0,0.18)] p-2 text-sm text-[rgba(0,0,0,0.88)] resize-none focus:outline-none focus:ring-2 focus:ring-[rgba(0,0,0,0.3)]"
-                                rows={3}
-                                autoFocus
-                              />
+                            <div
+                              className="flex flex-col gap-2 min-w-[260px]"
+                              style={{ width: editWidth ?? 'min(72vw, 480px)' }}
+                            >
+                              <div className="relative">
+                                {/* Left-edge drag handle — widens the box leftward (right edge stays pinned) */}
+                                <div
+                                  onPointerDown={(e) => {
+                                    e.preventDefault();
+                                    const container = (e.currentTarget.parentElement?.parentElement as HTMLElement);
+                                    const row = e.currentTarget.closest('.chat-bubble-enter') as HTMLElement | null;
+                                    const startX = e.clientX;
+                                    const startW = container.offsetWidth;
+                                    // Cap to the right-aligned 72% column so growth stays on-screen (leftward).
+                                    const rowWidth = row ? row.clientWidth : window.innerWidth;
+                                    const maxW = Math.max(300, rowWidth * 0.72 - 44);
+                                    const onMove = (ev: PointerEvent) => {
+                                      const delta = startX - ev.clientX; // drag left → wider
+                                      setEditWidth(Math.min(maxW, Math.max(260, startW + delta)));
+                                    };
+                                    const onUp = () => {
+                                      window.removeEventListener('pointermove', onMove);
+                                      window.removeEventListener('pointerup', onUp);
+                                    };
+                                    window.addEventListener('pointermove', onMove);
+                                    window.addEventListener('pointerup', onUp);
+                                  }}
+                                  className="absolute left-0 top-0 h-full w-2 -ml-1 cursor-ew-resize rounded-l-lg bg-transparent hover:bg-[rgba(0,0,0,0.15)] z-10"
+                                  title="Drag to widen"
+                                />
+                                <textarea
+                                  value={editContent}
+                                  onChange={e => setEditContent(e.target.value)}
+                                  className="w-full rounded-lg border border-[rgba(0,0,0,0.18)] p-2 pl-3 text-sm text-[rgba(0,0,0,0.88)] bg-white resize-y max-h-[60vh] overflow-auto focus:outline-none focus:ring-2 focus:ring-[rgba(0,0,0,0.3)]"
+                                  rows={Math.min(16, Math.max(5, editContent.split('\n').length + 1))}
+                                  autoFocus
+                                />
+                              </div>
                               <div className="flex gap-2 justify-end">
                                 <button
                                   onClick={() => setEditingReplyId(null)}
@@ -1291,7 +1438,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                       const htmlMsg = editContent.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
                                       await editReply(reply.id, htmlMsg);
                                       setEditingReplyId(null);
-                                    } catch { globalThis.alert('Failed to edit. The 15-minute window may have passed.'); }
+                                    } catch (err) { globalThis.alert('Failed to edit — ' + (err instanceof Error ? err.message : 'unknown')); }
                                   }}
                                   className="text-xs px-3 py-1 rounded-lg bg-white text-[rgba(0,0,0,0.88)] font-semibold hover:bg-[rgba(0,0,0,0.04)]"
                                 >Save</button>
@@ -1306,53 +1453,65 @@ const BillOpsTicketDetailPage: React.FC = () => {
                             </>
                           )}
 
-                          {/* Attachments (only if not deleted) */}
-                          {!reply.deleted && (reply.attachmentUrl || reply.attachmentName) && (
-                            <div className="mt-3">
-                              {reply.attachmentType?.startsWith('image/') && (
-                                <div
-                                  className="mb-3 rounded-lg overflow-hidden border border-white/20 shadow-sm max-w-xs cursor-pointer hover:opacity-90 transition-opacity"
-                                  onClick={() => globalThis.open(reply.attachmentUrl, '_blank')}
-                                >
-                                  <img src={reply.attachmentUrl} alt={reply.attachmentName} className="w-full h-auto object-cover max-h-60" />
-                                </div>
-                              )}
+                          {/* Attachments (only if not deleted) — supports multiple files */}
+                          {!reply.deleted && (() => {
+                            const atts = (reply.attachments && reply.attachments.length > 0)
+                              ? reply.attachments
+                              : ((reply.attachmentUrl || reply.attachmentName)
+                                  ? [{ url: reply.attachmentUrl, name: reply.attachmentName, type: reply.attachmentType }]
+                                  : []);
+                            if (atts.length === 0) return null;
+                            return (
+                              <div className="mt-3 space-y-2">
+                                {atts.map((att, ai) => (
+                                  <React.Fragment key={ai}>
+                                    {att.type?.startsWith('image/') && (
+                                      <div
+                                        className="rounded-lg overflow-hidden border border-white/20 shadow-sm max-w-xs cursor-pointer hover:opacity-90 transition-opacity"
+                                        onClick={() => globalThis.open(att.url, '_blank')}
+                                      >
+                                        <img src={att.url} alt={att.name} className="w-full h-auto object-cover max-h-60" />
+                                      </div>
+                                    )}
 
-                              {reply.attachmentName?.startsWith('rca_ticket_') && (
-                                <div
-                                  className="cursor-pointer rounded-lg overflow-hidden border border-white/20 hover:border-purple-300 transition-colors"
-                                  onClick={() => reply.attachmentUrl ? globalThis.open(reply.attachmentUrl, '_blank') : globalThis.alert('File URL not found')}
-                                >
-                                  <div className={`flex items-center p-3 ${isMine ? 'bg-white/10' : 'bg-purple-50'}`}>
-                                    <div className="p-2 bg-purple-600 text-white rounded-md mr-3">
-                                      <Icon icon="mdi:file-document-edit-outline" width={16} />
-                                    </div>
-                                    <div className="flex-1">
-                                      <h4 className={`text-sm font-semibold leading-tight ${isMine ? 'text-white' : 'text-purple-900'}`}>RCA Report Generated</h4>
-                                      <p className={`text-[10px] mt-0.5 ${isMine ? 'text-white/70' : 'text-purple-600'}`}>Download PDF Report</p>
-                                    </div>
-                                    <Icon icon="mdi:download-outline" width={16} className={isMine ? 'text-white/50' : 'text-purple-400'} />
-                                  </div>
-                                </div>
-                              )}
+                                    {att.name?.startsWith('rca_ticket_') && (
+                                      <div
+                                        className="cursor-pointer rounded-lg overflow-hidden border border-white/20 hover:border-purple-300 transition-colors"
+                                        onClick={() => att.url ? globalThis.open(att.url, '_blank') : globalThis.alert('File URL not found')}
+                                      >
+                                        <div className={`flex items-center p-3 ${isMine ? 'bg-white/10' : 'bg-purple-50'}`}>
+                                          <div className="p-2 bg-purple-600 text-white rounded-md mr-3">
+                                            <Icon icon="mdi:file-document-edit-outline" width={16} />
+                                          </div>
+                                          <div className="flex-1">
+                                            <h4 className={`text-sm font-semibold leading-tight ${isMine ? 'text-white' : 'text-purple-900'}`}>RCA Report Generated</h4>
+                                            <p className={`text-[10px] mt-0.5 ${isMine ? 'text-white/70' : 'text-purple-600'}`}>Download PDF Report</p>
+                                          </div>
+                                          <Icon icon="mdi:download-outline" width={16} className={isMine ? 'text-white/50' : 'text-purple-400'} />
+                                        </div>
+                                      </div>
+                                    )}
 
-                              {(!reply.attachmentName || !reply.attachmentName.startsWith('rca_ticket_')) && (
-                                <div
-                                  className={`flex items-center p-3 rounded-lg transition-colors cursor-pointer ${isMine ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.04)]'}`}
-                                  onClick={() => reply.attachmentUrl ? globalThis.open(reply.attachmentUrl, '_blank') : alert('File URL not found')}
-                                >
-                                  <div className={`w-8 h-8 flex items-center justify-center rounded-md mr-3 ${isMine ? 'bg-white/20 text-white' : 'bg-white border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.4)]'}`}>
-                                    {reply.attachmentType?.startsWith('image/') ? <Icon icon="mdi:file-image-outline" width={16} /> : reply.attachmentType?.includes('pdf') ? <Icon icon="mdi:file-pdf-box" width={16} /> : <Icon icon="mdi:file-outline" width={16} />}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className={`text-xs font-medium truncate ${isMine ? 'text-white' : 'text-[rgba(0,0,0,0.88)]'}`}>{reply.attachmentName || 'Attached File'}</p>
-                                    <p className={`text-[10px] mt-0.5 ${isMine ? 'text-white/60' : 'text-[rgba(0,0,0,0.35)]'}`}>Click to view</p>
-                                  </div>
-                                  <Icon icon="mdi:download-outline" width={14} className={isMine ? 'text-white/40' : 'text-[rgba(0,0,0,0.2)]'} />
-                                </div>
-                              )}
-                            </div>
-                          )}
+                                    {(!att.name || !att.name.startsWith('rca_ticket_')) && (
+                                      <div
+                                        className={`flex items-center p-3 rounded-lg transition-colors cursor-pointer ${isMine ? 'bg-white/10 border border-white/20 hover:bg-white/20' : 'bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.04)]'}`}
+                                        onClick={() => att.url ? globalThis.open(att.url, '_blank') : alert('File URL not found')}
+                                      >
+                                        <div className={`w-8 h-8 flex items-center justify-center rounded-md mr-3 ${isMine ? 'bg-white/20 text-white' : 'bg-white border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.4)]'}`}>
+                                          {att.type?.startsWith('image/') ? <Icon icon="mdi:file-image-outline" width={16} /> : att.type?.includes('pdf') ? <Icon icon="mdi:file-pdf-box" width={16} /> : <Icon icon="mdi:file-outline" width={16} />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className={`text-xs font-medium truncate ${isMine ? 'text-white' : 'text-[rgba(0,0,0,0.88)]'}`}>{att.name || 'Attached File'}</p>
+                                          <p className={`text-[10px] mt-0.5 ${isMine ? 'text-white/60' : 'text-[rgba(0,0,0,0.35)]'}`}>Click to view</p>
+                                        </div>
+                                        <Icon icon="mdi:download-outline" width={14} className={isMine ? 'text-white/40' : 'text-[rgba(0,0,0,0.2)]'} />
+                                      </div>
+                                    )}
+                                  </React.Fragment>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -1411,17 +1570,37 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 <div className="flex items-center gap-2 text-[11px] font-medium text-[rgba(0,0,0,0.5)]">
                   <Icon icon="mdi:reply" width={12} className="text-[rgba(0,0,0,0.4)]" />
                   Official Ticket Response
+                  {draftRestored && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-medium">
+                      <Icon icon="mdi:content-save-edit-outline" width={11} />
+                      Draft restored
+                      <button
+                        type="button"
+                        title="Discard draft"
+                        onClick={() => {
+                          if (quillInstance.current) quillInstance.current.root.innerHTML = '';
+                          setNewReplyHasContent(false);
+                          if (ticketId) localStorage.removeItem(`xamops_ticket_draft_${ticketId}`);
+                          setDraftRestored(false);
+                        }}
+                        className="ml-0.5 hover:text-red-500 transition-colors"
+                      >
+                        <Icon icon="mdi:close" width={11} />
+                      </button>
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  {attachment && (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.88)] rounded-md border border-[rgba(0,0,0,0.06)] text-[11px] font-medium">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  {attachments.map((f, i) => (
+                    <div key={i} className="flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.88)] rounded-md border border-[rgba(0,0,0,0.06)] text-[11px] font-medium">
                       <Icon icon="mdi:paperclip" width={12} />
-                      <span className="max-w-[140px] truncate">{fileName}</span>
-                      <button type="button" onClick={clearFile} className="hover:text-red-500 transition-colors ml-0.5">
+                      <span className="max-w-[140px] truncate">{f.name}</span>
+                      <button type="button" onClick={() => removeAttachment(i)} className="hover:text-red-500 transition-colors ml-0.5">
                         <Icon icon="mdi:close" width={12} />
                       </button>
                     </div>
-                  )}
+                  ))}
+                  {isAdmin && <CannedResponsesPicker onInsert={insertCannedResponse} />}
                   {isAdmin && (
                     <button
                       type="button"
@@ -1452,12 +1631,12 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 <label className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)] rounded-md text-[11px] font-medium cursor-pointer transition-colors">
                   <Icon icon="mdi:paperclip" width={14} />
                   Attach Files
-                  <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
+                  <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
                 </label>
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || (!newReplyHasContent && !attachment)}
+                  disabled={isSubmitting || (!newReplyHasContent && attachments.length === 0)}
                   className="flex items-center gap-1.5 px-5 py-2 text-white rounded-md text-[12px] font-medium transition-all disabled:opacity-50 bg-[rgba(0,0,0,0.88)] hover:bg-black hover:scale-[1.02] active:scale-95"
                 >
                   {isSubmitting
@@ -2230,15 +2409,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       onClick={() => {
                         if (noteTab === 'note') {
                           if (noteQuillInstance.current) noteQuillInstance.current.root.innerHTML = '';
+                          noteHtmlRef.current = '';
                           setNoteHtml('');
                           setNoteWordCount(0);
-                          if (ticketId) {
-                            localStorage.removeItem(`xamops_ticket_note_html_${ticketId}`);
-                            localStorage.removeItem(`xamops_ticket_note_${ticketId}`);
-                          }
+                          saveNoteFields({ noteHtml: '' });
                         } else {
                           setNoteTasks([]);
-                          if (ticketId) localStorage.removeItem(`xamops_ticket_tasks_${ticketId}`);
+                          saveNoteFields({ tasksJson: '[]' });
                         }
                       }}
                       className="flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg border border-current/20 transition-all active:scale-95 opacity-50 hover:opacity-100 hover:bg-red-50 hover:text-red-600 hover:border-red-200"

@@ -7,11 +7,22 @@ interface AzureWasteResourceGroupProps {
 }
 
 const TYPE_ICONS: Record<string, { icon: string; color: string; bg: string }> = {
-  'Unattached Disk':   { icon: 'mdi:harddisk',        color: '#3B82F6', bg: '#3B82F614' },
-  'Stopped VM':        { icon: 'mdi:monitor-off',      color: '#8B5CF6', bg: '#8B5CF614' },
-  'Deallocated VM':    { icon: 'mdi:power-off',        color: '#6366F1', bg: '#6366F114' },
-  'Orphaned Public IP':{ icon: 'mdi:ip-network',       color: '#F59E0B', bg: '#F59E0B14' },
-  'Unattached NIC':    { icon: 'mdi:ethernet',         color: '#6B7280', bg: '#6B728014' },
+  'Unattached Disk':       { icon: 'mdi:harddisk',         color: '#3B82F6', bg: '#3B82F614' },
+  'Stopped VM':            { icon: 'mdi:monitor-off',       color: '#8B5CF6', bg: '#8B5CF614' },
+  'Deallocated VM':        { icon: 'mdi:power-off',         color: '#6366F1', bg: '#6366F114' },
+  'Orphaned Public IP':    { icon: 'mdi:ip-network',        color: '#F59E0B', bg: '#F59E0B14' },
+  'Unattached NIC':        { icon: 'mdi:ethernet',          color: '#6B7280', bg: '#6B728014' },
+  'Old Snapshot':          { icon: 'mdi:camera-burst',      color: '#0EA5E9', bg: '#0EA5E914' },
+  'Empty Load Balancer':   { icon: 'mdi:scale-balance',     color: '#EC4899', bg: '#EC489914' },
+  'Unused NSG':            { icon: 'mdi:shield-off-outline', color: '#64748B', bg: '#64748B14' },
+  'Empty Availability Set':{ icon: 'mdi:server-network-off', color: '#94A3B8', bg: '#94A3B814' },
+  'Orphaned Route Table':  { icon: 'mdi:routes',            color: '#A855F7', bg: '#A855F714' },
+  'Idle Running VM':       { icon: 'mdi:sleep',             color: '#EF4444', bg: '#EF444414' },
+  'Idle SQL Database':     { icon: 'mdi:database-clock',     color: '#F97316', bg: '#F9731614' },
+  'Empty App Service Plan':{ icon: 'mdi:web-off',           color: '#14B8A6', bg: '#14B8A614' },
+  'Idle Storage Account':  { icon: 'mdi:database-off',       color: '#0891B2', bg: '#0891B214' },
+  'Idle Cosmos DB':        { icon: 'mdi:earth-off',          color: '#7C3AED', bg: '#7C3AED14' },
+  'Empty Resource Group':  { icon: 'mdi:folder-remove-outline', color: '#9CA3AF', bg: '#9CA3AF14' },
 };
 
 const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group }) => {
@@ -98,7 +109,7 @@ const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group
         <div className="flex items-center gap-3">
           {group.totalSavings > 0 && (
             <span className="text-[12px] font-semibold text-rose-600">
-              ${group.totalSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
+              ₹{group.totalSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
             </span>
           )}
           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100">
@@ -130,7 +141,7 @@ const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group
             <div className="col-span-2 text-right">
               {resource.monthlySavings > 0 ? (
                 <span className="font-semibold text-rose-600">
-                  ${resource.monthlySavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ₹{resource.monthlySavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               ) : (
                 <span className="text-[rgba(0,0,0,0.3)] text-[11px]">hygiene</span>

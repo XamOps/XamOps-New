@@ -1,142 +1,109 @@
-/* BillOps Admin Dashboard Styles — Professional / Clean */
+/* BillOps Admin Dashboard Styles — AWS / FinOps crisp aesthetic */
 
 /* ── CSS Variables ──────────────────────────────────────────────────────── */
 :root {
-  --billops-admin-page-bg: #f5f6f8;
-  --billops-admin-text-primary: #111827;
-  --billops-admin-text-secondary: #6b7280;
+  --billops-admin-page-bg: #ffffff;
   --billops-admin-card-bg: #ffffff;
-  --billops-admin-card-border: #e5e7eb;
-  --billops-admin-table-header-bg: #f9fafb;
+  --billops-admin-card-border: rgba(0, 0, 0, 0.08);
+  --billops-admin-row-hover: rgba(0, 0, 0, 0.015);
+  --billops-admin-th-color: rgba(0, 0, 0, 0.45);
 }
 
 html.dark {
   --billops-admin-page-bg: #0f1117;
-  --billops-admin-text-primary: #f1f5f9;
-  --billops-admin-text-secondary: #94a3b8;
   --billops-admin-card-bg: #161b27;
-  --billops-admin-card-border: #1e2536;
-  --billops-admin-table-header-bg: #1a2032;
+  --billops-admin-card-border: rgba(255, 255, 255, 0.07);
+  --billops-admin-row-hover: rgba(255, 255, 255, 0.03);
+  --billops-admin-th-color: #94a3b8;
 }
 
 /* ── Page Container ─────────────────────────────────────────────────────── */
 .admin-dashboard {
   min-height: 100vh;
   background: var(--billops-admin-page-bg);
-  color: var(--billops-admin-text-primary);
   font-family: 'Inter', 'DM Sans', system-ui, -apple-system, sans-serif;
 }
 
 /* ── Card ───────────────────────────────────────────────────────────────── */
-.admin-glass-card {
+.bo-card {
   background: var(--billops-admin-card-bg);
   border: 1px solid var(--billops-admin-card-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  transition: box-shadow 0.15s ease;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
-.admin-glass-card:hover {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+/* ── Metric card cloud decoration ───────────────────────────────────────── */
+.bo-metric-cloud {
+  position: absolute;
+  top: -26px;
+  right: -22px;
+  color: #94a3b8;
+  opacity: 0.06;
+  pointer-events: none;
 }
-
-/* Remove the shimmer sweep on cards */
-.admin-glass-card::before {
-  display: none;
-}
-
-/* ── Metric Cards ───────────────────────────────────────────────────────── */
-.admin-metric-card {
-  position: relative;
-  z-index: 1;
-}
-
-.admin-metric-value {
-  font-weight: 700;
-  color: var(--billops-admin-text-primary);
-  letter-spacing: -0.02em;
-}
-
-/* ── Accent borders (left edge) ─────────────────────────────────────────── */
-.admin-border-indigo { border-left: 3px solid #4f46e5; }
-.admin-border-purple { border-left: 3px solid #7c3aed; }
-.admin-border-blue   { border-left: 3px solid #2563eb; }
-.admin-border-orange { border-left: 3px solid #ea580c; }
-.admin-border-cyan   { border-left: 3px solid #0891b2; }
-.admin-border-green  { border-left: 3px solid #16a34a; }
-
-.admin-border-top-indigo { border-top: 3px solid #4f46e5; }
-.admin-border-top-purple { border-top: 3px solid #7c3aed; }
-
-/* ── Header ─────────────────────────────────────────────────────────────── */
-.admin-header {
-  background: var(--billops-admin-card-bg);
-  border-bottom: 1px solid var(--billops-admin-card-border);
-  box-shadow: none;
-}
-
-.admin-header-icon {
-  background: #4f46e5;
-}
-
-/* ── Refresh Button (flat) ──────────────────────────────────────────────── */
-.admin-refresh-btn {
-  background: #4f46e5;
-  transition: background 0.15s ease;
-}
-
-.admin-refresh-btn:hover  { background: #4338ca; }
-.admin-refresh-btn:active { transform: scale(0.97); }
-.admin-refresh-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-
-/* ── Icon Backgrounds (flat tint) ───────────────────────────────────────── */
-.admin-icon-indigo { background: #eef2ff; }
-.admin-icon-purple { background: #f5f3ff; }
-.admin-icon-blue   { background: #eff6ff; }
-.admin-icon-orange { background: #fff7ed; }
-.admin-icon-cyan   { background: #ecfeff; }
-
-html.dark .admin-icon-indigo { background: rgba(79,70,229,0.12); }
-html.dark .admin-icon-purple { background: rgba(124,58,237,0.12); }
-html.dark .admin-icon-blue   { background: rgba(37,99,235,0.12); }
-html.dark .admin-icon-orange { background: rgba(234,88,12,0.12); }
-html.dark .admin-icon-cyan   { background: rgba(8,145,178,0.12); }
+html.dark .bo-metric-cloud { opacity: 0.05; }
 
 /* ── Provider Badge ─────────────────────────────────────────────────────── */
 .admin-provider-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 11.5px;
   font-weight: 500;
-  background: var(--billops-admin-table-header-bg);
-  border: 1px solid var(--billops-admin-card-border);
-  color: var(--billops-admin-text-primary);
+  background: rgba(0, 0, 0, 0.035);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+}
+html.dark .admin-provider-badge {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
 }
 
-/* ── Status Badges (monochrome variants) ────────────────────────────────── */
-.admin-status-badge,
-.admin-status-badge-sm {
+/* ── Rank pill (Top 10) ─────────────────────────────────────────────────── */
+.bo-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.45);
+}
+.bo-rank-top {
+  background: linear-gradient(135deg, #4285F4, #6366f1);
+  color: #fff;
+}
+html.dark .bo-rank { background: rgba(255, 255, 255, 0.06); color: #94a3b8; }
+
+/* ── Status Badges (soft rounded pills) ─────────────────────────────────── */
+.admin-status-badge {
   display: inline-block;
-  padding: 2px 8px;
+  padding: 3px 10px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  border-radius: 4px;
+  letter-spacing: 0.01em;
+  border-radius: 9999px;
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 
-.admin-status-active      { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
-.admin-status-pending     { background: #fefce8; color: #a16207; border-color: #fde68a; }
+.admin-status-active      { background: #ecfdf3; color: #158045; border-color: #c7f0d6; }
+.admin-status-pending     { background: #fffaeb; color: #b45309; border-color: #fde68a; }
 .admin-status-inactive    { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
-.admin-status-draft       { background: #fefce8; color: #a16207; border-color: #fde68a; }
-.admin-status-finalized   { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
-.admin-status-paid        { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+.admin-status-draft       { background: #fffaeb; color: #b45309; border-color: #fde68a; }
+.admin-status-finalized   { background: #ecfdf3; color: #158045; border-color: #c7f0d6; }
+.admin-status-paid        { background: #ecfdf3; color: #158045; border-color: #c7f0d6; }
 .admin-status-overdue     { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
 .admin-status-open        { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
 .admin-status-in-progress { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
-.admin-status-closed      { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+.admin-status-closed      { background: #f4f5f7; color: #475569; border-color: #d8dde5; }
 
 /* ── Severity ───────────────────────────────────────────────────────────── */
 .admin-severity-low      { color: #2563eb; }
@@ -144,46 +111,35 @@ html.dark .admin-icon-cyan   { background: rgba(8,145,178,0.12); }
 .admin-severity-high,
 .admin-severity-critical { color: #dc2626; }
 
-/* ── Provider Colors ────────────────────────────────────────────────────── */
-.admin-provider-aws   { color: #FF9900; }
-.admin-provider-gcp   { color: #34A853; }
-.admin-provider-azure { color: #0078D4; }
-
 /* ── Table ──────────────────────────────────────────────────────────────── */
-.admin-glass-card table {
+.bo-table {
   border-collapse: collapse;
+  width: 100%;
 }
 
-.admin-glass-card table thead th {
-  background: var(--billops-admin-table-header-bg);
-  border-bottom: 1px solid var(--billops-admin-card-border);
-  padding: 10px 16px;
+.bo-th {
+  padding: 11px 16px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--billops-admin-text-secondary);
-}
-
-.admin-glass-card table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.admin-table-row { transition: background 0.1s ease; }
-.admin-table-row:hover { background: rgba(0,0,0,0.025); }
-html.dark .admin-table-row:hover { background: rgba(255,255,255,0.03); }
-
-/* ── List Items ─────────────────────────────────────────────────────────── */
-.admin-list-item {
+  color: var(--billops-admin-th-color);
   background: transparent;
-  border: 1px solid var(--billops-admin-card-border);
-  transition: background 0.12s ease;
+  border-bottom: 1px solid var(--billops-admin-card-border);
+  white-space: nowrap;
 }
 
-.admin-list-item:hover {
-  background: rgba(0,0,0,0.02);
-  box-shadow: none;
+.bo-td {
+  padding: 13px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  vertical-align: middle;
 }
+html.dark .bo-td { border-bottom-color: rgba(255, 255, 255, 0.05); }
+
+.bo-table tbody tr:last-child .bo-td { border-bottom: none; }
+
+.bo-row { transition: background 0.12s ease; }
+.bo-row:hover { background: var(--billops-admin-row-hover); }
 
 /* ── Chart Container ────────────────────────────────────────────────────── */
 .admin-chart-container {
@@ -193,19 +149,19 @@ html.dark .admin-table-row:hover { background: rgba(255,255,255,0.03); }
 }
 
 /* ── Provider Icon Stack ────────────────────────────────────────────────── */
-.admin-provider-stack { display: flex; margin-left: -6px; }
+.admin-provider-stack { display: flex; }
 
 .admin-provider-icon {
   width: 24px;
   height: 24px;
-  border-radius: 4px;
-  background: var(--billops-admin-table-header-bg);
+  border-radius: 7px;
+  background: var(--billops-admin-card-bg);
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--billops-admin-card-border);
-  margin-left: -4px;
-  font-size: 11px;
+  margin-left: -6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 .admin-provider-icon:first-child { margin-left: 0; z-index: 30; }
 .admin-provider-icon:nth-child(2) { z-index: 20; }
@@ -217,6 +173,11 @@ html.dark .admin-table-row:hover { background: rgba(255,255,255,0.03); }
   background-image: linear-gradient(90deg, #f1f3f5 0%, #e8eaed 40%, #f1f3f5 80%);
   background-size: 600px 100%;
   animation: adminShimmer 1.4s ease-in-out infinite;
+}
+html.dark .admin-shimmer {
+  background: #1a2032;
+  background-image: linear-gradient(90deg, #1a2032 0%, #232b40 40%, #1a2032 80%);
+  background-size: 600px 100%;
 }
 
 @keyframes adminShimmer {
@@ -234,76 +195,17 @@ html.dark .admin-table-row:hover { background: rgba(255,255,255,0.03); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Spin (refresh icon) ────────────────────────────────────────────────── */
-.admin-spin { animation: adminSpin 0.8s linear infinite; }
-
-@keyframes adminSpin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-
-/* ── Error Alert ─────────────────────────────────────────────────────────── */
-.admin-error-alert {
-  background: #fef2f2;
-  border-left: 3px solid #ef4444;
-}
-
-/* ── Live Indicator ──────────────────────────────────────────────────────── */
-.admin-live-indicator { animation: adminLivePulse 2s infinite; }
-
-@keyframes adminLivePulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.5; }
-}
-
-/* ── Empty State ─────────────────────────────────────────────────────────── */
-.admin-empty-state {
-  background: var(--billops-admin-table-header-bg);
-  border: 1px dashed var(--billops-admin-card-border);
-  padding: 2rem;
-  text-align: center;
-  color: var(--billops-admin-text-secondary);
-}
-
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */
-.admin-scrollbar::-webkit-scrollbar       { width: 5px; height: 5px; }
+.admin-scrollbar::-webkit-scrollbar       { width: 6px; height: 6px; }
 .admin-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.admin-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
-.admin-scrollbar::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+.admin-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.14); border-radius: 3px; }
+.admin-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.28); }
 
-/* ── Text overrides — light ──────────────────────────────────────────────── */
-.admin-dashboard .text-gray-900 { color: #111827 !important; }
-.admin-dashboard .text-gray-800 { color: #1f2937 !important; }
-.admin-dashboard .text-gray-700 { color: #374151 !important; }
-.admin-dashboard .text-gray-600 { color: #4b5563 !important; }
-.admin-dashboard .text-gray-500 { color: #6b7280 !important; }
-.admin-dashboard .text-gray-400 { color: #9ca3af !important; }
-
-/* ── Text overrides — dark ───────────────────────────────────────────────── */
-html.dark .admin-dashboard .text-gray-900 { color: #f1f5f9 !important; }
-html.dark .admin-dashboard .text-gray-800 { color: #e2e8f0 !important; }
-html.dark .admin-dashboard .text-gray-700 { color: #cbd5e1 !important; }
-html.dark .admin-dashboard .text-gray-600 { color: #94a3b8 !important; }
-html.dark .admin-dashboard .text-gray-500 { color: #64748b !important; }
-html.dark .admin-dashboard .text-gray-400 { color: #475569 !important; }
-
-/* ── Background overrides ────────────────────────────────────────────────── */
-.admin-dashboard .bg-white      { background-color: #ffffff !important; }
-.admin-dashboard .bg-gray-50    { background-color: #f9fafb !important; }
-.admin-dashboard .bg-gray-100   { background-color: #f3f4f6 !important; }
-html.dark .admin-dashboard .bg-white    { background-color: var(--billops-admin-card-bg) !important; }
-html.dark .admin-dashboard .bg-gray-50  { background-color: var(--billops-admin-table-header-bg) !important; }
-html.dark .admin-dashboard .bg-gray-100 { background-color: rgba(255,255,255,0.04) !important; }
-
-/* ── Border overrides ────────────────────────────────────────────────────── */
-.admin-dashboard .border-gray-200 { border-color: #e5e7eb !important; }
-.admin-dashboard .border-gray-100 { border-color: #f3f4f6 !important; }
-.admin-dashboard .border-gray-300 { border-color: #d1d5db !important; }
-html.dark .admin-dashboard .border-gray-200 { border-color: var(--billops-admin-card-border) !important; }
-html.dark .admin-dashboard .border-gray-100 { border-color: var(--billops-admin-card-border) !important; }
-html.dark .admin-dashboard .border-gray-300 { border-color: var(--billops-admin-card-border) !important; }
+/* ── Dark mode text tuning for the condensed metric numerals ─────────────── */
+html.dark .admin-dashboard .bo-card p[style*="Bebas"],
+html.dark .admin-dashboard .text-\[rgba\(10\,10\,10\,1\)\] { color: #f1f5f9 !important; }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 1024px) {
-  .admin-chart-container { height: 180px; }
+  .admin-chart-container { height: 190px; }
 }
