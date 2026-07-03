@@ -5,13 +5,13 @@ import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailIcons;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.RedisCacheService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Random;
-
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 public class PasswordResetController {
@@ -37,7 +37,7 @@ public class PasswordResetController {
                     .orElseThrow(() -> new RuntimeException("No account found with that email address."));
 
             // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            String otp = String.format("%06d", new java.security.SecureRandom().nextInt(1000000));
 
             // Save OTP to Redis keyed by email (expires in 5 minutes)
             redisCacheService.saveOtp(email, otp);
@@ -66,15 +66,15 @@ public class PasswordResetController {
                           + "</td></tr>"
                           + "</table></td></tr></table></body></html>";
 
-            System.out.println(">>> OTP for " + email + ": " + otp);
+            log.info("OTP generated for {}", email);
 
             emailService.sendHtmlEmail(email, subject, body);
 
             return ResponseEntity.ok().body("OTP sent to your email.");
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+            log.error("Failed to send OTP to {}: {}", email, e.getMessage());
+            return ResponseEntity.badRequest().body("An unexpected error occurred. Please try again.");
         }
     }
 
@@ -112,7 +112,8 @@ public class PasswordResetController {
             return ResponseEntity.ok().body("Password updated successfully.");
 
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Failed to reset password: " + e.getMessage());
+            log.error("Failed to reset password for {}: {}", email, e.getMessage());
+            return ResponseEntity.badRequest().body("An unexpected error occurred. Please try again.");
         }
     }
 }
