@@ -110,8 +110,28 @@ class UpwindSyncServiceTest {
                 "DETECTIONS".equals(s.getDomain()) && "boom".equals(s.getLastError())));
     }
 
+    private static final String VULN_JSON =
+        "{\"id\":\"uvf-1\",\"vulnerability\":{\"nvd_cve_id\":\"CVE-1\"}," +
+        "\"resource\":{\"cloud_account_id\":\"111\"}}";
+
+    private static final String POSTURE_JSON =
+        "{\"id\":\"fnd-1\",\"status\":\"FAIL\",\"resource\":{\"cloud_account_id\":\"111\"}}";
+
     @Test
     void syncAllMarksStaleVulnsResolved() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
+        when(apiClient.fetchVulnerabilityFindings(anyInt())).thenReturn(List.of(parse(VULN_JSON)));
+        when(apiClient.fetchConfigurationFindings(anyInt())).thenReturn(List.of(parse(POSTURE_JSON)));
+
+        service.syncAll();
+
+        verify(vulnRepo).markResolvedNotSyncedSince(any());
+        verify(postureRepo).markResolvedNotSyncedSince(any());
+    }
+
+    @Test
+    void syncAllSkipsResolveWhenFetchEmpty() {
         when(apiClient.isConfigured()).thenReturn(true);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
         when(apiClient.fetchVulnerabilityFindings(anyInt())).thenReturn(Collections.emptyList());
@@ -119,7 +139,7 @@ class UpwindSyncServiceTest {
 
         service.syncAll();
 
-        verify(vulnRepo).markResolvedNotSyncedSince(any());
-        verify(postureRepo).markResolvedNotSyncedSince(any());
+        verify(vulnRepo, never()).markResolvedNotSyncedSince(any());
+        verify(postureRepo, never()).markResolvedNotSyncedSince(any());
     }
 }

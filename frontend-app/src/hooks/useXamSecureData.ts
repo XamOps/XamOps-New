@@ -42,6 +42,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [onboarding, setOnboarding] = useState<OnboardingAccount[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const pollRef = useRef<number | null>(null);
+  const threatPageRef = useRef(0);
 
   const acct = selectedAccountId ? `accountId=${encodeURIComponent(selectedAccountId)}&` : '';
 
@@ -57,6 +58,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   }, [acct, selectedAccountId]);
 
   const loadThreats = useCallback(async (page = 0, severity = '') => {
+    threatPageRef.current = page;
     const data = await apiClient.get<PageResp<ThreatDetection>>(
       `/api/xamsecure/threats?${acct}page=${page}&size=50${severity ? `&severity=${severity}` : ''}`);
     setThreats(data);
@@ -125,7 +127,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
     if (activeTab === 'threats') {
       pollRef.current = window.setInterval(() => {
-        loadThreats().catch((err) => console.error('[XamSecure] threat poll failed:', err));
+        loadThreats(threatPageRef.current).catch((err) => console.error('[XamSecure] threat poll failed:', err));
       }, THREAT_POLL_MS);
     }
     return () => {

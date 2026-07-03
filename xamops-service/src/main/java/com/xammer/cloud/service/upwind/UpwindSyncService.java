@@ -5,7 +5,6 @@ import com.xammer.cloud.domain.*;
 import com.xammer.cloud.repository.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -44,7 +43,6 @@ public class UpwindSyncService {
         this.syncStateRepo = syncStateRepo;
     }
 
-    @Transactional
     public void syncDetections() {
         if (!apiClient.isConfigured()) return;
         try {
@@ -60,16 +58,18 @@ public class UpwindSyncService {
         }
     }
 
-    @Transactional
     public void syncAll() {
         if (!apiClient.isConfigured()) return;
         syncDetections();
         Instant runStart = Instant.now();
         try {
-            for (JsonNode item : apiClient.fetchVulnerabilityFindings(FULL_SYNC_MAX_PAGES)) {
+            List<JsonNode> items = apiClient.fetchVulnerabilityFindings(FULL_SYNC_MAX_PAGES);
+            for (JsonNode item : items) {
                 upsertVulnerability(item, Instant.now());
             }
-            vulnRepo.markResolvedNotSyncedSince(runStart);
+            if (!items.isEmpty()) {
+                vulnRepo.markResolvedNotSyncedSince(runStart);
+            }
             recordSuccess("VULNERABILITIES");
         } catch (Exception e) {
             log.error("[Upwind] Vulnerability sync failed: {}", e.getMessage());
@@ -77,10 +77,13 @@ public class UpwindSyncService {
         }
         runStart = Instant.now();
         try {
-            for (JsonNode item : apiClient.fetchConfigurationFindings(FULL_SYNC_MAX_PAGES)) {
+            List<JsonNode> items = apiClient.fetchConfigurationFindings(FULL_SYNC_MAX_PAGES);
+            for (JsonNode item : items) {
                 upsertPosture(item, Instant.now());
             }
-            postureRepo.markResolvedNotSyncedSince(runStart);
+            if (!items.isEmpty()) {
+                postureRepo.markResolvedNotSyncedSince(runStart);
+            }
             recordSuccess("POSTURE");
         } catch (Exception e) {
             log.error("[Upwind] Posture sync failed: {}", e.getMessage());
