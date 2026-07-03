@@ -86,8 +86,10 @@ public class UpwindApiClient {
             headers.setBearerAuth(getToken());
             // Upwind's WAF rejects default library user agents (nginx 403)
             headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
+            // Link-header next URLs are already percent-encoded; the String overload
+            // would re-encode them (double encoding -> Upwind 400)
             ResponseEntity<String> resp = restTemplate.exchange(
-                    url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+                    java.net.URI.create(url), HttpMethod.GET, new HttpEntity<>(headers), String.class);
             try {
                 JsonNode body = objectMapper.readTree(resp.getBody());
                 if (body.isArray()) {
