@@ -11,4 +11,7 @@ import java.util.Optional;
 public interface ClientRepository extends JpaRepository<Client, Long> {
     Optional<Client> findByName(String name);
     List<Client> findByOwnerAdminId(Long ownerAdminId);
+
+    List<Client> findByPlanType(String planType);
+    List<Client> findByPlanTypeAndTrialStatus(String planType, String trialStatus);
 }

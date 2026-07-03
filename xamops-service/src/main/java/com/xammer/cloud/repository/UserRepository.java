@@ -19,6 +19,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u FROM User u JOIN FETCH u.client WHERE u.email = :email")
     Optional<User> findByEmail(@Param("email") String email);
 
+    @Query("SELECT u FROM User u JOIN FETCH u.client WHERE u.googleSub = :googleSub")
+    Optional<User> findByGoogleSub(@Param("googleSub") String googleSub);
+
     /**
      * Finds all users created by a specific user.
      * 

@@ -46,6 +46,28 @@ public class Client {
     @Column(name = "owner_admin_id")
     private Long ownerAdminId;
 
+    @Column(name = "email")
+    private String email;
+
+    // --- Trial lifecycle (mirrors xamops-service Client; same `client` table) ---
+    @Column(name = "plan_type")
+    private String planType; // PAID | TRIAL
+
+    @Column(name = "trial_status")
+    private String trialStatus; // ACTIVE | EXPIRED | CONVERTED
+
+    @Column(name = "trial_start_at")
+    private java.time.LocalDateTime trialStartAt;
+
+    @Column(name = "trial_end_at")
+    private java.time.LocalDateTime trialEndAt;
+
+    @Column(name = "reminder5_sent_at")
+    private java.time.LocalDateTime reminder5SentAt;
+
+    @Column(name = "final_day_sent_at")
+    private java.time.LocalDateTime finalDaySentAt;
+
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<User> users;

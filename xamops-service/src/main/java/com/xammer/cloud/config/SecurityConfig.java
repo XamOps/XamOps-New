@@ -45,6 +45,9 @@ public class SecurityConfig {
         @Autowired
         private ImpersonationJwtFilter impersonationJwtFilter;
 
+        @Autowired
+        private com.xammer.cloud.security.TrialEnforcementFilter trialEnforcementFilter;
+
         public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
                         CustomAuthenticationFailureHandler authenticationFailureHandler,
                         CustomLogoutSuccessHandler logoutSuccessHandler,
@@ -260,6 +263,10 @@ public class SecurityConfig {
                                                 .tokenValiditySeconds(1209600) // 14 days
                                                 .rememberMeParameter("rememberMe")
                                                 .userDetailsService(userDetailsService));
+
+                // Enforce trial expiry after authentication so an expired client
+                // cannot reach protected APIs (runs for /api/** except /api/auth/**).
+                http.addFilterAfter(trialEnforcementFilter, UsernamePasswordAuthenticationFilter.class);
 
                 return http.build();
         }

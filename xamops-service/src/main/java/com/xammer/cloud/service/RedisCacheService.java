@@ -153,4 +153,14 @@ public class RedisCacheService {
         redisTemplate.opsForValue().set(key, "1", ttlMinutes, TimeUnit.MINUTES);
     }
 
+    // --- Generic string cache (used by trial status enforcement) ---
+
+    public void putString(String key, String value, int ttlMinutes) {
+        redisTemplate.opsForValue().set(key, value, ttlMinutes, TimeUnit.MINUTES);
+    }
+
+    public String getString(String key) {
+        return redisTemplate.opsForValue().get(key);
+    }
+
 }

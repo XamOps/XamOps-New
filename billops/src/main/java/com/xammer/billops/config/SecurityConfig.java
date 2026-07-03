@@ -40,6 +40,9 @@ public class SecurityConfig {
     @Autowired
     private ImpersonationJwtFilter impersonationJwtFilter;
 
+    @Autowired
+    private com.xammer.billops.security.TrialEnforcementFilter trialEnforcementFilter;
+
     @Value("${cors.allowed-origins:http://localhost:5173,https://live.xamops.com,https://prep.xamops.com,https://uat.xamops.com}")
     private String[] allowedOrigins;
 
@@ -143,6 +146,9 @@ public class SecurityConfig {
                         .invalidateHttpSession(true)
                         .deleteCookies("JSESSIONID")
                         .permitAll());
+
+        // Block expired-trial clients from billops APIs (admin trial-management stays exempt).
+        http.addFilterAfter(trialEnforcementFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 

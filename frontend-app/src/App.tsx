@@ -43,6 +43,10 @@ import 'goey-toast/styles.css';
 // ─── Lazy page imports ────────────────────────────────────────────────────────
 // Login is kept eager — it's the entry point, always needed immediately.
 import LoginPage from './pages/LoginPage';
+import SignupCompletePage from './pages/SignupCompletePage';
+import TrialExpiredPage from './pages/TrialExpiredPage';
+import FeedbackPage from './pages/FeedbackPage';
+import TrialBanner from './components/Trial/TrialBanner';
 
 // Dashboards
 const UnifiedDashboard = lazy(() => import('./pages/UnifiedDashboard').then(m => ({ default: m.UnifiedDashboard })));
@@ -415,6 +419,7 @@ const AuthenticatedLayout: React.FC = () => {
                     style={{ WebkitOverflowScrolling: 'touch' }}
                 >
                     <Topbar />
+                    <TrialBanner />
                     <AnimatePresence mode="wait" initial={false}>
                         <motion.div
                             key={location.key}
@@ -455,6 +460,11 @@ const AppContent: React.FC = () => {
                 <Routes>
                     {/* Login Route - No Auth/Account providers */}
                     <Route path="/" element={<LoginPage />} />
+
+                    {/* Public self-service signup & trial routes (no auth required) */}
+                    <Route path="/signup/complete" element={<SignupCompletePage />} />
+                    <Route path="/trial-expired" element={<TrialExpiredPage />} />
+                    <Route path="/feedback" element={<FeedbackPage />} />
 
                     {/* Protected Routes Wrapper */}
                     <Route

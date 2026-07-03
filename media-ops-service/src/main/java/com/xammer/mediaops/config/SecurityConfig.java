@@ -1,17 +1,25 @@
 package com.xammer.mediaops.config;
 
+import com.xammer.mediaops.security.MediaOpsTrialEnforcementFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import javax.servlet.http.HttpServletResponse;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+    private final MediaOpsTrialEnforcementFilter trialEnforcementFilter;
+
+    public SecurityConfig(MediaOpsTrialEnforcementFilter trialEnforcementFilter) {
+        this.trialEnforcementFilter = trialEnforcementFilter;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -31,6 +39,9 @@ public class SecurityConfig {
             .and()
             .sessionManagement()
                 .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED);
+
+        // Block expired-trial clients from media-ops APIs (runs after auth context is restored).
+        http.addFilterAfter(trialEnforcementFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

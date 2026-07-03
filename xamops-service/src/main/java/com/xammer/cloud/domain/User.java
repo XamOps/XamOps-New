@@ -28,8 +28,20 @@ public class User {
     @Column(unique = true, nullable = false)
     private String username;
 
-    @Column(nullable = false)
+    // Nullable: Google (GOOGLE auth_provider) users authenticate via Google and have no local password.
+    @Column(nullable = true)
     private String password;
+
+    // How this user authenticates: "LOCAL" (email + password + OTP) or "GOOGLE".
+    // Nullable at DB level so `ddl-auto=update` can add it to an existing populated
+    // table; the app always sets it on insert (default "LOCAL"), and existing rows
+    // (null) are treated as LOCAL by the login code.
+    @Column(name = "auth_provider")
+    private String authProvider = "LOCAL";
+
+    // Google's permanent unique subject identifier (OpenID "sub"). Null for LOCAL users.
+    @Column(name = "google_sub", unique = true, nullable = true)
+    private String googleSub;
 
     // --- ✅ MODIFIED THIS LINE ---
     @Column(nullable = false)

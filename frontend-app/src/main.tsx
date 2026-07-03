@@ -43,7 +43,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
     }
 
     if (csrfToken) headers.set('X-XSRF-TOKEN', csrfToken);
-    return _nativeFetch(input, { credentials: 'include', ...init, headers });
+    const response = await _nativeFetch(input, { credentials: 'include', ...init, headers });
+
+    // Trial expired: backend returns 402 TRIAL_EXPIRED on protected APIs.
+    // Route the user to the expired screen (once) so they can contact sales.
+    if (response.status === 402 && !window.location.pathname.startsWith('/trial-expired')) {
+      window.location.href = '/trial-expired';
+    }
+    return response;
   }
 
   return _nativeFetch(input, init);

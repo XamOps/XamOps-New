@@ -22,4 +22,7 @@ public interface ClientRepository extends JpaRepository<Client, Long> {
      * Used to scope the support dashboard for sub-admins.
      */
     List<Client> findByOwnerAdminId(Long ownerAdminId);
+
+    /** All self-signup trial clients (for the admin trial-management view). */
+    List<Client> findByPlanType(String planType);
 }
