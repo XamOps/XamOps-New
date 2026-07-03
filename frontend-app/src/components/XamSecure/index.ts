@@ -3,3 +3,7 @@ export { default as XamSecureHeader } from './XamSecureHeader';
 export { default as FindingDrawer } from './FindingDrawer';
 export { default as OverviewTab } from './OverviewTab';
 export { default as ThreatsTab } from './ThreatsTab';
+export { default as VulnerabilitiesTab } from './VulnerabilitiesTab';
+export { default as PostureTab } from './PostureTab';
+export { default as ComplianceTab } from './ComplianceTab';
+export { default as OnboardingTab } from './OnboardingTab';
