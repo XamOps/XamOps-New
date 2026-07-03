@@ -81,6 +81,7 @@ const GrafanaDashboardPage = lazy(() => import('./pages/GrafanaDashboardPage'));
 
 // AWS — Security & Monitoring
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
+const XamSecurePage = lazy(() => import('./pages/XamSecurePage'));
 const PerformancePage = lazy(() => import('./pages/PerformancePage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
 
@@ -526,6 +527,7 @@ const AppContent: React.FC = () => {
                             <Route path="/gke-details" element={<GkeDetailsPage />} />
                             <Route path="/aks-details" element={<AksDetailsPage />} />
                             <Route path="/security" element={<SecurityPage />} />
+                            <Route path="/xamsecure" element={<XamSecurePage />} />
                             <Route path="/gcp-security" element={<GcpSecurityPage />} />
                             <Route path="/azure-security" element={<AzureSecurityPage />} />
                             <Route path="/performance" element={<PerformancePage />} />

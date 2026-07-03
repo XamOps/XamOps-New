@@ -100,7 +100,7 @@ const Sidebar: React.FC = () => {
     const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/aiops', '/dataops', '/gcp-dataops', '/azure-dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
-    const secopsRoutes = ['/security', '/gcp-security', '/azure-security', '/complianceops',
+    const secopsRoutes = ['/xamsecure', '/security', '/gcp-security', '/azure-security', '/complianceops',
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
     const observabilityRoutes = ['/observability', '/grafana-dashboard'];
@@ -349,6 +349,7 @@ const Sidebar: React.FC = () => {
                 onToggle={() => toggleDropdown('security')}
               >
                 {isXamTabAllowed('secops-security-center') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : selectedAccountDisplay.provider === 'Azure' ? '/azure-security' : '/security'} icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security') || isActive('/gcp-security') || isActive('/azure-security')} />}
+                {isXamTabAllowed('secops-xamsecure') && <NavItem href="/xamsecure" icon="fas fa-user-shield" label="XamSecure" isActive={isActive('/xamsecure')} />}
                 {isXamTabAllowed('secops-compliance') && <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />}
                 {isXamTabAllowed('secops-performance') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />}
                 {isXamTabAllowed('secops-alerts') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />}
