@@ -84,6 +84,8 @@ public class UpwindApiClient {
         while (url != null && pages < maxPages) {
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(getToken());
+            // Upwind's WAF rejects default library user agents (nginx 403)
+            headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
             ResponseEntity<String> resp = restTemplate.exchange(
                     url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
             try {

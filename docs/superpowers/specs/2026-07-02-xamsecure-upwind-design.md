@@ -78,19 +78,28 @@ root — **never commit them**.
   available, else Global Scope. Name credentials identifiably (e.g.
   `xamsecure-sync`).
 
-### Open items (updated after live verification)
-1. Whether webhook/notification destinations are available on the license
-   (decides push vs 60s poll for detections).
-2. Whether API Security and Identity data are exposed via the public API
-   (gates the two Phase 2 tabs).
-3. ~~Compliance-framework mappings~~ **RESOLVED: present in
-   configuration-findings payload → Compliance tab in Phase 1.**
-4. Rate limits; detections server-side time-filter parameter name.
-5. Inventory access: `POST /inventory/search` 403s with current credential —
-   fix permission (console Custom roles or Upwind support), then add the
-   Inventory tab.
-6. BYOC/sensor credential endpoints' exact paths (token has the permissions;
-   paths behind authenticated docs).
+### Open items — ALL MAJOR ITEMS RESOLVED 2026-07-03
+
+Full API docs were extracted from docs.upwind.io (public webpack chunks; 86
+REST API pages). See `2026-07-03-upwind-parity-matrix.md` for the complete
+console-feature → endpoint → phase mapping. Resolutions:
+
+1. ~~Webhooks~~ **RESOLVED: `POST /v1/…/integration-webhooks` CRUD exists** →
+   Phase 2 real-time push replacing/reducing the 60s poll.
+2. ~~API Security / Identity~~ **RESOLVED: `GET /v1/…/apisecurity-endpoints`
+   (API catalog) and v2 access-management (scopes/roles/groups) exist.**
+3. ~~Compliance-framework mappings~~ RESOLVED earlier (in payload; Phase 1).
+4. ~~Detections time filter~~ Partially resolved: v1 supports `severity`/
+   `page`/`per-page`; v2 `POST /threats/stories/search?sort=create_time:desc`
+   with conditions is the incremental-sync candidate (Phase 2).
+5. ~~Inventory 403~~ **RESOLVED — tested live, returns data.** Root cause was
+   the wrong path + WAF, not permissions: correct call is
+   `POST /v2/…/inventory/assets/search` with a non-empty `conditions` body,
+   an explicit `User-Agent` header (WAF rejects default agents), and
+   case-sensitive values ("AWS"). Inventory tab unblocked for Phase 2.
+6. ~~Onboarding automation~~ **RESOLVED: `POST/PATCH/DELETE
+   /v1/…/cloud-accounts` exist** → fully automated self-service onboarding in
+   Phase 2 (Phase 1's admin-registered fallback shipped meanwhile).
 
 ### Parity audit (first task once credentials exist)
 
