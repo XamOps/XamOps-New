@@ -28,7 +28,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Arrays;
@@ -109,7 +108,7 @@ public class LoginOtpController {
         }
 
         // Credentials validated — generate and send OTP
-        String otp = String.format("%06d", new Random().nextInt(999999));
+        String otp = String.format("%06d", new java.security.SecureRandom().nextInt(1000000));
         redisCacheService.saveLoginOtp(email, otp);
         redisCacheService.savePreAuthFlag(email);
 
