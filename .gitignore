@@ -91,3 +91,6 @@ opensre/opensre-source/
 # Superpowers
 .superpowers/
 opensre/.env
+
+# Local secrets (never commit)
+.env.local

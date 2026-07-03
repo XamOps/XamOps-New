@@ -28,18 +28,48 @@ product owner rather than silently dropped.
 | Credentials | Xammer's single Upwind OAuth2 client credential, held in server config only |
 | Onboarding | Customer self-service: connect cloud account to Upwind and deploy sensors/agents from within XamSecure |
 
-## Upwind API (verified via public integration docs)
+## Upwind API — VERIFIED LIVE (2026-07-03, credential `api-xamsecure-sync`)
 
-- Base URL: `https://api.upwind.io` (US; EU/ME variants exist)
-- Auth: OAuth2 client credentials — client ID + secret + organization ID
-  (`org_…`), generated in Upwind console → Settings → Credentials
-- Documented data domains: **vulnerability findings**, **configuration/posture
-  findings** (severity + lookback filtering), **threat detections** (MITRE
-  ATT&CK mapping, time-based filtering), **inventory assets** (AWS/Azure/GCP,
-  with relationships to vulns/detections)
-- Full API docs are behind console login (docs.upwind.io). API Security
-  (endpoint catalog), Identity/CIEM, and compliance-framework endpoints are
-  **unconfirmed** — verify once credentials exist.
+Credentials generated (Custom / Global Scope / Global Admin) and tested
+against production. Client ID/secret live in gitignored `.env.local` at repo
+root — **never commit them**.
+
+- **Token:** `POST https://oauth.upwind.io/oauth/token`, form-encoded
+  `grant_type=client_credentials&client_id=…&client_secret=…&audience=https://api.upwind.io`.
+  Token TTL 24h. JWT carries `org_id` claim — org ID is derivable from the
+  token itself.
+- **Org ID:** `org_Zwq0e1xF9Au4AF0Q` (region `us`)
+- **Verified working endpoints** (base `https://api.upwind.io/v1/organizations/{orgId}`):
+  - `GET /threat-detections` → 200. Fields: `id`, `type`, `category`,
+    `severity`, `status`, `title`, `description`,
+    `resource{id,name,type,cloud_provider,cloud_account_id,internet_exposure}`,
+    `first_seen_time`, `last_seen_time`, `occurrence_count`,
+    `mitre_attacks[{tactic_id,tactic_name,technique_id,technique_name}]`
+  - `GET /vulnerability-findings` → 206 paginated. Fields: `id`,
+    `vulnerability{name,nvd_cve_id,nvd_cvss_v3_severity,nvd_cvss_v3_score,epss_score,exploitable,…}`,
+    `image`, `package`, `remediation`, `source`, `first_seen_time`,
+    `last_scan_time`, `resource{…,cloud_account_id,cloud_account_name,region,host_id}`
+  - `GET /configuration-findings` → 200. Fields: `id`, `status` (FAIL/PASS),
+    `severity`, `title`, `first_seen_time`, `last_seen_time`,
+    `framework{id,status,version,title,cloud_provider}`,
+    `check{id,title,remediation}`, `resource{…,cloud_account_id,risk_categories}`
+    → **compliance frameworks are in the payload (CMMC observed), so the
+    Compliance tab ships in Phase 1.**
+- **Pagination:** RFC-5988 `Link` response headers (`rel="next"` with
+  `page-token` cursor, `per-page` default 100). Follow `next` until absent.
+- **Tenant filtering validated:** every domain carries
+  `resource.cloud_account_id` (live AWS account `605134457560` observed).
+- **Inventory:** `POST /inventory/search` exists but returns **403** with this
+  credential despite `list:inventory-assets` in the token. Inventory tab
+  deferred until permission resolved (check Custom role options in console or
+  ask Upwind support).
+- **Onboarding:** token includes `create/get/update/delete:byoc-credentials` —
+  cloud-account onboarding ("bring your own cloud") appears API-supported;
+  exact endpoint path not yet found (404 on obvious guesses — check
+  authenticated docs).
+- **No server-side time filter found** for detections (guessed params silently
+  ignored) — the 60s poll fetches recent pages and de-dupes by `id`; exact
+  filter param to be confirmed from authenticated docs.
 - Credential types confirmed in console (Settings → Access management →
   Credentials): **Cloud account** (connect AWS/GCP/Azure), **Sensor** (Helm or
   Bash install), **Third-party Integration**, **API** (call the Upwind API
@@ -48,17 +78,19 @@ product owner rather than silently dropped.
   available, else Global Scope. Name credentials identifiably (e.g.
   `xamsecure-sync`).
 
-### Open items to verify with Upwind console access
+### Open items (updated after live verification)
 1. Whether webhook/notification destinations are available on the license
    (decides push vs 60s poll for detections).
 2. Whether API Security and Identity data are exposed via the public API
    (gates the two Phase 2 tabs).
-3. Whether posture findings carry compliance-framework mappings (gates whether
-   the Compliance tab ships in Phase 1 or 2).
-4. Rate limits and pagination specifics.
-5. Whether **Cloud account** and **Sensor** credentials can be created
-   programmatically via the API (gates fully automated self-service
-   onboarding vs the console-assisted fallback below).
+3. ~~Compliance-framework mappings~~ **RESOLVED: present in
+   configuration-findings payload → Compliance tab in Phase 1.**
+4. Rate limits; detections server-side time-filter parameter name.
+5. Inventory access: `POST /inventory/search` 403s with current credential —
+   fix permission (console Custom roles or Upwind support), then add the
+   Inventory tab.
+6. BYOC/sensor credential endpoints' exact paths (token has the permissions;
+   paths behind authenticated docs).
 
 ### Parity audit (first task once credentials exist)
 
