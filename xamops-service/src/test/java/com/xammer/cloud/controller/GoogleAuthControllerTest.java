@@ -18,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -49,6 +50,7 @@ class GoogleAuthControllerTest {
     @Mock private UserRepository userRepository;
     @Mock private ClientRepository clientRepository;
     @Mock private RedisCacheService redisCacheService;
+    @Mock private PasswordEncoder passwordEncoder;
 
     private MockMvc mockMvc;
 
@@ -63,6 +65,7 @@ class GoogleAuthControllerTest {
         ReflectionTestUtils.setField(controller, "userRepository", userRepository);
         ReflectionTestUtils.setField(controller, "clientRepository", clientRepository);
         ReflectionTestUtils.setField(controller, "redisCacheService", redisCacheService);
+        ReflectionTestUtils.setField(controller, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(controller, "frontendUrl", "https://test.xamops.com");
         ReflectionTestUtils.setField(controller, "signupTokenSecret", SECRET);
 
