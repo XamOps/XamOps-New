@@ -237,6 +237,7 @@ export default defineConfig({
       '/api/v1': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // Agent endpoints
       '/api/sre': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // SRE Investigations
       '/api/llm-proxy': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // AI Gateway proxy
+      '/api/xamsecure': { target: 'http://localhost:8080', changeOrigin: true, secure: false }, // XamSecure (Upwind)
 
       // S3 browser — proxied to xamops-service (uses connected account IAM role)
       '/api/s3-browser': { target: 'http://localhost:8080', changeOrigin: true, secure: false },
