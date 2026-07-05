@@ -49,6 +49,7 @@ class GoogleAuthControllerTest {
     @Mock private UserRepository userRepository;
     @Mock private ClientRepository clientRepository;
     @Mock private RedisCacheService redisCacheService;
+    @Mock private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
     private MockMvc mockMvc;
 
@@ -57,6 +58,7 @@ class GoogleAuthControllerTest {
         MockitoAnnotations.openMocks(this);
         GoogleAuthController controller = new GoogleAuthController();
         ReflectionTestUtils.setField(controller, "googleOAuthService", googleOAuthService);
+        ReflectionTestUtils.setField(controller, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(controller, "sessionService", sessionService);
         ReflectionTestUtils.setField(controller, "trialService", trialService);
         ReflectionTestUtils.setField(controller, "trialEmailService", trialEmailService);

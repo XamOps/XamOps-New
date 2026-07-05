@@ -196,7 +196,6 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/grafana-dashboard"),
                                                                 new AntPathRequestMatcher("/cloudk8s"),
                                                                 new AntPathRequestMatcher("/eks-details"),
-                                                                new AntPathRequestMatcher("/terminal/**"),
                                                                 new AntPathRequestMatcher("/gcp-dashboard"),
                                                                 new AntPathRequestMatcher("/gcp-finops"),
                                                                 new AntPathRequestMatcher("/gcp-cost"),
@@ -207,10 +206,13 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/gcp-security"),
                                                                 new AntPathRequestMatcher("/gcp-performance"),
                                                                 new AntPathRequestMatcher("/gcp-alerts"),
-                                                                new AntPathRequestMatcher("/terminal"),
 
-                                                                // XamOps Agent API (authenticates via API key, not session)
-                                                                new AntPathRequestMatcher("/api/v1/agent/**"),
+                                                                // XamOps Agent API (authenticates via internal API key validation)
+                                                                new AntPathRequestMatcher("/api/v1/agent/ingest", "POST"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/heartbeat", "POST"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/config"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/commands"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/autoscaling-policy"),
 
                                                                 // XamOps Metering API — public:
                                                                 //   /register → AWS Marketplace redirect (no session)
