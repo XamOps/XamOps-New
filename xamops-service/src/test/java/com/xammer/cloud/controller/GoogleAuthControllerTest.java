@@ -136,7 +136,7 @@ class GoogleAuthControllerTest {
         assertThat(created.getRole()).isEqualTo("ROLE_XAMOPS");
         assertThat(created.getAuthProvider()).isEqualTo("GOOGLE");
         assertThat(created.getGoogleSub()).isEqualTo("sub-2");
-        assertThat(created.getPassword()).isNull();
+        assertThat(created.getPassword()).isEqualTo("encoded-random-password");
 
         verify(trialService).startTrial(any(Client.class));
         verify(trialEmailService).sendWelcome(eq("jane@acme.com"), anyString(), any());
