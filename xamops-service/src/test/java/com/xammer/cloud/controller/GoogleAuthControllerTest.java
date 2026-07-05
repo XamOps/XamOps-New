@@ -18,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -49,6 +50,7 @@ class GoogleAuthControllerTest {
     @Mock private UserRepository userRepository;
     @Mock private ClientRepository clientRepository;
     @Mock private RedisCacheService redisCacheService;
+    @Mock private PasswordEncoder passwordEncoder;
 
     private MockMvc mockMvc;
 
@@ -63,6 +65,7 @@ class GoogleAuthControllerTest {
         ReflectionTestUtils.setField(controller, "userRepository", userRepository);
         ReflectionTestUtils.setField(controller, "clientRepository", clientRepository);
         ReflectionTestUtils.setField(controller, "redisCacheService", redisCacheService);
+        ReflectionTestUtils.setField(controller, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(controller, "frontendUrl", "https://test.xamops.com");
         ReflectionTestUtils.setField(controller, "signupTokenSecret", SECRET);
 
@@ -116,6 +119,7 @@ class GoogleAuthControllerTest {
             return c;
         });
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(passwordEncoder.encode(anyString())).thenReturn("encoded-random-password");
         when(sessionService.establishSession(any(), any()))
                 .thenReturn(Map.of("redirectUrl", "https://test.xamops.com/unified-dashboard", "tenantId", "default"));
 
@@ -132,7 +136,7 @@ class GoogleAuthControllerTest {
         assertThat(created.getRole()).isEqualTo("ROLE_XAMOPS");
         assertThat(created.getAuthProvider()).isEqualTo("GOOGLE");
         assertThat(created.getGoogleSub()).isEqualTo("sub-2");
-        assertThat(created.getPassword()).isNull();
+        assertThat(created.getPassword()).isEqualTo("encoded-random-password");
 
         verify(trialService).startTrial(any(Client.class));
         verify(trialEmailService).sendWelcome(eq("jane@acme.com"), anyString(), any());
