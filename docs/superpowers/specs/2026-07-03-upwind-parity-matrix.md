@@ -58,3 +58,52 @@ live against production with the `api-xamsecure-sync` credential.
 3. Automated cloud-account onboarding (`create-cloud-account`)
 4. API Security tab + Events timeline
 5. Detection status actions (acknowledge/resolve from XamSecure)
+
+## Phase 2 endpoint verification (2026-07-05, live)
+
+All calls need `User-Agent: XamOps/1.0` (WAF). Base `/v1|/v2/organizations/{org}`.
+
+- **Inventory** `POST /v2/inventory/assets/search` ✅ — body needs `conditions`
+  (case-sensitive values). Tenant filter: add a `cloud_account_id eq [id]`
+  condition ALONGSIDE another condition (e.g. `label` or `cloud_provider`);
+  `cloud_account_id` alone → 500 (server bug), so always pair it. Item fields:
+  `id, asset_category, asset_sub_category, cloud_provider, cloud_account_id,
+  cloud_resource_id, name, region, label` (+ type-specific fields). Cursor
+  paging via `metadata.next_cursor`. Schema per label at
+  `GET /v2/inventory/schema/{label}` (confirms `cloud_account_id` queryable).
+  NOTE: `GET /v2/inventory/assets/{id}` returned 401 in testing — use search,
+  not by-id, for detail (or re-verify auth).
+- **API Security** `GET /v1/apisecurity-endpoints` ✅ 206. Supports query
+  params incl. **`cloud-account-id`** (verified — returns filtered rows),
+  `method`, `has-vulnerability`, `has-sensitive-data`, `has-internet-ingress`,
+  `cloud-provider`, `resource-type`, `domain`, `cluster-id`, `namespace`,
+  `per-page`, `page-token`. Item fields: `id, method, uri, resource_id,
+  first_seen_time, last_seen_time, risk_overview{internet_exposure...}`. Items
+  carry `resource_id` not `cloud_account_id` — **tenant-filter via the
+  `cloud-account-id` query param**, not post-filtering.
+- **Webhooks** `GET/POST/PATCH/DELETE /v1/integration-webhooks` ✅ (GET 200,
+  empty list). Create body schema: `{name, vendor, config:{authentication:
+  {type: BEARER|API_KEY, token|api_key, headers[]}, url, ...}}`; vendor enum
+  `DATADOG|SPLUNK|MSTEAMS|TINES|CUSTOM`. For XamOps ingest use `vendor=CUSTOM`
+  with our webhook URL + a shared secret/bearer.
+- **Threat policies** `GET /v1/threat-policies` ✅ 200 (real policies:
+  `id, category, scope, display_name, open_issues, managed...`).
+- **Detection update** `PATCH /v1/threat-detections/{id}` ✅ (docs). Mutable
+  field: `status` (enum incl. `ARCHIVED`). This is the acknowledge/resolve
+  action.
+- **Events** `GET /v1/events` → **401** with current credential (needs a
+  permission/scope the sync creds lack). Defer Events timeline or use v2
+  `POST /v2/events` search; flag credential scope for Upwind.
+- **Cloud accounts** `GET /v1/cloud-accounts` → **401** (same — creds lack the
+  cloud-account scope). Automated onboarding (`POST /v1/cloud-accounts`) is
+  **blocked on a credential scope**; keep Phase 1's admin-registered fallback
+  until scope is granted. Verify in Upwind console (Custom role → cloud-account
+  read/write permissions) before building.
+
+### Impact on Phase 2 plan
+- Inventory tab: build now (verified).
+- API Security tab: build now (verified, native tenant filter).
+- Webhooks real-time: build now (verified); ingest controller + CUSTOM webhook.
+- Detection actions: build now (PATCH verified via docs).
+- Events timeline + automated cloud-account onboarding: **gated on credential
+  scope (401)** — carry into the plan as "verify scope first, else defer".
