@@ -7,9 +7,10 @@ interface Props {
   threats: PageResp<ThreatDetection> | null;
   isLoading: boolean;
   onPage: (page: number) => void;
+  onArchive?: (upwindId: string) => void;
 }
 
-const ThreatsTab: React.FC<Props> = ({ threats, isLoading, onPage }) => {
+const ThreatsTab: React.FC<Props> = ({ threats, isLoading, onPage, onArchive }) => {
   const [selected, setSelected] = useState<ThreatDetection | null>(null);
   const rows = threats?.content ?? [];
 
@@ -74,8 +75,27 @@ const ThreatsTab: React.FC<Props> = ({ threats, isLoading, onPage }) => {
         </div>
       )}
       {selected && (
-        <FindingDrawer title={selected.title ?? 'Detection'} rawPayload={selected.rawPayload}
-                       onClose={() => setSelected(null)} />
+        <>
+          <FindingDrawer title={selected.title ?? 'Detection'} rawPayload={selected.rawPayload}
+                         onClose={() => setSelected(null)} />
+          {onArchive && (
+            <div className="fixed inset-0 z-[60] flex justify-end pointer-events-none">
+              <div className="relative w-full max-w-xl h-full pointer-events-none">
+                <div className="absolute top-3.5 right-14 pointer-events-auto">
+                  <button
+                    onClick={() => {
+                      onArchive(selected.upwindId);
+                      setSelected(null);
+                    }}
+                    className="px-3 py-1.5 bg-gray-900 hover:bg-black text-white text-xs font-bold rounded-xl"
+                  >
+                    Archive
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -17,7 +17,7 @@ const XamSecurePage: React.FC = () => {
 
   const {
     summary, threats, vulnerabilities, posture, inventory, compliance, onboarding, apiSecurity,
-    isLoading, refresh, loadThreats, loadVulnerabilities, loadPosture, loadInventory,
+    isLoading, refresh, loadThreats, loadVulnerabilities, loadPosture, loadInventory, archiveThreat,
   } = useXamSecureData({ selectedAccountId, activeTab });
 
   return (
@@ -41,7 +41,7 @@ const XamSecurePage: React.FC = () => {
         />
         {activeTab === 'overview' && <OverviewTab summary={summary} isLoading={isLoading} />}
         {activeTab === 'threats' && (
-          <ThreatsTab threats={threats} isLoading={isLoading} onPage={(p) => loadThreats(p)} />
+          <ThreatsTab threats={threats} isLoading={isLoading} onPage={(p) => loadThreats(p)} onArchive={archiveThreat} />
         )}
         {activeTab === 'vulnerabilities' && (
           <VulnerabilitiesTab data={vulnerabilities} isLoading={isLoading}

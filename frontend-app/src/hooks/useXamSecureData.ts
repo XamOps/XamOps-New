@@ -129,6 +129,11 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     setOnboarding(data);
   }, []);
 
+  const archiveThreat = useCallback(async (upwindId: string) => {
+    await apiClient.post(`/api/xamsecure/threats/${encodeURIComponent(upwindId)}/status`, { status: 'ARCHIVED' });
+    await loadThreats(threatPageRef.current);
+  }, [loadThreats]);
+
   // Load the active tab's data; Threats tab also polls every 60s.
   useEffect(() => {
     let cancelled = false;
@@ -181,5 +186,6 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     summary, threats, vulnerabilities, posture, inventory, compliance, onboarding, apiSecurity,
     isLoading, refresh,
     loadThreats, loadVulnerabilities, loadPosture, loadInventory, loadApiSecurity,
+    archiveThreat,
   };
 };

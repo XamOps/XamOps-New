@@ -128,4 +128,31 @@ class XamSecureServiceTest {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of());
         assertTrue(service.getInventory(1L, null, null, 0, 50).isEmpty());
     }
+
+    @Test
+    void updateThreatStatusRejectsForeignDetection() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        com.xammer.cloud.domain.UpwindThreatDetection d = new com.xammer.cloud.domain.UpwindThreatDetection();
+        d.setUpwindId("uwnd-1"); d.setCloudAccountId("999"); // not owned
+        when(detectionRepo.findByUpwindId("uwnd-1")).thenReturn(Optional.of(d));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+            () -> service.updateThreatStatus(1L, "uwnd-1", "ARCHIVED"));
+        verify(apiClient, never()).updateDetectionStatus(any(), any());
+    }
+
+    @Test
+    void updateThreatStatusPatchesAndPersists() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        com.xammer.cloud.domain.UpwindThreatDetection d = new com.xammer.cloud.domain.UpwindThreatDetection();
+        d.setUpwindId("uwnd-1"); d.setCloudAccountId("111");
+        when(detectionRepo.findByUpwindId("uwnd-1")).thenReturn(Optional.of(d));
+
+        service.updateThreatStatus(1L, "uwnd-1", "ARCHIVED");
+
+        verify(apiClient).updateDetectionStatus("uwnd-1", "ARCHIVED");
+        org.mockito.ArgumentCaptor<com.xammer.cloud.domain.UpwindThreatDetection> cap =
+            org.mockito.ArgumentCaptor.forClass(com.xammer.cloud.domain.UpwindThreatDetection.class);
+        verify(detectionRepo).save(cap.capture());
+        assertEquals("ARCHIVED", cap.getValue().getStatus());
+    }
 }

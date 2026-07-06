@@ -225,6 +225,19 @@ public class XamSecureService {
                 }).collect(Collectors.toList());
     }
 
+    @org.springframework.transaction.annotation.Transactional
+    public void updateThreatStatus(Long clientId, String upwindId, String status) {
+        UpwindThreatDetection d = detectionRepo.findByUpwindId(upwindId)
+                .orElseThrow(() -> new AccessDeniedException("Not found"));
+        List<String> ids = resolveAccountIds(clientId, null);
+        if (d.getCloudAccountId() == null || !ids.contains(d.getCloudAccountId())) {
+            throw new AccessDeniedException("Detection not accessible");
+        }
+        apiClient.updateDetectionStatus(upwindId, status);
+        d.setStatus(status);
+        detectionRepo.save(d);
+    }
+
     private static Map<String, Long> toSeverityMap(List<Object[]> rows) {
         Map<String, Long> m = new LinkedHashMap<>();
         for (Object[] row : rows) {
