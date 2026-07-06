@@ -144,6 +144,11 @@ public class UpwindSyncService {
         inventoryRepo.save(a);
     }
 
+    @Transactional
+    public void ingestDetection(JsonNode item) {
+        upsertDetection(item, Instant.now());
+    }
+
     private void upsertDetection(JsonNode item, Instant now) {
         String upwindId = text(item, "id");
         if (upwindId == null) return;

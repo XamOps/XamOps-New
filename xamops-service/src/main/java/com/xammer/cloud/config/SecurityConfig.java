@@ -122,6 +122,12 @@ public class SecurityConfig {
                                                                 "/api/xamops/account-manager/eventbridge-callback", "POST"))
                                                 .permitAll()
 
+                                                // Upwind real-time detection webhook — public, authenticated by
+                                                // shared secret (X-Upwind-Secret header), not a session
+                                                .requestMatchers(new AntPathRequestMatcher(
+                                                                "/api/xamsecure/webhook/**"))
+                                                .permitAll()
+
                                                 // Disk agent install scripts and binary downloads — public so instances can download without auth
                                                 .requestMatchers(new AntPathRequestMatcher("/agentinstall/agent_install.sh")).permitAll()
                                                 .requestMatchers(new AntPathRequestMatcher("/agentinstall/gcp_disk_agent_install.sh")).permitAll()
