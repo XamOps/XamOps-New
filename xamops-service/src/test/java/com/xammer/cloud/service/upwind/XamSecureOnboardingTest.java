@@ -23,7 +23,7 @@ class XamSecureOnboardingTest {
     void setUp() {
         connectionRepo = mock(UpwindAccountConnectionRepository.class);
         xamSecureService = mock(XamSecureService.class);
-        controller = new XamSecureOnboardingController(xamSecureService, connectionRepo);
+        controller = new XamSecureOnboardingController(xamSecureService, connectionRepo, mock(UpwindApiClient.class));
     }
 
     @Test

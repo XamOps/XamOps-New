@@ -47,4 +47,11 @@ class XamSecureWebhookTest {
         var resp = controller.ingest("anything", "{\"id\":\"x\"}");
         assertEquals(401, resp.getStatusCodeValue());
     }
+
+    @Test
+    void acceptsSecretViaAuthorizationBearerHeader() {
+        var resp = controller.ingest(null, "Bearer s3cr3t", "{\"id\":\"uwnd-1\"}");
+        assertEquals(200, resp.getStatusCodeValue());
+        verify(syncService, times(1)).ingestDetection(any());
+    }
 }
