@@ -48,14 +48,13 @@ public class XamSecureWebhookController {
     }
 
     private ResponseEntity<?> doIngest(String secret, String authorization, String body) {
-        String effectiveSecret = secret;
-        if (effectiveSecret == null && authorization != null && authorization.startsWith("Bearer ")) {
-            effectiveSecret = authorization.substring("Bearer ".length());
+        if (secret == null && authorization != null && authorization.startsWith("Bearer ")) {
+            secret = authorization.substring("Bearer ".length());
         }
         if (webhookSecret == null || webhookSecret.isEmpty()
-                || effectiveSecret == null
+                || secret == null
                 || !java.security.MessageDigest.isEqual(
-                        effectiveSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        secret.getBytes(java.nio.charset.StandardCharsets.UTF_8),
                         webhookSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
             return ResponseEntity.status(401).body(Map.of("error", "unauthorized"));
         }
