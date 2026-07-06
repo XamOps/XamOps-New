@@ -6,5 +6,6 @@ export { default as ThreatsTab } from './ThreatsTab';
 export { default as VulnerabilitiesTab } from './VulnerabilitiesTab';
 export { default as PostureTab } from './PostureTab';
 export { default as InventoryTab } from './InventoryTab';
+export { default as ApiSecurityTab } from './ApiSecurityTab';
 export { default as ComplianceTab } from './ComplianceTab';
 export { default as OnboardingTab } from './OnboardingTab';

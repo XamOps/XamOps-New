@@ -78,6 +78,17 @@ export interface InventoryAsset {
   rawPayload: string | null;
 }
 
+export interface ApiEndpoint {
+  id: string;
+  method: string | null;
+  uri: string | null;
+  resourceId: string | null;
+  firstSeenTime: string | null;
+  lastSeenTime: string | null;
+  internetExposed: boolean;
+  cloudAccountId: string | null;
+}
+
 export interface ComplianceFramework {
   framework: string;
   failCount: number;

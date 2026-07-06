@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import apiClient from '../utils/apiClient';
 import type {
   XamSecureSummary, ThreatDetection, VulnerabilityFinding, PostureFinding,
-  ComplianceFramework, OnboardingAccount, PageResp, InventoryAsset,
+  ComplianceFramework, OnboardingAccount, PageResp, InventoryAsset, ApiEndpoint,
 } from '../types/xamsecure';
 
 const CACHE_DURATION = 30 * 60 * 1000; // 30 min for scan-based tabs
@@ -40,6 +40,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [posture, setPosture] = useState<PageResp<PostureFinding> | null>(null);
   const [inventory, setInventory] = useState<PageResp<InventoryAsset> | null>(null);
   const [compliance, setCompliance] = useState<ComplianceFramework[] | null>(null);
+  const [apiSecurity, setApiSecurity] = useState<ApiEndpoint[] | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingAccount[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const pollRef = useRef<number | null>(null);
@@ -112,6 +113,17 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     saveCache(key, data);
   }, [acct, selectedAccountId]);
 
+  const loadApiSecurity = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('apisec', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<ApiEndpoint[]>(key);
+      if (cached) { setApiSecurity(cached); return; }
+    }
+    const data = await apiClient.get<ApiEndpoint[]>(`/api/xamsecure/api-security?${acct}`);
+    setApiSecurity(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
   const loadOnboarding = useCallback(async () => {
     const data = await apiClient.get<OnboardingAccount[]>('/api/xamsecure/onboarding/status');
     setOnboarding(data);
@@ -129,6 +141,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
         else if (activeTab === 'posture') await loadPosture();
         else if (activeTab === 'inventory') await loadInventory();
         else if (activeTab === 'compliance') await loadCompliance();
+        else if (activeTab === 'api-security') await loadApiSecurity();
         else if (activeTab === 'onboarding') await loadOnboarding();
       } catch (err) {
         console.error('[XamSecure] load failed:', err);
@@ -149,7 +162,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
     };
   }, [activeTab, selectedAccountId, loadSummary, loadThreats, loadVulnerabilities,
-      loadPosture, loadInventory, loadCompliance, loadOnboarding]);
+      loadPosture, loadInventory, loadCompliance, loadApiSecurity, loadOnboarding]);
 
   const refresh = useCallback(() => {
     if (activeTab === 'overview') return loadSummary(true);
@@ -158,14 +171,15 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     if (activeTab === 'posture') return loadPosture(0, '', true);
     if (activeTab === 'inventory') return loadInventory(0, '', true);
     if (activeTab === 'compliance') return loadCompliance(true);
+    if (activeTab === 'api-security') return loadApiSecurity(true);
     if (activeTab === 'onboarding') return loadOnboarding();
     return Promise.resolve();
   }, [activeTab, loadSummary, loadThreats, loadVulnerabilities, loadPosture, loadInventory,
-      loadCompliance, loadOnboarding]);
+      loadCompliance, loadApiSecurity, loadOnboarding]);
 
   return {
-    summary, threats, vulnerabilities, posture, inventory, compliance, onboarding,
+    summary, threats, vulnerabilities, posture, inventory, compliance, onboarding, apiSecurity,
     isLoading, refresh,
-    loadThreats, loadVulnerabilities, loadPosture, loadInventory,
+    loadThreats, loadVulnerabilities, loadPosture, loadInventory, loadApiSecurity,
   };
 };
