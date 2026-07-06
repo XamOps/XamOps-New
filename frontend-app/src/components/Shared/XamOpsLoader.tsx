@@ -10,8 +10,12 @@ interface XamOpsLoaderProps {
   label?: string;
   /** Rotating messages that cycle continuously (full-screen mode). */
   messages?: string[];
-  /** Milliseconds each rotating message stays before switching. Default 2000. */
+  /** Milliseconds each rotating message stays before switching. Default 2600.
+      The first message always holds at least 3s so short loads read calmly. */
   messageInterval?: number;
+  /** Milliseconds to stay invisible before showing. Loads that finish faster
+      than this never flash a spinner. Default 200. Pass 0 to show instantly. */
+  delay?: number;
   /** Dark background for the full-screen overlay (defaults to light). */
   dark?: boolean;
   className?: string;
@@ -26,12 +30,14 @@ const DEFAULT_MESSAGES = [
   'Almost there…',
 ];
 
+const FIRST_MESSAGE_HOLD_MS = 3000;
+
 /**
- * XamOps loader — an animated "X" that draws itself inside a spinning arc,
- * with an optional continuously-rotating status message.
+ * XamOps loader — the brand chevron pair (») that draws itself inside a
+ * spinning brand-green arc, with an optional rotating status message.
  *
  *   <XamOpsLoader />                                   // inline, 44px
- *   <XamOpsLoader size={20} />                         // small (buttons)
+ *   <XamOpsLoader size={20} delay={0} />               // small (buttons), instant
  *   <XamOpsLoader fullScreen />                        // rotates default messages
  *   <XamOpsLoader fullScreen messages={['One…','Two…']} />
  *   <XamOpsLoader fullScreen label="Loading…" />       // single fixed message
@@ -41,28 +47,44 @@ const XamOpsLoader: React.FC<XamOpsLoaderProps> = ({
   fullScreen = false,
   label,
   messages,
-  messageInterval = 2000,
+  messageInterval = 2600,
+  delay = 200,
   dark = false,
   className = '',
 }) => {
   const r = 19;
   const circumference = 2 * Math.PI * r;
 
+  // Anti-flash: stay invisible until `delay` has passed. Space is still
+  // reserved (visibility, not unmount) so inline layouts don't shift.
+  const [visible, setVisible] = useState(delay <= 0);
+  useEffect(() => {
+    if (delay <= 0) return;
+    const t = setTimeout(() => setVisible(true), delay);
+    return () => clearTimeout(t);
+  }, [delay]);
+
   // Rotating message logic — only when full-screen and no fixed label given.
+  // The first message holds longer than the rest: most loads finish inside
+  // it, so users aren't flashed with a mid-rotation message.
   const rotating = fullScreen && !label;
   const list = messages && messages.length > 0 ? messages : DEFAULT_MESSAGES;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
     if (!rotating) return;
-    const id = setInterval(() => {
-      setIndex((i) => (i + 1) % list.length);
-    }, messageInterval);
-    return () => clearInterval(id);
-  }, [rotating, list.length, messageInterval]);
+    const hold = index === 0 ? Math.max(messageInterval, FIRST_MESSAGE_HOLD_MS) : messageInterval;
+    const t = setTimeout(() => setIndex((i) => (i + 1) % list.length), hold);
+    return () => clearTimeout(t);
+  }, [rotating, index, list.length, messageInterval]);
 
   const mark = (
-    <span className={`xo-loader ${className}`} style={{ width: size, height: size }} role="status" aria-label="Loading">
+    <span
+      className={`xo-loader ${visible ? '' : 'xo-loader--waiting'} ${className}`}
+      style={{ width: size, height: size }}
+      role="status"
+      aria-label="Loading"
+    >
       <svg viewBox="0 0 44 44" width="100%" height="100%" aria-hidden="true">
         <circle className="xo-loader__track" cx="22" cy="22" r={r} fill="none" strokeWidth="2" />
         <circle
@@ -71,9 +93,10 @@ const XamOpsLoader: React.FC<XamOpsLoaderProps> = ({
           strokeDasharray={circumference}
           strokeDashoffset={circumference * 0.72}
         />
-        <g className="xo-loader__x">
-          <line x1="15" y1="15" x2="29" y2="29" strokeWidth="3" strokeLinecap="round" />
-          <line x1="29" y1="15" x2="15" y2="29" strokeWidth="3" strokeLinecap="round" />
+        {/* Brand mark: the » chevron pair, drawn back-then-front */}
+        <g className="xo-loader__mark" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <path className="xo-loader__chev-back" d="M13.5 14.5 L21 22 L13.5 29.5" />
+          <path className="xo-loader__chev-front" d="M23 14.5 L30.5 22 L23 29.5" />
         </g>
       </svg>
     </span>
@@ -82,7 +105,7 @@ const XamOpsLoader: React.FC<XamOpsLoaderProps> = ({
   if (!fullScreen) return mark;
 
   return (
-    <div className={`xo-loader-screen ${dark ? 'xo-dark' : ''}`}>
+    <div className={`xo-loader-screen ${dark ? 'xo-dark' : ''} ${visible ? '' : 'xo-loader--waiting'}`}>
       {mark}
       {(rotating || label) && (
         // key changes on each message so the fade-in animation re-triggers

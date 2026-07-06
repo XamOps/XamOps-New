@@ -133,7 +133,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] p-3 rounded-lg">
-              <span className="block text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
+              <span className="text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
                 <i className="fas fa-server text-[10px] text-[rgba(0,0,0,0.4)]"></i>
                 Resources
               </span>
@@ -143,7 +143,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
             </div>
             {provider === 'Azure' ? (
               <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] p-3 rounded-lg">
-                <span className="block text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
+                <span className="text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
                   <i className="fas fa-shield-alt text-[10px] text-[rgba(0,0,0,0.4)]"></i>
                   Score
                 </span>
@@ -153,11 +153,11 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
               </div>
             ) : (
               <div className="bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] p-3 rounded-lg">
-                <span className="block text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
-                  <i className="fas fa-bell text-[10px] text-[rgba(0,0,0,0.4)]"></i>
+                <span className="text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
+                  <i className={`fas fa-bell text-[10px] ${(data.selectedAccount?.optimizationSummary?.criticalAlerts || 0) > 0 ? 'text-red-500' : 'text-[rgba(0,0,0,0.4)]'}`}></i>
                   Alerts
                 </span>
-                <span className="text-lg font-black text-gray-900">
+                <span className={`text-lg font-black ${(data.selectedAccount?.optimizationSummary?.criticalAlerts || 0) > 0 ? 'text-red-600' : 'text-gray-900'}`}>
                   {data.selectedAccount?.optimizationSummary?.criticalAlerts || 0}
                 </span>
               </div>

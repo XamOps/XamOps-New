@@ -1,0 +1,27 @@
+{
+  "enabled": true,
+  "name": "API Postman Testing",
+  "description": "Monitors API source code and configuration changes across the XamOps Java services and React frontend, then runs the Postman collection to validate functionality and propose fixes for any failures.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.java",
+      "**/*.ts",
+      "**/*.tsx",
+      "**/pom.xml",
+      "**/build.gradle",
+      "**/application*.properties",
+      "**/application*.yml",
+      "**/application*.yaml",
+      "**/openapi.yaml",
+      "**/openapi.yml",
+      "**/swagger.yaml",
+      "**/swagger.yml"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "API source code or configuration has been modified. Please retrieve the contents of the .postman.json file. If the file does not exist or is empty, create a Postman collection for the API. If it exists, get the collection ID and run the collection, showing me the results and propose fixes for any errors found."
+  }
+}

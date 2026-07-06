@@ -1,6 +1,6 @@
 /* ===================================================================
-   XamOps loader — an animated "X" that draws itself inside a spinning
-   arc. Minimal, monochrome, light-theme.
+   XamOps loader — the brand chevron pair (») drawing itself inside a
+   spinning brand-green arc. Minimal, light-theme first.
    =================================================================== */
 
 .xo-loader {
@@ -8,33 +8,46 @@
   position: relative;
 }
 
+.xo-loader--waiting {
+  visibility: hidden;
+}
+
 /* faint full ring behind the arc */
 .xo-loader__track {
   stroke: rgba(15, 23, 42, 0.07);
 }
 
-/* the spinning arc */
+/* the spinning arc — brand green */
 .xo-loader__arc {
-  stroke: #64748b;                 /* muted slate */
+  stroke: #0b8f5a;
   transform-origin: center;
   animation: xo-rotate 1s linear infinite;
 }
 
-/* the X mark — draws itself in and out, with a gentle pulse */
-.xo-loader__x {
+/* the chevron pair — draws itself in and out, with a gentle pulse */
+.xo-loader__mark {
   transform-origin: center;
   animation: xo-pulse 1.8s ease-in-out infinite;
 }
 
-.xo-loader__x line {
-  stroke: #0f172a;                 /* near-black slate */
-  stroke-dasharray: 20;
-  stroke-dashoffset: 20;
+.xo-loader__mark path {
+  fill: none;
+  stroke-dasharray: 22;
+  stroke-dashoffset: 22;
   animation: xo-draw 1.8s ease-in-out infinite;
 }
 
-/* second stroke staggered so the X "writes" itself */
-.xo-loader__x line:nth-child(2) {
+/* back chevron — silver, draws first */
+.xo-loader__chev-back {
+  stroke: #a3adba;
+}
+
+/* front chevron — ink, follows the back chevron by a beat */
+.xo-loader__chev-front {
+  stroke: #0f172a;
+}
+
+.xo-loader__mark path.xo-loader__chev-front {
   animation-delay: 0.18s;
 }
 
@@ -43,18 +56,19 @@
 }
 
 @keyframes xo-draw {
-  0%   { stroke-dashoffset: 20; }
+  0%   { stroke-dashoffset: 22; }
   40%  { stroke-dashoffset: 0; }
   70%  { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: -20; }
+  100% { stroke-dashoffset: -22; }
 }
 
 @keyframes xo-pulse {
-  0%, 100% { transform: scale(0.9); opacity: 0.85; }
-  50%      { transform: scale(1.06); opacity: 1; }
+  0%, 100% { transform: scale(0.92); opacity: 0.85; }
+  50%      { transform: scale(1.05); opacity: 1; }
 }
 
-/* Full-screen overlay variant (light by default) */
+/* Full-screen overlay variant — matches the app background token so it
+   doesn't flash brighter than the page it covers */
 .xo-loader-screen {
   position: fixed;
   inset: 0;
@@ -64,13 +78,14 @@
   align-items: center;
   justify-content: center;
   gap: 16px;
-  background: #ffffff;
+  background: #f7f8fa;
 }
 
 .xo-loader-screen.xo-dark { background: #020617; }
 .xo-loader-screen.xo-dark .xo-loader__track { stroke: rgba(255, 255, 255, 0.10); }
-.xo-loader-screen.xo-dark .xo-loader__arc   { stroke: #94a3b8; }
-.xo-loader-screen.xo-dark .xo-loader__x line { stroke: #f1f5f9; }
+.xo-loader-screen.xo-dark .xo-loader__arc { stroke: #1be68b; }
+.xo-loader-screen.xo-dark .xo-loader__chev-back { stroke: rgba(241, 245, 249, 0.45); }
+.xo-loader-screen.xo-dark .xo-loader__chev-front { stroke: #f1f5f9; }
 
 .xo-loader__label {
   font-size: 0.8125rem;
@@ -90,6 +105,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .xo-loader__arc { animation-duration: 2.4s; }
-  .xo-loader__x, .xo-loader__x line, .xo-loader__label { animation: none; }
-  .xo-loader__x line { stroke-dashoffset: 0; }
+  .xo-loader__mark, .xo-loader__mark path, .xo-loader__label { animation: none; }
+  .xo-loader__mark path { stroke-dashoffset: 0; }
 }

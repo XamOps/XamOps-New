@@ -1,0 +1,47 @@
+{
+  "version": "0.1",
+  "project": {
+    "name": "XamOps",
+    "baseUrl": "http://localhost:8080",
+    "services": {
+      "xamops-service": "http://localhost:8080",
+      "billops": "http://localhost:8082",
+      "mediaops": "http://localhost:8084"
+    }
+  },
+  "default": {
+    "workspace": "xamops",
+    "collection": "xamops-api",
+    "environment": "local"
+  },
+  "workspaces": {
+    "xamops": {
+      "id": "90fe0a97-6b9d-40de-aaf7-1b4371ac0632",
+      "name": "XamOps",
+      "type": "personal",
+      "description": "API testing for the XamOps platform (xamops-service, billops, mediaops)."
+    }
+  },
+  "collections": {
+    "xamops-api": {
+      "id": "4e5a6b30-8077-488a-9663-ec4df399d3f2",
+      "uid": "54754795-4e5a6b30-8077-488a-9663-ec4df399d3f2",
+      "name": "XamOps API",
+      "workspace": "xamops",
+      "requestCount": 4
+    }
+  },
+  "environments": {
+    "local": {
+      "id": "34c6075a-6308-48e0-956d-a320cacdfaec",
+      "uid": "54754795-34c6075a-6308-48e0-956d-a320cacdfaec",
+      "name": "XamOps - Local",
+      "workspace": "xamops",
+      "variables": {
+        "XAMOPS_URL": "http://localhost:8080",
+        "BILLOPS_URL": "http://localhost:8082",
+        "MEDIAOPS_URL": "http://localhost:8084"
+      }
+    }
+  }
+}

@@ -85,18 +85,10 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
         maintainAspectRatio: false,
         cutout: '68%',
         plugins: {
-          legend: {
-            position: 'bottom',
-            labels: {
-              boxWidth: 8,
-              boxHeight: 8,
-              font: { size: 11, family: 'Inter' },
-              usePointStyle: true,
-              pointStyle: 'circle',
-              padding: 12,
-              color: 'rgba(0,0,0,0.55)',
-            },
-          },
+          // Legend intentionally disabled — the Detailed Breakdown table beside
+          // the chart already serves as a full color-keyed legend. Hiding it here
+          // lets the ring use the whole container so slices/colors are readable.
+          legend: { display: false },
           tooltip: {
             backgroundColor: 'rgba(0,0,0,0.88)',
             titleColor: 'white',
@@ -234,10 +226,18 @@ const CostBreakdownSection: React.FC<CostBreakdownSectionProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-0 divide-x divide-[rgba(0,0,0,0.06)]">
 
           {/* Donut */}
-          <div className="lg:col-span-2 p-5">
+          <div className="lg:col-span-2 p-5 flex flex-col">
             <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] mb-4">Cost Distribution</p>
-            <div className="h-72 relative">
+            <div className="relative flex-1 min-h-[360px]">
               <canvas ref={chartRef}></canvas>
+              {/* Total in the donut hole */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.4)]">Total</span>
+                <span className="text-[22px] font-bold text-[rgba(0,0,0,0.85)] tabular-nums leading-tight">
+                  ${totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                </span>
+                <span className="text-[10px] text-[rgba(0,0,0,0.35)] font-medium">{sortedData.length} categories</span>
+              </div>
             </div>
           </div>
 

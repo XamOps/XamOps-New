@@ -11,6 +11,12 @@ interface MetricCardProps {
   onClick?: () => void;
   showViewButton?: boolean;
   onViewClick?: () => void;
+  /** Colors the hero number + icon tint for semantic (severity) metrics. Defaults to near-black. */
+  valueColor?: string;
+  /** Optional progress ratio 0–1 that renders a thin track under the value (e.g. budget usage). */
+  progress?: number;
+  /** Color of the progress fill; falls back to valueColor. */
+  progressColor?: string;
 }
 
 const parseValue = (v: string | number) => {
@@ -30,6 +36,9 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   onClick,
   showViewButton = false,
   onViewClick,
+  valueColor = 'rgb(10, 10, 10)',
+  progress,
+  progressColor,
 }) => {
   const { prefix, num, suffix } = parseValue(value);
 
@@ -66,6 +75,9 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   const mainPart = display.includes('.') ? display.slice(0, display.lastIndexOf('.')) : display;
   const decPart  = display.includes('.') ? display.slice(display.lastIndexOf('.')) : '';
 
+  const isAccented = valueColor !== 'rgb(10, 10, 10)';
+  const barColor = progressColor ?? (isAccented ? valueColor : 'rgba(0,0,0,0.55)');
+
   return (
     <div
       className={`bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden group card-hover-lift ${onClick ? 'cursor-pointer' : ''}`}
@@ -82,8 +94,14 @@ export const MetricCard: React.FC<MetricCardProps> = ({
             <i className="fas fa-eye text-[10px]"></i>
           </button>
         )}
-        <div className="w-6 h-6 bg-[rgba(0,0,0,0.04)] rounded-md flex items-center justify-center">
-          <i className={`${icon} text-[10px]`}></i>
+        <div
+          className="w-6 h-6 rounded-md flex items-center justify-center"
+          style={{ backgroundColor: isAccented ? `${valueColor}1f` : 'rgba(0,0,0,0.04)' }}
+        >
+          <i
+            className={`${icon} text-[10px]`}
+            style={isAccented ? { color: valueColor } : undefined}
+          ></i>
         </div>
       </div>
 
@@ -99,15 +117,23 @@ export const MetricCard: React.FC<MetricCardProps> = ({
             {title}
           </p>
           <p className="leading-8 mb-1 flex items-baseline gap-0.5">
-            <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px', color: 'rgb(10, 10, 10)', fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px', color: valueColor, fontVariantNumeric: 'tabular-nums' }}>
               {mainPart}
             </span>
             {decPart && (
-              <span style={{ fontFamily: "'Inter', sans-serif", fontSize: '14px', fontWeight: 400, color: 'rgb(10, 10, 10)' }}>
+              <span style={{ fontFamily: "'Inter', sans-serif", fontSize: '14px', fontWeight: 400, color: valueColor }}>
                 {decPart}
               </span>
             )}
           </p>
+          {typeof progress === 'number' && (
+            <div className="h-1.5 w-full rounded-full bg-[rgba(0,0,0,0.06)] overflow-hidden mb-1.5 mt-0.5">
+              <div
+                className="h-full rounded-full transition-[width] duration-700 ease-out"
+                style={{ width: `${Math.min(Math.max(progress, 0), 1) * 100}%`, backgroundColor: barColor }}
+              />
+            </div>
+          )}
           {subtitle && <p className="text-[11px] text-[rgba(0,0,0,0.35)] font-medium">{subtitle}</p>}
           {children}
         </div>

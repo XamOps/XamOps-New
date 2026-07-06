@@ -180,7 +180,7 @@ const LoginPage: React.FC = () => {
                 Already logged in?{' '}
                 <a href="/unified-dashboard" className="text-link">Go to Dashboard →</a>
               </p>
-              <p className="footer-text mt-2 opacity-50">© 2025 Xammer. All rights reserved.</p>
+              <p className="footer-text mt-2">© 2025 Xammer. All rights reserved.</p>
             </div>
           </section>
         </div>

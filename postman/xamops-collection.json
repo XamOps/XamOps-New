@@ -1,0 +1,168 @@
+{
+  "info": {
+    "name": "XamOps API",
+    "description": "Starter collection for the XamOps platform (xamops-service :8080, billops :8082, mediaops :8084). Uses environment variables for all URLs and credentials. Assertions are CI-safe: they fail on server errors (5xx) but tolerate expected auth rejections when credentials are not supplied.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "XamOps Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/actuator/health",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["actuator", "health"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Service reports UP', function () {",
+                  "    pm.expect(pm.response.json().status).to.eql('UP');",
+                  "});",
+                  "pm.test('Responds within 5s', function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Initiate Login (send OTP)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{AUTH_EMAIL}}\",\n  \"password\": \"{{AUTH_PASSWORD}}\"\n}"
+            },
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/auth/initiate-login",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "auth", "initiate-login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "const hasCreds = pm.environment.get('AUTH_EMAIL') && pm.environment.get('AUTH_PASSWORD');",
+                  "if (hasCreds) {",
+                  "    pm.test('Login accepted with credentials', function () {",
+                  "        pm.expect(pm.response.code).to.be.oneOf([200, 202]);",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Rejects missing credentials (400/401)', function () {",
+                  "        pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Login OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{AUTH_EMAIL}}\",\n  \"otp\": \"{{AUTH_OTP}}\"\n}"
+            },
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/auth/verify-login-otp",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "auth", "verify-login-otp"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "const hasOtp = pm.environment.get('AUTH_EMAIL') && pm.environment.get('AUTH_OTP');",
+                  "if (hasOtp) {",
+                  "    pm.test('OTP verification returns 200', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Rejects missing OTP (400/401)', function () {",
+                  "        pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "BillOps",
+      "item": [
+        {
+          "name": "Get All Tickets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BILLOPS_URL}}/api/billops/tickets?forceRefresh=false",
+              "host": ["{{BILLOPS_URL}}"],
+              "path": ["api", "billops", "tickets"],
+              "query": [{ "key": "forceRefresh", "value": "false" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Authenticated or protected (200/401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 401, 403]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Response body is an array', function () {",
+                  "        pm.expect(pm.response.json()).to.be.an('array');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

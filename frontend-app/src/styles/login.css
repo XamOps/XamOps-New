@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Climate+Crisis&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=Neuton:wght@400;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Climate+Crisis&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
 
 /**
  * XamOps Login — minimal & crisp.
@@ -173,12 +173,11 @@
   z-index: 2;
 }
 
-/* Dashboard composite — window card + stat card + savings chip.
-   All chart UI text uses Neuton to match the form labels. */
+/* Dashboard composite — window card + stat card + savings chip. */
 .lp-composite {
   position: relative;
   width: 280px;
-  font-family: 'Neuton', Georgia, serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 /* Browser-window chart card */
@@ -362,7 +361,6 @@
 }
 
 .lp-donut-hole b {
-  font-family: 'Neuton', Georgia, serif;
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--ink);
@@ -441,7 +439,6 @@
 }
 
 .lp-stat-value {
-  font-family: 'Neuton', Georgia, serif;
   font-size: 1.55rem;
   font-weight: 700;
   color: #1e1035;
@@ -667,14 +664,14 @@
   color: var(--ink-soft);
 }
 
-/* Login form labels & links in Neuton (scoped: Feedback/TrialExpired
-   pages share these classes and keep Inter) */
+/* Login form labels & links in Inter — one functional typeface across
+   the whole form for a cleaner, more consistent read */
 .form-panel .label-text,
 .form-panel .text-link {
-  font-family: 'Neuton', Georgia, serif;
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .input-container {
@@ -762,7 +759,7 @@
   align-items: center;
   gap: 0.5rem;
   cursor: pointer;
-  color: var(--muted);
+  color: var(--ink-soft);
   transition: color 0.15s ease;
 }
 
@@ -772,12 +769,13 @@
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  border: 1px solid var(--line-2);
+  border: 1.5px solid rgba(15, 23, 42, 0.3);
   background: #ffffff;
   appearance: none;
   cursor: pointer;
   position: relative;
   transition: all 0.15s ease;
+  flex: none;
 }
 
 .hidden-checkbox:hover { border-color: rgba(15, 23, 42, 0.28); }

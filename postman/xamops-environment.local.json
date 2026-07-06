@@ -1,0 +1,11 @@
+{
+  "name": "XamOps - Local",
+  "values": [
+    { "key": "XAMOPS_URL", "value": "http://localhost:8080", "enabled": true, "description": "xamops-service base URL" },
+    { "key": "BILLOPS_URL", "value": "http://localhost:8082", "enabled": true, "description": "billops service base URL" },
+    { "key": "MEDIAOPS_URL", "value": "http://localhost:8084", "enabled": true, "description": "mediaops service base URL" },
+    { "key": "AUTH_EMAIL", "value": "", "enabled": true, "description": "Login email for OTP flow" },
+    { "key": "AUTH_PASSWORD", "value": "", "enabled": true, "type": "secret", "description": "Login password" },
+    { "key": "AUTH_OTP", "value": "", "enabled": true, "description": "One-time code from initiate-login" }
+  ]
+}

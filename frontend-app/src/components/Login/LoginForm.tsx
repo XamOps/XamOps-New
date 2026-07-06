@@ -188,14 +188,14 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
           <div className="input-group">
             <div className="label-row">
               <label htmlFor="password" className="label-text">
-                Security Password
+                Password
               </label>
               <button
                 type="button"
                 onClick={onForgotPassword}
                 className="text-link"
               >
-                Recover Password
+                Forgot password?
               </button>
             </div>
             <div className="input-container">
@@ -231,7 +231,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
               />
-              <span>Stay signed in for smoother access</span>
+              <span>Keep me signed in</span>
             </label>
           </div>
 

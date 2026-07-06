@@ -1165,6 +1165,26 @@ public class InvoiceManagementService {
             //   Billing-Conductor-modified data after April 1st.
             //   For the CURRENT month, forceRefresh=true stays to always get live CE data.
             boolean isClosedMonth = YearMonth.of(year, month).isBefore(YearMonth.now());
+
+            // ✅ Prefer the exact org-wide monthly snapshot that the FinOps "Cost Management"
+            // page uses. AWS_MONTHLY_SVC_REGION / AWS_MONTHLY_BREAKDOWN_SVC are captured
+            // org-wide (no LINKED_ACCOUNT filter) and stored in the shared cached_data table,
+            // so the invoice matches the cost page and the AWS console exactly for closed
+            // months — with NO scale-factor normalization.
+            if (isClosedMonth) {
+                List<ServiceCostDetailDto> snapshotReport =
+                        billingService.getMonthlySnapshotReport(cloudAccount.getAwsAccountId(), year, month);
+                if (snapshotReport != null && !snapshotReport.isEmpty()) {
+                    detailedReport.addAll(snapshotReport);
+                    double snapTotal = snapshotReport.stream().mapToDouble(ServiceCostDetailDto::getCost).sum();
+                    logger.info("[InvoiceGen] AWS invoice built from monthly snapshot for {}/{} — {} services, total=${} (no scaling)",
+                            year, month, snapshotReport.size(), String.format("%.2f", snapTotal));
+                }
+            }
+
+            // Fall back to the Cost Explorer path only when no snapshot is available
+            // (e.g. current month, or a closed month that was never snapshotted).
+            if (detailedReport.isEmpty()) {
             boolean refreshFlag = !isClosedMonth; // false for closed months → uses snapshots
             logger.info("[InvoiceGen] month={}/{} isClosedMonth={} → refreshFlag={}",
                     year, month, isClosedMonth, refreshFlag);
@@ -1245,6 +1265,7 @@ public class InvoiceManagementService {
                 serviceDetail.setRegionCosts(List.of(globalRegion));
                 detailedReport.add(serviceDetail);
             }
+            } // end if (detailedReport.isEmpty()) — Cost Explorer fallback
         }
 
         Invoice invoice = new Invoice();

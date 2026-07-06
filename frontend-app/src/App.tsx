@@ -431,8 +431,10 @@ const AuthenticatedLayout: React.FC = () => {
                             transition={{ duration: 0.18, ease: 'easeOut' }}
                         >
                             <Suspense fallback={
-                                <div className="flex items-center justify-center w-full py-24">
-                                    <XamOpsLoader size={56} />
+                                // min-h approximates viewport minus topbar so the mark
+                                // sits at the visual center, not high under the header
+                                <div className="flex items-center justify-center w-full min-h-[calc(100dvh-160px)]">
+                                    <XamOpsLoader size={56} delay={300} />
                                 </div>
                             }>
                                 <Outlet />

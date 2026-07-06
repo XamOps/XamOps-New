@@ -68,6 +68,106 @@ public class BillingService {
     }
 
     /**
+     * Reads the org-wide monthly cost snapshot that the XamOps FinOps "Cost Management"
+     * page uses for closed months, so invoices match the cost page (and the AWS console)
+     * exactly. These snapshots are captured org-wide (NO LINKED_ACCOUNT filter) by
+     * xamops-service's CostDataSnapshotService and stored in the shared cached_data table.
+     *
+     * Key scheme (written by xamops-service):
+     *   AWS_MONTHLY_SVC_REGION::{accountId}::{YYYY-MM}  → List<{service, region, cost}>  (preferred)
+     *   AWS_MONTHLY_BREAKDOWN_SVC::{accountId}::{YYYY-MM} → List<{name, amount}>          (fallback)
+     *
+     * Returns an empty list when no snapshot exists (caller should fall back to the CE API).
+     */
+    public List<ServiceCostDetailDto> getMonthlySnapshotReport(String accountId, int year, int month) {
+        String ym = java.time.YearMonth.of(year, month).toString(); // "YYYY-MM"
+
+        // 1. Preferred: service × region breakdown (matches cost page's detailed view)
+        String svcRgnKey = "AWS_MONTHLY_SVC_REGION::" + accountId + "::" + ym;
+        try {
+            Optional<CachedData> row = cachedDataRepository.findById(svcRgnKey);
+            if (row.isPresent()) {
+                List<Map<String, Object>> rows = objectMapper.readValue(
+                        row.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
+                if (rows != null && !rows.isEmpty()) {
+                    Map<String, ServiceCostDetailDto> byService = new LinkedHashMap<>();
+                    for (Map<String, Object> r : rows) {
+                        String service = String.valueOf(r.getOrDefault("service", "Unknown"));
+                        String region = String.valueOf(r.getOrDefault("region", "N/A"));
+                        double cost = toDoubleSafe(r.get("cost"));
+                        if (cost <= 0) continue;
+                        ServiceCostDetailDto svc = byService.computeIfAbsent(service, s -> {
+                            ServiceCostDetailDto d = new ServiceCostDetailDto();
+                            d.setServiceName(s);
+                            d.setCost(0.0);
+                            d.setTotalCost(0.0);
+                            d.setRegionCosts(new ArrayList<>());
+                            return d;
+                        });
+                        RegionCostDto rgn = new RegionCostDto();
+                        rgn.setRegion(region);
+                        rgn.setRegionName(region);
+                        rgn.setCost(cost);
+                        svc.getRegionCosts().add(rgn);
+                        svc.setCost(svc.getCost() + cost);
+                        svc.setTotalCost(svc.getTotalCost() + cost);
+                    }
+                    logger.info("✅ [InvoiceGen] Using AWS_MONTHLY_SVC_REGION snapshot for {} {} ({} services)",
+                            accountId, ym, byService.size());
+                    return new ArrayList<>(byService.values());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to read snapshot {}: {}", svcRgnKey, e.getMessage());
+        }
+
+        // 2. Fallback: service-only breakdown
+        String svcKey = "AWS_MONTHLY_BREAKDOWN_SVC::" + accountId + "::" + ym;
+        try {
+            Optional<CachedData> row = cachedDataRepository.findById(svcKey);
+            if (row.isPresent()) {
+                List<Map<String, Object>> rows = objectMapper.readValue(
+                        row.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
+                if (rows != null && !rows.isEmpty()) {
+                    List<ServiceCostDetailDto> report = new ArrayList<>();
+                    for (Map<String, Object> r : rows) {
+                        String service = String.valueOf(r.getOrDefault("name", "Unknown"));
+                        double cost = toDoubleSafe(r.get("amount"));
+                        if (cost <= 0) continue;
+                        RegionCostDto rgn = new RegionCostDto();
+                        rgn.setRegion("global");
+                        rgn.setRegionName("global");
+                        rgn.setCost(cost);
+                        ServiceCostDetailDto d = new ServiceCostDetailDto();
+                        d.setServiceName(service);
+                        d.setCost(cost);
+                        d.setTotalCost(cost);
+                        d.setRegionCosts(new ArrayList<>(List.of(rgn)));
+                        report.add(d);
+                    }
+                    logger.info("✅ [InvoiceGen] Using AWS_MONTHLY_BREAKDOWN_SVC snapshot for {} {} ({} services)",
+                            accountId, ym, report.size());
+                    return report;
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to read snapshot {}: {}", svcKey, e.getMessage());
+        }
+
+        return Collections.emptyList();
+    }
+
+    private double toDoubleSafe(Object o) {
+        if (o == null) return 0.0;
+        if (o instanceof Number) return ((Number) o).doubleValue();
+        try {
+            return Double.parseDouble(o.toString());
+        } catch (Exception e) {
+            return 0.0;
+        }
+    }
+
+    /**
      * Clears all Spring @Cacheable cost caches (costByDimension, costForServiceInRegion,
      * costByResource, costHistory) so the next API call fetches live data from AWS.
      * Called when forceRefresh=true so billing page refresh and invoice generation

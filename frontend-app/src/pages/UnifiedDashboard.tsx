@@ -139,6 +139,13 @@ export const UnifiedDashboard: React.FC = () => {
     return 'Critical';
   };
 
+  const getSecurityColor = () => {
+    const score = getAverageSecurityScore();
+    if (score >= 80) return '#059669';
+    if (score >= 50) return '#d97706';
+    return '#dc2626';
+  };
+
   // Modal handlers
   const openBreakdown = (provider: string, providerData: typeof awsData) => {
     setViewMode('cost');
@@ -379,8 +386,14 @@ export const UnifiedDashboard: React.FC = () => {
               title="Budget Health"
               value={`${Math.round(getBudgetPercent())}%`}
               subtitle={getBudgetPercent() > 100 ? 'Over budget' : 'Within monthly limits'}
-              icon={`fas fa-chart-pie ${getBudgetPercent() > 90 ? 'text-rose-500' : 'text-[rgba(0,0,0,0.45)]'}`}
+              icon="fas fa-chart-pie"
               isLoading={isLoading.summary}
+              progress={getBudgetPercent() / 100}
+              valueColor={
+                getBudgetPercent() > 100 ? '#dc2626'
+                  : getBudgetPercent() > 90 ? '#d97706'
+                  : '#059669'
+              }
             />
 
             <MetricCard
@@ -397,11 +410,12 @@ export const UnifiedDashboard: React.FC = () => {
               title="Potential Savings"
               value={formatCurrency(getTotalSavings())}
               subtitle="Optimization opportunities"
-              icon="fas fa-coins text-[rgba(0,0,0,0.45)]"
+              icon="fas fa-coins"
               isLoading={isLoading.summary}
               showViewButton={true}
               onViewClick={openSavingsBreakdown}
-              onClick={() => (window.location.href = '/waste.html')}
+              valueColor={getTotalSavings() > 0 ? '#059669' : 'rgb(10, 10, 10)'}
+              onClick={() => navigate('/waste')}
             />
           </div>
 
@@ -411,20 +425,22 @@ export const UnifiedDashboard: React.FC = () => {
               title="Wasted Resources"
               value={getTotalWasteCount()}
               subtitle="Idle or Unused Assets"
-              icon="fas fa-trash text-[rgba(0,0,0,0.45)]"
+              icon="fas fa-trash"
               isLoading={isLoading.summary}
               showViewButton={true}
               onViewClick={openWasteBreakdown}
+              valueColor={getTotalWasteCount() > 0 ? '#d97706' : 'rgb(10, 10, 10)'}
             />
 
             <MetricCard
               title="Critical Alerts"
               value={getTotalAlertsCount()}
               subtitle="Requires Attention"
-              icon="fas fa-bell text-[rgba(0,0,0,0.45)]"
+              icon="fas fa-bell"
               isLoading={isLoading.summary}
               showViewButton={true}
               onViewClick={openAlertsBreakdown}
+              valueColor={getTotalAlertsCount() > 0 ? '#dc2626' : 'rgb(10, 10, 10)'}
             />
 
             {/* Active Support Tickets Card */}
@@ -451,7 +467,10 @@ export const UnifiedDashboard: React.FC = () => {
             {/* Security Posture Card */}
             <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden group card-hover-lift">
               <div className="absolute top-4 right-4">
-                <div className="w-6 h-6 bg-[rgba(0,0,0,0.04)] rounded-md flex items-center justify-center text-[rgba(0,0,0,0.45)]">
+                <div
+                  className="w-6 h-6 rounded-md flex items-center justify-center"
+                  style={{ backgroundColor: `${getSecurityColor()}1f`, color: getSecurityColor() }}
+                >
                   <i className="fas fa-shield-alt text-[10px]"></i>
                 </div>
               </div>
@@ -459,11 +478,14 @@ export const UnifiedDashboard: React.FC = () => {
                 <div className="fade-in pr-8">
                   <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">Security Posture</p>
                   <p className="leading-8 mb-1 flex items-baseline gap-0.5">
-                    <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px', color: 'rgb(10, 10, 10)', fontVariantNumeric: 'tabular-nums' }}>
+                    <span style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '32px', fontWeight: 400, letterSpacing: '0px', lineHeight: '32px', color: getSecurityColor(), fontVariantNumeric: 'tabular-nums' }}>
                       {getAverageSecurityScore()}
                     </span>
+                    <span style={{ fontFamily: "'Inter', sans-serif", fontSize: '13px', fontWeight: 400, color: 'rgba(0,0,0,0.3)' }}>/100</span>
                   </p>
-                  <p className="text-[11px] text-[rgba(0,0,0,0.35)] font-medium">{getSecurityLabel()} · Compliance Score</p>
+                  <p className="text-[11px] font-medium" style={{ color: getSecurityColor() }}>
+                    {getSecurityLabel()} <span className="text-[rgba(0,0,0,0.35)]">· Compliance Score</span>
+                  </p>
                 </div>
               ) : (
                 <div className="animate-pulse pr-8 space-y-3 pt-0.5">

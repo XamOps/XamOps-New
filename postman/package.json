@@ -1,0 +1,14 @@
+{
+  "name": "xamops-api-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Postman/Newman API tests for the XamOps platform",
+  "scripts": {
+    "test:api": "newman run xamops-collection.json -e xamops-environment.local.json",
+    "test:api:html": "newman run xamops-collection.json -e xamops-environment.local.json -r cli,htmlextra --reporter-htmlextra-export reports/xamops-report.html"
+  },
+  "devDependencies": {
+    "newman": "6.2.2",
+    "newman-reporter-htmlextra": "1.23.1"
+  }
+}
