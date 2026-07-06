@@ -1,6 +1,7 @@
 package com.xammer.cloud.service.upwind;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.xammer.cloud.domain.*;
 import com.xammer.cloud.domain.UpwindInventoryAsset;
 import com.xammer.cloud.repository.*;
@@ -26,6 +27,7 @@ import java.util.stream.Collectors;
 public class XamSecureService {
 
     private static final int SUMMARY_CACHE_MINUTES = 5;
+    private static final int APISEC_CACHE_MINUTES = 10;
 
     private final CloudAccountRepository cloudAccountRepository;
     private final UpwindThreatDetectionRepository detectionRepo;
@@ -35,6 +37,7 @@ public class XamSecureService {
     private final UpwindAccountConnectionRepository connectionRepo;
     private final RedisCacheService redisCacheService;
     private final UpwindInventoryAssetRepository inventoryRepo;
+    private final UpwindApiClient apiClient;
 
     public XamSecureService(CloudAccountRepository cloudAccountRepository,
                             UpwindThreatDetectionRepository detectionRepo,
@@ -43,7 +46,8 @@ public class XamSecureService {
                             UpwindSyncStateRepository syncStateRepo,
                             UpwindAccountConnectionRepository connectionRepo,
                             RedisCacheService redisCacheService,
-                            UpwindInventoryAssetRepository inventoryRepo) {
+                            UpwindInventoryAssetRepository inventoryRepo,
+                            UpwindApiClient apiClient) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.detectionRepo = detectionRepo;
         this.vulnRepo = vulnRepo;
@@ -52,6 +56,39 @@ public class XamSecureService {
         this.connectionRepo = connectionRepo;
         this.redisCacheService = redisCacheService;
         this.inventoryRepo = inventoryRepo;
+        this.apiClient = apiClient;
+    }
+
+    public List<Map<String, Object>> getApiSecurity(Long clientId, String accountId) {
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty() || !apiClient.isConfigured()) return List.of();
+        String cacheKey = "xamsecure:apisec:" + clientId + ":" + (accountId == null ? "all" : accountId);
+        Optional<List<Map<String, Object>>> cached =
+                redisCacheService.get(cacheKey, new TypeReference<List<Map<String, Object>>>() {});
+        if (cached.isPresent()) return cached.get();
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (String id : ids) {
+            try {
+                for (JsonNode ep : apiClient.fetchApiSecurityEndpoints(id, 20)) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", ep.path("id").asText(null));
+                    m.put("method", ep.path("method").asText(null));
+                    m.put("uri", ep.path("uri").asText(null));
+                    m.put("resourceId", ep.path("resource_id").asText(null));
+                    m.put("firstSeenTime", ep.path("first_seen_time").asText(null));
+                    m.put("lastSeenTime", ep.path("last_seen_time").asText(null));
+                    m.put("internetExposed", ep.path("risk_overview").path("internet_exposure")
+                            .path("ingress").has("last_seen_time"));
+                    m.put("cloudAccountId", id);
+                    rows.add(m);
+                }
+            } catch (Exception e) {
+                log.warn("[Upwind] apisec fetch failed for account {}: {}", id, e.getMessage());
+            }
+        }
+        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        return rows;
     }
 
     /**

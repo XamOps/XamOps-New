@@ -61,4 +61,10 @@ public class XamSecureController {
                                         @RequestParam(required = false) String accountId) {
         return ResponseEntity.ok(xamSecureService.getCompliance(user.getClientId(), accountId));
     }
+
+    @GetMapping("/api-security")
+    public ResponseEntity<?> apiSecurity(@AuthenticationPrincipal ClientUserDetails user,
+                                         @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getApiSecurity(user.getClientId(), accountId));
+    }
 }

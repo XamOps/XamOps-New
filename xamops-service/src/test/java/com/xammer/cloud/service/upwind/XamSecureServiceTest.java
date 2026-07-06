@@ -24,6 +24,7 @@ class XamSecureServiceTest {
     private UpwindAccountConnectionRepository connectionRepo;
     private RedisCacheService redisCacheService;
     private UpwindInventoryAssetRepository inventoryRepo;
+    private UpwindApiClient apiClient;
     private XamSecureService service;
 
     private CloudAccount aws(String awsId) {
@@ -46,8 +47,24 @@ class XamSecureServiceTest {
         when(redisCacheService.get(any(String.class), any(com.fasterxml.jackson.core.type.TypeReference.class)))
                 .thenReturn(Optional.empty());
         inventoryRepo = mock(UpwindInventoryAssetRepository.class);
+        apiClient = mock(UpwindApiClient.class);
         service = new XamSecureService(cloudAccountRepo, detectionRepo, vulnRepo,
-                postureRepo, syncStateRepo, connectionRepo, redisCacheService, inventoryRepo);
+                postureRepo, syncStateRepo, connectionRepo, redisCacheService, inventoryRepo, apiClient);
+    }
+
+    @Test
+    void getApiSecurityFetchesPerOwnedAccountAndFlattens() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        com.fasterxml.jackson.databind.JsonNode ep = new com.fasterxml.jackson.databind.ObjectMapper()
+            .readTree("{\"id\":\"rt-1\",\"method\":\"GET\",\"uri\":\"/version\",\"resource_id\":\"ep-1\"}");
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.fetchApiSecurityEndpoints("111", 20)).thenReturn(List.of(ep));
+
+        var rows = service.getApiSecurity(1L, null);
+        assertEquals(1, rows.size());
+        assertEquals("GET", rows.get(0).get("method"));
+        assertEquals("/version", rows.get(0).get("uri"));
+        assertEquals("111", rows.get(0).get("cloudAccountId"));
     }
 
     @Test
