@@ -5,10 +5,12 @@ interface Props {
   title: string;
   rawPayload: string | null;
   onClose: () => void;
+  /** Optional footer action(s) (e.g. Archive button). Omit for no footer. */
+  actions?: React.ReactNode;
 }
 
 /** Right-side drawer showing the full finding payload as a key/value tree. */
-const FindingDrawer: React.FC<Props> = ({ title, rawPayload, onClose }) => {
+const FindingDrawer: React.FC<Props> = ({ title, rawPayload, onClose, actions }) => {
   let pretty = '';
   try {
     pretty = rawPayload ? JSON.stringify(JSON.parse(rawPayload), null, 2) : '';
@@ -31,6 +33,11 @@ const FindingDrawer: React.FC<Props> = ({ title, rawPayload, onClose }) => {
         <pre className="flex-1 overflow-auto p-5 text-[11px] leading-relaxed text-gray-700 bg-gray-50">
           {pretty}
         </pre>
+        {actions && (
+          <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200 bg-white">
+            {actions}
+          </div>
+        )}
       </div>
     </div>
   );
