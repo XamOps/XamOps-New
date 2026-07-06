@@ -15,6 +15,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
 class UpwindSyncServiceTest {
@@ -24,6 +25,7 @@ class UpwindSyncServiceTest {
     private UpwindVulnerabilityFindingRepository vulnRepo;
     private UpwindPostureFindingRepository postureRepo;
     private UpwindSyncStateRepository syncStateRepo;
+    private UpwindInventoryAssetRepository inventoryRepo;
     private UpwindSyncService service;
 
     private static final String DETECTION_JSON =
@@ -43,8 +45,9 @@ class UpwindSyncServiceTest {
         vulnRepo = mock(UpwindVulnerabilityFindingRepository.class);
         postureRepo = mock(UpwindPostureFindingRepository.class);
         syncStateRepo = mock(UpwindSyncStateRepository.class);
+        inventoryRepo = mock(UpwindInventoryAssetRepository.class);
         when(syncStateRepo.findByDomain(any())).thenReturn(Optional.empty());
-        service = new UpwindSyncService(apiClient, detectionRepo, vulnRepo, postureRepo, syncStateRepo);
+        service = new UpwindSyncService(apiClient, detectionRepo, vulnRepo, postureRepo, syncStateRepo, inventoryRepo);
     }
 
     private JsonNode parse(String json) {
@@ -141,5 +144,26 @@ class UpwindSyncServiceTest {
 
         verify(vulnRepo, never()).markResolvedNotSyncedSince(any());
         verify(postureRepo, never()).markResolvedNotSyncedSince(any());
+    }
+
+    @Test
+    void syncInventoryUpsertsAssets() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        String assetJson = "{\"id\":\"uwr-1\",\"asset_category\":\"compute_platform\"," +
+            "\"asset_sub_category\":\"virtual_machine\",\"label\":\"aws_ec2_instance\"," +
+            "\"cloud_provider\":\"AWS\",\"cloud_account_id\":\"605134457560\"," +
+            "\"cloud_resource_id\":\"i-0613\",\"name\":\"XamCloud-Website\",\"region\":\"ap-south-2\"}";
+        when(apiClient.searchInventory(anyList(), anyInt())).thenReturn(List.of(parse(assetJson)));
+        when(inventoryRepo.findByUpwindId("uwr-1")).thenReturn(Optional.empty());
+
+        service.syncInventory();
+
+        org.mockito.ArgumentCaptor<com.xammer.cloud.domain.UpwindInventoryAsset> cap =
+            org.mockito.ArgumentCaptor.forClass(com.xammer.cloud.domain.UpwindInventoryAsset.class);
+        verify(inventoryRepo).save(cap.capture());
+        assertEquals("uwr-1", cap.getValue().getUpwindId());
+        assertEquals("605134457560", cap.getValue().getCloudAccountId());
+        assertEquals("aws_ec2_instance", cap.getValue().getLabel());
+        verify(inventoryRepo).markResolvedNotSyncedSince(any());
     }
 }

@@ -5,6 +5,7 @@ import com.xammer.cloud.domain.*;
 import com.xammer.cloud.repository.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -24,23 +25,27 @@ public class UpwindSyncService {
 
     static final int DETECTION_POLL_MAX_PAGES = 5;    // ~500 newest detections per poll
     static final int FULL_SYNC_MAX_PAGES = 200;       // ~20k items cap per domain
+    static final int INVENTORY_MAX_ITEMS = 20000;
 
     private final UpwindApiClient apiClient;
     private final UpwindThreatDetectionRepository detectionRepo;
     private final UpwindVulnerabilityFindingRepository vulnRepo;
     private final UpwindPostureFindingRepository postureRepo;
     private final UpwindSyncStateRepository syncStateRepo;
+    private final UpwindInventoryAssetRepository inventoryRepo;
 
     public UpwindSyncService(UpwindApiClient apiClient,
                              UpwindThreatDetectionRepository detectionRepo,
                              UpwindVulnerabilityFindingRepository vulnRepo,
                              UpwindPostureFindingRepository postureRepo,
-                             UpwindSyncStateRepository syncStateRepo) {
+                             UpwindSyncStateRepository syncStateRepo,
+                             UpwindInventoryAssetRepository inventoryRepo) {
         this.apiClient = apiClient;
         this.detectionRepo = detectionRepo;
         this.vulnRepo = vulnRepo;
         this.postureRepo = postureRepo;
         this.syncStateRepo = syncStateRepo;
+        this.inventoryRepo = inventoryRepo;
     }
 
     public void syncDetections() {
@@ -89,6 +94,54 @@ public class UpwindSyncService {
             log.error("[Upwind] Posture sync failed: {}", e.getMessage());
             recordError("POSTURE", e);
         }
+        syncInventory();
+    }
+
+    @Transactional
+    public void syncInventory() {
+        if (!apiClient.isConfigured()) return;
+        Instant runStart = Instant.now();
+        try {
+            // cloud_account_id alone 500s, so pair with a cloud_provider gate per provider.
+            // Track ids already upserted this run: a per-provider query should be disjoint in
+            // practice, but guard against overlap/duplicate pages returning the same asset twice.
+            java.util.Set<String> seenThisRun = new java.util.HashSet<>();
+            for (String provider : new String[]{"AWS", "GCP", "Azure"}) {
+                java.util.List<java.util.Map<String, Object>> conditions = java.util.List.of(
+                        java.util.Map.of("field", "cloud_provider", "operator", "eq",
+                                "value", java.util.List.of(provider)));
+                for (JsonNode item : apiClient.searchInventory(conditions, INVENTORY_MAX_ITEMS)) {
+                    String upwindId = text(item, "id");
+                    if (upwindId != null && !seenThisRun.add(upwindId)) continue;
+                    upsertAsset(item, Instant.now());
+                }
+            }
+            inventoryRepo.markResolvedNotSyncedSince(runStart);
+            recordSuccess("INVENTORY");
+        } catch (Exception e) {
+            log.error("[Upwind] Inventory sync failed: {}", e.getMessage());
+            recordError("INVENTORY", e);
+        }
+    }
+
+    private void upsertAsset(JsonNode item, Instant now) {
+        String upwindId = text(item, "id");
+        if (upwindId == null) return;
+        UpwindInventoryAsset a = inventoryRepo.findByUpwindId(upwindId)
+                .orElseGet(UpwindInventoryAsset::new);
+        a.setUpwindId(upwindId);
+        a.setAssetCategory(text(item, "asset_category"));
+        a.setAssetSubCategory(text(item, "asset_sub_category"));
+        a.setLabel(text(item, "label"));
+        a.setCloudProvider(text(item, "cloud_provider"));
+        a.setCloudAccountId(text(item, "cloud_account_id"));
+        a.setCloudResourceId(text(item, "cloud_resource_id"));
+        a.setName(text(item, "name"));
+        a.setRegion(text(item, "region"));
+        a.setStatus("ACTIVE");
+        a.setRawPayload(item.toString());
+        a.setSyncedAt(now);
+        inventoryRepo.save(a);
     }
 
     private void upsertDetection(JsonNode item, Instant now) {
