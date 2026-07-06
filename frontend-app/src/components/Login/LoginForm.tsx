@@ -194,7 +194,6 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
                 type="button"
                 onClick={onForgotPassword}
                 className="text-link"
-                style={{ fontSize: '0.8125rem' }}
               >
                 Recover Password
               </button>

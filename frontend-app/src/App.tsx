@@ -47,6 +47,7 @@ import SignupCompletePage from './pages/SignupCompletePage';
 import TrialExpiredPage from './pages/TrialExpiredPage';
 import FeedbackPage from './pages/FeedbackPage';
 import TrialBanner from './components/Trial/TrialBanner';
+import XamOpsLoader from './components/Shared/XamOpsLoader';
 
 // Dashboards
 const UnifiedDashboard = lazy(() => import('./pages/UnifiedDashboard').then(m => ({ default: m.UnifiedDashboard })));
@@ -429,7 +430,11 @@ const AuthenticatedLayout: React.FC = () => {
                             exit={{ opacity: 0, y: -6 }}
                             transition={{ duration: 0.18, ease: 'easeOut' }}
                         >
-                            <Suspense fallback={null}>
+                            <Suspense fallback={
+                                <div className="flex items-center justify-center w-full py-24">
+                                    <XamOpsLoader size={56} />
+                                </div>
+                            }>
                                 <Outlet />
                             </Suspense>
                         </motion.div>
@@ -460,6 +465,9 @@ const AppContent: React.FC = () => {
                 <Routes>
                     {/* Login Route - No Auth/Account providers */}
                     <Route path="/" element={<LoginPage />} />
+
+                    {/* Temporary: preview the branded loader at /loader-preview */}
+                    <Route path="/loader-preview" element={<XamOpsLoader fullScreen />} />
 
                     {/* Public self-service signup & trial routes (no auth required) */}
                     <Route path="/signup/complete" element={<SignupCompletePage />} />

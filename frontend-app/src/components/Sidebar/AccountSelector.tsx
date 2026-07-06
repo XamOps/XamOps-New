@@ -229,7 +229,7 @@ const AccountSelector: React.FC<AccountSelectorProps> = ({ isOpen, onToggle, onC
           </div>
 
           {/* Account Lists */}
-          <div className="max-h-64 overflow-y-auto p-2">
+          <div className="max-h-64 overflow-y-auto inventory-hide-scrollbar p-2">
             {isLoading ? (
               <div className="py-8 flex flex-col items-center justify-center gap-2">
                 <div className="w-5 h-5 border-2 border-[rgba(0,0,0,0.1)] border-t-[rgba(0,0,0,0.5)] rounded-full animate-spin"></div>

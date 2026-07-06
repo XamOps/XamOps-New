@@ -189,7 +189,7 @@ const TopServicesSection: React.FC<TopServicesSectionProps> = ({
       </div>
 
       {/* Chart */}
-      <div className="flex-1 overflow-y-auto" style={{ maxHeight: 340 }}>
+      <div className="flex-1 overflow-y-auto inventory-hide-scrollbar" style={{ maxHeight: 340 }}>
         {loading ? (
           <div className="flex flex-col gap-2 pt-1">
             {[1,2,3,4,5,6].map(i => (

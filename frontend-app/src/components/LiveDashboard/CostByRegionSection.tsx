@@ -133,7 +133,7 @@ const CostByRegionSection: React.FC<CostByRegionSectionProps> = ({ accountId, ti
           </div>
 
           {/* Region list */}
-          <div className="flex-1 overflow-y-auto mt-1 space-y-0.5">
+          <div className="flex-1 overflow-y-auto inventory-hide-scrollbar mt-1 space-y-0.5">
             {data.map((d, i) => (
               <div key={d.name} className="flex items-center gap-2.5 py-1.5 border-b border-[rgba(0,0,0,0.04)] last:border-0">
                 <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0"

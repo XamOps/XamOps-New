@@ -1,0 +1,95 @@
+/* ===================================================================
+   XamOps loader — an animated "X" that draws itself inside a spinning
+   arc. Minimal, monochrome, light-theme.
+   =================================================================== */
+
+.xo-loader {
+  display: inline-block;
+  position: relative;
+}
+
+/* faint full ring behind the arc */
+.xo-loader__track {
+  stroke: rgba(15, 23, 42, 0.07);
+}
+
+/* the spinning arc */
+.xo-loader__arc {
+  stroke: #64748b;                 /* muted slate */
+  transform-origin: center;
+  animation: xo-rotate 1s linear infinite;
+}
+
+/* the X mark — draws itself in and out, with a gentle pulse */
+.xo-loader__x {
+  transform-origin: center;
+  animation: xo-pulse 1.8s ease-in-out infinite;
+}
+
+.xo-loader__x line {
+  stroke: #0f172a;                 /* near-black slate */
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: xo-draw 1.8s ease-in-out infinite;
+}
+
+/* second stroke staggered so the X "writes" itself */
+.xo-loader__x line:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+@keyframes xo-rotate {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes xo-draw {
+  0%   { stroke-dashoffset: 20; }
+  40%  { stroke-dashoffset: 0; }
+  70%  { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -20; }
+}
+
+@keyframes xo-pulse {
+  0%, 100% { transform: scale(0.9); opacity: 0.85; }
+  50%      { transform: scale(1.06); opacity: 1; }
+}
+
+/* Full-screen overlay variant (light by default) */
+.xo-loader-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #ffffff;
+}
+
+.xo-loader-screen.xo-dark { background: #020617; }
+.xo-loader-screen.xo-dark .xo-loader__track { stroke: rgba(255, 255, 255, 0.10); }
+.xo-loader-screen.xo-dark .xo-loader__arc   { stroke: #94a3b8; }
+.xo-loader-screen.xo-dark .xo-loader__x line { stroke: #f1f5f9; }
+
+.xo-loader__label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #94a3b8;
+  min-height: 1.2em;
+  text-align: center;
+  /* Re-triggers each time the message changes (key change remounts it) */
+  animation: xo-label-in 0.45s ease-out both;
+}
+
+@keyframes xo-label-in {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xo-loader__arc { animation-duration: 2.4s; }
+  .xo-loader__x, .xo-loader__x line, .xo-loader__label { animation: none; }
+  .xo-loader__x line { stroke-dashoffset: 0; }
+}

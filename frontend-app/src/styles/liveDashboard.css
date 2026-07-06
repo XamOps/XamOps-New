@@ -333,7 +333,12 @@
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 }
 
-/* Hide scrollbar for inventory list while keeping scroll functional */
+/* Hide scrollbar for scrollable lists/charts while keeping scroll functional */
+.inventory-hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
 .inventory-hide-scrollbar::-webkit-scrollbar {
     display: none;
 }
