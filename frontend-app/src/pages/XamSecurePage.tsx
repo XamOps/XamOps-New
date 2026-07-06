@@ -5,10 +5,10 @@ import { AriaTabGroup } from '../components/ui';
 import { useXamSecureData } from '../hooks/useXamSecureData';
 import {
   XamSecureHeader, OverviewTab, ThreatsTab, VulnerabilitiesTab,
-  PostureTab, ComplianceTab, OnboardingTab,
+  PostureTab, InventoryTab, ComplianceTab, OnboardingTab,
 } from '../components/XamSecure';
 
-type ActiveTab = 'overview' | 'threats' | 'vulnerabilities' | 'posture' | 'compliance' | 'onboarding';
+type ActiveTab = 'overview' | 'threats' | 'vulnerabilities' | 'posture' | 'inventory' | 'compliance' | 'onboarding';
 
 const XamSecurePage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -16,8 +16,8 @@ const XamSecurePage: React.FC = () => {
   const [activeTab, setActiveTab] = useTabState<ActiveTab>('overview');
 
   const {
-    summary, threats, vulnerabilities, posture, compliance, onboarding,
-    isLoading, refresh, loadThreats, loadVulnerabilities, loadPosture,
+    summary, threats, vulnerabilities, posture, inventory, compliance, onboarding,
+    isLoading, refresh, loadThreats, loadVulnerabilities, loadPosture, loadInventory,
   } = useXamSecureData({ selectedAccountId, activeTab });
 
   return (
@@ -31,6 +31,7 @@ const XamSecurePage: React.FC = () => {
             { id: 'threats', label: 'Threats' },
             { id: 'vulnerabilities', label: 'Vulnerabilities' },
             { id: 'posture', label: 'Posture' },
+            { id: 'inventory', label: 'Inventory' },
             { id: 'compliance', label: 'Compliance' },
             { id: 'onboarding', label: 'Onboarding' },
           ]}
@@ -47,6 +48,9 @@ const XamSecurePage: React.FC = () => {
         )}
         {activeTab === 'posture' && (
           <PostureTab data={posture} isLoading={isLoading} onPage={(p) => loadPosture(p)} />
+        )}
+        {activeTab === 'inventory' && (
+          <InventoryTab data={inventory} isLoading={isLoading} onPage={(p) => loadInventory(p)} />
         )}
         {activeTab === 'compliance' && <ComplianceTab data={compliance} isLoading={isLoading} />}
         {activeTab === 'onboarding' && <OnboardingTab accounts={onboarding} isLoading={isLoading} />}

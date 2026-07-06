@@ -63,6 +63,21 @@ export interface PostureFinding {
   rawPayload: string | null;
 }
 
+export interface InventoryAsset {
+  id: number;
+  upwindId: string;
+  assetCategory: string | null;
+  assetSubCategory: string | null;
+  label: string | null;
+  cloudProvider: string | null;
+  cloudAccountId: string | null;
+  cloudResourceId: string | null;
+  name: string | null;
+  region: string | null;
+  status: string | null;
+  rawPayload: string | null;
+}
+
 export interface ComplianceFramework {
   framework: string;
   failCount: number;
