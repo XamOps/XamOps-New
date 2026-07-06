@@ -23,6 +23,7 @@ class XamSecureServiceTest {
     private UpwindSyncStateRepository syncStateRepo;
     private UpwindAccountConnectionRepository connectionRepo;
     private RedisCacheService redisCacheService;
+    private UpwindInventoryAssetRepository inventoryRepo;
     private XamSecureService service;
 
     private CloudAccount aws(String awsId) {
@@ -44,8 +45,9 @@ class XamSecureServiceTest {
         redisCacheService = mock(RedisCacheService.class);
         when(redisCacheService.get(any(String.class), any(com.fasterxml.jackson.core.type.TypeReference.class)))
                 .thenReturn(Optional.empty());
+        inventoryRepo = mock(UpwindInventoryAssetRepository.class);
         service = new XamSecureService(cloudAccountRepo, detectionRepo, vulnRepo,
-                postureRepo, syncStateRepo, connectionRepo, redisCacheService);
+                postureRepo, syncStateRepo, connectionRepo, redisCacheService, inventoryRepo);
     }
 
     @Test
@@ -90,5 +92,23 @@ class XamSecureServiceTest {
         assertEquals(3L, ((java.util.Map<?, ?>) summary.get("threatsBySeverity")).get("HIGH"));
         assertEquals(5L, ((java.util.Map<?, ?>) summary.get("vulnerabilitiesBySeverity")).get("CRITICAL"));
         assertEquals(2L, ((java.util.Map<?, ?>) summary.get("postureBySeverity")).get("MEDIUM"));
+    }
+
+    @Test
+    void getInventoryFiltersToOwnedAccounts() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        org.springframework.data.domain.Page<com.xammer.cloud.domain.UpwindInventoryAsset> empty =
+            org.springframework.data.domain.Page.empty();
+        when(inventoryRepo.findByCloudAccountIdInOrderByNameAsc(eq(List.of("111")), any()))
+            .thenReturn(empty);
+        var page = service.getInventory(1L, null, null, 0, 50);
+        assertNotNull(page);
+        verify(inventoryRepo).findByCloudAccountIdInOrderByNameAsc(eq(List.of("111")), any());
+    }
+
+    @Test
+    void getInventoryEmptyWhenNoOwnedAccounts() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of());
+        assertTrue(service.getInventory(1L, null, null, 0, 50).isEmpty());
     }
 }

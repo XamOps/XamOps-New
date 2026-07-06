@@ -2,7 +2,9 @@ package com.xammer.cloud.service.upwind;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.*;
+import com.xammer.cloud.domain.UpwindInventoryAsset;
 import com.xammer.cloud.repository.*;
+import com.xammer.cloud.repository.UpwindInventoryAssetRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -32,6 +34,7 @@ public class XamSecureService {
     private final UpwindSyncStateRepository syncStateRepo;
     private final UpwindAccountConnectionRepository connectionRepo;
     private final RedisCacheService redisCacheService;
+    private final UpwindInventoryAssetRepository inventoryRepo;
 
     public XamSecureService(CloudAccountRepository cloudAccountRepository,
                             UpwindThreatDetectionRepository detectionRepo,
@@ -39,7 +42,8 @@ public class XamSecureService {
                             UpwindPostureFindingRepository postureRepo,
                             UpwindSyncStateRepository syncStateRepo,
                             UpwindAccountConnectionRepository connectionRepo,
-                            RedisCacheService redisCacheService) {
+                            RedisCacheService redisCacheService,
+                            UpwindInventoryAssetRepository inventoryRepo) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.detectionRepo = detectionRepo;
         this.vulnRepo = vulnRepo;
@@ -47,6 +51,7 @@ public class XamSecureService {
         this.syncStateRepo = syncStateRepo;
         this.connectionRepo = connectionRepo;
         this.redisCacheService = redisCacheService;
+        this.inventoryRepo = inventoryRepo;
     }
 
     /**
@@ -147,6 +152,17 @@ public class XamSecureService {
             m.put("passCount", e.getValue().getOrDefault("PASS", 0L));
             return m;
         }).collect(Collectors.toList());
+    }
+
+    public Page<UpwindInventoryAsset> getInventory(Long clientId, String accountId,
+                                                   String category, int page, int size) {
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty()) return Page.empty();
+        Pageable pageable = PageRequest.of(page, Math.min(size, 200));
+        if (category != null && !category.isEmpty()) {
+            return inventoryRepo.findByCloudAccountIdInAndAssetCategoryOrderByNameAsc(ids, category, pageable);
+        }
+        return inventoryRepo.findByCloudAccountIdInOrderByNameAsc(ids, pageable);
     }
 
     public List<Map<String, Object>> getOnboardingStatus(Long clientId) {

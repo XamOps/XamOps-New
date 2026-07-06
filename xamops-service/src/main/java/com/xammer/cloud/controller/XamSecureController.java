@@ -47,6 +47,15 @@ public class XamSecureController {
         return ResponseEntity.ok(xamSecureService.getPosture(user.getClientId(), accountId, severity, page, size));
     }
 
+    @GetMapping("/inventory")
+    public ResponseEntity<?> inventory(@AuthenticationPrincipal ClientUserDetails user,
+                                       @RequestParam(required = false) String accountId,
+                                       @RequestParam(required = false) String category,
+                                       @RequestParam(defaultValue = "0") int page,
+                                       @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(xamSecureService.getInventory(user.getClientId(), accountId, category, page, size));
+    }
+
     @GetMapping("/compliance")
     public ResponseEntity<?> compliance(@AuthenticationPrincipal ClientUserDetails user,
                                         @RequestParam(required = false) String accountId) {
