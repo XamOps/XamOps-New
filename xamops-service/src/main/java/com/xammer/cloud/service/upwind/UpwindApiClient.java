@@ -104,6 +104,84 @@ public class UpwindApiClient {
         return items;
     }
 
+    /** v2 inventory search with cursor paging. conditions is the request body's "conditions" array. */
+    public List<JsonNode> searchInventory(java.util.List<java.util.Map<String, Object>> conditions, int maxItems) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId + "/inventory/assets/search?limit=100";
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(java.util.Map.of("conditions", conditions));
+            while (url != null && items.size() < maxItems) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = restTemplate.exchange(
+                        java.net.URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind inventory search failed", e);
+        }
+        return items;
+    }
+
+    /** v1 API-security endpoints, tenant-filtered by cloud-account-id query param, Link paging. */
+    public List<JsonNode> fetchApiSecurityEndpoints(String cloudAccountId, int maxPages) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String url = apiBaseUrl + "/v1/organizations/" + orgId
+                + "/apisecurity-endpoints?cloud-account-id=" + cloudAccountId + "&per-page=100";
+        int pages = 0;
+        while (url != null && pages < maxPages) {
+            HttpHeaders headers = authHeaders();
+            ResponseEntity<String> resp = restTemplate.exchange(
+                    java.net.URI.create(url), HttpMethod.GET, new HttpEntity<>(headers), String.class);
+            try {
+                JsonNode body = objectMapper.readTree(resp.getBody());
+                if (body.isArray()) body.forEach(items::add);
+            } catch (Exception e) {
+                throw new IllegalStateException("Upwind apisecurity response invalid", e);
+            }
+            url = nextLink(resp.getHeaders());
+            pages++;
+        }
+        return items;
+    }
+
+    /** v1 create webhook integration. Returns the created object. */
+    public JsonNode createWebhook(JsonNode body) {
+        String url = apiBaseUrl + "/v1/organizations/" + orgId + "/integration-webhooks";
+        try {
+            HttpHeaders headers = authHeaders();
+            ResponseEntity<String> resp = restTemplate.exchange(java.net.URI.create(url),
+                    HttpMethod.POST, new HttpEntity<>(objectMapper.writeValueAsString(body), headers), String.class);
+            return objectMapper.readTree(resp.getBody());
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind webhook create failed", e);
+        }
+    }
+
+    /** v1 PATCH a detection's status (e.g. "ARCHIVED"). */
+    public void updateDetectionStatus(String detectionId, String status) {
+        String url = apiBaseUrl + "/v1/organizations/" + orgId + "/threat-detections/" + detectionId;
+        try {
+            HttpHeaders headers = authHeaders();
+            String body = objectMapper.writeValueAsString(java.util.Map.of("status", status));
+            restTemplate.exchange(java.net.URI.create(url), HttpMethod.PATCH,
+                    new HttpEntity<>(body, headers), String.class);
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind detection update failed", e);
+        }
+    }
+
+    private HttpHeaders authHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(getToken());
+        headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return headers;
+    }
+
     private String nextLink(HttpHeaders headers) {
         List<String> links = headers.get("Link");
         if (links == null) return null;
