@@ -97,7 +97,6 @@ public class UpwindSyncService {
         syncInventory();
     }
 
-    @Transactional
     public void syncInventory() {
         if (!apiClient.isConfigured()) return;
         Instant runStart = Instant.now();
@@ -106,6 +105,7 @@ public class UpwindSyncService {
             // Track ids already upserted this run: a per-provider query should be disjoint in
             // practice, but guard against overlap/duplicate pages returning the same asset twice.
             java.util.Set<String> seenThisRun = new java.util.HashSet<>();
+            int syncedCount = 0;
             for (String provider : new String[]{"AWS", "GCP", "Azure"}) {
                 java.util.List<java.util.Map<String, Object>> conditions = java.util.List.of(
                         java.util.Map.of("field", "cloud_provider", "operator", "eq",
@@ -114,9 +114,12 @@ public class UpwindSyncService {
                     String upwindId = text(item, "id");
                     if (upwindId != null && !seenThisRun.add(upwindId)) continue;
                     upsertAsset(item, Instant.now());
+                    syncedCount++;
                 }
             }
-            inventoryRepo.markResolvedNotSyncedSince(runStart);
+            if (syncedCount > 0) {
+                inventoryRepo.markResolvedNotSyncedSince(runStart);
+            }
             recordSuccess("INVENTORY");
         } catch (Exception e) {
             log.error("[Upwind] Inventory sync failed: {}", e.getMessage());

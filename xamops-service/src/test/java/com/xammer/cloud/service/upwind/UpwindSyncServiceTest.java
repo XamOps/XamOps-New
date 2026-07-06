@@ -166,4 +166,14 @@ class UpwindSyncServiceTest {
         assertEquals("aws_ec2_instance", cap.getValue().getLabel());
         verify(inventoryRepo).markResolvedNotSyncedSince(any());
     }
+
+    @Test
+    void syncInventorySkipsMarkResolvedWhenNoItemsReturned() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.searchInventory(anyList(), anyInt())).thenReturn(Collections.emptyList());
+
+        service.syncInventory();
+
+        verify(inventoryRepo, never()).markResolvedNotSyncedSince(any());
+    }
 }
