@@ -238,6 +238,26 @@ inventory`
   cannot receive findings for accounts they don't own
 - Frontend: vitest for hook + tab rendering with mocked apiClient
 
+## Phase 3 UX restructure (user-requested 2026-07-07, mirrors Upwind console)
+
+1. **Issues view (new default landing).** Upwind's console "Issues" = raw
+   configuration findings grouped by check (43 issues / 235 by-resource /
+   1000+ by-framework rows are the same data at three altitudes). No dedicated
+   Issues API exists (verified: stories endpoint is threats-only), so XamSecure
+   reproduces it by grouping `upwind_posture_finding` by check: severity,
+   impacted-resource count, framework badges, first-seen/last-evaluation.
+2. **Sidebar sub-tabs.** Replace the single page + horizontal tab bar with
+   nested sidebar entries under XamSecure (Issues, Threats, Vulnerabilities,
+   Posture, Inventory, API Security, Compliance, Onboarding) → routes
+   `/xamsecure/<section>`; `/xamsecure` redirects to `/xamsecure/issues`.
+3. **Rich right-side detail panel.** Clicking an issue/finding opens a
+   structured drawer matching Upwind's: title + severity, Finding details
+   (`check.description`), Remediation (`check.remediation`, Upwind bracket-tag
+   markup rendered readably), affected findings table, first seen / last
+   evaluation, framework list. Read-only in v1 — Upwind's actions (Re-evaluate,
+   Snooze, Modify severity, Ticket) deferred until their API endpoints are
+   verified.
+
 ## Phasing
 
 **Phase 1:** UpwindApiClient, migrations, sync scheduler, read API, sidebar +
