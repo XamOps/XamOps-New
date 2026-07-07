@@ -210,7 +210,12 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/terminal"),
 
                                                                 // XamOps Agent API (authenticates via API key, not session)
-                                                                new AntPathRequestMatcher("/api/v1/agent/**"),
+                                                                // whitelisting only agent-facing endpoints to prevent management endpoint exposure
+                                                                new AntPathRequestMatcher("/api/v1/agent/ingest", "POST"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/heartbeat", "POST"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/config", "GET"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/commands", "GET"),
+                                                                new AntPathRequestMatcher("/api/v1/agent/autoscaling-policy", "GET"),
 
                                                                 // XamOps Metering API — public:
                                                                 //   /register → AWS Marketplace redirect (no session)
