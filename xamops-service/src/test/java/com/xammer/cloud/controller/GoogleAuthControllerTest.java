@@ -49,6 +49,7 @@ class GoogleAuthControllerTest {
     @Mock private UserRepository userRepository;
     @Mock private ClientRepository clientRepository;
     @Mock private RedisCacheService redisCacheService;
+    @Mock private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
     private MockMvc mockMvc;
 
@@ -63,6 +64,7 @@ class GoogleAuthControllerTest {
         ReflectionTestUtils.setField(controller, "userRepository", userRepository);
         ReflectionTestUtils.setField(controller, "clientRepository", clientRepository);
         ReflectionTestUtils.setField(controller, "redisCacheService", redisCacheService);
+        ReflectionTestUtils.setField(controller, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(controller, "frontendUrl", "https://test.xamops.com");
         ReflectionTestUtils.setField(controller, "signupTokenSecret", SECRET);
 
