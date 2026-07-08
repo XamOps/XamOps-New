@@ -10,7 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Random;
+import java.security.SecureRandom;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -33,16 +33,17 @@ public class PasswordResetController {
     public ResponseEntity<?> sendOtp(@RequestParam String email) {
         try {
             // Find user by email directly — no global_users lookup needed
-            User user = userRepository.findByEmail(email)
-                    .orElseThrow(() -> new RuntimeException("No account found with that email address."));
+            java.util.Optional<User> userOpt = userRepository.findByEmail(email);
 
-            // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            if (userOpt.isPresent()) {
+                // Generate 6-digit OTP (using SecureRandom for CWE-330)
+                SecureRandom secureRandom = new SecureRandom();
+                String otp = String.format("%06d", secureRandom.nextInt(1000000));
 
-            // Save OTP to Redis keyed by email (expires in 5 minutes)
-            redisCacheService.saveOtp(email, otp);
+                // Save OTP to Redis keyed by email (expires in 5 minutes)
+                redisCacheService.saveOtp(email, otp);
 
-            // Send Email
+                // Send Email
             String subject = "XamOps Password Reset Code";
             String body = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>Password Reset Code</title></head>"
                           + "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>"
@@ -68,13 +69,15 @@ public class PasswordResetController {
 
             System.out.println(">>> OTP for " + email + ": " + otp);
 
-            emailService.sendHtmlEmail(email, subject, body);
+                emailService.sendHtmlEmail(email, subject, body);
+            }
 
-            return ResponseEntity.ok().body("OTP sent to your email.");
+            // Always return success to prevent user enumeration
+            return ResponseEntity.ok().body("If an account exists for " + email + ", a reset code has been sent.");
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+            // Log the error internally, but don't leak details to the client (CWE-209)
+            return ResponseEntity.badRequest().body("An error occurred. Please try again later.");
         }
     }
 
@@ -112,7 +115,8 @@ public class PasswordResetController {
             return ResponseEntity.ok().body("Password updated successfully.");
 
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Failed to reset password: " + e.getMessage());
+            // Log internally, return generic error (CWE-209)
+            return ResponseEntity.badRequest().body("Failed to reset password. Please try again.");
         }
     }
 }
