@@ -168,6 +168,25 @@ public class BillingService {
     }
 
     /**
+     * Returns the AWS Marketplace charge (USD) for an account & month. Resolves the
+     * CloudAccount and delegates to CostService. Marketplace is added to invoices
+     * directly, never discounted.
+     */
+    public double getMarketplaceCharge(String accountId, int year, int month, boolean forceRefresh) {
+        try {
+            CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId).stream()
+                    .findFirst().orElse(null);
+            if (account == null) {
+                return 0.0;
+            }
+            return costService.getMarketplaceCharge(account, year, month, forceRefresh);
+        } catch (Exception e) {
+            logger.warn("Failed to get marketplace charge for {} {}/{}: {}", accountId, year, month, e.getMessage());
+            return 0.0;
+        }
+    }
+
+    /**
      * Clears all Spring @Cacheable cost caches (costByDimension, costForServiceInRegion,
      * costByResource, costHistory) so the next API call fetches live data from AWS.
      * Called when forceRefresh=true so billing page refresh and invoice generation

@@ -31,6 +31,7 @@ public class InvoiceDto {
     private BigDecimal discountAmount;
     private BigDecimal taxAmount;
     private BigDecimal amount;
+    private BigDecimal marketplaceCharge;
     private boolean includeIrn;
     private long lastUpdated;
     private List<LineItemDto> lineItems;
@@ -72,6 +73,7 @@ public class InvoiceDto {
         dto.setDiscountAmount(invoice.getDiscountAmount());
         dto.setTaxAmount(invoice.getTaxAmount());
         dto.setAmount(invoice.getAmount());
+        dto.setMarketplaceCharge(invoice.getMarketplaceCharge());
         dto.setIncludeIrn(invoice.isIncludeIrn());
 
         // Convert line items (only non-hidden items)
@@ -229,6 +231,14 @@ public class InvoiceDto {
 
     public void setAmount(BigDecimal amount) {
         this.amount = amount;
+    }
+
+    public BigDecimal getMarketplaceCharge() {
+        return marketplaceCharge;
+    }
+
+    public void setMarketplaceCharge(BigDecimal marketplaceCharge) {
+        this.marketplaceCharge = marketplaceCharge;
     }
 
     public boolean isIncludeIrn() {

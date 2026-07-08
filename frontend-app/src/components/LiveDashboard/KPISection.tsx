@@ -68,6 +68,7 @@ interface KPISectionProps {
   isLoading: boolean;
   provider?: 'AWS' | 'GCP' | 'Azure';
   accountId?: string | null;
+  headerAction?: React.ReactNode;
 }
 
 // IDs that need live API fetching beyond the main dashboard data
@@ -262,7 +263,7 @@ const KPICard: React.FC<KPICardProps> = ({ def, rawValue, change, changeLabel, t
 };
 
 // ── KPI Section ───────────────────────────────────────────────────────────────
-const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimization, resourceInventory, isLoading, provider = 'AWS', accountId }) => {
+const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimization, resourceInventory, isLoading, provider = 'AWS', accountId, headerAction }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>(() => loadKpiCards(provider));
   const [manageOpen, setManageOpen]   = useState(false);
   const [extValues, setExtValues]     = useState<Record<string, number>>({});
@@ -514,13 +515,16 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
             {selectedCards.length} cards
           </span>
         </div>
-        <button
-          onClick={() => setManageOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[rgba(0,0,0,0.8)] transition-colors"
-        >
-          <Icon icon="mdi:view-dashboard-edit-outline" width={13} />
-          Manage KPIs
-        </button>
+        <div className="flex items-center gap-2">
+          {headerAction}
+          <button
+            onClick={() => setManageOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[rgba(0,0,0,0.8)] transition-colors"
+          >
+            <Icon icon="mdi:view-dashboard-edit-outline" width={13} />
+            Manage KPIs
+          </button>
+        </div>
       </div>
 
       {/* Card grid */}

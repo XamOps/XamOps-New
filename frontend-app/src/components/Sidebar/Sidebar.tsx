@@ -14,6 +14,7 @@ import AccountSelector from './AccountSelector';
 import NavItem from './NavItem';
 import NavSection from './NavSection';
 import { useTheme } from '../../contexts/ThemeContext';
+import { makeXamTabGate } from '../../constants/xamopsTabs';
 import clsx from 'clsx';
 
 const Sidebar: React.FC = () => {
@@ -57,6 +58,25 @@ const Sidebar: React.FC = () => {
     if (!isAdminSubUser) return true;
     return billopsProfile!.allowedTabs.includes(tabKey);
   };
+
+  // ── XamOps sidebar module/tab access ──
+  // Fetches the current XamOps user's allowedTabs. Empty/undefined = no restriction (full sidebar);
+  // a non-empty list restricts the sidebar to exactly those tab keys. Applies to both primary
+  // XamOps users (restricted at creation via the BillOps admin manager) and XamOps sub-users.
+  const isXamops = hasAnyRole('ROLE_XAMOPS');
+  const [xamAllowedTabs, setXamAllowedTabs] = useState<string[] | undefined>(undefined);
+  useEffect(() => {
+    if (isXamops) {
+      fetch('/api/xamops/team/profile', { credentials: 'include' })
+        .then(r => (r.ok ? r.json() : null))
+        .then(data => setXamAllowedTabs(data ? (data.allowedTabs || []) : []))
+        .catch(() => setXamAllowedTabs([]));
+    }
+  }, [isXamops]);
+  // Optimistic while loading (xamAllowedTabs === undefined → not restricted → show all).
+  const xamGate = makeXamTabGate(isXamops ? xamAllowedTabs : null);
+  const isXamTabAllowed = xamGate.isTabAllowed;
+  const isXamModuleAllowed = xamGate.isModuleAllowed;
 
   // Dropdown state - only one can be open at a time
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -252,14 +272,17 @@ const Sidebar: React.FC = () => {
           {/* Standard Cloud Ops / FinOps Sections */}
           {(hasAnyRole('ROLE_XAMOPS') || hasAnyRole('ROLE_SUPER_ADMIN')) && (
             <>
-              <NavItem
-                href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-dashboard' : selectedAccountDisplay.provider === 'Azure' ? '/azure-dashboard' : '/dashboard'}
-                icon="fas fa-chart-line"
-                label="Account Dashboard"
-                gradientClass="from-blue-500 to-indigo-600"
-                isActive={isActive('/dashboard')}
-              />
+              {isXamTabAllowed('account-dashboard') && (
+                <NavItem
+                  href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-dashboard' : selectedAccountDisplay.provider === 'Azure' ? '/azure-dashboard' : '/dashboard'}
+                  icon="fas fa-chart-line"
+                  label="Account Dashboard"
+                  gradientClass="from-blue-500 to-indigo-600"
+                  isActive={isActive('/dashboard')}
+                />
+              )}
 
+              {isXamModuleAllowed('finops') && (
               <NavSection
                 icon="fas fa-dollar-sign"
                 label="FinOps"
@@ -267,38 +290,40 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'finops'}
                 onToggle={() => toggleDropdown('finops')}
               >
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cost' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cost' : '/cost'} icon="fas fa-dollar-sign" label="Cost Management" isActive={isActive('/cost') || isActive('/gcp-cost') || isActive('/azure-cost')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-reservations' : selectedAccountDisplay.provider === 'Azure' ? '/azure-reservations' : '/reservation'} icon="fas fa-file-contract" label="Reservations" isActive={isActive('/reservation') || isActive('/gcp-reservations') || isActive('/azure-reservations')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-finops' : selectedAccountDisplay.provider === 'Azure' ? '/azure-finops' : '/finops'} icon="fas fa-file-invoice-dollar" label="FinOps Reports" isActive={isActive('/finops') || isActive('/gcp-finops') || isActive('/azure-finops')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-waste' : selectedAccountDisplay.provider === 'Azure' ? '/azure-waste' : '/waste'} icon="fas fa-recycle" label="Waste Management" isActive={isActive('/waste') || isActive('/gcp-waste') || isActive('/azure-waste')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-rightsizing' : selectedAccountDisplay.provider === 'Azure' ? '/azure-rightsizing' : '/rightsizing'} icon="fas fa-compress-arrows-alt" label="Rightsizing" isActive={isActive('/rightsizing') || isActive('/gcp-rightsizing') || isActive('/azure-rightsizing')} />
-                {selectedAccountDisplay.provider === 'AWS' && (
+                {isXamTabAllowed('finops-cost') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cost' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cost' : '/cost'} icon="fas fa-dollar-sign" label="Cost Management" isActive={isActive('/cost') || isActive('/gcp-cost') || isActive('/azure-cost')} />}
+                {isXamTabAllowed('finops-reservations') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-reservations' : selectedAccountDisplay.provider === 'Azure' ? '/azure-reservations' : '/reservation'} icon="fas fa-file-contract" label="Reservations" isActive={isActive('/reservation') || isActive('/gcp-reservations') || isActive('/azure-reservations')} />}
+                {isXamTabAllowed('finops-reports') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-finops' : selectedAccountDisplay.provider === 'Azure' ? '/azure-finops' : '/finops'} icon="fas fa-file-invoice-dollar" label="FinOps Reports" isActive={isActive('/finops') || isActive('/gcp-finops') || isActive('/azure-finops')} />}
+                {isXamTabAllowed('finops-waste') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-waste' : selectedAccountDisplay.provider === 'Azure' ? '/azure-waste' : '/waste'} icon="fas fa-recycle" label="Waste Management" isActive={isActive('/waste') || isActive('/gcp-waste') || isActive('/azure-waste')} />}
+                {isXamTabAllowed('finops-rightsizing') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-rightsizing' : selectedAccountDisplay.provider === 'Azure' ? '/azure-rightsizing' : '/rightsizing'} icon="fas fa-compress-arrows-alt" label="Rightsizing" isActive={isActive('/rightsizing') || isActive('/gcp-rightsizing') || isActive('/azure-rightsizing')} />}
+                {isXamTabAllowed('finops-disk-rightsizing') && selectedAccountDisplay.provider === 'AWS' && (
                   <NavItem href="/ebs-rightsizing" icon="fas fa-hdd" label="Disk Rightsizing" isActive={isActive('/ebs-rightsizing')} />
                 )}
-                {selectedAccountDisplay.provider === 'GCP' && (
+                {isXamTabAllowed('finops-disk-rightsizing') && selectedAccountDisplay.provider === 'GCP' && (
                   <NavItem href="/gcp-disk-rightsizing" icon="fas fa-hdd" label="Disk Rightsizing" isActive={isActive('/gcp-disk-rightsizing')} />
                 )}
                 {selectedAccountDisplay.provider === 'AWS' && (
                   <>
-                    <NavItem href="/cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/cloudsitter')} />
-                    <NavItem href="/flex-compute" icon="fas fa-microchip" label="Flex Compute" isActive={isActive('/flex-compute')} />
-                    <NavItem href="/autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting')} />
+                    {isXamTabAllowed('finops-cloudsitter') && <NavItem href="/cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/cloudsitter')} />}
+                    {isXamTabAllowed('finops-flex-compute') && <NavItem href="/flex-compute" icon="fas fa-microchip" label="Flex Compute" isActive={isActive('/flex-compute')} />}
+                    {isXamTabAllowed('finops-autospotting') && <NavItem href="/autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting')} />}
                   </>
                 )}
                 {selectedAccountDisplay.provider === 'GCP' && (
                   <>
-                    <NavItem href="/gcp-cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/gcp-cloudsitter')} />
-                    <NavItem href="/gcp-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/gcp-autospotting')} />
+                    {isXamTabAllowed('finops-cloudsitter') && <NavItem href="/gcp-cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/gcp-cloudsitter')} />}
+                    {isXamTabAllowed('finops-autospotting') && <NavItem href="/gcp-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/gcp-autospotting')} />}
                   </>
                 )}
                 {selectedAccountDisplay.provider === 'Azure' && (
                   <>
-                    <NavItem href="/azure-cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/azure-cloudsitter')} />
-                    <NavItem href="/azure-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/azure-autospotting')} />
+                    {isXamTabAllowed('finops-cloudsitter') && <NavItem href="/azure-cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/azure-cloudsitter')} />}
+                    {isXamTabAllowed('finops-autospotting') && <NavItem href="/azure-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/azure-autospotting')} />}
                   </>
                 )}
               </NavSection>
+              )}
 
+              {isXamModuleAllowed('cloudops') && (
               <NavSection
                 icon="fas fa-server"
                 label="CloudOps"
@@ -306,14 +331,16 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'cloudops'}
                 onToggle={() => toggleDropdown('cloudops')}
               >
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />
-                <NavItem href="/sonarqube" icon="fas fa-chart-line" label="Code Quality" isActive={isActive('/sonarqube')} />
-                <NavItem href="/cicd-pipelines" icon="fas fa-cogs" label="CICD Pipelines" isActive={isActive('/cicd-pipelines')} />
-                <NavItem href="/devops-in-the-box" icon="fas fa-toolbox" label="DevOps-in-the-Box" isActive={isActive('/devops-in-the-box')} />
-                <NavItem href="/aiops" icon="fas fa-brain" label="AIOps" isActive={isActive('/aiops')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-dataops' : selectedAccountDisplay.provider === 'Azure' ? '/azure-dataops' : '/dataops'} icon="fas fa-database" label="DbOps" isActive={isActive('/dataops') || isActive('/gcp-dataops') || isActive('/azure-dataops')} />
+                {isXamTabAllowed('cloudops-cloudk8s') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />}
+                {isXamTabAllowed('cloudops-code-quality') && <NavItem href="/sonarqube" icon="fas fa-chart-line" label="Code Quality" isActive={isActive('/sonarqube')} />}
+                {isXamTabAllowed('cloudops-cicd') && <NavItem href="/cicd-pipelines" icon="fas fa-cogs" label="CICD Pipelines" isActive={isActive('/cicd-pipelines')} />}
+                {isXamTabAllowed('cloudops-devops-box') && <NavItem href="/devops-in-the-box" icon="fas fa-toolbox" label="DevOps-in-the-Box" isActive={isActive('/devops-in-the-box')} />}
+                {isXamTabAllowed('cloudops-aiops') && <NavItem href="/aiops" icon="fas fa-brain" label="AIOps" isActive={isActive('/aiops')} />}
+                {isXamTabAllowed('cloudops-dbops') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-dataops' : selectedAccountDisplay.provider === 'Azure' ? '/azure-dataops' : '/dataops'} icon="fas fa-database" label="DbOps" isActive={isActive('/dataops') || isActive('/gcp-dataops') || isActive('/azure-dataops')} />}
               </NavSection>
+              )}
 
+              {isXamModuleAllowed('secops') && (
               <NavSection
                 icon="fas fa-shield-alt"
                 label="SecOps"
@@ -321,12 +348,14 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'security'}
                 onToggle={() => toggleDropdown('security')}
               >
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : selectedAccountDisplay.provider === 'Azure' ? '/azure-security' : '/security'} icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security') || isActive('/gcp-security') || isActive('/azure-security')} />
-                <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />
-                <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />
+                {isXamTabAllowed('secops-security-center') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : selectedAccountDisplay.provider === 'Azure' ? '/azure-security' : '/security'} icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security') || isActive('/gcp-security') || isActive('/azure-security')} />}
+                {isXamTabAllowed('secops-compliance') && <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />}
+                {isXamTabAllowed('secops-performance') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />}
+                {isXamTabAllowed('secops-alerts') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />}
               </NavSection>
+              )}
 
+              {isXamModuleAllowed('observability') && (
               <NavSection
                 icon="fas fa-satellite-dish"
                 label="Observability"
@@ -335,15 +364,17 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'observability'}
                 onToggle={() => toggleDropdown('observability')}
               >
-                <NavItem href="/observability" icon="fas fa-chart-pie" label="Overview" isActive={location.pathname === '/observability'} />
-                <NavItem href="/observability/logs" icon="fas fa-list-alt" label="Logs" isActive={isActive('/observability/logs')} />
-                <NavItem href="/observability/metrics" icon="fas fa-chart-line" label="Metrics" isActive={isActive('/observability/metrics')} />
-                <NavItem href="/observability/traces" icon="fas fa-project-diagram" label="Traces" isActive={isActive('/observability/traces')} />
-                <NavItem href="/observability/alerts" icon="fas fa-bell" label="Alerts" isActive={isActive('/observability/alerts')} />
-                <NavItem href="/observability/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/observability/setup')} />
-                <NavItem href="/grafana-dashboard" icon="fas fa-chart-line" label="Grafana" isActive={isActive('/grafana-dashboard')} />
+                {isXamTabAllowed('obs-overview') && <NavItem href="/observability" icon="fas fa-chart-pie" label="Overview" isActive={location.pathname === '/observability'} />}
+                {isXamTabAllowed('obs-logs') && <NavItem href="/observability/logs" icon="fas fa-list-alt" label="Logs" isActive={isActive('/observability/logs')} />}
+                {isXamTabAllowed('obs-metrics') && <NavItem href="/observability/metrics" icon="fas fa-chart-line" label="Metrics" isActive={isActive('/observability/metrics')} />}
+                {isXamTabAllowed('obs-traces') && <NavItem href="/observability/traces" icon="fas fa-project-diagram" label="Traces" isActive={isActive('/observability/traces')} />}
+                {isXamTabAllowed('obs-alerts') && <NavItem href="/observability/alerts" icon="fas fa-bell" label="Alerts" isActive={isActive('/observability/alerts')} />}
+                {isXamTabAllowed('obs-setup') && <NavItem href="/observability/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/observability/setup')} />}
+                {isXamTabAllowed('obs-grafana') && <NavItem href="/grafana-dashboard" icon="fas fa-chart-line" label="Grafana" isActive={isActive('/grafana-dashboard')} />}
               </NavSection>
+              )}
 
+              {isXamModuleAllowed('sre') && (
               <NavSection
                 icon="fas fa-stethoscope"
                 label="SRE"
@@ -352,11 +383,13 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'sre'}
                 onToggle={() => toggleDropdown('sre')}
               >
-                <NavItem href="/sre" icon="fas fa-chart-pie" label="Dashboard" isActive={location.pathname === '/sre'} />
-                <NavItem href="/sre/investigations" icon="fas fa-search" label="Investigations" isActive={isActive('/sre/investigations')} />
-                <NavItem href="/sre/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/sre/setup')} />
+                {isXamTabAllowed('sre-dashboard') && <NavItem href="/sre" icon="fas fa-chart-pie" label="Dashboard" isActive={location.pathname === '/sre'} />}
+                {isXamTabAllowed('sre-investigations') && <NavItem href="/sre/investigations" icon="fas fa-search" label="Investigations" isActive={isActive('/sre/investigations')} />}
+                {isXamTabAllowed('sre-setup') && <NavItem href="/sre/setup" icon="fas fa-cog" label="Setup" isActive={isActive('/sre/setup')} />}
               </NavSection>
+              )}
 
+              {isXamModuleAllowed('mediaops') && (
               <NavSection
                 icon="fas fa-film"
                 label="MediaOps"
@@ -365,13 +398,15 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'mediaops'}
                 onToggle={() => toggleDropdown('mediaops')}
               >
-                <NavItem href="/media-ops" icon="fas fa-chart-pie" label="Overview" isActive={location.pathname === '/media-ops'} />
-                <NavItem href="/media-ops/transcode" icon="fas fa-exchange-alt" label="Transcoding Jobs" isActive={isActive('/media-ops/transcode')} />
-                <NavItem href="/media-ops/streams" icon="fas fa-broadcast-tower" label="Live Streams" isActive={isActive('/media-ops/streams')} />
-                <NavItem href="/media-ops/storage" icon="fas fa-database" label="Media Storage" isActive={isActive('/media-ops/storage')} />
-                <NavItem href="/media-ops/cost-savings" icon="fas fa-piggy-bank" label="Cost Savings" isActive={isActive('/media-ops/cost-savings')} />
+                {isXamTabAllowed('mediaops-overview') && <NavItem href="/media-ops" icon="fas fa-chart-pie" label="Overview" isActive={location.pathname === '/media-ops'} />}
+                {isXamTabAllowed('mediaops-transcode') && <NavItem href="/media-ops/transcode" icon="fas fa-exchange-alt" label="Transcoding Jobs" isActive={isActive('/media-ops/transcode')} />}
+                {isXamTabAllowed('mediaops-streams') && <NavItem href="/media-ops/streams" icon="fas fa-broadcast-tower" label="Live Streams" isActive={isActive('/media-ops/streams')} />}
+                {isXamTabAllowed('mediaops-storage') && <NavItem href="/media-ops/storage" icon="fas fa-database" label="Media Storage" isActive={isActive('/media-ops/storage')} />}
+                {isXamTabAllowed('mediaops-cost-savings') && <NavItem href="/media-ops/cost-savings" icon="fas fa-piggy-bank" label="Cost Savings" isActive={isActive('/media-ops/cost-savings')} />}
               </NavSection>
+              )}
 
+              {isXamModuleAllowed('licenses') && (
               <NavSection
                 icon="fas fa-key"
                 label="Licenses"
@@ -379,9 +414,10 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'licenses'}
                 onToggle={() => toggleDropdown('licenses')}
               >
-                <NavItem href="/marketplace-purchases" icon="fas fa-store" label="MarketOps" isActive={isActive('/marketplace-purchases')} />
-                <NavItem href="/workspace-licenses" icon="fas fa-key" label="Licenses & Tools" isActive={isActive('/workspace-licenses')} />
+                {isXamTabAllowed('licenses-marketops') && <NavItem href="/marketplace-purchases" icon="fas fa-store" label="MarketOps" isActive={isActive('/marketplace-purchases')} />}
+                {isXamTabAllowed('licenses-tools') && <NavItem href="/workspace-licenses" icon="fas fa-key" label="Licenses & Tools" isActive={isActive('/workspace-licenses')} />}
               </NavSection>
+              )}
 
               {/* AccessOps — temporarily hidden
               <NavSection
@@ -397,6 +433,7 @@ const Sidebar: React.FC = () => {
               </NavSection>
               */}
 
+              {isXamModuleAllowed('tickets') && (
               <NavSection
                 icon="fas fa-ticket-alt"
                 label="Tickets"
@@ -404,9 +441,10 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'tickets'}
                 onToggle={() => toggleDropdown('tickets')}
               >
-                <NavItem href="/tickets" icon="fas fa-tools" label="Technical" isActive={isActive('/tickets')} />
-                <NavItem href="/billops-tickets" icon="fas fa-file-invoice-dollar" label="Account & Billing" isActive={isActive('/billops-tickets')} />
+                {isXamTabAllowed('xam-tickets-technical') && <NavItem href="/tickets" icon="fas fa-tools" label="Technical" isActive={isActive('/tickets')} />}
+                {isXamTabAllowed('xam-tickets-account-billing') && <NavItem href="/billops-tickets" icon="fas fa-file-invoice-dollar" label="Account & Billing" isActive={isActive('/billops-tickets')} />}
               </NavSection>
+              )}
             </>
           )}
         </div>

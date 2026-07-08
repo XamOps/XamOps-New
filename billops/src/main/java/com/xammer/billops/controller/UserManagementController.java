@@ -35,6 +35,7 @@ public class UserManagementController {
             result.setClientName(created.getClient() != null ? created.getClient().getName() : "Unknown");
             result.setContact(created.getContact());
             result.setDesignation(created.getDesignation());
+            result.setAllowedTabs(dto.getAllowedTabs());
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -57,6 +58,7 @@ public class UserManagementController {
             result.setClientName(updated.getClient() != null ? updated.getClient().getName() : "Unknown");
             result.setContact(updated.getContact());
             result.setDesignation(updated.getDesignation());
+            result.setAllowedTabs(dto.getAllowedTabs());
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {

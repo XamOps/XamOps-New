@@ -237,6 +237,25 @@ public class FinOpsController {
                 });
     }
 
+    /**
+     * Previous calendar month total spend — independent of the Cost Explorer
+     * date filter. Uses the same source as the Account Dashboard so both pages
+     * show an identical "Last Month Spend" value.
+     */
+    @GetMapping("/last-month-spend")
+    public CompletableFuture<ResponseEntity<Map<String, Double>>> getLastMonthSpend(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        return finOpsService.getLastMonthSpendById(accountId, forceRefresh)
+                .orTimeout(55, TimeUnit.SECONDS)
+                .thenApply(value -> ResponseEntity.ok(Map.of("lastMonthSpend", value != null ? value : 0.0)))
+                .exceptionally(ex -> {
+                    logger.error("[FinOps] last-month-spend ERROR — account={} tenant={}",
+                            accountId, MDC.get("tenant"), ex);
+                    return ResponseEntity.ok(Map.of("lastMonthSpend", 0.0));
+                });
+    }
+
     @GetMapping("/cost-by-region")
     public CompletableFuture<ResponseEntity<List<Map<String, Object>>>> getCostByRegion(
             @RequestParam String accountId,

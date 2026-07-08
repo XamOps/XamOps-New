@@ -22,6 +22,9 @@ public class ProfileDTO {
 
     private List<CloudAccountInfo> cloudAccounts;
 
+    // Sidebar tab keys this user is allowed to see. Empty/null = no restriction (full sidebar).
+    private List<String> allowedTabs;
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

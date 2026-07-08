@@ -2,6 +2,8 @@ package com.xammer.billops.dto;
 
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 public class UserDTO {
     private Long id;
@@ -14,6 +16,7 @@ public class UserDTO {
     private String contact;
     private String designation;
     private Long parentId;  // maps to AppUser.createdBy — null = primary user, set = sub-user
+    private List<String> allowedTabs;  // XamOps sidebar tab keys (only used when role == ROLE_XAMOPS)
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -35,4 +38,6 @@ public class UserDTO {
     public void setDesignation(String designation) { this.designation = designation; }
     public Long getParentId() { return parentId; }
     public void setParentId(Long parentId) { this.parentId = parentId; }
+    public List<String> getAllowedTabs() { return allowedTabs; }
+    public void setAllowedTabs(List<String> allowedTabs) { this.allowedTabs = allowedTabs; }
 }

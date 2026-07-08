@@ -454,8 +454,15 @@ public class InvoiceManagementService {
         // --- ROW 1: Standard Consumption (AWS, GCP, or Azure) ---
         if (grouped.containsKey("STANDARD")) {
             List<InvoiceDto.LineItemDto> stdItems = grouped.get("STANDARD");
-            BigDecimal stdTotal = stdItems.stream().map(InvoiceDto.LineItemDto::getCost).reduce(BigDecimal.ZERO,
+            BigDecimal stdTotalAll = stdItems.stream().map(InvoiceDto.LineItemDto::getCost).reduce(BigDecimal.ZERO,
                     BigDecimal::add);
+            // Marketplace is part of the consumption total but is shown as its own,
+            // non-discounted line. Standard (discountable) consumption = total - marketplace.
+            BigDecimal marketplaceUsd = Optional.ofNullable(dto.getMarketplaceCharge()).orElse(BigDecimal.ZERO);
+            BigDecimal stdTotal = stdTotalAll.subtract(marketplaceUsd);
+            if (stdTotal.compareTo(BigDecimal.ZERO) < 0) {
+                stdTotal = BigDecimal.ZERO;
+            }
 
             BigDecimal discountPercent = BigDecimal.ZERO;
             BigDecimal discountAmount = BigDecimal.ZERO;
@@ -524,6 +531,24 @@ public class InvoiceManagementService {
 
             addTableRow(table, slNo++, descPara, "998315", finalAmountInr);
             totalTaxable = totalTaxable.add(finalAmountInr);
+
+            // --- Marketplace line (added directly, never discounted) ---
+            if (marketplaceUsd.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal mpInr = marketplaceUsd.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+                Paragraph mpDesc = new Paragraph();
+                mpDesc.add(new com.itextpdf.layout.element.Text("AWS Consumption Charge - Marketplace")
+                        .setBold().setFontSize(8));
+                mpDesc.add(new com.itextpdf.layout.element.Text("\nAmazon Web Services, Inc. - Marketplace")
+                        .setItalic().setFontSize(8));
+                mpDesc.add(new com.itextpdf.layout.element.Text("\nFor the Period of " + monthStr)
+                        .setItalic().setFontSize(8));
+                mpDesc.add(new com.itextpdf.layout.element.Text("\n" + accountLabel).setItalic().setFontSize(8));
+                mpDesc.add(new com.itextpdf.layout.element.Text(
+                        String.format("\n($%.2f @%s)", marketplaceUsd.doubleValue(), rateStr))
+                        .setItalic().setFontSize(8));
+                addTableRow(table, slNo++, mpDesc, "998315", mpInr);
+                totalTaxable = totalTaxable.add(mpInr);
+            }
         }
 
         // --- ROW 2: CloudFront Consumption ---
@@ -968,6 +993,7 @@ public class InvoiceManagementService {
     private void recalculateTotalsForDto(InvoiceDto invoiceDto) {
         BigDecimal totalDiscount = BigDecimal.ZERO;
         BigDecimal preDiscountTotal = Optional.ofNullable(invoiceDto.getPreDiscountTotal()).orElse(BigDecimal.ZERO);
+        BigDecimal dtoMarketplace = Optional.ofNullable(invoiceDto.getMarketplaceCharge()).orElse(BigDecimal.ZERO);
         List<InvoiceDto.DiscountDto> discounts = Optional.ofNullable(invoiceDto.getDiscounts())
                 .orElse(Collections.emptyList());
         List<InvoiceDto.LineItemDto> lineItems = Optional.ofNullable(invoiceDto.getLineItems())
@@ -978,13 +1004,15 @@ public class InvoiceManagementService {
                     .divide(new BigDecimal(100), 4, RoundingMode.HALF_UP);
 
             if ("ALL".equalsIgnoreCase(disc.getServiceName())) {
-                totalDiscount = totalDiscount.add(preDiscountTotal.multiply(percentage));
+                BigDecimal allBase = preDiscountTotal.subtract(dtoMarketplace).max(BigDecimal.ZERO);
+                totalDiscount = totalDiscount.add(allBase.multiply(percentage));
             } else if ("AWS Consumption Charge".equalsIgnoreCase(disc.getServiceName())) {
                 BigDecimal standardTotal = lineItems.stream()
                         .filter(item -> !item.isHidden())
                         .filter(item -> !"Amazon CloudFront".equalsIgnoreCase(item.getServiceName()))
                         .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                        .reduce(BigDecimal.ZERO, BigDecimal::add)
+                        .subtract(dtoMarketplace).max(BigDecimal.ZERO);
                 totalDiscount = totalDiscount.add(standardTotal.multiply(percentage));
             } else {
                 String discountServiceName = Optional.ofNullable(disc.getServiceName()).orElse("");
@@ -1319,6 +1347,19 @@ public class InvoiceManagementService {
         }
         invoice.setLineItems(lineItems);
         invoice.setIncludeIrn(includeIrn);
+
+        // AWS Marketplace charge (BILLING_ENTITY = "AWS Marketplace"). The consumption
+        // total (preDiscountTotal) already includes this amount, so we store it
+        // separately to (a) show it as its own "AWS Consumption Charge - Marketplace"
+        // line and (b) exclude it from any discount.
+        if (!"GCP".equals(cloudAccount.getProvider()) && !"Azure".equals(cloudAccount.getProvider())
+                && cloudAccount.getAwsAccountId() != null) {
+            double marketplace = billingService.getMarketplaceCharge(cloudAccount.getAwsAccountId(), year, month, false);
+            if (marketplace > 0) {
+                invoice.setMarketplaceCharge(BigDecimal.valueOf(marketplace).setScale(4, RoundingMode.HALF_UP));
+            }
+        }
+
         recalculateTotals(invoice);
         logger.info("[InvoiceGen] Draft invoice computed for account='{}' {}/{}: {} line items, total={}, includeIrn={}",
                 accountId, year, month, lineItems.size(), invoice.getAmount(), includeIrn);
@@ -1421,6 +1462,10 @@ public class InvoiceManagementService {
 
         invoice.setPreDiscountTotal(preDiscountTotal.setScale(4, RoundingMode.HALF_UP));
 
+        // Marketplace is never discounted. It is part of preDiscountTotal, so we
+        // subtract it from any discount base.
+        BigDecimal marketplace = Optional.ofNullable(invoice.getMarketplaceCharge()).orElse(BigDecimal.ZERO);
+
         List<Discount> discounts = Optional.ofNullable(invoice.getDiscounts()).orElse(Collections.emptyList());
         BigDecimal totalDiscount = BigDecimal.ZERO;
 
@@ -1429,14 +1474,16 @@ public class InvoiceManagementService {
                     .divide(new BigDecimal(100), 4, RoundingMode.HALF_UP);
 
             if ("ALL".equalsIgnoreCase(disc.getServiceName())) {
-                totalDiscount = totalDiscount.add(preDiscountTotal.multiply(percentage));
+                BigDecimal allBase = preDiscountTotal.subtract(marketplace).max(BigDecimal.ZERO);
+                totalDiscount = totalDiscount.add(allBase.multiply(percentage));
 
             } else if ("AWS Consumption Charge".equalsIgnoreCase(disc.getServiceName())) {
                 BigDecimal standardTotal = lineItems.stream()
                         .filter(item -> !item.isHidden())
                         .filter(item -> !"Amazon CloudFront".equalsIgnoreCase(item.getServiceName()))
                         .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                        .reduce(BigDecimal.ZERO, BigDecimal::add)
+                        .subtract(marketplace).max(BigDecimal.ZERO);
 
                 totalDiscount = totalDiscount.add(standardTotal.multiply(percentage));
             } else {

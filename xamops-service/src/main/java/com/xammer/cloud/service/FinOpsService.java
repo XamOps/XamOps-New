@@ -414,6 +414,18 @@ public class FinOpsService {
         return getCostHistory(getAccount(accountId), forceRefresh, startDate, endDate);
     }
 
+    /**
+     * Returns the previous calendar month's total spend, independent of any
+     * date filter applied to the Cost Explorer view. Delegates to the same
+     * CostService method used by the Account Dashboard so both pages report the
+     * same "Last Month Spend" value.
+     */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<Double> getLastMonthSpendById(String accountId, boolean forceRefresh) {
+        CloudAccount account = getAccount(accountId);
+        return costService.getLastMonthSpend(account.getAwsAccountId(), forceRefresh);
+    }
+
     @Async("awsTaskExecutor")
     public CompletableFuture<List<Map<String, Object>>> getCostByRegionById(
             String accountId, boolean forceRefresh, String startDate, String endDate) {

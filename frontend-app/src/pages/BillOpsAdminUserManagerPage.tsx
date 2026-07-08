@@ -6,6 +6,7 @@ import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
 import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
 import NotificationModal from '../components/Shared/NotificationModal';
 import { AlertDialog } from '../components/ui';
+import { XAMOPS_MODULES, ALL_XAMOPS_TAB_KEYS } from '../constants/xamopsTabs';
 
 const PAGE_SIZE = 10;
 
@@ -52,7 +53,7 @@ const FieldSelect: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ 
 const BillOpsAdminUserManagerPage: React.FC = () => {
   const {
     users, loading, error, isEditing, selectedUser, roles,
-    newUser, editUser, cancelEdit, saveUser, deleteUser, updateSelectedUser,
+    newUser, editUser, cancelEdit, saveUser, deleteUser, updateSelectedUser, toggleTab,
     notification, clearNotification, pendingDeleteId, confirmDelete, cancelDelete,
   } = useBillOpsUserManager();
 
@@ -224,6 +225,76 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* ── XamOps module / tab access (only for ROLE_XAMOPS) ── */}
+              {selectedUser.role === 'ROLE_XAMOPS' && (
+                <div className="pt-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <FormLabel icon="mdi:view-grid-outline" text="Sidebar Module & Tab Access" />
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => updateSelectedUser('allowedTabs', [...ALL_XAMOPS_TAB_KEYS])}
+                        className="text-[10px] font-semibold text-[rgba(0,0,0,0.6)] hover:text-black"
+                      >
+                        Select all
+                      </button>
+                      <span className="text-[rgba(0,0,0,0.15)]">|</span>
+                      <button
+                        type="button"
+                        onClick={() => updateSelectedUser('allowedTabs', [])}
+                        className="text-[10px] font-semibold text-rose-500 hover:text-rose-700"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-3">
+                    Leave everything unchecked to grant full sidebar access. Selecting specific tabs restricts the user to only those.
+                  </p>
+                  <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+                    {XAMOPS_MODULES.map(mod => {
+                      const moduleTabKeys = mod.tabs.map(t => t.key);
+                      const allChecked = moduleTabKeys.every(k => selectedUser.allowedTabs.includes(k));
+                      const toggleModule = () => {
+                        if (allChecked) {
+                          updateSelectedUser('allowedTabs', selectedUser.allowedTabs.filter(k => !moduleTabKeys.includes(k)));
+                        } else {
+                          updateSelectedUser('allowedTabs', Array.from(new Set([...selectedUser.allowedTabs, ...moduleTabKeys])));
+                        }
+                      };
+                      return (
+                        <div key={mod.key} className="border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+                          <label className="flex items-center gap-2.5 px-3 py-2.5 bg-[rgba(0,0,0,0.025)] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={allChecked}
+                              onChange={toggleModule}
+                              className="w-4 h-4 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0"
+                            />
+                            <Icon icon={mod.icon} width={14} color="rgba(0,0,0,0.6)" />
+                            <span className="text-xs font-bold text-[rgba(0,0,0,0.8)]">{mod.label}</span>
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 p-2.5">
+                            {mod.tabs.map(tab => (
+                              <label key={tab.key} className="flex items-center gap-2 px-2.5 py-2 border border-[rgba(0,0,0,0.06)] rounded-lg cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedUser.allowedTabs.includes(tab.key)}
+                                  onChange={() => toggleTab(tab.key)}
+                                  className="w-3.5 h-3.5 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0"
+                                />
+                                <Icon icon={tab.icon} width={13} color="rgba(0,0,0,0.45)" />
+                                <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)]">{tab.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-3 pt-2 border-t border-[rgba(0,0,0,0.06)]">
                 <button type="button" onClick={cancelEdit} className="inline-flex items-center gap-2 px-4 py-2 border border-[rgba(0,0,0,0.12)] rounded-md bg-white text-[rgba(0,0,0,0.5)] text-xs font-medium hover:bg-[rgba(0,0,0,0.03)] transition-colors">

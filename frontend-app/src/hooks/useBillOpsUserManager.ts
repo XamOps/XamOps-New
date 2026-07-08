@@ -37,6 +37,7 @@ const EMPTY_FORM: BillOpsUserFormData = {
     contact: '',
     designation: '',
     parentId: '',
+    allowedTabs: [],
 };
 
 const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB', 'ROLE_XAMOPS'];
@@ -131,6 +132,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             contact: user.contact || '',
             designation: user.designation || '',
             parentId: user.parentId != null ? String(user.parentId) : '',
+            allowedTabs: user.allowedTabs || [],
         });
         setIsEditing(true);
     }, []);
@@ -278,11 +280,24 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     /**
      * Update a field in the selected user form
      */
-    const updateSelectedUser = useCallback((field: keyof BillOpsUserFormData, value: string) => {
+    const updateSelectedUser = useCallback((field: keyof BillOpsUserFormData, value: string | string[]) => {
         setSelectedUser(prev => ({
             ...prev,
             [field]: value
         }));
+    }, []);
+
+    /**
+     * Toggle a XamOps sidebar tab key in the selected user's allowedTabs list.
+     */
+    const toggleTab = useCallback((tabKey: string) => {
+        setSelectedUser(prev => {
+            const allowedTabs = [...prev.allowedTabs];
+            const index = allowedTabs.indexOf(tabKey);
+            if (index === -1) allowedTabs.push(tabKey);
+            else allowedTabs.splice(index, 1);
+            return { ...prev, allowedTabs };
+        });
     }, []);
 
     return {
@@ -312,6 +327,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         saveUser,
         deleteUser,
         updateSelectedUser,
+        toggleTab,
         clearNotification
     };
 };

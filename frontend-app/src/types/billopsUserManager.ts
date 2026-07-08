@@ -23,6 +23,7 @@ export interface BillOpsUser {
     contact?: string;
     designation?: string;
     parentId?: string | number | null;  // null/undefined = primary user; set = sub-user of that parent (backend returns Long)
+    allowedTabs?: string[];  // XamOps sidebar tab keys (only meaningful when role === 'ROLE_XAMOPS')
 }
 
 /**
@@ -38,6 +39,7 @@ export interface BillOpsUserFormData {
     contact: string;
     designation: string;
     parentId: string;  // empty string = primary user
+    allowedTabs: string[];  // XamOps sidebar tab keys (only meaningful when role === 'ROLE_XAMOPS')
 }
 
 /**
@@ -73,6 +75,7 @@ export interface UseBillOpsUserManagerResult {
     cancelEdit: () => void;
     saveUser: () => Promise<void>;
     deleteUser: (id: string) => void;
-    updateSelectedUser: (field: keyof BillOpsUserFormData, value: string) => void;
+    updateSelectedUser: (field: keyof BillOpsUserFormData, value: string | string[]) => void;
+    toggleTab: (tabKey: string) => void;
     clearNotification: () => void;
 }

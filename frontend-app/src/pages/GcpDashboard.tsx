@@ -20,20 +20,11 @@ import GcpInventorySection from '../components/GcpDashboard/GcpInventorySection'
 
 type TimePreset = '7d' | '30d' | '3m' | '6m' | '12m';
 
-const TIME_PRESETS: { id: TimePreset; label: string }[] = [
-  { id: '7d', label: '7D' },
-  { id: '30d', label: '30D' },
-  { id: '3m', label: '3M' },
-  { id: '6m', label: '6M' },
-  { id: '12m', label: '12M' },
-];
-
 const DEFAULT_VISIBLE: Record<string, boolean> = {
   kpi: true, summaryCards: true, costTrend: true, inventory: true, topServices: true,
 };
 
 const LS_WIDGETS = 'xamops_gcp_dashboard_widgets_v1';
-const LS_PRESET  = 'xamops_gcp_dashboard_preset_v1';
 
 const loadWidgets = (): Record<string, boolean> => {
   try {
@@ -90,20 +81,13 @@ const GcpDashboard: React.FC = () => {
   const { setActions, clearActions } = useTopbar();
   const { isLoading: accountsLoading } = useAccounts();
 
-  const [timePreset, setTimePreset] = useState<TimePreset>(
-    () => (localStorage.getItem(LS_PRESET) as TimePreset) || '30d'
-  );
+  const timePreset: TimePreset = '30d';
   const [visibleWidgets, setVisibleWidgets] = useState<Record<string, boolean>>(loadWidgets);
   const [customizerOpen, setCustomizerOpen] = useState(false);
   const [autoSpottingSavings, setAutoSpottingSavings] = useState<number>(0);
   const [, setIsLoadingAutoSpotting] = useState(false);
 
   const show = useCallback((id: string) => visibleWidgets[id] !== false, [visibleWidgets]);
-
-  const handlePreset = (p: TimePreset) => {
-    setTimePreset(p);
-    localStorage.setItem(LS_PRESET, p);
-  };
 
   const handleToggleWidget = (id: string) => {
     setVisibleWidgets(prev => {
@@ -399,23 +383,9 @@ const GcpDashboard: React.FC = () => {
 
   return (
     <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
-      {/* Period filter + customize */}
+      {/* Customize */}
       {selectedAccountIds.length > 0 && (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.35)]">Period</span>
-            <div className="flex items-center bg-[rgba(0,0,0,0.04)] rounded-lg p-0.5 gap-0.5">
-              {TIME_PRESETS.map(p => (
-                <button key={p.id} onClick={() => handlePreset(p.id)}
-                  className={`px-2.5 py-1 rounded-md text-[12px] font-medium transition-all ${
-                    timePreset === p.id
-                      ? 'bg-white text-[rgba(0,0,0,0.88)] shadow-sm'
-                      : 'text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.7)]'
-                  }`}>{p.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="flex items-center justify-end">
           <button onClick={() => setCustomizerOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.04)] transition-colors">
             <Icon icon="mdi:view-dashboard-edit-outline" width={14} />

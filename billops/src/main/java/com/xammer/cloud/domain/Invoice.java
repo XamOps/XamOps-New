@@ -50,6 +50,11 @@ public class Invoice {
     @Column(precision = 19, scale = 4)
     private BigDecimal amount; // Grand Total (Taxable + Tax)
 
+    // AWS Marketplace charge (BILLING_ENTITY = "AWS Marketplace"), in USD.
+    // Included in preDiscountTotal but NEVER discounted; shown as its own line.
+    @Column(name = "marketplace_charge", precision = 19, scale = 4)
+    private BigDecimal marketplaceCharge;
+
     // Whether this invoice includes IRN (Tax Invoice) or is a Performa Invoice
     @Column(name = "include_irn", nullable = false)
     private boolean includeIrn = false;
@@ -97,6 +102,8 @@ public class Invoice {
 
     public BigDecimal getAmount() { return this.amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
+    public BigDecimal getMarketplaceCharge() { return marketplaceCharge; }
+    public void setMarketplaceCharge(BigDecimal marketplaceCharge) { this.marketplaceCharge = marketplaceCharge; }
     public boolean isIncludeIrn() { return includeIrn; }
     public void setIncludeIrn(boolean includeIrn) { this.includeIrn = includeIrn; }
     public CloudAccount getCloudAccount() { return cloudAccount; }

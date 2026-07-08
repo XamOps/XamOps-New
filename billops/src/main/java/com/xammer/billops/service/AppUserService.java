@@ -2,9 +2,11 @@ package com.xammer.billops.service;
 
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.domain.Client;
+import com.xammer.billops.domain.UserTabAccess;
 import com.xammer.billops.dto.UserDTO;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
+import com.xammer.billops.repository.UserTabAccessRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,9 @@ public class AppUserService {
 
     @Autowired
     private ClientRepository clientRepository;
+
+    @Autowired
+    private UserTabAccessRepository userTabAccessRepository;
 
     @Autowired
     private JavaMailSender mailSender;
@@ -90,6 +95,14 @@ public class AppUserService {
         }
         AppUser savedUser = appUserRepository.save(user);
 
+        // Assign XamOps sidebar tab access (only relevant for ROLE_XAMOPS users)
+        if ("ROLE_XAMOPS".equals(savedUser.getRole())
+                && dto.getAllowedTabs() != null && !dto.getAllowedTabs().isEmpty()) {
+            for (String tabName : dto.getAllowedTabs()) {
+                userTabAccessRepository.save(new UserTabAccess(savedUser, tabName));
+            }
+        }
+
         // Send welcome email with credentials
         try {
             sendWelcomeEmail(dto.getEmail(), dto.getUsername(), dto.getPassword());
@@ -144,6 +157,9 @@ public class AppUserService {
             dto.setContact(user.getContact());
             dto.setDesignation(user.getDesignation());
             dto.setParentId(user.getCreatedBy());  // null = primary user, non-null = sub-user
+            if ("ROLE_XAMOPS".equals(user.getRole())) {
+                dto.setAllowedTabs(userTabAccessRepository.findTabNamesByUserId(user.getId()));
+            }
             return dto;
         }).collect(Collectors.toList());
     }
@@ -180,7 +196,19 @@ public class AppUserService {
             user.setPassword(passwordEncoder.encode(dto.getPassword()));
         }
 
-        return appUserRepository.save(user);
+        AppUser savedUser = appUserRepository.save(user);
+
+        // Sync XamOps sidebar tab access — only when the tab list is provided on the request.
+        // A null allowedTabs means "leave tab access unchanged"; an explicit (possibly empty)
+        // list replaces the current assignment.
+        if ("ROLE_XAMOPS".equals(savedUser.getRole()) && dto.getAllowedTabs() != null) {
+            userTabAccessRepository.deleteByUserId(savedUser.getId());
+            for (String tabName : dto.getAllowedTabs()) {
+                userTabAccessRepository.save(new UserTabAccess(savedUser, tabName));
+            }
+        }
+
+        return savedUser;
     }
 
     @Transactional
@@ -190,6 +218,9 @@ public class AppUserService {
 
         Client client = user.getClient();
         Long clientId = client != null ? client.getId() : null;
+
+        // Remove any sidebar tab-access rows first to avoid orphaned/foreign-key rows
+        userTabAccessRepository.deleteByUserId(id);
 
         // Use direct JPQL delete to bypass Hibernate entity lifecycle nullability checks
         appUserRepository.deleteByIdDirect(id);

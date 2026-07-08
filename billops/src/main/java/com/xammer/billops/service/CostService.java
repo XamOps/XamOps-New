@@ -73,6 +73,91 @@ public class CostService {
         return costMockService.getMockAwsCredits(account);
     }
 
+    /**
+     * Fetches the total AWS Marketplace charge (BILLING_ENTITY = "AWS Marketplace")
+     * for the given account & month, in USD. These are billed by
+     * "Amazon Web Services, Inc." and must be added to the invoice directly WITHOUT
+     * any discount. Queried org-wide (no LINKED_ACCOUNT filter) using the account's
+     * CE client — same scope as the standard consumption total — so
+     * (standard = total - marketplace) reconciles with the AWS console split.
+     * Marketplace charges are not modified by Billing Conductor, so live CE is
+     * accurate even for closed months.
+     */
+    public double getMarketplaceCharge(CloudAccount account, Integer year, Integer month, boolean forceRefresh) {
+        if (useMockData) {
+            return 0.0;
+        }
+        String accountId = account.getAwsAccountId();
+        String cacheKey = String.format("BILLOPS_MARKETPLACE::%s::%s::%s", accountId, year, month);
+
+        if (!forceRefresh) {
+            Optional<Double> cached = redisCacheService.get(cacheKey, new TypeReference<Double>() {});
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+            try {
+                Optional<CachedData> dbCached = cachedDataRepository.findById(cacheKey);
+                if (dbCached.isPresent()) {
+                    Double v = objectMapper.readValue(dbCached.get().getJsonData(), Double.class);
+                    if (v != null) {
+                        redisCacheService.put(cacheKey, v, 60 * 24);
+                        return v;
+                    }
+                }
+            } catch (Exception e) {
+                logger.debug("Marketplace DB cache miss for {}: {}", cacheKey, e.getMessage());
+            }
+        }
+
+        try {
+            CostExplorerClient client = awsClientProvider.getCostExplorerClient(account);
+            YearMonth ym = YearMonth.of(year, month);
+            LocalDate start = ym.atDay(1);
+            LocalDate end = ym.atEndOfMonth();
+
+            Expression marketplaceFilter = Expression.builder()
+                    .dimensions(DimensionValues.builder()
+                            .key(Dimension.BILLING_ENTITY)
+                            .values("AWS Marketplace")
+                            .build())
+                    .build();
+
+            GetCostAndUsageRequest request = GetCostAndUsageRequest.builder()
+                    .timePeriod(DateInterval.builder().start(start.toString()).end(end.plusDays(1).toString()).build())
+                    .granularity(Granularity.MONTHLY)
+                    .metrics("UnblendedCost")
+                    .filter(marketplaceFilter)
+                    .build();
+
+            GetCostAndUsageResponse response = client.getCostAndUsage(request);
+            double total = 0.0;
+            if (response != null && response.hasResultsByTime()) {
+                total = response.resultsByTime().stream()
+                        .filter(r -> r.total() != null && r.total().containsKey("UnblendedCost"))
+                        .mapToDouble(r -> Double.parseDouble(r.total().get("UnblendedCost").amount()))
+                        .sum();
+            }
+
+            logger.info("[CostService] Marketplace charge for {} {}/{}: ${}",
+                    accountId, year, month, String.format("%.2f", total));
+
+            redisCacheService.put(cacheKey, total, 60 * 24);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+                snapshot.setCacheKey(cacheKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(total));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save marketplace DB snapshot {}: {}", cacheKey, dbEx.getMessage());
+            }
+            return total;
+        } catch (Exception e) {
+            logger.warn("Failed to fetch marketplace charge for {} {}/{}: {}", accountId, year, month, e.getMessage());
+            return 0.0;
+        }
+    }
+
     public List<Map<String, Object>> getCostHistory(CloudAccount account, Integer year, Integer month) {
         return getCostHistory(account, year, month, false);
     }

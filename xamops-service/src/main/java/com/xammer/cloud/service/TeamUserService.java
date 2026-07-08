@@ -3,11 +3,13 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.domain.UserCloudAccountAccess;
+import com.xammer.cloud.domain.UserTabAccess;
 import com.xammer.cloud.dto.ProfileDTO;
 import com.xammer.cloud.dto.TeamUserDTO;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.repository.UserTabAccessRepository;
 import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +38,9 @@ public class TeamUserService {
 
     @Autowired
     private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+
+    @Autowired
+    private UserTabAccessRepository userTabAccessRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -95,6 +100,10 @@ public class TeamUserService {
             log.info("Returning {} cloud accounts in profile", accountInfos.size());
         }
 
+        // Sidebar tab access — applies to both primary and sub XamOps users.
+        // Empty list means "no restriction" (full sidebar); the frontend treats it that way.
+        profile.setAllowedTabs(userTabAccessRepository.findTabNamesByUserId(currentUserId));
+
         return profile;
     }
 
@@ -137,6 +146,9 @@ public class TeamUserService {
                                 .collect(Collectors.toList());
                         dto.setCloudAccounts(accountInfos);
                     }
+
+                    // Assigned sidebar tabs
+                    dto.setAllowedTabs(userTabAccessRepository.findTabNamesByUserId(user.getId()));
 
                     return dto;
                 })
@@ -197,6 +209,13 @@ public class TeamUserService {
             }
         }
 
+        // Assign sidebar tab access
+        if (dto.getAllowedTabs() != null && !dto.getAllowedTabs().isEmpty()) {
+            for (String tabName : dto.getAllowedTabs()) {
+                userTabAccessRepository.save(new UserTabAccess(saved, tabName));
+            }
+        }
+
         // Send welcome email with credentials
         try {
             sendWelcomeEmail(saved.getEmail(), dto.getUsername(), dto.getPassword(), currentUser.getUsername());
@@ -212,6 +231,7 @@ public class TeamUserService {
         result.setEmail(saved.getEmail());
         result.setRole(saved.getRole());
         result.setAccountIds(dto.getAccountIds());
+        result.setAllowedTabs(dto.getAllowedTabs());
         return result;
     }
 
@@ -275,12 +295,22 @@ public class TeamUserService {
             }
         }
 
+        // Update sidebar tab access — delete existing and re-insert
+        userTabAccessRepository.deleteByUserId(userId);
+        entityManager.flush(); // Ensure deletes complete before inserting new rows
+        if (dto.getAllowedTabs() != null && !dto.getAllowedTabs().isEmpty()) {
+            for (String tabName : dto.getAllowedTabs()) {
+                userTabAccessRepository.save(new UserTabAccess(saved, tabName));
+            }
+        }
+
         TeamUserDTO result = new TeamUserDTO();
         result.setId(saved.getId());
         result.setUsername(saved.getUsername());
         result.setEmail(saved.getEmail());
         result.setRole(saved.getRole());
         result.setAccountIds(dto.getAccountIds());
+        result.setAllowedTabs(dto.getAllowedTabs());
         return result;
     }
 
@@ -303,8 +333,9 @@ public class TeamUserService {
             throw new RuntimeException("You can only delete users you created");
         }
 
-        // Delete account access first
+        // Delete account access and tab access first
         userCloudAccountAccessRepository.deleteByUserId(userId);
+        userTabAccessRepository.deleteByUserId(userId);
 
         // Then delete the user
         userRepository.delete(userToDelete);

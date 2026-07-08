@@ -204,15 +204,16 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
             {/* Bars */}
             <div className="flex-1 flex items-end gap-1 h-[130px] border-b border-l border-[rgba(0,0,0,0.06)] pl-1 relative">
               {monthlyData.map((month, idx) => {
-                const totalHeight = month.spent > 0 ? (month.spent / chartMaxValue) * 100 : 0;
-                const greenHeight = month.withinBudget > 0 ? (month.withinBudget / chartMaxValue) * 100 : 0;
-                const redHeight = month.overBudget > 0 ? (month.overBudget / chartMaxValue) * 100 : 0;
+                const CHART_H = 130; // matches the h-[130px] plot area
+                const totalPx = month.spent > 0 ? (month.spent / chartMaxValue) * CHART_H : 0;
+                const greenPx = month.withinBudget > 0 ? (month.withinBudget / chartMaxValue) * CHART_H : 0;
+                const redPx = month.overBudget > 0 ? (month.overBudget / chartMaxValue) * CHART_H : 0;
                 const isFuture = month.spent === 0 && !month.isCurrent;
 
                 return (
                   <div
                     key={idx}
-                    className="flex-1 flex flex-col items-center relative"
+                    className="flex-1 h-full flex flex-col justify-end items-center relative"
                     onMouseEnter={() => setHoveredBar(idx)}
                     onMouseLeave={() => setHoveredBar(null)}
                   >
@@ -223,21 +224,23 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
                       </span>
                     )}
                     {/* Bar */}
-                    <div className="w-full flex flex-col justify-end" style={{ height: `${Math.max(totalHeight, isFuture ? 100 : 0)}%`, minHeight: '4px' }}>
+                    <div className="w-full flex flex-col justify-end" style={{ height: isFuture ? '100%' : `${Math.max(totalPx, 4)}px` }}>
                       {isFuture ? (
                         <div className="w-full h-full rounded-t-sm bg-[rgba(0,0,0,0.03)] border border-dashed border-[rgba(0,0,0,0.08)]" />
                       ) : (
                         <>
-                          {redHeight > 0 && (
-                            <div className="w-full rounded-t-sm" style={{ height: `${(redHeight / totalHeight) * 100}%`, backgroundColor: '#F87171', minHeight: '3px' }} />
+                          {redPx > 0 && (
+                            <div className="w-full rounded-t-sm" style={{ height: `${Math.max(redPx, 3)}px`, backgroundColor: '#F87171' }} />
                           )}
-                          <div className="w-full" style={{ height: `${(greenHeight / totalHeight) * 100}%`, backgroundColor: '#1BE68B', minHeight: '3px', borderRadius: redHeight > 0 ? '0' : '3px 3px 0 0' }} />
+                          {greenPx > 0 && (
+                            <div className="w-full" style={{ height: `${Math.max(greenPx, 3)}px`, backgroundColor: '#1BE68B', borderRadius: redPx > 0 ? '0' : '3px 3px 0 0' }} />
+                          )}
                         </>
                       )}
                     </div>
 
                     {/* Month label */}
-                    <span className={`text-[9px] mt-1.5 whitespace-nowrap ${month.isCurrent ? 'font-bold text-black' : 'text-[rgba(0,0,0,0.4)]'}`}>
+                    <span className={`absolute top-full mt-1.5 text-[9px] whitespace-nowrap ${month.isCurrent ? 'font-bold text-black' : 'text-[rgba(0,0,0,0.4)]'}`}>
                       {month.label}
                     </span>
 

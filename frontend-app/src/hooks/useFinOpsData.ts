@@ -151,8 +151,11 @@ export const useFinOpsData = ({
       let billingData: Array<{ serviceName: string; monthToDateCost: number }> = [];
 
       try {
-        // ── Fast parallel group 1: billing-summary + budgets ─────────────────
-        const [billing] = await Promise.all([
+        // ── Fast parallel group 1: billing-summary + budgets + last-month-spend ─
+        // last-month-spend is fetched from its own endpoint (previous calendar
+        // month total) so it stays consistent with the Account Dashboard and is
+        // NOT affected by the Cost Explorer date filter.
+        const [billing, lastMonth] = await Promise.all([
           fetchSection<Array<{ serviceName: string; monthToDateCost: number }>>(
             'billing-summary',
             data => ({
@@ -166,11 +169,21 @@ export const useFinOpsData = ({
               },
             })
           ),
+          fetchSection<{ lastMonthSpend: number }>('last-month-spend', () => ({})),
           fetchSection<Budget[]>('budgets', data => ({ budgets: data })),
         ]);
 
+        if (lastMonth && typeof lastMonth.lastMonthSpend === 'number') {
+          lastMonthSpend = lastMonth.lastMonthSpend;
+        }
+
         if (version !== requestVersion.current) return;
         billingData = billing ?? [];
+        // Recompute KPIs now that we have the authoritative last-month spend
+        setReportData(prev => prev
+          ? { ...prev, kpis: computeKpisFromBilling(billingData, lastMonthSpend, potentialSavings) }
+          : null
+        );
         setSectionLoading(prev => ({ ...prev, kpis: false, budgets: false }));
         setIsLoading(false);   // critical path done — page is now interactive
         setIsRefreshing(false);
@@ -189,14 +202,11 @@ export const useFinOpsData = ({
 
         if (version !== requestVersion.current) return;
 
-        // Extract lastMonthSpend from cost-history and recompute KPIs
-        if (costHistory && costHistory.costs && costHistory.costs.length > 1) {
-          lastMonthSpend = costHistory.costs[costHistory.costs.length - 2] ?? 0;
-        }
-        setReportData(prev => prev
-          ? { ...prev, kpis: computeKpisFromBilling(billingData, lastMonthSpend, potentialSavings) }
-          : null
-        );
+        // NOTE: lastMonthSpend comes from the dedicated /last-month-spend endpoint
+        // (previous calendar month), NOT from cost-history — cost-history returns
+        // daily data when a date range is applied, which would otherwise make
+        // costs[length-2] the second-to-last DAY instead of the previous month.
+        void costHistory;
         setSectionLoading(prev => ({ ...prev, charts: false }));
 
         // Apply cost-by-region to breakdown now that we have byService already set
