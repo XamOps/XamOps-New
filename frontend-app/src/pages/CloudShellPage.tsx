@@ -159,18 +159,32 @@ const CloudShellPage: React.FC = () => {
         terminal.write(data);
       };
 
+      // Reasons we close the socket on purpose - don't show a scary message for these
+      const intentionalCloseReasons = ['Cleanup', 'Tab closed', 'Component unmounted', 'Reconnect'];
+
       socket.onclose = (event) => {
         console.warn(`WebSocket Closed for tab ${tabId}`, event.code, event.reason);
-        if (mountedRef.current) {
-          updateTabStatus(tabId, 'disconnected');
+        if (!mountedRef.current) return;
+        updateTabStatus(tabId, 'disconnected');
+        if (!intentionalCloseReasons.includes(event.reason)) {
+          terminal.write(
+            '\r\n\u001B[1;31mSession ended.\u001B[0m The shell process is no longer available.\r\n' +
+            'This usually means the backend could not start the container (Docker unavailable),\r\n' +
+            'the session timed out, or the cloud role could not be assumed.\r\n' +
+            '\u001B[1;33mUse the "Reconnect" button in the top bar to start a new session.\u001B[0m\r\n'
+          );
         }
       };
 
       socket.onerror = (error) => {
         console.error(`WebSocket Error for tab ${tabId}:`, error);
-        if (mountedRef.current) {
-          updateTabStatus(tabId, 'error');
-        }
+        if (!mountedRef.current) return;
+        updateTabStatus(tabId, 'error');
+        terminal.write(
+          '\r\n\u001B[1;31mConnection error.\u001B[0m Unable to reach the CloudShell backend.\r\n' +
+          'Check that the backend service is running, then reconnect.\r\n' +
+          '\u001B[1;33mUse the "Reconnect" button in the top bar to try again.\u001B[0m\r\n'
+        );
       };
 
       return socket;
@@ -408,6 +422,44 @@ const CloudShellPage: React.FC = () => {
   }, []);
 
   /**
+   * Reconnect an existing tab by re-establishing its WebSocket.
+   * Reuses the existing terminal instance so scrollback is preserved.
+   */
+  const reconnectTab = useCallback(
+    (tabId: string) => {
+      const tab = tabs.find((t) => t.id === tabId);
+      const term = terminalInstancesRef.current.get(tabId);
+      if (!tab || !term) return;
+
+      // Tear down any existing socket for this tab
+      const existing = socketInstancesRef.current.get(tabId);
+      if (existing) {
+        try {
+          existing.onopen = null;
+          existing.onmessage = null;
+          existing.onclose = null;
+          existing.onerror = null;
+          if (
+            existing.readyState === WebSocket.OPEN ||
+            existing.readyState === WebSocket.CONNECTING
+          ) {
+            existing.close(1000, 'Reconnect');
+          }
+        } catch (e) {
+          // Ignore
+        }
+        socketInstancesRef.current.delete(tabId);
+      }
+
+      term.write('\r\n\u001B[1;33mReconnecting...\u001B[0m\r\n');
+      updateTabStatus(tabId, 'connecting');
+      initWebSocketForTab(tabId, tab.accountId, term);
+      term.focus();
+    },
+    [tabs, initWebSocketForTab, updateTabStatus]
+  );
+
+  /**
    * Handle window resize
    */
   useEffect(() => {
@@ -580,9 +632,23 @@ const CloudShellPage: React.FC = () => {
 
   const statusDisplay = React.useMemo(() => getConnectionStatusDisplay(), [connectionStatus, currentAccountId]);
 
+  const canReconnect = connectionStatus === 'disconnected' || connectionStatus === 'error';
+
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        {canReconnect && activeTabId && (
+          <button
+            onClick={() => reconnectTab(activeTabId)}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500 text-white hover:bg-orange-600 border border-orange-500 flex items-center gap-2 transition-colors"
+            title="Restart the shell session for this tab"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>Reconnect</span>
+          </button>
+        )}
         <div className={statusDisplay.className}>
           <div
             className={`w-1.5 h-1.5 rounded-full ${statusDisplay.icon} ${connectionStatus === 'connected' ? 'animate-pulse' : ''}`}
@@ -592,7 +658,7 @@ const CloudShellPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, connectionStatus, statusDisplay]);
+  }, [setActions, clearActions, connectionStatus, statusDisplay, canReconnect, activeTabId, reconnectTab]);
 
   return (
     <main className="flex-1 flex flex-col min-h-0 h-full relative bg-gray-50">
