@@ -1,6 +1,7 @@
 import React from 'react';
 import clsx from 'clsx';
 import { useTheme } from '../../contexts/ThemeContext';
+import NavIcon from './NavIcon';
 
 interface NavSectionProps {
   icon: string;
@@ -49,19 +50,24 @@ const NavSection: React.FC<NavSectionProps> = ({
         onClick={onToggle}
         aria-expanded={isOpen}
         className={clsx(
-          'w-full flex items-center gap-2 rounded-md transition-colors duration-150 px-2 h-[33px] justify-between',
+          'w-full flex items-center gap-2.5 rounded-lg transition-all duration-150 px-2.5 h-[34px] justify-between',
           dark
             ? isOpen
-              ? 'bg-[rgba(255,255,255,0.12)] text-white font-semibold'
-              : 'text-[rgba(255,255,255,0.5)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white font-normal'
+              ? 'bg-[rgba(255,255,255,0.1)] text-white font-semibold'
+              : 'text-[rgba(255,255,255,0.55)] hover:bg-[rgba(255,255,255,0.07)] hover:text-white font-medium'
             : isOpen
-              ? 'bg-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] font-semibold'
-              : 'text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] font-normal'
+              ? 'bg-white text-[rgba(0,0,0,0.9)] font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.05)]'
+              : 'text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.05)] hover:text-[rgba(0,0,0,0.9)] font-medium'
         )}
       >
-        <div className="flex items-center gap-2 overflow-hidden min-w-0">
-          <i className={clsx(icon, 'w-4 text-center text-[13px] flex-shrink-0')} />
-          <span className="text-[13px] truncate">{label}</span>
+        <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
+          <NavIcon icon={icon} className={clsx(
+            'w-4 text-center text-[13px] transition-colors duration-150',
+            isOpen
+              ? (dark ? 'text-indigo-300' : 'text-indigo-500')
+              : (dark ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.4)]')
+          )} />
+          <span className="text-[13px] tracking-[-0.01em] truncate">{label}</span>
           {badge && (
             <span className={clsx(
               'flex-shrink-0 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full',

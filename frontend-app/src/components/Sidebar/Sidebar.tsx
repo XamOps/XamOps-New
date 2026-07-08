@@ -194,8 +194,8 @@ const Sidebar: React.FC = () => {
       {/* Sidebar Container — 220px */}
       <div
         className={clsx(
-          'fixed inset-y-0 left-0 flex flex-col transition-[transform,background-color] duration-200 ease-in-out z-40 w-[220px]',
-          theme === 'dark' ? 'bg-[#111111]' : 'bg-[rgba(247,247,247,0.95)]',
+          'fixed inset-y-0 left-0 flex flex-col transition-[transform,background-color] duration-200 ease-in-out z-40 w-[220px] border-r',
+          theme === 'dark' ? 'bg-[#0d0d0f] border-[rgba(255,255,255,0.07)]' : 'bg-[#fafafa] border-[rgba(0,0,0,0.06)]',
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >

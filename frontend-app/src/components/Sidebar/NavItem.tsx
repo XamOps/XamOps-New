@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import { useTheme } from '../../contexts/ThemeContext';
+import NavIcon from './NavIcon';
 
 interface NavItemProps {
   href: string;
@@ -23,20 +24,27 @@ const NavItem: React.FC<NavItemProps> = ({
   const isReactRoute = !href.includes('.html');
 
   const className = clsx(
-    'nav-item flex items-center gap-2 rounded-md transition-colors duration-150 ease-in-out px-2 h-[33px]',
+    'nav-item flex items-center gap-2.5 rounded-lg transition-all duration-150 ease-in-out px-2.5 h-[34px]',
     theme === 'dark'
       ? isActive
-        ? 'bg-[rgba(255,255,255,0.12)] text-white font-semibold'
-        : 'text-[rgba(255,255,255,0.5)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white font-normal'
+        ? 'bg-[rgba(255,255,255,0.1)] text-white font-semibold'
+        : 'text-[rgba(255,255,255,0.55)] hover:bg-[rgba(255,255,255,0.07)] hover:text-white font-medium'
       : isActive
-        ? 'bg-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] font-semibold'
-        : 'text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] font-normal'
+        ? 'bg-white text-[rgba(0,0,0,0.9)] font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.05)]'
+        : 'text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.05)] hover:text-[rgba(0,0,0,0.9)] font-medium'
+  );
+
+  const iconClass = clsx(
+    'w-4 text-center text-[13px] transition-colors duration-150',
+    isActive
+      ? (theme === 'dark' ? 'text-indigo-300' : 'text-indigo-500')
+      : (theme === 'dark' ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.4)]')
   );
 
   const content = (
     <>
-      <i className={clsx(icon, 'w-4 text-center text-[13px] flex-shrink-0')} />
-      <span className="text-[13px] truncate whitespace-nowrap overflow-hidden">
+      <NavIcon icon={icon} className={iconClass} />
+      <span className="text-[13px] tracking-[-0.01em] truncate whitespace-nowrap overflow-hidden">
         {label}
       </span>
     </>

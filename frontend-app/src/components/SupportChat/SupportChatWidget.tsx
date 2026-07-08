@@ -18,7 +18,7 @@
  * - Same auto-refresh behavior
  */
 
-import React, { useCallback, useState, KeyboardEvent } from 'react';
+import React, { useCallback, useEffect, useState, KeyboardEvent } from 'react';
 import useSupportChat from '../../hooks/useSupportChat';
 import './SupportChatWidget.css';
 
@@ -42,6 +42,10 @@ const SupportChatWidget: React.FC = () => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
 
+  // Greeting bubble ("Got any questions? I'm happy to help.") shown near the FAB
+  // when the chat is closed, until the user dismisses it or opens the chat.
+  const [showGreeting, setShowGreeting] = useState(false);
+
   /**
    * Handle toggle open/close
    */
@@ -58,6 +62,32 @@ const SupportChatWidget: React.FC = () => {
       fetchHistory();
     }
   }, [isOpen, setIsOpen, fetchHistory]);
+
+  // Track whether the user has crossed (dismissed) the greeting this session.
+  // Kept in memory only — a full page reload resets it, so the bubble shows again.
+  const [greetingDismissed, setGreetingDismissed] = useState(false);
+
+  // Reveal the greeting shortly after load, only while the chat is closed and
+  // the user hasn't dismissed it during this session.
+  useEffect(() => {
+    if (isOpen || greetingDismissed) {
+      setShowGreeting(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowGreeting(true), 1200);
+    return () => clearTimeout(timer);
+  }, [isOpen, greetingDismissed]);
+
+  const dismissGreeting = useCallback((e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setShowGreeting(false);
+    setGreetingDismissed(true);
+  }, []);
+
+  const openFromGreeting = useCallback(() => {
+    dismissGreeting();
+    if (!isOpen) handleToggle();
+  }, [dismissGreeting, handleToggle, isOpen]);
 
   /**
    * Handle send on Enter key
@@ -134,6 +164,29 @@ const SupportChatWidget: React.FC = () => {
           </span>
         )}
       </button>
+
+      {/* Greeting bubble — nudges the user to start a chat, dismissable */}
+      {!isOpen && showGreeting && (
+        <div
+          className="support-chat-greeting"
+          role="button"
+          tabIndex={0}
+          onClick={openFromGreeting}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openFromGreeting(); }}
+        >
+          <button
+            type="button"
+            className="support-chat-greeting-close"
+            onClick={dismissGreeting}
+            aria-label="Dismiss greeting"
+          >
+            <i className="fas fa-times" />
+          </button>
+          <p className="support-chat-greeting-text">
+            Got any questions? I'm happy to help.
+          </p>
+        </div>
+      )}
 
       {/* Chat Window */}
       <div className={`support-chat-window ${isOpen ? 'support-chat-window-open' : ''}`}>
