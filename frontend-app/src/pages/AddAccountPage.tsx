@@ -27,7 +27,7 @@
  * - Same visual design with enhancements
  */
 
-import React, { useEffect, useMemo, useCallback } from 'react';
+import React, { useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
@@ -86,6 +86,7 @@ const AddAccountPage: React.FC = () => {
   } = useAddAccount();
 
   const [showFormView, setShowFormView] = React.useState(false);
+  const shellRef = useRef<HTMLElement>(null);
 
   const providerInfo = useMemo(() => {
     switch (provider) {
@@ -124,17 +125,22 @@ const AddAccountPage: React.FC = () => {
   // wrapper so height:100% resolves correctly down to .aa-form-scroll.
   useEffect(() => {
     const shell = document.getElementById('main-content');
-    if (!shell) return;
+    const pageShell = shellRef.current;
+    if (!shell || !pageShell) return;
 
-    // Collect every element between #main-content and this page's root
-    // that needs height:100% + overflow:hidden to form a proper chain.
+    // Collect every wrapper element strictly between this page's root
+    // (.aa-page-shell) and #main-content that needs height:100% + overflow:hidden
+    // to form a proper height chain.
+    //
+    // Walk UP from the page shell rather than guessing by child index: siblings
+    // like <TrialBanner> can be inserted between <Topbar> and the content wrapper,
+    // which previously caused these styles to be applied to the banner (inflating
+    // it to full height) instead of the real content wrappers.
     const wrappers: HTMLElement[] = [];
-
-    // Walk down: shell's children after <Topbar> (first child)
-    let el: HTMLElement | null = shell.querySelector(':scope > *:nth-child(2)');
-    while (el && !el.classList.contains('aa-page-shell')) {
+    let el: HTMLElement | null = pageShell.parentElement;
+    while (el && el !== shell) {
       wrappers.push(el);
-      el = el.firstElementChild as HTMLElement | null;
+      el = el.parentElement;
     }
 
     // Save originals and apply
@@ -270,7 +276,7 @@ const AddAccountPage: React.FC = () => {
   };
 
   return (
-    <main className="aa-page-shell">
+    <main ref={shellRef} className="aa-page-shell">
       {showFormView ? (
         <>
           {/* ── Form View: centered, no sidebar ── */}
