@@ -48,7 +48,7 @@ function stageStyle(status: string): { icon: string; iconColor: string; ring: st
 
 const CICDPipelinesPage: React.FC = () => {
   const {
-    githubRuns, isLoadingGithub,
+    githubRuns, isLoadingGithub, githubAuthError,
     jenkinsJobs, isLoadingJenkins,
     activeTab, setActiveTab,
     selectedWorkflow, workflowHistory, isLoadingHistory, viewWorkflowHistory, closeWorkflow,
@@ -144,6 +144,20 @@ const CICDPipelinesPage: React.FC = () => {
         {/* GitHub Tab */}
         {activeTab === 'github' && (
           <motion.div key="github" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+            {githubAuthError && (
+              <div className="mb-5 flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <Icon icon="mdi:key-alert" width={20} color="#B45309" className="mt-0.5 flex-shrink-0" />
+                <div className="text-[13px] leading-relaxed">
+                  <p className="font-bold text-amber-800">GitHub token invalid or expired</p>
+                  <p className="text-amber-700 mt-0.5">
+                    GitHub rejected the stored access token, so pipeline data can't be loaded. Generate a new
+                    Personal Access Token (with <span className="font-mono">repo</span> and{' '}
+                    <span className="font-mono">actions:read</span> scopes) and reconnect the repository in{' '}
+                    <span className="font-semibold">Account Management → Connected GitHub Repositories</span>.
+                  </p>
+                </div>
+              </div>
+            )}
             {/* GitHub Metrics */}
             <div className="mb-6">
               {githubMetrics.error && (

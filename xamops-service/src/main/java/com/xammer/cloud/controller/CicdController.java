@@ -74,12 +74,14 @@ public class CicdController {
         }
 
         List<GitHubWorkflowRunDto> allRuns = new ArrayList<>();
+        int authFailures = 0;
 
         for (GitHubIntegrationConfig config : configs) {
             String decryptedPat = encryptionService.decrypt(config.getEncryptedPat());
             if (decryptedPat == null) {
                 logger.error("Failed to decrypt PAT for config ID {}. Skipping repo {}/{}",
                         config.getId(), config.getGithubOwner(), config.getGithubRepo());
+                authFailures++;
                 continue;
             }
 
@@ -92,6 +94,10 @@ public class CicdController {
                 if (runsForRepo != null) {
                     allRuns.addAll(runsForRepo);
                 }
+            } catch (com.xammer.cloud.exception.GithubAuthException e) {
+                logger.warn("GitHub token invalid for repo {}/{}: {}",
+                        config.getGithubOwner(), config.getGithubRepo(), e.getMessage());
+                authFailures++;
             } catch (Exception e) {
                 logger.error("Unexpected error fetching runs for repo {}/{}: {}",
                         config.getGithubOwner(), config.getGithubRepo(), e.getMessage(), e);
@@ -125,8 +131,18 @@ public class CicdController {
                 });
         }
 
-        logger.info("Returning {} total GitHub workflow runs for the user.", allRuns.size());
-        return ResponseEntity.ok(allRuns);
+        logger.info("Returning {} total GitHub workflow runs for the user ({} repo(s) failed authentication).",
+                allRuns.size(), authFailures);
+
+        // Surface token/auth failures to the UI via a response header so the page can
+        // show a "reconnect your GitHub token" banner instead of a misleading empty state.
+        // Kept as HTTP 200 (not 401) to avoid tripping the global session-expiry handler.
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
+        if (authFailures > 0) {
+            builder.header("X-Github-Auth-Error", "true");
+            builder.header("X-Github-Auth-Failed-Count", String.valueOf(authFailures));
+        }
+        return builder.body(allRuns);
     }
 
     /**

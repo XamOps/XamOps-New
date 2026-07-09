@@ -19,6 +19,7 @@ interface UseCICDPipelinesReturn {
   // GitHub data
   githubRuns: GitHubRun[];
   isLoadingGithub: boolean;
+  githubAuthError: boolean;
   fetchGithubData: () => Promise<void>;
 
   // Jenkins data
@@ -56,6 +57,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
   // GitHub state
   const [githubRuns, setGithubRuns] = useState<GitHubRun[]>([]);
   const [isLoadingGithub, setIsLoadingGithub] = useState(false);
+  const [githubAuthError, setGithubAuthError] = useState(false);
 
   // Jenkins state
   const [jenkinsJobs, setJenkinsJobs] = useState<JenkinsJob[]>([]);
@@ -84,10 +86,18 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
     setIsLoadingGithub(true);
     try {
       console.log('🔧 Fetching GitHub Actions runs...');
-      const response = await apiClient.get('/api/cicd/github/runs');
+      // Use the raw fetch so we can inspect the X-Github-Auth-Error response header,
+      // which the backend sets when a stored PAT is invalid/expired.
+      const response = await apiClient.fetch('/api/cicd/github/runs', { method: 'GET' });
 
-      // Accept both arrays (including empty arrays) as valid responses
-      const data = Array.isArray(response) ? response : [];
+      setGithubAuthError(response.headers.get('X-Github-Auth-Error') === 'true');
+
+      let data: GitHubRun[] = [];
+      if (response.ok) {
+        const text = await response.text();
+        const parsed = text ? JSON.parse(text) : [];
+        data = Array.isArray(parsed) ? parsed : [];
+      }
       setGithubRuns(data);
       console.log(`✅ Loaded ${data.length} GitHub runs`);
     } catch (err: any) {
@@ -275,6 +285,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
     // GitHub
     githubRuns,
     isLoadingGithub,
+    githubAuthError,
     fetchGithubData,
 
     // Jenkins

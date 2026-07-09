@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.xammer.cloud.dto.cicd.GitHubWorkflowDto;
 import com.xammer.cloud.dto.cicd.GitHubWorkflowRunDto;
 import com.xammer.cloud.dto.cicd.GitHubWorkflowsApiResponse;
+import com.xammer.cloud.exception.GithubAuthException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -97,6 +98,11 @@ public class CicdStatusService {
                 return response.getBody().getWorkflows();
             }
             return Collections.emptyList();
+        } catch (HttpClientErrorException.Unauthorized e) {
+            logger.error("GitHub credentials rejected for {}/{}: {} - {}", owner, repo, e.getStatusCode(),
+                    e.getResponseBodyAsString());
+            throw new GithubAuthException(
+                    "GitHub rejected the stored token for " + owner + "/" + repo + " (" + e.getStatusCode() + ")", e);
         } catch (HttpClientErrorException e) {
             logger.error("HTTP error fetching workflows for {}/{}: {} - {}", owner, repo, e.getStatusCode(),
                     e.getResponseBodyAsString());
