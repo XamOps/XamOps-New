@@ -1,0 +1,4 @@
+## 2026-07-10 - IDOR Protection Pattern for Cloud Account IDs
+**Vulnerability:** Insecure Direct Object Reference (IDOR) in `AutoSpottingController`. Endpoints accepted a numeric `accountId` path parameter and returned/modified cloud account data without verifying if the account belonged to the authenticated user's client.
+**Learning:** Many controllers in this project follow a pattern of taking an ID from the path without internal ownership checks, relying on a (non-functional or bypassed) global `TenantFilter`. This is particularly dangerous for numeric cloud account IDs which are easily enumerable.
+**Prevention:** Implement a standard `validateAccountOwnership(Long accountId)` helper in every controller that handles cloud account data. The helper should bypass checks for `ROLE_SUPER_ADMIN` but enforce matching `clientId` for regular users.
