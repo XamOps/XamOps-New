@@ -20,6 +20,7 @@ interface UseCICDPipelinesReturn {
   githubRuns: GitHubRun[];
   isLoadingGithub: boolean;
   githubAuthError: boolean;
+  githubRepoError: boolean;
   fetchGithubData: () => Promise<void>;
 
   // Jenkins data
@@ -58,6 +59,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
   const [githubRuns, setGithubRuns] = useState<GitHubRun[]>([]);
   const [isLoadingGithub, setIsLoadingGithub] = useState(false);
   const [githubAuthError, setGithubAuthError] = useState(false);
+  const [githubRepoError, setGithubRepoError] = useState(false);
 
   // Jenkins state
   const [jenkinsJobs, setJenkinsJobs] = useState<JenkinsJob[]>([]);
@@ -91,6 +93,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
       const response = await apiClient.fetch('/api/cicd/github/runs', { method: 'GET' });
 
       setGithubAuthError(response.headers.get('X-Github-Auth-Error') === 'true');
+      setGithubRepoError(response.headers.get('X-Github-Repo-Error') === 'true');
 
       let data: GitHubRun[] = [];
       if (response.ok) {
@@ -286,6 +289,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
     githubRuns,
     isLoadingGithub,
     githubAuthError,
+    githubRepoError,
     fetchGithubData,
 
     // Jenkins

@@ -489,10 +489,33 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse([]);
 
   // Flex Compute — uses /api/flexcompute/ (not /api/xamops/)
-  if (url.includes('/api/flexcompute/capacity'))
-    return makeResponse([]);
   if (url.includes('/api/flexcompute/linked-accounts'))
-    return makeResponse([]);
+    return makeResponse(xamops.demoFlexComputeLinkedAccounts);
+  // capacity list (dashboard table + KPI aggregation) — honor status & pagination query params
+  if (url.includes('/api/flexcompute/capacity') && !url.includes('/capacity/')) {
+    const qs = url.includes('?') ? url.substring(url.indexOf('?') + 1) : '';
+    const params = new URLSearchParams(qs);
+    const statuses = params.getAll('statuses');
+    const page = parseInt(params.get('page') || '1', 10) || 1;
+    const pageSize = parseInt(params.get('pageSize') || '10', 10) || 10;
+    return makeResponse(xamops.buildDemoFlexComputeCapacityResponse(statuses, page, pageSize));
+  }
+  // Wizard / action endpoints — return a benign success in demo mode
+  if (url.includes('/api/flexcompute/capacity/search') ||
+      url.includes('/api/flexcompute/capacity/reserve') ||
+      url.includes('/api/flexcompute/capacity/configure') ||
+      url.includes('/api/flexcompute/capacity/purchase') ||
+      url.includes('/api/flexcompute/capacity/extend') ||
+      url.includes('/api/flexcompute/capacity/auto-renewal'))
+    return makeResponse({ success: true, message: 'Demo mode' });
+  // single capacity detail — /api/flexcompute/capacity/{cidrId} (GET/DELETE)
+  if (url.includes('/api/flexcompute/capacity/')) {
+    if (method === 'DELETE')
+      return makeResponse({ success: true, message: 'Demo mode' });
+    const cidrId = url.split('/api/flexcompute/capacity/')[1]?.split(/[?/]/)[0];
+    const match = xamops.demoFlexComputeCapacities.find((c) => c.id === cidrId);
+    return makeResponse(match || xamops.demoFlexComputeCapacities[0]);
+  }
   if (url.includes('/api/flexcompute/'))
     return makeResponse([]);
 

@@ -6,6 +6,7 @@ import com.xammer.cloud.dto.cicd.GitHubWorkflowDto;
 import com.xammer.cloud.dto.cicd.GitHubWorkflowRunDto;
 import com.xammer.cloud.dto.cicd.GitHubWorkflowsApiResponse;
 import com.xammer.cloud.exception.GithubAuthException;
+import com.xammer.cloud.exception.GithubRepoNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,6 +80,100 @@ public class CicdStatusService {
     }
 
     /**
+     * Fetches ALL workflow runs for a repository created within the last {@code days} days,
+     * paginating through the GitHub repo-wide runs endpoint. Used by the sync scheduler to
+     * backfill history so KPIs/DORA metrics reflect more than just the latest run per workflow.
+     *
+     * Throws {@link GithubAuthException} / {@link GithubRepoNotFoundException} on 401/404 so the
+     * caller can surface the same connection errors as the live-runs path.
+     */
+    public List<GitHubWorkflowRunDto> getRunsWithinDays(String owner, String repo, String decryptedPat, int days) {
+        final Instant cutoff = Instant.now().minus(Duration.ofDays(days));
+        final int perPage = 100;
+        final int maxPages = 10; // hard cap: up to 1000 runs per repo per sync
+        final List<GitHubWorkflowRunDto> collected = new ArrayList<>();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(decryptedPat);
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        for (int page = 1; page <= maxPages; page++) {
+            String url = UriComponentsBuilder.fromHttpUrl(githubApiBaseUrl)
+                    .pathSegment("repos", owner, repo, "actions", "runs")
+                    .queryParam("per_page", perPage)
+                    .queryParam("page", page)
+                    .toUriString();
+            try {
+                ResponseEntity<GitHubWorkflowRunsApiResponse> response = restTemplate.exchange(
+                        url, HttpMethod.GET, entity, GitHubWorkflowRunsApiResponse.class);
+
+                if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+                    break;
+                }
+                List<GitHubWorkflowRunDto> runs = response.getBody().getWorkflowRuns();
+                if (runs.isEmpty()) {
+                    break;
+                }
+
+                boolean reachedCutoff = false;
+                for (GitHubWorkflowRunDto run : runs) {
+                    ensureRepositoryInfo(run, owner, repo);
+                    Instant createdAt = parseInstant(run.getCreatedAt());
+                    if (createdAt != null && createdAt.isBefore(cutoff)) {
+                        reachedCutoff = true;
+                        continue;
+                    }
+                    collected.add(run);
+                }
+
+                // Runs are returned newest-first; once we cross the cutoff or run out of a full
+                // page there is nothing older worth fetching.
+                if (reachedCutoff || runs.size() < perPage) {
+                    break;
+                }
+            } catch (HttpClientErrorException.Unauthorized e) {
+                logger.error("GitHub credentials rejected for {}/{}: {}", owner, repo, e.getStatusCode());
+                throw new GithubAuthException(
+                        "GitHub rejected the stored token for " + owner + "/" + repo + " (" + e.getStatusCode() + ")", e);
+            } catch (HttpClientErrorException.NotFound e) {
+                logger.error("GitHub repository not found or not accessible: {}/{}: {}", owner, repo, e.getStatusCode());
+                throw new GithubRepoNotFoundException(
+                        "Repository " + owner + "/" + repo + " was not found or the token cannot access it (404)", e);
+            } catch (Exception e) {
+                logger.error("Error fetching runs page {} for {}/{}: {}", page, owner, repo, e.getMessage());
+                break;
+            }
+        }
+
+        logger.info("Backfill fetched {} runs within {} days for {}/{}", collected.size(), days, owner, repo);
+        return collected;
+    }
+
+    private void ensureRepositoryInfo(GitHubWorkflowRunDto run, String owner, String repo) {
+        if (run.getRepository() != null) {
+            return;
+        }
+        GitHubWorkflowRunDto.RepositoryInfo repoInfo = new GitHubWorkflowRunDto.RepositoryInfo();
+        repoInfo.setName(repo);
+        repoInfo.setFullName(owner + "/" + repo);
+        GitHubWorkflowRunDto.RepositoryInfo.OwnerInfo ownerInfo = new GitHubWorkflowRunDto.RepositoryInfo.OwnerInfo();
+        ownerInfo.setLogin(owner);
+        repoInfo.setOwner(ownerInfo);
+        run.setRepository(repoInfo);
+    }
+
+    private Instant parseInstant(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(value);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * Helper method to fetch all defined workflows (.yml files) in a repo.
      */
     private List<GitHubWorkflowDto> fetchWorkflowsForRepo(String owner, String repo, String decryptedPat) {
@@ -103,6 +198,11 @@ public class CicdStatusService {
                     e.getResponseBodyAsString());
             throw new GithubAuthException(
                     "GitHub rejected the stored token for " + owner + "/" + repo + " (" + e.getStatusCode() + ")", e);
+        } catch (HttpClientErrorException.NotFound e) {
+            logger.error("GitHub repository not found or not accessible: {}/{}: {} - {}", owner, repo,
+                    e.getStatusCode(), e.getResponseBodyAsString());
+            throw new GithubRepoNotFoundException(
+                    "Repository " + owner + "/" + repo + " was not found or the token cannot access it (404)", e);
         } catch (HttpClientErrorException e) {
             logger.error("HTTP error fetching workflows for {}/{}: {} - {}", owner, repo, e.getStatusCode(),
                     e.getResponseBodyAsString());

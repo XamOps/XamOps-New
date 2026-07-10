@@ -18,6 +18,7 @@ import CicdDiffSummary from '../components/CICDPipelines/CicdDiffSummary';
 import CicdNotificationSettings from '../components/CICDPipelines/CicdNotificationSettings';
 import { useCicdFailureAnalysis } from '../hooks/useCicdFailureAnalysis';
 import { useCicdNotificationConfig } from '../hooks/useCicdNotificationConfig';
+import apiClient from '../utils/apiClient';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ function stageStyle(status: string): { icon: string; iconColor: string; ring: st
 
 const CICDPipelinesPage: React.FC = () => {
   const {
-    githubRuns, isLoadingGithub, githubAuthError,
+    githubRuns, isLoadingGithub, githubAuthError, githubRepoError,
     jenkinsJobs, isLoadingJenkins,
     activeTab, setActiveTab,
     selectedWorkflow, workflowHistory, isLoadingHistory, viewWorkflowHistory, closeWorkflow,
@@ -64,6 +65,21 @@ const CICDPipelinesPage: React.FC = () => {
   const failureAnalysisHook = useCicdFailureAnalysis();
   const notificationConfig = useCicdNotificationConfig();
   const [dialogTab, setDialogTab] = useState<'overview' | 'analysis' | 'diff'>('overview');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Refresh = trigger a server-side sync so the KPI/DORA metrics (read from the DB) are
+  // rebuilt from the latest runs, then re-fetch both the live runs and the metrics.
+  const handleRefresh = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      await apiClient.post('/api/cicd/sync');
+    } catch (e) {
+      console.warn('CICD on-demand sync failed (metrics may be stale):', e);
+    } finally {
+      setIsSyncing(false);
+    }
+    await Promise.all([refreshData(), githubMetrics.refetch(), jenkinsMetrics.refetch()]);
+  }, [refreshData, githubMetrics.refetch, jenkinsMetrics.refetch]);
 
   const formatTime = useCallback((timeValue: string | number | undefined): string => {
     if (!timeValue) return 'N/A';
@@ -97,20 +113,20 @@ const CICDPipelinesPage: React.FC = () => {
         <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.65)]">CI/CD Pipelines</span>
         <span className="text-[rgba(0,0,0,0.2)]">|</span>
         <button
-          onClick={refreshData}
-          disabled={isLoadingGithub || isLoadingJenkins}
+          onClick={handleRefresh}
+          disabled={isLoadingGithub || isLoadingJenkins || isSyncing}
           className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors disabled:opacity-50"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={(isLoadingGithub || isLoadingJenkins) ? 'animate-spin' : ''}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={(isLoadingGithub || isLoadingJenkins || isSyncing) ? 'animate-spin' : ''}>
             <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
           </svg>
-          Refresh
+          {isSyncing ? 'Syncing…' : 'Refresh'}
         </button>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, isLoadingGithub, isLoadingJenkins, refreshData]);
+  }, [setActions, clearActions, isLoadingGithub, isLoadingJenkins, isSyncing, handleRefresh]);
 
   const TABS = [
     { id: 'github',  label: 'GitHub Actions', icon: 'mdi:github' },
@@ -153,6 +169,20 @@ const CICDPipelinesPage: React.FC = () => {
                     GitHub rejected the stored access token, so pipeline data can't be loaded. Generate a new
                     Personal Access Token (with <span className="font-mono">repo</span> and{' '}
                     <span className="font-mono">actions:read</span> scopes) and reconnect the repository in{' '}
+                    <span className="font-semibold">Account Management → Connected GitHub Repositories</span>.
+                  </p>
+                </div>
+              </div>
+            )}
+            {githubRepoError && (
+              <div className="mb-5 flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <Icon icon="mdi:source-repository-multiple" width={20} color="#B45309" className="mt-0.5 flex-shrink-0" />
+                <div className="text-[13px] leading-relaxed">
+                  <p className="font-bold text-amber-800">Repository not found or not accessible</p>
+                  <p className="text-amber-700 mt-0.5">
+                    GitHub returned a 404 for a connected repository. Check that the owner and name are
+                    correct (they're case-sensitive) and that your token can access it. If the repository is
+                    private, the token needs access to that org/repo. Fix or re-add the connection in{' '}
                     <span className="font-semibold">Account Management → Connected GitHub Repositories</span>.
                   </p>
                 </div>

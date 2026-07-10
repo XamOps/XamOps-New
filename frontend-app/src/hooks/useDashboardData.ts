@@ -55,6 +55,10 @@ export const useDashboardData = ({
   const pollIntervalRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
   const prevSelectedIdsRef = useRef<string[]>([]);
+  // Account selection the currently displayed data belongs to. Background
+  // refreshes for the same selection must not re-show loading skeletons —
+  // doing so unmounts open UI (e.g. the Manage KPI Cards modal) every cycle.
+  const loadedSelectionRef = useRef<string | null>(null);
 
   // Debug: Log when hook inputs change
   useEffect(() => {
@@ -81,19 +85,26 @@ export const useDashboardData = ({
       if (selectedAccountIds.length === 0) {
         console.log('⚠️ [useDashboardData] No accounts selected, clearing data');
         setDashboardData(null);
+        loadedSelectionRef.current = null;
         return;
       }
+
+      const selectionKey = [...selectedAccountIds].sort().join(',');
+      // Skeletons only when we have nothing to show for this selection
+      // (first load or account switch). Background/manual refreshes keep the
+      // current UI on screen and swap data in when it arrives.
+      const showSkeletons = loadedSelectionRef.current !== selectionKey;
 
       try {
         // Set loading states
         setLoadingState(prev => ({
           ...prev,
-          global: !isRefreshing && !forceRefresh, // Only set global loading on initial load
-          kpi: true,
-          inventory: true,
-          cost: true,
-          optimization: true,
-          map: true,
+          global: showSkeletons,
+          kpi: showSkeletons,
+          inventory: showSkeletons,
+          cost: showSkeletons,
+          optimization: showSkeletons,
+          map: showSkeletons,
         }));
         setError(null);
 
@@ -118,6 +129,7 @@ export const useDashboardData = ({
           });
 
           setDashboardData(newData);
+          loadedSelectionRef.current = selectionKey;
 
           setLoadingState({
             global: false,

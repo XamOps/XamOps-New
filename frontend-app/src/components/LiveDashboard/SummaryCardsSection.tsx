@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
-import { BarChart, Bar, Cell, PieChart, Pie, ResponsiveContainer, Tooltip } from 'recharts';
+import { Cell, PieChart, Pie, ResponsiveContainer } from 'recharts';
 import { fmtMoneyShort } from '../../utils/currency';
 
 interface SummaryCardsSectionProps {
@@ -28,42 +28,40 @@ const CardSkeleton = () => (
   </div>
 );
 
-// ── mini bar tooltip (custom to show label + value) ──────────────────────────
-const BarTooltip = ({ active, payload, valueLabel, provider }: any) => {
-  if (!active || !payload?.length) return null;
-  const item    = payload[0];
-  const name    = item?.payload?.label || '';
-  const val     = item?.value ?? 0;
-  const color   = item?.fill || '#6b7280';
+// ── compact top-N labeled bar list ────────────────────────────────────────────
+// Shows the top items by value with name + amount visible (not tooltip-only):
+//   label ................... $value
+//   ▇▇▇▇▇▇▇▇▇░░░░░░░░░░  (length ∝ value, single hue = the card accent)
+const TopList: React.FC<{
+  data: { label: string; v: number }[];
+  color: string;
+  provider?: string;
+  suffix?: string;
+}> = ({ data, color, provider, suffix }) => {
+  const rows = data.slice(0, 3);
+  const max = Math.max(...rows.map(d => d.v), 1);
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.1)] rounded-xl shadow-lg px-3 py-2 text-[11px] min-w-[130px]">
-      {name && <p className="font-semibold text-[rgba(0,0,0,0.75)] mb-1 truncate max-w-[160px]">{name}</p>}
-      <div className="flex items-center gap-1.5">
-        <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
-        <span className="font-bold text-[rgba(0,0,0,0.88)] tabular-nums">{fmt(val, provider)}</span>
-        <span className="text-[rgba(0,0,0,0.4)]">{valueLabel}</span>
-      </div>
+    <div className="h-[96px] px-4 py-2 flex flex-col justify-center gap-[7px]">
+      {rows.map((d, i) => (
+        <div key={`${d.label}-${i}`}>
+          <div className="flex items-baseline justify-between gap-2 mb-[3px]">
+            <span className="text-[10.5px] text-[rgba(0,0,0,0.55)] truncate leading-tight" title={d.label}>
+              {d.label}
+            </span>
+            <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.78)] tabular-nums whitespace-nowrap leading-tight">
+              {fmt(d.v, provider)}
+              {suffix && <span className="text-[9px] font-normal text-[rgba(0,0,0,0.35)]">{suffix}</span>}
+            </span>
+          </div>
+          <div className="h-[5px] rounded-full overflow-hidden" style={{ backgroundColor: `${color}1c` }}>
+            <div
+              className="h-full rounded-r-full"
+              style={{ width: `${Math.max((d.v / max) * 100, 4)}%`, backgroundColor: color }}
+            />
+          </div>
+        </div>
+      ))}
     </div>
-  );
-};
-
-// ── mini no-axis bar chart ────────────────────────────────────────────────────
-const MiniBar: React.FC<{ data: { v: number; label?: string }[]; color: string; valueLabel?: string; provider?: string }> = ({ data, color, valueLabel = '/mo', provider }) => {
-  const max = Math.max(...data.map(d => d.v), 1);
-  return (
-    <ResponsiveContainer width="100%" height={96}>
-      <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 0 }} barCategoryGap="25%">
-        <Bar dataKey="v" radius={[3, 3, 0, 0]} maxBarSize={20}>
-          {data.map((d, i) => (
-            <Cell key={i} fill={d.v === max ? color : `${color}55`} />
-          ))}
-        </Bar>
-        <Tooltip
-          cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-          content={<BarTooltip valueLabel={valueLabel} provider={provider} />}
-        />
-      </BarChart>
-    </ResponsiveContainer>
   );
 };
 
@@ -216,7 +214,7 @@ interface RightsizingSummary { total: number; totalSavings: number; byInstance: 
 const computeRightsizingSummary = (raw: RightsizingRec[]): RightsizingSummary => {
   const totalSavings = raw.reduce((s, r) => s + (r.estimatedMonthlySavings || 0), 0);
   const byInstance   = raw
-    .map(r => ({ label: r.instanceName || r.resourceId || '', v: r.estimatedMonthlySavings || 0 }))
+    .map(r => ({ label: r.instanceName || r.resourceId || 'Unknown instance', v: r.estimatedMonthlySavings || 0 }))
     .filter(d => d.v > 0)
     .sort((a, b) => b.v - a.v)
     .slice(0, 8);
@@ -242,7 +240,7 @@ const AlertsCard: React.FC<{ summary: AlertSummary | null; loading: boolean; pro
   return (
     <CardShell accentColor="#ef4444" icon="mdi:bell-alert-outline" title="Alerts & Anomalies" subtitle={subtitle} link="/alerts">
       {summary && summary.anomalies.length > 0
-        ? <MiniBar data={summary.anomalies} color="#ef4444" valueLabel="Unexpected Spend" provider={provider} />
+        ? <TopList data={summary.anomalies} color="#ef4444" provider={provider} />
         : summary && summary.critical > 0
           ? <ChartEmpty color="#ef4444" icon="mdi:alert-circle" line1={`${summary.critical} critical`} line2="alerts require action" />
           : <ChartEmpty color="#10b981" icon="mdi:check-circle-outline" line1="No active alerts" />}
@@ -316,7 +314,7 @@ const WasteCard: React.FC<{ summary: WasteSummary | null; loading: boolean; prov
   return (
     <CardShell accentColor="#f59e0b" icon="mdi:delete-sweep-outline" title="Waste" subtitle={subtitle} link="/waste">
       {summary && summary.byType.length > 0
-        ? <MiniBar data={summary.byType} color="#f59e0b" valueLabel="Savings/mo" provider={provider} />
+        ? <TopList data={summary.byType} color="#f59e0b" suffix="/mo" provider={provider} />
         : <ChartEmpty color="#10b981" icon="mdi:check-circle-outline" line1="No waste detected" />}
     </CardShell>
   );
@@ -343,7 +341,7 @@ const RightsizingCard: React.FC<{ summary: RightsizingSummary | null; loading: b
   return (
     <CardShell accentColor="#8b5cf6" icon="mdi:server-outline" title="Rightsizing" subtitle={subtitle} link="/rightsizing">
       {summary && summary.byInstance.length > 0
-        ? <MiniBar data={summary.byInstance} color="#8b5cf6" valueLabel="Savings/mo" provider={provider} />
+        ? <TopList data={summary.byInstance} color="#8b5cf6" suffix="/mo" provider={provider} />
         : count > 0
           ? <ChartEmpty color="#8b5cf6" icon="mdi:server" line1={`${count} instance${count !== 1 ? 's' : ''}`} line2="awaiting savings data" />
           : <ChartEmpty color="#10b981" icon="mdi:check-circle-outline" line1="All right-sized" />}

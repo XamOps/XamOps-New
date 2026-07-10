@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, ReactElement } from 'react';
 import ReactDOM from 'react-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import apiClient from '../../utils/apiClient';
 import { useAccounts } from '../../contexts/AccountContext';
@@ -609,9 +610,9 @@ db.grantRolesToUser("xamops_reader", [
               <button
                 key={i}
                 onClick={() => onConnected({ instanceId: `${d.host}:${d.port}`, source: 'agent', agentHost: `${d.host}:${d.port}`, engine: d.engine })}
-                className="w-full flex items-center gap-3 p-3 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-left"
+                className="w-full flex items-center gap-3 p-3 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg hover:border-[rgba(0,0,0,0.3)] hover:bg-[rgba(0,0,0,0.03)] transition-colors text-left"
               >
-                <Icon icon="mdi:database-outline" width={16} className="text-indigo-500" />
+                <Icon icon="mdi:database-outline" width={16} className="text-[rgba(0,0,0,0.55)]" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[rgba(0,0,0,0.88)] truncate">
                     {d.host}:{d.port}{d.dbName ? `/${d.dbName}` : ''}
@@ -712,11 +713,11 @@ db.grantRolesToUser("xamops_reader", [
       {/* Step 1: Create DB user */}
       {step === 1 && (
         <div className="space-y-3">
-          <div className="bg-purple-50 border border-purple-100 rounded-xl p-4">
-            <p className="text-xs font-semibold text-purple-800 mb-1 flex items-center gap-2">
+          <div className="bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-xl p-4">
+            <p className="text-xs font-semibold text-[rgba(0,0,0,0.75)] mb-1 flex items-center gap-2">
               <Icon icon="mdi:account-outline" width={14} /> Step 1 — Create a read-only monitoring user
             </p>
-            <p className="text-xs text-purple-600 dark:text-purple-400">
+            <p className="text-xs text-[rgba(0,0,0,0.7)] dark:text-[rgba(0,0,0,0.4)]">
               {isMongoDB ? 'Run these commands in mongosh on your MongoDB instance:' :
                 isRedisDB ? 'No user setup required — see notes below:' :
                   `Run this SQL on your ${sqlEngine === 'postgres' ? 'PostgreSQL' : 'MySQL/MariaDB'} instance:`}
@@ -912,7 +913,7 @@ db.grantRolesToUser("xamops_reader", [
             ] as const).map(e => (
               <button key={e.key}
                 onClick={() => updateDsn(idx, 'engine', e.key)}
-                className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${d.engine === e.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${d.engine === e.key ? 'bg-[rgba(0,0,0,0.85)] text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
                 {e.label}
               </button>
             ))}
@@ -957,7 +958,7 @@ db.grantRolesToUser("xamops_reader", [
             </div>
           </div>
           <div className="bg-[rgba(0,0,0,0.02)] rounded-lg px-2 py-1.5">
-            <code className="text-[11px] text-indigo-700 break-all">{buildDsn(d)}</code>
+            <code className="text-[11px] text-[#0b8f5a] break-all">{buildDsn(d)}</code>
           </div>
         </div >
       ))
@@ -1203,7 +1204,7 @@ function SqlHighlight({ sql, truncate }: { sql: string; truncate?: number }) {
   while ((m = re.exec(display)) !== null) {
     if (m.index > last)
       nodes.push(<span key={k++} className="text-slate-500">{display.slice(last, m.index)}</span>);
-    nodes.push(<span key={k++} className="text-violet-600 font-semibold">{m[0].toUpperCase()}</span>);
+    nodes.push(<span key={k++} className="text-[rgba(0,0,0,0.7)] font-semibold">{m[0].toUpperCase()}</span>);
     last = m.index + m[0].length;
   }
   if (last < display.length)
@@ -1211,11 +1212,11 @@ function SqlHighlight({ sql, truncate }: { sql: string; truncate?: number }) {
   return <code className="font-mono text-[11px] break-all leading-relaxed">{nodes}</code>;
 }
 
-// Severity level helper
+// Severity level helper — neutral pill, the dot carries the severity color
 function sqSeverity(avgMs: number) {
-  if (avgMs >= 500) return { label: 'Critical', bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200/70', dot: 'bg-red-500', left: '#ef4444' };
-  if (avgMs >= 100) return { label: 'Warning', bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200/70', dot: 'bg-amber-400', left: '#f59e0b' };
-  return { label: 'Info', bg: 'bg-sky-100', text: 'text-sky-700', border: 'border-sky-200/70', dot: 'bg-sky-400', left: '#0ea5e9' };
+  if (avgMs >= 500) return { label: 'Critical', bg: 'bg-white', text: 'text-[rgba(0,0,0,0.65)]', border: 'border-[rgba(0,0,0,0.1)]', dot: 'bg-red-500' };
+  if (avgMs >= 100) return { label: 'Warning', bg: 'bg-white', text: 'text-[rgba(0,0,0,0.65)]', border: 'border-[rgba(0,0,0,0.1)]', dot: 'bg-amber-400' };
+  return { label: 'Info', bg: 'bg-white', text: 'text-[rgba(0,0,0,0.65)]', border: 'border-[rgba(0,0,0,0.1)]', dot: 'bg-sky-400' };
 }
 
 // Normalised shape shared by both CloudWatch and agent slow-query sources
@@ -1350,8 +1351,8 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
             {/* Modal header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
               <div className="flex items-center gap-2">
-                <span className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
-                  <Icon icon="mdi:console" width={13} className="text-indigo-500" />
+                <span className="w-7 h-7 rounded-lg bg-[rgba(0,0,0,0.05)] flex items-center justify-center shrink-0">
+                  <Icon icon="mdi:console" width={13} className="text-[rgba(0,0,0,0.55)]" />
                 </span>
                 <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Explain Query</span>
               </div>
@@ -1411,16 +1412,18 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
             : allQueries.length}{' '}{allQueries.length === 1 ? 'query' : 'queries'}
         </span>
         {([
-          { key: 'critical' as const, count: critCount, dot: 'bg-red-500', on: 'bg-red-600 text-white border-red-600', off: 'bg-red-50 text-red-700 border-red-200/70 hover:bg-red-100' },
-          { key: 'warning' as const, count: warnCount, dot: 'bg-amber-400', on: 'bg-amber-500 text-white border-amber-500', off: 'bg-amber-50 text-amber-700 border-amber-200/70 hover:bg-amber-100' },
-          { key: 'info' as const, count: infoCount, dot: 'bg-sky-400', on: 'bg-sky-500 text-white border-sky-500', off: 'bg-sky-50 text-sky-700 border-sky-200/70 hover:bg-sky-100' },
+          { key: 'critical' as const, count: critCount, dot: 'bg-red-500' },
+          { key: 'warning' as const, count: warnCount, dot: 'bg-amber-400' },
+          { key: 'info' as const, count: infoCount, dot: 'bg-sky-400' },
         ].filter(b => b.count > 0).map(b => (
           <button
             key={b.key}
             onClick={() => setSevFilter(s => (s === b.key ? 'all' : b.key))}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all duration-200 ${sevFilter === b.key ? b.on : b.off}`}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${sevFilter === b.key
+              ? 'border-black bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.88)]'
+              : 'bg-white border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.65)] hover:border-[rgba(0,0,0,0.3)]'}`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${sevFilter === b.key ? 'bg-white' : b.dot}`} />
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${b.dot}`} />
             {b.count} {b.key.charAt(0).toUpperCase() + b.key.slice(1)}
           </button>
         )))}
@@ -1433,13 +1436,13 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
 
       {/* ── Dismissible performance_schema callout ── */}
       {isAgent && !dismissCallout && (
-        <div className="flex items-start gap-3 px-3.5 py-3 rounded-xl bg-indigo-50 border border-indigo-200">
-          <div className="shrink-0 w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center mt-0.5">
-            <Icon icon="mdi:database-outline" width={13} className="text-indigo-500" />
+        <div className="flex items-start gap-3 px-3.5 py-3 rounded-xl bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.1)]">
+          <div className="shrink-0 w-7 h-7 rounded-lg bg-[rgba(0,0,0,0.05)] flex items-center justify-center mt-0.5">
+            <Icon icon="mdi:database-outline" width={13} className="text-[rgba(0,0,0,0.55)]" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold text-indigo-700 mb-0.5">Aggregated query statistics</p>
-            <p className="text-[11px] text-indigo-600 leading-relaxed">
+            <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.8)] mb-0.5">Aggregated query statistics</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.55)] leading-relaxed">
               Showing queries with avg execution &gt;10ms from{' '}
               <strong>{isPostgres ? 'pg_stat_statements' : 'performance_schema'}</strong>.{' '}
               Counters accumulate since last restart — not a real-time window. For per-query timestamps enable slow query log on RDS and publish to CloudWatch Logs.
@@ -1447,7 +1450,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
           </div>
           <button
             onClick={() => setDismissCallout(true)}
-            className="shrink-0 text-indigo-400 hover:text-indigo-600 mt-0.5 w-5 h-5 flex items-center justify-center"
+            className="shrink-0 text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)] mt-0.5 w-5 h-5 flex items-center justify-center"
           >
             <Icon icon="mdi:close" width={14} />
           </button>
@@ -1462,7 +1465,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
           <input
             type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Filter queries…"
-            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
+            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-md bg-white border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.25)]"
           />
         </div>
         {/* Min avg ms threshold */}
@@ -1471,7 +1474,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
           <input
             type="number" value={minAvgMs} onChange={e => setMinAvgMs(e.target.value)}
             placeholder="≥ ms"
-            className="w-20 pl-7 pr-2 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
+            className="w-20 pl-7 pr-2 py-1.5 text-xs rounded-md bg-white border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.25)]"
           />
         </div>
         {/* Sort pill group */}
@@ -1505,8 +1508,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
             return (
               <div
                 key={gi}
-                className="rounded-xl bg-white border border-[rgba(0,0,0,0.12)] shadow-sm transition-shadow duration-200 overflow-hidden"
-                style={{ borderLeft: `3px solid ${sev.left}` }}
+                className="rounded-xl bg-white border border-[rgba(0,0,0,0.08)] overflow-hidden"
               >
                 <div className="px-3.5 pt-3 pb-3">
 
@@ -1548,7 +1550,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
                     {/* Explain */}
                     <button
                       onClick={() => setExplainQuery(q.query)}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border bg-indigo-50 text-indigo-600 border-indigo-200/60 hover:bg-indigo-100 transition-colors"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border bg-[rgba(0,0,0,0.03)] text-[#0b8f5a] border-[rgba(0,0,0,0.1)] hover:bg-[rgba(0,0,0,0.05)] transition-colors"
                     >
                       <Icon icon="mdi:console" width={11} className="inline" /> Explain
                     </button>
@@ -1564,7 +1566,7 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
                           n.has(gi) ? n.delete(gi) : n.add(gi);
                           return n;
                         })}
-                        className="mt-1.5 flex items-center gap-1 text-[10px] text-indigo-500 hover:text-indigo-600 font-medium transition-colors"
+                        className="mt-1.5 flex items-center gap-1 text-[10px] text-[rgba(0,0,0,0.55)] hover:text-[#0b8f5a] font-medium transition-colors"
                       >
                         <Icon icon={isExpanded ? 'mdi:chevron-up' : 'mdi:chevron-down'} width={12} className="inline" />
                         {isExpanded ? 'Collapse' : 'Show full query'}
@@ -1572,21 +1574,22 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
                     )}
                   </div>
 
-                  {/* Stats grid: Avg | Max | Calls | Lock | Examined | Rows Sent */}
-                  <div className="grid grid-cols-6 gap-1.5">
+                  {/* Stats row: Avg | Max | Calls | Lock | Examined | Rows Sent —
+                      plain columns with hairline dividers; color only on thresholds */}
+                  <div className="grid grid-cols-6 divide-x divide-[rgba(0,0,0,0.05)] rounded-lg border border-[rgba(0,0,0,0.06)] py-1.5">
                     {[
-                      { label: 'Avg', tip: 'Average execution time across all recorded calls of this query pattern.', val: `${Math.round(q.avgMs)}ms`, color: q.avgMs >= 500 ? 'text-red-600' : q.avgMs >= 100 ? 'text-amber-600' : 'text-emerald-600' },
-                      { label: 'Max', tip: 'Slowest single execution of this query pattern — worst-case latency seen.', val: `${Math.round(q.maxMs)}ms`, color: q.maxMs >= 1000 ? 'text-red-600' : q.maxMs >= 500 ? 'text-orange-600' : 'text-[rgba(0,0,0,0.7)]' },
-                      { label: 'Calls', tip: 'Total number of times this query pattern was executed.', val: q.calls != null ? q.calls.toLocaleString() : '—', color: 'text-[rgba(0,0,0,0.88)]' },
-                      { label: 'Lock', tip: 'Time spent waiting to acquire a database lock. High lock wait often means contention with concurrent writes or long transactions.', val: q.lockMs > 0 ? `${Math.round(q.lockMs)}ms` : '—', color: q.lockMs > 100 ? 'text-red-500' : q.lockMs > 10 ? 'text-orange-500' : 'text-[rgba(0,0,0,0.5)]' },
-                      { label: 'Examined', tip: 'Rows scanned by the DB engine to produce the result. A much higher value than Rows Sent indicates an inefficient query or missing index.', val: q.rowsExamined.toLocaleString(), color: 'text-[rgba(0,0,0,0.7)]' },
-                      { label: 'Rows Sent', tip: 'Rows actually returned to the client. Compare with Examined — a large gap means the DB is doing unnecessary work.', val: q.rowsSent.toLocaleString(), color: 'text-[rgba(0,0,0,0.88)]' },
+                      { label: 'Avg', tip: 'Average execution time across all recorded calls of this query pattern.', val: `${Math.round(q.avgMs)}ms`, color: q.avgMs >= 500 ? 'text-red-600' : q.avgMs >= 100 ? 'text-amber-600' : 'text-[rgba(0,0,0,0.75)]' },
+                      { label: 'Max', tip: 'Slowest single execution of this query pattern — worst-case latency seen.', val: `${Math.round(q.maxMs)}ms`, color: q.maxMs >= 1000 ? 'text-red-600' : q.maxMs >= 500 ? 'text-amber-600' : 'text-[rgba(0,0,0,0.75)]' },
+                      { label: 'Calls', tip: 'Total number of times this query pattern was executed.', val: q.calls != null ? q.calls.toLocaleString() : '—', color: 'text-[rgba(0,0,0,0.75)]' },
+                      { label: 'Lock', tip: 'Time spent waiting to acquire a database lock. High lock wait often means contention with concurrent writes or long transactions.', val: q.lockMs > 0 ? `${Math.round(q.lockMs)}ms` : '—', color: q.lockMs > 100 ? 'text-red-500' : q.lockMs > 10 ? 'text-amber-600' : 'text-[rgba(0,0,0,0.5)]' },
+                      { label: 'Examined', tip: 'Rows scanned by the DB engine to produce the result. A much higher value than Rows Sent indicates an inefficient query or missing index.', val: q.rowsExamined.toLocaleString(), color: 'text-[rgba(0,0,0,0.75)]' },
+                      { label: 'Rows Sent', tip: 'Rows actually returned to the client. Compare with Examined — a large gap means the DB is doing unnecessary work.', val: q.rowsSent.toLocaleString(), color: 'text-[rgba(0,0,0,0.75)]' },
                     ].map(stat => (
-                      <div key={stat.label} className="bg-[rgba(0,0,0,0.02)] rounded-lg py-1.5 px-1 text-center">
+                      <div key={stat.label} className="px-1 text-center">
                         <Tip text={stat.tip} wide>
-                          <div className="text-[9px] text-[rgba(0,0,0,0.4)] mb-0.5 leading-none">{stat.label}</div>
+                          <div className="text-[9px] uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-0.5 leading-none">{stat.label}</div>
                         </Tip>
-                        <div className={`text-[11px] font-semibold leading-tight ${stat.color}`}>{stat.val}</div>
+                        <div className={`text-[11px] font-semibold leading-tight tabular-nums ${stat.color}`}>{stat.val}</div>
                       </div>
                     ))}
                   </div>
@@ -1600,9 +1603,9 @@ function SlowQueriesTab({ cloudwatchQueries, agentQueries, isPostgres }: {
                       <span className={`font-semibold shrink-0 ${q.cacheHitPct >= 90 ? 'text-emerald-600' : q.cacheHitPct >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
                         {q.cacheHitPct}%
                       </span>
-                      <div className="flex-1 h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
+                      <div className="flex-1 h-1 bg-[rgba(0,0,0,0.05)] rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all duration-500 ${q.cacheHitPct >= 90 ? 'bg-emerald-500' : q.cacheHitPct >= 50 ? 'bg-amber-400' : 'bg-red-500'}`}
+                          className={`h-full rounded-full transition-all duration-500 ${q.cacheHitPct >= 90 ? 'bg-[#1BE68B]' : q.cacheHitPct >= 50 ? 'bg-amber-400' : 'bg-red-500'}`}
                           style={{ width: `${q.cacheHitPct}%` }}
                         />
                       </div>
@@ -1753,8 +1756,8 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
     if (endpoint) {
       return (
         <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center">
-            <i className="fas fa-chart-bar text-indigo-400 text-lg" />
+          <div className="w-12 h-12 rounded-2xl bg-[rgba(0,0,0,0.03)] dark:bg-indigo-900/20 flex items-center justify-center">
+            <i className="fas fa-chart-bar text-[rgba(0,0,0,0.4)] text-lg" />
           </div>
           <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">No agent query stats yet</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs">
@@ -1788,7 +1791,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
       {/* ── Summary KPI strip ── */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
-          { icon: 'mdi:layers-outline', label: 'Total Calls', val: totalCalls.toLocaleString(), sub: `${stats.length} digests`, color: 'text-indigo-600', tip: 'Sum of all query executions across every pattern since stats were last reset.' },
+          { icon: 'mdi:layers-outline', label: 'Total Calls', val: totalCalls.toLocaleString(), sub: `${stats.length} digests`, color: 'text-[#0b8f5a]', tip: 'Sum of all query executions across every pattern since stats were last reset.' },
           { icon: 'mdi:speedometer', label: 'Avg Latency', val: `${round2(overallAvgMs)}ms`, sub: 'mean across all queries', color: overallAvgMs >= 500 ? 'text-red-600' : overallAvgMs >= 100 ? 'text-amber-600' : 'text-emerald-600', tip: 'Weighted average execution time across all query patterns. Red ≥ 500 ms, amber ≥ 100 ms.' },
           { icon: 'mdi:trending-up', label: 'Peak Latency', val: `${round2(overallMaxMs)}ms`, sub: 'single-query maximum', color: overallMaxMs >= 1000 ? 'text-red-600' : overallMaxMs >= 500 ? 'text-orange-600' : 'text-[rgba(0,0,0,0.88)]', tip: 'Slowest single query execution recorded across all patterns — the absolute worst-case latency.' },
           { icon: 'mdi:alert-outline', label: 'No Index', val: noIndexCount.toString(), sub: `${round2(totalTimeS)}s total exec`, color: noIndexCount > 0 ? 'text-red-600' : 'text-emerald-600', tip: 'Number of query patterns running full table scans with no index. The sub-value shows total CPU time wasted on these scans.' },
@@ -1839,7 +1842,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
           <input
             type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Filter queries…"
-            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
+            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-md bg-white border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.25)]"
           />
         </div>
 
@@ -1933,7 +1936,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
                             n.has(gi) ? n.delete(gi) : n.add(gi);
                             return n;
                           })}
-                          className="shrink-0 w-4 h-4 flex items-center justify-center rounded text-[rgba(0,0,0,0.4)] hover:text-indigo-500 transition-colors"
+                          className="shrink-0 w-4 h-4 flex items-center justify-center rounded text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.55)] transition-colors"
                         >
                           <Icon icon={isExp ? 'mdi:chevron-down' : 'mdi:chevron-right'} width={12} className="inline" />
                         </button>
@@ -2000,7 +2003,7 @@ function QueryStatsTab({ stats, engine, instanceId, endpoint, onExplain }: {
                     <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                       <button
                         onClick={() => onExplain?.(s)}
-                        className="px-2 py-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors whitespace-nowrap"
+                        className="px-2 py-1 text-[10px] font-semibold text-[#0b8f5a] dark:text-[rgba(0,0,0,0.4)] border border-[rgba(0,0,0,0.1)] dark:border-indigo-800 rounded-lg hover:bg-[rgba(0,0,0,0.03)] dark:hover:bg-indigo-900/20 transition-colors whitespace-nowrap"
                       >
                         <i className="fas fa-magnifying-glass-chart mr-1 text-[9px]" /> Explain
                       </button>
@@ -2479,9 +2482,9 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
                       <div className="flex items-start gap-1.5">
                         {idx.isUnused
                           ? <Icon icon="mdi:alert-outline" width={12} className="text-red-500 mt-0.5 shrink-0" />
-                          : <Icon icon="mdi:sitemap-outline" width={12} className="text-indigo-400 mt-0.5 shrink-0" />}
+                          : <Icon icon="mdi:sitemap-outline" width={12} className="text-[rgba(0,0,0,0.4)] mt-0.5 shrink-0" />}
                         <div className="min-w-0">
-                          <code className={`break-all text-xs font-medium ${idx.isUnused ? 'text-red-700' : 'text-indigo-700'}`}>
+                          <code className={`break-all text-xs font-medium ${idx.isUnused ? 'text-red-700' : 'text-[#0b8f5a]'}`}>
                             {idx.indexName}
                           </code>
                           <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5 font-mono">
@@ -2541,7 +2544,7 @@ function MaintenanceTab({ vacuumStats, indexUsage, tableActivity, agentHost, rds
                     <tr key={i} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                       <td className="px-3 py-2.5">
                         <div className="min-w-0">
-                          <code className="text-xs font-medium text-indigo-700">
+                          <code className="text-xs font-medium text-[#0b8f5a]">
                             {t.tableName}
                           </code>
                           <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5 font-mono">
@@ -2704,9 +2707,9 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
         {/* What snapshots capture */}
         <div className="grid grid-cols-2 gap-2.5">
           {[
-            { icon: 'mdi:database-outline', color: 'text-indigo-500', bg: 'bg-indigo-50', title: 'Full DB state', desc: 'All tables, indexes, stored procedures, and data at the moment of capture.' },
+            { icon: 'mdi:database-outline', color: 'text-[rgba(0,0,0,0.55)]', bg: 'bg-[rgba(0,0,0,0.03)]', title: 'Full DB state', desc: 'All tables, indexes, stored procedures, and data at the moment of capture.' },
             { icon: 'mdi:history', color: 'text-sky-500', bg: 'bg-sky-50', title: 'Point-in-time restore', desc: 'Restore to any second within your retention window (5 min granularity).' },
-            { icon: 'mdi:content-copy', color: 'text-violet-500', bg: 'bg-violet-50', title: 'Cross-region copy', desc: cloudProvider === 'gcp' ? 'Copy a snapshot to another region for DR. Share with another GCP project.' : 'Copy a snapshot to another region for DR. Share with another AWS account.' },
+            { icon: 'mdi:content-copy', color: 'text-[rgba(0,0,0,0.45)]', bg: 'bg-[rgba(0,0,0,0.03)]', title: 'Cross-region copy', desc: cloudProvider === 'gcp' ? 'Copy a snapshot to another region for DR. Share with another GCP project.' : 'Copy a snapshot to another region for DR. Share with another AWS account.' },
             { icon: 'mdi:shield-half-full', color: 'text-emerald-500', bg: 'bg-emerald-50', title: 'Encrypted by default', desc: 'Snapshots inherit the instance encryption key. Cannot be disabled after creation.' },
           ].map(c => (
             <div key={c.title} className={`flex items-start gap-2.5 p-3 rounded-xl border border-[rgba(0,0,0,0.06)] ${c.bg}`}>
@@ -2769,7 +2772,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
       {/* ── KPI strip ── */}
       <div className="grid grid-cols-4 gap-2">
         {[
-          { icon: 'mdi:camera-outline', label: 'Snapshots', value: snapshots.length.toString(), color: 'text-violet-600', tip: 'Total number of DB snapshots for this instance (automated + manual).' },
+          { icon: 'mdi:camera-outline', label: 'Snapshots', value: snapshots.length.toString(), color: 'text-[rgba(0,0,0,0.7)]', tip: 'Total number of DB snapshots for this instance (automated + manual).' },
           { icon: 'mdi:harddisk', label: 'Total Size', value: `${round2(totalSizeGb)} GB`, color: 'text-sky-600', tip: 'Combined storage used by all snapshots. AWS charges ~$0.095/GB/month for snapshot storage.' },
           { icon: 'mdi:currency-usd', label: 'Cost / mo', value: fmt$(totalCost), color: 'text-amber-600', tip: 'Estimated monthly cost for all snapshot storage. Delete old manual snapshots to reduce this.' },
           { icon: 'mdi:clock-outline', label: 'Oldest', value: `${oldestDays}d`, color: oldestDays > 90 ? 'text-red-600' : 'text-[rgba(0,0,0,0.7)]', tip: 'Age of the oldest snapshot in days. Snapshots older than 90 days are likely no longer needed.' },
@@ -2788,10 +2791,10 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
 
       {/* ── Compare mode panel ── */}
       {compareMode && selected.size === 2 && snapA && snapB && (
-        <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 space-y-3">
+        <div className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.03)] p-4 space-y-3">
           <div className="flex items-center gap-2 mb-1">
             <Icon icon="mdi:compare" width={14} color="#8b5cf6" className="inline" />
-            <span className="text-[11px] font-bold text-violet-700 uppercase tracking-wider">Snapshot Comparison</span>
+            <span className="text-[11px] font-bold text-[rgba(0,0,0,0.7)] uppercase tracking-wider">Snapshot Comparison</span>
             <button onClick={() => { setSelected(new Set()); }} className="ml-auto text-[9px] text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)] transition-colors">
               <Icon icon="mdi:close" width={12} className="inline mr-1" />Clear
             </button>
@@ -2802,7 +2805,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
               return (
                 <div key={snap.snapshotId} className="bg-white rounded-lg p-3 border border-[rgba(0,0,0,0.08)]">
                   <p className="text-[9px] font-bold text-[rgba(0,0,0,0.4)] uppercase tracking-widest mb-1.5">{label}</p>
-                  <p className="font-mono text-[10px] text-indigo-700 truncate mb-2">{snap.snapshotId}</p>
+                  <p className="font-mono text-[10px] text-[#0b8f5a] truncate mb-2">{snap.snapshotId}</p>
                   <div className="space-y-1 text-[11px]">
                     <div className="flex justify-between"><span className="text-[rgba(0,0,0,0.4)]">Age</span><span className={`font-semibold ${t.cls}`}>{snap.ageDays}d</span></div>
                     <div className="flex justify-between"><span className="text-[rgba(0,0,0,0.4)]">Size</span><span className="font-semibold text-[rgba(0,0,0,0.88)]">{snap.sizeGb} GB</span></div>
@@ -2834,13 +2837,13 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
               ));
             })()}
           </div>
-          <p className="text-[9px] text-violet-400 text-center">
+          <p className="text-[9px] text-[rgba(0,0,0,0.4)] text-center">
             A is {snapA.ageDays > snapB.ageDays ? 'older' : snapA.ageDays < snapB.ageDays ? 'newer' : 'same age'} and {snapA.sizeGb > snapB.sizeGb ? 'larger' : snapA.sizeGb < snapB.sizeGb ? 'smaller' : 'same size'} than B
           </p>
         </div>
       )}
       {compareMode && selected.size === 1 && (
-        <div className="text-center py-2 text-[11px] text-violet-500 flex items-center justify-center gap-1.5">
+        <div className="text-center py-2 text-[11px] text-[rgba(0,0,0,0.45)] flex items-center justify-center gap-1.5">
           <Icon icon="mdi:circle-medium" width={12} className="animate-pulse inline" /> Select one more snapshot to compare
         </div>
       )}
@@ -2852,7 +2855,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
           onClick={() => copyCmd(takeSnapshotCmd, 'take-main')}
           className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border transition-all duration-200 ${copied === 'take-main'
             ? 'bg-emerald-100 text-emerald-700 border-emerald-300/60'
-            : 'bg-indigo-50 text-indigo-600 border-indigo-200/60 hover:bg-indigo-100'
+            : 'bg-[rgba(0,0,0,0.03)] text-[#0b8f5a] border-[rgba(0,0,0,0.1)] hover:bg-[rgba(0,0,0,0.05)]'
             }`}
         >
           {copied === 'take-main' ? <Icon icon="mdi:check" width={11} /> : <Icon icon="mdi:camera-outline" width={11} />}
@@ -2863,8 +2866,8 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
         <button
           onClick={() => { setCompareMode(v => !v); setSelected(new Set()); }}
           className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border transition-all duration-200 ${compareMode
-            ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
-            : 'text-violet-600 border-violet-200/60 hover:bg-violet-50'
+            ? 'bg-[rgba(0,0,0,0.85)] text-white border-[rgba(0,0,0,0.85)] shadow-sm'
+            : 'text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.1)] hover:bg-[rgba(0,0,0,0.03)]'
             }`}
         >
           <Icon icon="mdi:compare" width={11} />
@@ -2904,7 +2907,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
           return (
             <div
               key={s.snapshotId}
-              className={`relative rounded-xl border-l-2 border border-[rgba(0,0,0,0.08)] ${t.border} transition-all duration-200 ${isSel ? 'ring-2 ring-violet-400/40 bg-violet-50/30' : 'bg-white hover:bg-[rgba(0,0,0,0.025)]'}`}
+              className={`relative rounded-xl border-l-2 border border-[rgba(0,0,0,0.08)] ${t.border} transition-all duration-200 ${isSel ? 'ring-2 ring-[rgba(0,0,0,0.15)] bg-[rgba(0,0,0,0.02)]' : 'bg-white hover:bg-[rgba(0,0,0,0.025)]'}`}
             >
               <div className="flex items-center gap-3 px-3.5 py-3">
                 {/* Compare checkbox */}
@@ -2912,7 +2915,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                   <button
                     onClick={() => toggleSelect(s.snapshotId)}
                     disabled={!isSel && selected.size >= 2}
-                    className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${isSel ? 'bg-violet-600 border-violet-600' : 'border-gray-300 hover:border-violet-400 disabled:opacity-30'}`}
+                    className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${isSel ? 'bg-[rgba(0,0,0,0.85)] border-[rgba(0,0,0,0.85)]' : 'border-gray-300 hover:border-[rgba(0,0,0,0.3)] disabled:opacity-30'}`}
                   >
                     {isSel && <Icon icon="mdi:check" width={11} className="text-white" />}
                   </button>
@@ -2928,9 +2931,9 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                 {/* Snapshot ID */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <code className="text-[11px] font-medium text-indigo-700 truncate">{s.snapshotId}</code>
+                    <code className="text-[11px] font-medium text-[#0b8f5a] truncate">{s.snapshotId}</code>
                     <Tip text={auto ? 'Automatically created by RDS automated backup or AWS Backup. Cannot be manually deleted while retention policy is active.' : 'Manually created snapshot. You have full control — safe to delete when no longer needed.'} wide>
-                      <span className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border ${auto ? 'bg-sky-50 text-sky-600 border-sky-200/50' : 'bg-violet-50 text-violet-600 border-violet-200/50'}`}>
+                      <span className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border ${auto ? 'bg-sky-50 text-sky-600 border-sky-200/50' : 'bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.1)]'}`}>
                         {auto ? <Icon icon="mdi:robot-outline" width={11} className="inline" /> : <Icon icon="mdi:hand-wave-outline" width={11} className="inline" />}
                         {auto ? 'Auto' : 'Manual'}
                       </span>
@@ -2965,7 +2968,7 @@ function SnapshotsTab({ snapshots, rd, instanceId, cloudProvider = 'aws' }: {
                   <Tip text="Estimated monthly cost to store this snapshot (size × $0.095/GB). Delete old unneeded snapshots to save on storage costs.">
                     <div className="text-[9px] text-[rgba(0,0,0,0.4)] mb-0.5">Cost/mo</div>
                   </Tip>
-                  <span className="text-xs font-semibold text-violet-600 tabular-nums">{fmt$(s.estimatedMonthlyCost)}</span>
+                  <span className="text-xs font-semibold text-[rgba(0,0,0,0.7)] tabular-nums">{fmt$(s.estimatedMonthlyCost)}</span>
                 </div>
 
                 {/* Actions */}
@@ -3072,8 +3075,8 @@ const SECURITY_CATALOGUE_AWS = [
   {
     category: 'Encryption',
     icon: 'mdi:lock-outline',
-    color: 'text-violet-500',
-    bg: 'bg-violet-50',
+    color: 'text-[rgba(0,0,0,0.45)]',
+    bg: 'bg-[rgba(0,0,0,0.03)]',
     checks: [
       { name: 'Encryption at Rest', desc: 'Storage encrypted with AWS KMS.' },
       { name: 'SSL/TLS in Transit', desc: 'Connections require SSL/TLS.' },
@@ -3119,8 +3122,8 @@ const SECURITY_CATALOGUE_GCP = [
   {
     category: 'Encryption',
     icon: 'mdi:lock-outline',
-    color: 'text-violet-500',
-    bg: 'bg-violet-50',
+    color: 'text-[rgba(0,0,0,0.45)]',
+    bg: 'bg-[rgba(0,0,0,0.03)]',
     checks: [
       { name: 'Encryption at Rest', desc: 'Storage encrypted with Google-managed keys (CMEK optional).' },
       { name: 'SSL/TLS in Transit', desc: 'Connections require SSL/TLS.' },
@@ -3212,7 +3215,7 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
 
         {/* Illustrated empty state */}
         <div className="relative overflow-hidden rounded-xl border border-dashed border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] p-6">
-          <div className="absolute -top-8 -right-8 w-36 h-36 rounded-full bg-indigo-100/40 pointer-events-none" />
+          <div className="absolute -top-8 -right-8 w-36 h-36 rounded-full bg-[rgba(0,0,0,0.05)]/40 pointer-events-none" />
           <div className="flex items-start gap-5">
             {/* Illustrated shield */}
             <div className="shrink-0 relative">
@@ -3292,8 +3295,8 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
     <div className="space-y-4">
 
       {/* ── Security posture header ── */}
-      <div className="relative overflow-hidden rounded-xl border border-indigo-200 bg-indigo-50 p-4 shadow-sm">
-        <div className="absolute -top-6 -right-6 w-28 h-28 rounded-full bg-indigo-300/10 blur-2xl pointer-events-none" />
+      <div className="relative overflow-hidden rounded-xl border border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.03)] p-4 shadow-sm">
+        <div className="absolute -top-6 -right-6 w-28 h-28 rounded-full bg-transparent blur-2xl pointer-events-none" />
         <div className="flex items-center gap-4">
           {/* Circular score */}
           {score !== null && (
@@ -3378,7 +3381,7 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
           const remediation = getRemediation(c.checkName);
 
           const statusCfg =
-            c.status === 'FAIL' ? { icon: 'mdi:close-circle-outline', iconCls: 'text-red-500', rowCls: 'border-red-200 bg-red-50', badge: 'bg-red-100 text-red-700 border-red-200', glow: 'shadow-[0_0_6px_#ef444430]' }
+            c.status === 'FAIL' ? { icon: 'mdi:close-circle-outline', iconCls: 'text-red-500', rowCls: 'border-red-200 bg-red-50', badge: 'bg-red-100 text-red-700 border-red-200', glow: 'shadow-none' }
               : c.status === 'WARN' ? { icon: 'mdi:alert-outline', iconCls: 'text-amber-500', rowCls: 'border-amber-200 bg-amber-50', badge: 'bg-amber-100 text-amber-700 border-amber-200', glow: '' }
                 : { icon: 'mdi:check-circle-outline', iconCls: 'text-emerald-500', rowCls: 'border-[rgba(0,0,0,0.08)] bg-white', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', glow: '' };
 
@@ -3436,11 +3439,11 @@ function SecurityTab({ checks, instanceSource, cloudProvider = 'aws' }: {
 
                   {/* Remediation steps */}
                   {remediation && c.status !== 'PASS' && (
-                    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-indigo-50 border border-indigo-200/50">
-                      <Icon icon="mdi:tools" width={13} className="text-indigo-500 mt-0.5 shrink-0" />
+                    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.1)]/50">
+                      <Icon icon="mdi:tools" width={13} className="text-[rgba(0,0,0,0.55)] mt-0.5 shrink-0" />
                       <div>
-                        <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-wider mb-1">Remediation</p>
-                        <p className="text-[11px] text-indigo-700 leading-snug">{remediation}</p>
+                        <p className="text-[9px] font-bold text-[rgba(0,0,0,0.55)] uppercase tracking-wider mb-1">Remediation</p>
+                        <p className="text-[11px] text-[#0b8f5a] leading-snug">{remediation}</p>
                       </div>
                     </div>
                   )}
@@ -3522,13 +3525,13 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
   const rsSavings = instanceRightsizing?.estimatedSavings ?? 0;
   const totalSavings = idleSavings + rsSavings;
 
-  // Cost breakdown bar colours
+  // Cost breakdown bar colours — flat categorical palette, one hue per series
   const barGradients = [
-    'from-indigo-500 to-violet-500',
-    'from-sky-500 to-cyan-400',
-    'from-emerald-500 to-teal-400',
-    'from-amber-500 to-orange-400',
-    'from-pink-500 to-rose-400',
+    'bg-violet-500',
+    'bg-sky-500',
+    'bg-emerald-500',
+    'bg-amber-500',
+    'bg-pink-500',
   ];
 
   return (
@@ -3536,31 +3539,31 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
 
       {/* ── Cost Intelligence Hero ── */}
       {(hasRealCost || hasEc2Cost) ? (
-        <div className="relative overflow-hidden rounded-xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm">
+        <div className="relative overflow-hidden rounded-xl border border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.03)] p-5 shadow-sm">
           {/* Decorative glow */}
-          <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full bg-indigo-400/10 pointer-events-none" />
+          <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full bg-transparent pointer-events-none" />
 
           <div className="flex items-start justify-between gap-4 mb-4">
             <div>
-              <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-widest mb-1">
+              <p className="text-[10px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-widest mb-1">
                 {hasRealCost ? 'RDS · Estimated Cost' : 'EC2 · Estimated Cost'}
               </p>
               <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-black text-indigo-700 tabular-nums">
+                <span className="text-3xl font-black text-[#0b8f5a] tabular-nums">
                   {fmt$(monthlyCost)}
                 </span>
-                <span className="text-sm text-indigo-400 font-medium">/mo</span>
+                <span className="text-sm text-[rgba(0,0,0,0.4)] font-medium">/mo</span>
               </div>
               <div className="flex items-center gap-3 mt-1.5">
-                <span className="text-[11px] text-indigo-500 tabular-nums">
+                <span className="text-[11px] text-[rgba(0,0,0,0.55)] tabular-nums">
                   {fmt$(hourlyCost)}/hr
                 </span>
-                <span className="w-1 h-1 rounded-full bg-indigo-300" />
-                <span className="text-[11px] text-indigo-500 tabular-nums">
+                <span className="w-1 h-1 rounded-full bg-[rgba(0,0,0,0.25)]" />
+                <span className="text-[11px] text-[rgba(0,0,0,0.55)] tabular-nums">
                   {fmt$(dailyCost)}/day
                 </span>
-                <span className="w-1 h-1 rounded-full bg-indigo-300" />
-                <span className="text-[11px] text-indigo-500 tabular-nums">
+                <span className="w-1 h-1 rounded-full bg-[rgba(0,0,0,0.25)]" />
+                <span className="text-[11px] text-[rgba(0,0,0,0.55)] tabular-nums">
                   {fmt$(monthlyCost * 12)}/yr
                 </span>
               </div>
@@ -3595,14 +3598,14 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
               { label: 'Monthly', val: monthlyCost, max: monthlyCost, pct: 100 },
             ].map(r => (
               <div key={r.label} className="flex items-center gap-2">
-                <span className="text-[10px] text-indigo-400 w-12 shrink-0">{r.label}</span>
-                <div className="flex-1 h-1.5 bg-indigo-100 rounded-full overflow-hidden">
+                <span className="text-[10px] text-[rgba(0,0,0,0.4)] w-12 shrink-0">{r.label}</span>
+                <div className="flex-1 h-1.5 bg-[rgba(0,0,0,0.05)] rounded-full overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-sky-400 transition-all duration-700"
+                    className="h-full rounded-full bg-[#1BE68B] transition-all duration-700"
                     style={{ width: `${r.pct}%` }}
                   />
                 </div>
-                <span className="text-[11px] font-semibold text-indigo-700 tabular-nums w-16 text-right shrink-0">{fmt$(r.val)}</span>
+                <span className="text-[11px] font-semibold text-[#0b8f5a] tabular-nums w-16 text-right shrink-0">{fmt$(r.val)}</span>
               </div>
             ))}
           </div>
@@ -3638,7 +3641,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
               { icon: 'mdi:tag-outline', label: 'Tag your resources', desc: 'Add aws:cost-center tags to your instances so XamOps can attribute costs per service.' },
             ]).map(c => (
               <div key={c.label} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white border border-[rgba(0,0,0,0.06)]">
-                <Icon icon={c.icon} width={14} className="text-indigo-400 mt-0.5 shrink-0" />
+                <Icon icon={c.icon} width={14} className="text-[rgba(0,0,0,0.4)] mt-0.5 shrink-0" />
                 <div>
                   <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.7)]">{c.label}</p>
                   <p className="text-[10px] text-[rgba(0,0,0,0.4)] mt-0.5 leading-snug">{c.desc}</p>
@@ -3665,15 +3668,15 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
 
           {/* RI card */}
           {hasRealCost && monthlyCost > 0 && (
-            <div className="relative overflow-hidden rounded-xl border border-violet-200 bg-violet-50 p-4 shadow-sm">
-              <div className="absolute -bottom-4 -right-4 w-20 h-20 rounded-full bg-violet-400/8 blur-xl pointer-events-none" />
+            <div className="relative overflow-hidden rounded-xl border border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.03)] p-4 shadow-sm">
+              <div className="absolute -bottom-4 -right-4 w-20 h-20 rounded-full bg-transparent blur-xl pointer-events-none" />
               <div className="flex items-start gap-3 mb-3">
-                <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
-                  <Icon icon="mdi:calendar-check-outline" width={16} className="text-violet-500" />
+                <div className="w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.05)] flex items-center justify-center shrink-0">
+                  <Icon icon="mdi:calendar-check-outline" width={16} className="text-[rgba(0,0,0,0.45)]" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs font-semibold text-violet-800">Reserved Instance</p>
-                  <p className="text-[10px] text-violet-500 mt-0.5">Pre-commit for 1 or 3 years and save up to 45%</p>
+                  <p className="text-xs font-semibold text-[rgba(0,0,0,0.75)]">Reserved Instance</p>
+                  <p className="text-[10px] text-[rgba(0,0,0,0.45)] mt-0.5">Pre-commit for 1 or 3 years and save up to 45%</p>
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-base font-black text-emerald-600 tabular-nums">{fmt$(riSavings)}/mo</div>
@@ -3689,8 +3692,8 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                   <Tip key={y} text={y === 1 ? '1-year Reserved Instance: ~30% discount vs On-Demand. Lower commitment, lower savings.' : '3-year Reserved Instance: ~45% discount vs On-Demand. Best savings if the instance will run long-term.'} wide>
                     <button onClick={() => setRiYears(y)}
                       className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all duration-150 ${riYears === y
-                        ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
-                        : 'text-violet-600 border-violet-200 hover:bg-violet-50'
+                        ? 'bg-[rgba(0,0,0,0.85)] text-white border-[rgba(0,0,0,0.85)] shadow-sm'
+                        : 'text-[rgba(0,0,0,0.7)] border-[rgba(0,0,0,0.1)] hover:bg-[rgba(0,0,0,0.03)]'
                         }`}
                     >
                       {y}yr {y === 1 ? '(~30%)' : '(~45%)'}
@@ -3701,7 +3704,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
               <div className="grid grid-cols-3 gap-2 text-center">
                 {[
                   { label: 'Current', val: fmt$(monthlyCost), sub: '/mo', cls: 'text-[rgba(0,0,0,0.88)]', tip: 'Current On-Demand monthly cost — you pay this rate with no commitment.' },
-                  { label: 'With RI', val: fmt$(riMonthlyCost), sub: '/mo', cls: 'text-violet-700 font-bold', tip: `Estimated monthly cost after applying the ${Math.round(riDiscount * 100)}% Reserved Instance discount.` },
+                  { label: 'With RI', val: fmt$(riMonthlyCost), sub: '/mo', cls: 'text-[rgba(0,0,0,0.7)] font-bold', tip: `Estimated monthly cost after applying the ${Math.round(riDiscount * 100)}% Reserved Instance discount.` },
                   { label: `Save (${riYears}yr)`, val: fmt$(riSavings * 12 * riYears), sub: ' total', cls: 'text-emerald-700 font-bold', tip: `Total savings over the full ${riYears}-year RI term compared to staying On-Demand.` },
                 ].map(c => (
                   <div key={c.label} className="bg-white rounded-lg px-2 py-2">
@@ -3857,7 +3860,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                   <tr key={i} className="hover:bg-[rgba(0,0,0,0.025)] transition-colors">
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full bg-gradient-to-br ${barGradients[i % barGradients.length]} shrink-0`} />
+                        <div className={`w-2 h-2 rounded-full ${barGradients[i % barGradients.length]} shrink-0`} />
                         <span className="font-medium text-[rgba(0,0,0,0.7)]">{c.service}</span>
                       </div>
                     </td>
@@ -3867,7 +3870,7 @@ function CostTab({ rd, instanceIdle, instanceRightsizing, costs, agentMetrics, i
                       <div className="flex items-center justify-end gap-2">
                         <div className="w-16 h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full bg-gradient-to-r ${barGradients[i % barGradients.length]} transition-all duration-500`}
+                            className={`h-full rounded-full ${barGradients[i % barGradients.length]} transition-all duration-500`}
                             style={{ width: `${Math.min(c.percentOfTotal, 100)}%` }}
                           />
                         </div>
@@ -3983,7 +3986,7 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
     <th
       key={col}
       onClick={() => handleSort(col)}
-      className={`px-3 py-2.5 text-[11px] font-semibold text-[rgba(0,0,0,0.4)] cursor-pointer select-none whitespace-nowrap hover:text-indigo-600 transition-colors ${right ? 'text-right' : 'text-left'}`}
+      className={`px-3 py-2.5 text-[11px] font-semibold text-[rgba(0,0,0,0.4)] cursor-pointer select-none whitespace-nowrap hover:text-[#0b8f5a] transition-colors ${right ? 'text-right' : 'text-left'}`}
     >
       <span className={`inline-flex items-center gap-1 ${right ? 'justify-end' : ''}`}>
         {tip ? <Tip text={tip} wide>{label}</Tip> : label}
@@ -4057,9 +4060,9 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
       {/* ── KPI strip ── */}
       <div className="grid grid-cols-4 gap-2">
         {[
-          { icon: 'mdi:account-group-outline', label: 'Users', value: all.length, color: 'text-indigo-600', glow: 'shadow-indigo-100' },
-          { icon: 'mdi:power-plug-outline', label: 'Total Conn', value: totalConnsAll.toLocaleString(), color: 'text-sky-600', glow: 'shadow-sky-100' },
-          { icon: 'mdi:circle-medium', label: 'Active Sessions', value: totalActive.toLocaleString(), color: 'text-emerald-600', glow: 'shadow-emerald-100' },
+          { icon: 'mdi:account-group-outline', label: 'Users', value: all.length, color: 'text-[#0b8f5a]', glow: 'shadow-none' },
+          { icon: 'mdi:power-plug-outline', label: 'Total Conn', value: totalConnsAll.toLocaleString(), color: 'text-sky-600', glow: 'shadow-none' },
+          { icon: 'mdi:circle-medium', label: 'Active Sessions', value: totalActive.toLocaleString(), color: 'text-emerald-600', glow: 'shadow-none' },
           { icon: 'mdi:weather-night', label: 'Idle Conn', value: totalIdle.toLocaleString(), color: 'text-[rgba(0,0,0,0.5)]', glow: '' },
         ].map(k => (
           <div key={k.label} className={`bg-white rounded-xl border border-[rgba(0,0,0,0.06)] px-3 py-2.5 shadow-sm ${k.glow}`}>
@@ -4074,9 +4077,9 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
 
       {/* ── Top user bar ── */}
       {topUser && (
-        <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200">
+        <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.1)]">
           <Icon icon="mdi:crown-outline" width={16} className="text-amber-400 shrink-0" />
-          <span className="text-[11px] text-indigo-700">
+          <span className="text-[11px] text-[#0b8f5a]">
             <strong>{topUser.username}</strong> holds the most connections
             ({topUser.totalConnections} — {totalConnsAll > 0 ? Math.round((topUser.totalConnections / totalConnsAll) * 100) : 0}% of total)
           </span>
@@ -4135,7 +4138,7 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
                   {/* User */}
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center shrink-0">
+                      <div className="w-6 h-6 rounded-full bg-[rgba(0,0,0,0.05)] border border-[rgba(0,0,0,0.1)] flex items-center justify-center shrink-0">
                         <span className="text-[9px] font-bold text-white uppercase">{u.username.charAt(0)}</span>
                       </div>
                       <div>
@@ -4188,7 +4191,7 @@ function UsersTab({ userActivity, agentHost, rdsEndpoint }: {
                       <span className="text-[11px] font-semibold text-sky-600 tabular-nums">{sharePct}%</span>
                       <div className="w-full h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-sky-400 to-indigo-500 transition-all duration-500"
+                          className="h-full rounded-full bg-[#1BE68B] transition-all duration-500"
                           style={{ width: `${barWidth}%` }}
                         />
                       </div>
@@ -4274,6 +4277,12 @@ export default function DbInstanceDetailDrawer({
   fetchAgentIndexUsage, fetchAgentTableActivity, onConnected, onHealthChange,
 }: Props) {
   const [tab, setTab] = useState<DetailTab>('overview');
+
+  // Reset content scroll when switching tabs so each tab opens at its top
+  const tabScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tabScrollRef.current?.scrollTo({ top: 0 });
+  }, [tab]);
   const [showAgentWizard, setShowAgentWizard] = useState(false);
   const [timeseries, setTimeseries] = useState<DbInstanceTimeseries | null>(null);
   const [waitEvents, setWaitEvents] = useState<AgentWaitEventDto[]>([]);
@@ -4360,7 +4369,7 @@ export default function DbInstanceDetailDrawer({
         <div className="flex-1 overflow-y-auto px-6 py-6">
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-[rgba(0,0,0,0.88)] mb-1">
-              <Icon icon="mdi:power-plug-outline" width={18} className="text-indigo-500 mr-2 inline" />Connect a Database
+              <Icon icon="mdi:power-plug-outline" width={18} className="text-[rgba(0,0,0,0.55)] mr-2 inline" />Connect a Database
             </h2>
             <p className="text-sm text-[rgba(0,0,0,0.5)]">
               Deploy the XamOps DB agent on any EC2 instance or server to monitor MySQL or PostgreSQL databases.
@@ -4484,7 +4493,7 @@ export default function DbInstanceDetailDrawer({
     {
       id: 'snapshots', label: 'Snapshots', icon: 'mdi:camera-outline',
       badgeCount: instanceSnapshots.length > 0 ? instanceSnapshots.length : undefined,
-      badgeColor: 'bg-violet-100 text-violet-700',
+      badgeColor: 'bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.7)]',
     },
     ...(isMongo ? [
       { id: 'mongo-ops' as const, label: 'Slow Ops', icon: 'fa-bolt' },
@@ -4505,29 +4514,45 @@ export default function DbInstanceDetailDrawer({
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-all whitespace-nowrap border-b-2 ${tab === t.id
-              ? 'text-indigo-600 border-indigo-500'
-              : 'text-[rgba(0,0,0,0.5)] border-transparent hover:text-[rgba(0,0,0,0.7)] hover:border-[rgba(0,0,0,0.12)]'
+            className={`relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors whitespace-nowrap ${tab === t.id
+              ? 'text-[rgba(0,0,0,0.88)]'
+              : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.7)]'
               }`}
           >
             {/* Alert dot (shown when not active) */}
             {t.dot && tab !== t.id && (
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.dot}`} />
             )}
-            <Icon icon={t.icon} width={12} className={tab === t.id ? 'text-indigo-500' : 'text-[rgba(0,0,0,0.4)]'} />
+            <Icon icon={t.icon} width={12} className={tab === t.id ? 'text-[rgba(0,0,0,0.7)]' : 'text-[rgba(0,0,0,0.4)]'} />
             <span>{t.label}</span>
-            {/* Badge pill */}
+            {/* Badge pill — neutral count; the alert dot carries severity */}
             {t.badgeCount !== undefined && (
-              <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold leading-none ${t.badgeColor ?? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)]'}`}>
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold leading-none bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)] tabular-nums">
                 {t.badgeCount}
               </span>
+            )}
+            {/* Sliding active underline — one shared element glides between tabs */}
+            {tab === t.id && (
+              <motion.span
+                layoutId="dbops-tab-underline"
+                className="absolute left-2 right-2 -bottom-px h-[2px] rounded-full bg-[rgba(0,0,0,0.85)]"
+                transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+              />
             )}
           </button>
         ))}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      {/* Content — crossfades between tabs, scroll resets on switch */}
+      <div ref={tabScrollRef} className="flex-1 overflow-y-auto px-6 py-4">
+        <AnimatePresence mode="wait">
+        <motion.div
+          key={tab}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.16, ease: 'easeOut' }}
+        >
 
         {/* ── OVERVIEW ── */}
         {tab === 'overview' && (
@@ -4560,19 +4585,19 @@ export default function DbInstanceDetailDrawer({
 
             {/* RDS — Connect Agent CTA when no agent is connected and wizard is hidden */}
             {instance.source === 'rds' && !agentMetrics && instanceAgentStats.length === 0 && !showAgentWizard && (
-              <div className="flex items-center justify-between gap-4 rounded-xl border border-indigo-100 dark:border-indigo-800/40 bg-indigo-50/60 dark:bg-indigo-900/10 px-4 py-3">
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-[rgba(0,0,0,0.08)] dark:border-indigo-800/40 bg-[rgba(0,0,0,0.03)] dark:bg-indigo-900/10 px-4 py-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="shrink-0 w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-800/40 flex items-center justify-center">
-                    <i className="fas fa-plug text-indigo-500 text-sm" />
+                  <div className="shrink-0 w-8 h-8 rounded-lg bg-[rgba(0,0,0,0.05)] dark:bg-indigo-800/40 flex items-center justify-center">
+                    <i className="fas fa-plug text-[rgba(0,0,0,0.55)] text-sm" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Connect XamOps Agent</p>
-                    <p className="text-[11px] text-indigo-500/80 dark:text-indigo-400/70 truncate">Get per-query stats, wait events, table insights and more</p>
+                    <p className="text-xs font-semibold text-[#0b8f5a] dark:text-[rgba(0,0,0,0.3)]">Connect XamOps Agent</p>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.55)]/80 dark:text-[rgba(0,0,0,0.4)]/70 truncate">Get per-query stats, wait events, table insights and more</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setShowAgentWizard(true)}
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#04231a] bg-[#1BE68B] hover:bg-[#12c574] rounded-lg transition-colors"
                 >
                   <i className="fas fa-plug text-[10px]" /> Connect
                 </button>
@@ -4588,7 +4613,7 @@ export default function DbInstanceDetailDrawer({
               const categories = ['IO', 'Lock', 'CPU', 'Network', 'Other'] as const;
               const colors: Record<string, string> = {
                 IO: 'bg-blue-500', Lock: 'bg-red-500', CPU: 'bg-amber-500',
-                Network: 'bg-violet-500', Other: 'bg-gray-400',
+                Network: 'bg-[rgba(0,0,0,0.03)]0', Other: 'bg-gray-400',
               };
               const totals: Record<string, number> = {};
               instanceWaits.forEach(w => { totals[w.waitCategory] = (totals[w.waitCategory] ?? 0) + w.sessionCount; });
@@ -4728,7 +4753,7 @@ export default function DbInstanceDetailDrawer({
               </div>
             )}
             {metrics && (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+              <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-5">
                 <p className="text-xs font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-3">Live Metrics (7d avg)</p>
                 <div className="grid grid-cols-3 gap-2">
                   <StatCard label="CPU" value={`${metrics.avgCpuPercent}%`}
@@ -4775,7 +4800,7 @@ export default function DbInstanceDetailDrawer({
             )}
 
             {rd && (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+              <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-5">
                 <p className="text-xs font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-3">Instance Details</p>
                 <div className="bg-[rgba(0,0,0,0.02)] rounded-lg divide-y divide-[rgba(0,0,0,0.06)]">
                   {[
@@ -4798,9 +4823,9 @@ export default function DbInstanceDetailDrawer({
             )}
 
             {agentMetrics && (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+              <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-5">
                 <p className="text-xs font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-3">
-                  Live Server Metrics <span className="text-purple-500 ml-1">(via Agent)</span>
+                  Live Server Metrics <span className="text-[rgba(0,0,0,0.45)] ml-1">(via Agent)</span>
                 </p>
                 <div className="grid grid-cols-3 gap-2">
                   <StatCard label="Connections" value={`${agentMetrics.currentConnections} / ${agentMetrics.maxConnections}`}
@@ -4937,7 +4962,7 @@ export default function DbInstanceDetailDrawer({
                       </div>
                       <div>
                         <div className="text-[rgba(0,0,0,0.4)]">Sent</div>
-                        <div className="font-semibold text-violet-600">{fmtBytes(agentMetrics.bytesSent)}</div>
+                        <div className="font-semibold text-[rgba(0,0,0,0.7)]">{fmtBytes(agentMetrics.bytesSent)}</div>
                       </div>
                     </div>
                   </div>
@@ -4948,22 +4973,22 @@ export default function DbInstanceDetailDrawer({
                 {(agentMetrics.ec2InstanceType || agentMetrics.region) && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {agentMetrics.region && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">
-                        <Icon icon="mdi:map-marker-outline" width={11} className="inline" /> {agentMetrics.region}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-[rgba(0,0,0,0.08)] text-xs text-[rgba(0,0,0,0.6)]">
+                        <Icon icon="mdi:map-marker-outline" width={11} className="inline text-[rgba(0,0,0,0.4)]" /> {agentMetrics.region}
                       </span>
                     )}
                     {agentMetrics.ec2InstanceType && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-orange-50 text-orange-700">
-                        <Icon icon="mdi:cloud-outline" width={11} className="inline" /> {agentMetrics.ec2InstanceType}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-[rgba(0,0,0,0.08)] text-xs text-[rgba(0,0,0,0.6)] font-mono">
+                        <Icon icon="mdi:cloud-outline" width={11} className="inline text-[rgba(0,0,0,0.4)]" /> {agentMetrics.ec2InstanceType}
                       </span>
                     )}
                     {agentMetrics.ec2InstanceId && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] font-mono">
-                        <Icon icon="mdi:server-outline" width={11} className="inline" /> {agentMetrics.ec2InstanceId}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-[rgba(0,0,0,0.08)] text-xs text-[rgba(0,0,0,0.6)] font-mono">
+                        <Icon icon="mdi:server-outline" width={11} className="inline text-[rgba(0,0,0,0.4)]" /> {agentMetrics.ec2InstanceId}
                       </span>
                     )}
                     {agentMetrics.ec2HourlyPrice != null && agentMetrics.ec2HourlyPrice > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-green-50 text-green-700">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-[rgba(27,230,139,0.35)] bg-[rgba(27,230,139,0.08)] text-xs font-medium text-[#0b8f5a] tabular-nums">
                         <Icon icon="mdi:currency-usd" width={11} className="inline" />
                         ${agentMetrics.ec2HourlyPrice.toFixed(4)}/hr · ${(agentMetrics.ec2HourlyPrice * 730).toFixed(0)}/mo
                       </span>
@@ -4974,12 +4999,12 @@ export default function DbInstanceDetailDrawer({
             )}
 
             {instance.source === 'agent' && instanceAgentStats.length > 0 && (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+              <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-5">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider">Top Query (by total time)</p>
                   <button
                     onClick={() => setTab('queries')}
-                    className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 transition-colors"
+                    className="text-xs text-[#0b8f5a] hover:text-[#0b8f5a] flex items-center gap-1 transition-colors"
                   >
                     View all in Query Stats <Icon icon="mdi:arrow-right" width={11} className="inline" />
                   </button>
@@ -4996,7 +5021,7 @@ export default function DbInstanceDetailDrawer({
                     {copiedTopQuery ? <Icon icon="mdi:check" width={11} className="inline text-emerald-500" /> : <Icon icon="mdi:content-copy" width={11} className="inline" />}
                     {copiedTopQuery ? 'Copied' : 'Copy'}
                   </button>
-                  <code className="text-xs text-indigo-700 break-all pr-16 leading-relaxed">{instanceAgentStats[0].queryDigest}</code>
+                  <code className="text-xs text-[#0b8f5a] break-all pr-16 leading-relaxed">{instanceAgentStats[0].queryDigest}</code>
                   <div className="flex flex-wrap gap-3 mt-2 text-xs">
                     <span className="flex items-center gap-1 text-[rgba(0,0,0,0.5)]">
                       <Icon icon="mdi:repeat" width={11} color="#9CA3AF" className="inline" />
@@ -5091,7 +5116,7 @@ export default function DbInstanceDetailDrawer({
 
             {/* Agent management — collapsible disconnect */}
             {instance.source === 'agent' && (agentMetrics || instanceAgentStats.length > 0) && (
-              <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+              <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-5">
                 <button
                   onClick={() => setAgentMgmtOpen(v => !v)}
                   className="flex items-center justify-between w-full text-xs font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider hover:text-[rgba(0,0,0,0.7)] transition-colors"
@@ -5147,7 +5172,7 @@ export default function DbInstanceDetailDrawer({
                     {h < 24 ? `${h}h` : h === 168 ? '7d' : `${h / 24}d`}
                   </button>
                 ))}
-                {tsLoading && <Icon icon="mdi:loading" width={13} className="inline animate-spin text-indigo-400 mx-1" />}
+                {tsLoading && <Icon icon="mdi:loading" width={13} className="inline animate-spin text-[rgba(0,0,0,0.4)] mx-1" />}
               </div>
             </div>
 
@@ -5174,13 +5199,13 @@ export default function DbInstanceDetailDrawer({
                 <div className="space-y-3">
                   {/* Summary bar */}
                   {(peakCpu || peakConn || peakRLat) && (
-                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-[11px]">
-                      <span className="flex items-center gap-1 font-semibold text-indigo-500 shrink-0">
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-2.5 rounded-xl bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.1)] text-[11px]">
+                      <span className="flex items-center gap-1 font-semibold text-[rgba(0,0,0,0.55)] shrink-0">
                         <Icon icon="mdi:lightning-bolt" width={12} className="inline" /> Peaks
                       </span>
                       {peakCpu && (
                         <span className="text-[rgba(0,0,0,0.7)]">
-                          CPU <span className="font-semibold text-indigo-600">{round2(peakCpu.v)}%</span>
+                          CPU <span className="font-semibold text-[#0b8f5a]">{round2(peakCpu.v)}%</span>
                           <span className="text-[rgba(0,0,0,0.4)] ml-1">@ {fmtTime(peakCpu.ts)}</span>
                         </span>
                       )}
@@ -5192,7 +5217,7 @@ export default function DbInstanceDetailDrawer({
                       )}
                       {peakRLat && (
                         <span className="text-[rgba(0,0,0,0.7)]">
-                          Read latency <span className="font-semibold text-violet-600">{round2(peakRLat.v)} ms</span>
+                          Read latency <span className="font-semibold text-[rgba(0,0,0,0.7)]">{round2(peakRLat.v)} ms</span>
                           <span className="text-[rgba(0,0,0,0.4)] ml-1">@ {fmtTime(peakRLat.ts)}</span>
                         </span>
                       )}
@@ -5344,15 +5369,15 @@ export default function DbInstanceDetailDrawer({
                     <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider flex-1">
                       Agent Metrics
                     </p>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-purple-100 text-purple-600 border border-purple-200 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" /> Live · {snaps.length} snapshots
+                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.7)] border border-[rgba(0,0,0,0.1)] flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[rgba(0,0,0,0.03)]0 animate-pulse" /> Live · {snaps.length} snapshots
                     </span>
                   </div>
 
                   {/* Summary bar */}
                   {(peakConn || peakQps) && (
-                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-2.5 rounded-xl bg-purple-50 border border-purple-200 text-[11px]">
-                      <span className="flex items-center gap-1 font-semibold text-purple-500 shrink-0">
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-2.5 rounded-xl bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.1)] text-[11px]">
+                      <span className="flex items-center gap-1 font-semibold text-[rgba(0,0,0,0.45)] shrink-0">
                         <Icon icon="mdi:lightning-bolt" width={12} className="inline" /> Peaks
                       </span>
                       {peakConn && (
@@ -5363,7 +5388,7 @@ export default function DbInstanceDetailDrawer({
                       )}
                       {peakQps && (
                         <span className="text-[rgba(0,0,0,0.7)]">
-                          QPS spike <span className="font-semibold text-indigo-600">{round2(peakQps.v)}/s</span>
+                          QPS spike <span className="font-semibold text-[#0b8f5a]">{round2(peakQps.v)}/s</span>
                           <span className="text-[rgba(0,0,0,0.4)] ml-1">@ {fmtTime(peakQps.ts)}</span>
                         </span>
                       )}
@@ -5401,7 +5426,7 @@ export default function DbInstanceDetailDrawer({
               <div className="space-y-2">
                 <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.4)] uppercase tracking-wider">
                   Table Sizes
-                  <span className="ml-1.5 normal-case font-normal text-purple-500">
+                  <span className="ml-1.5 normal-case font-normal text-[rgba(0,0,0,0.45)]">
                     (from DB agent · top {instanceTableSizes.length} tables)
                   </span>
                 </p>
@@ -5454,7 +5479,7 @@ export default function DbInstanceDetailDrawer({
             )}
             {instanceAgentTs && instanceAgentTs.snapshots.length < 2 && (
               <div className="flex items-center justify-center gap-2 py-5 text-[11px] text-[rgba(0,0,0,0.4)]">
-                <Icon icon="mdi:loading" width={14} className="inline animate-spin text-indigo-400" />
+                <Icon icon="mdi:loading" width={14} className="inline animate-spin text-[rgba(0,0,0,0.4)]" />
                 Agent connected — collecting snapshots. Charts appear after 2+ data points.
               </div>
             )}
@@ -5551,7 +5576,7 @@ export default function DbInstanceDetailDrawer({
                 </tr></thead>
                 <tbody>{mongoSlowOps.map((op, i) => (
                   <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
-                    <td className="px-3 py-2 font-mono text-indigo-600 dark:text-indigo-400 text-[11px]">{op.namespace}</td>
+                    <td className="px-3 py-2 font-mono text-[#0b8f5a] dark:text-[rgba(0,0,0,0.4)] text-[11px]">{op.namespace}</td>
                     <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{op.op}</td>
                     <td className="px-3 py-2 font-semibold text-amber-600">{op.millis}ms</td>
                     <td className="px-3 py-2 text-gray-500 truncate max-w-[160px]">{op.queryDigest}</td>
@@ -5578,7 +5603,7 @@ export default function DbInstanceDetailDrawer({
                 <tbody>{mongoIndexStats.map((s, i) => (
                   <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
                     <td className="px-3 py-2 font-mono text-[11px] text-gray-600 dark:text-gray-300">{s.database}.{s.collection}</td>
-                    <td className="px-3 py-2 text-indigo-600 dark:text-indigo-400">{s.indexName}</td>
+                    <td className="px-3 py-2 text-[#0b8f5a] dark:text-[rgba(0,0,0,0.4)]">{s.indexName}</td>
                     <td className="px-3 py-2 tabular-nums">{s.accessOps.toLocaleString()}</td>
                     <td className="px-3 py-2">
                       {s.accessOps === 0
@@ -5607,7 +5632,7 @@ export default function DbInstanceDetailDrawer({
                 </tr></thead>
                 <tbody>{redisKeyspace.map((ks, i) => (
                   <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
-                    <td className="px-3 py-2 font-mono text-indigo-600 dark:text-indigo-400">{ks.database}</td>
+                    <td className="px-3 py-2 font-mono text-[#0b8f5a] dark:text-[rgba(0,0,0,0.4)]">{ks.database}</td>
                     <td className="px-3 py-2 tabular-nums font-semibold">{ks.keys.toLocaleString()}</td>
                     <td className="px-3 py-2 tabular-nums text-gray-500">{ks.expires.toLocaleString()}</td>
                     <td className="px-3 py-2 text-gray-500">{ks.avgTtlMs > 0 ? `${Math.round(ks.avgTtlMs / 1000)}s` : '—'}</td>
@@ -5636,7 +5661,7 @@ export default function DbInstanceDetailDrawer({
                 </tr></thead>
                 <tbody>{redisSlowLog.map((s, i) => (
                   <tr key={i} className="border-b border-gray-50 dark:border-gray-700/30">
-                    <td className="px-3 py-2 font-mono text-indigo-600 dark:text-indigo-400">{s.command}</td>
+                    <td className="px-3 py-2 font-mono text-[#0b8f5a] dark:text-[rgba(0,0,0,0.4)]">{s.command}</td>
                     <td className="px-3 py-2 font-semibold text-amber-600">{(s.durationUs / 1000).toFixed(2)}ms</td>
                     <td className="px-3 py-2 text-gray-400 text-[10px]">{new Date(s.timestamp).toLocaleTimeString()}</td>
                   </tr>
@@ -5646,13 +5671,15 @@ export default function DbInstanceDetailDrawer({
           </div>
         )}
 
+        </motion.div>
+        </AnimatePresence>
       </div>
 
       {/* ── Explain loading overlay ── */}
       {explainLoading && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl px-8 py-6 flex flex-col items-center gap-3">
-            <i className="fas fa-spinner fa-spin text-indigo-500 text-2xl" />
+            <i className="fas fa-spinner fa-spin text-[rgba(0,0,0,0.55)] text-2xl" />
             <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Running EXPLAIN…</p>
             <p className="text-xs text-gray-400">Agent is computing the plan — usually under 30 s</p>
           </div>

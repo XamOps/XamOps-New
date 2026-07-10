@@ -18,31 +18,26 @@ const fmt$ = (n: number) =>
 
 function EncBadge({ val }: { val: boolean }) {
   return val
-    ? <span className="text-green-600"><Icon icon="mdi:lock-outline" width={13} className="inline mr-1" />Yes</span>
+    ? <span className="text-[#0b8f5a]"><Icon icon="mdi:lock-outline" width={13} className="inline mr-1" />Yes</span>
     : <span className="text-red-500"><Icon icon="mdi:lock-open-outline" width={13} className="inline mr-1" />No</span>;
+}
+
+/** Neutral pill + colored dot — the house pattern for source/category tags */
+function SourcePill({ source }: { source: 'rds' | 'agent' }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-[rgba(0,0,0,0.08)] text-[11px] font-medium text-[rgba(0,0,0,0.6)] whitespace-nowrap">
+      <span className={`w-1.5 h-1.5 rounded-full ${source === 'rds' ? 'bg-orange-500' : 'bg-violet-500'}`} />
+      {source === 'rds' ? 'RDS' : 'Agent'}
+    </span>
+  );
 }
 
 // ── Summary Cards ─────────────────────────────────────────────────────────────
 
-const CloudSVG = () => (
-  <svg className="absolute right-2 bottom-2 opacity-[0.07]" width="80" height="60" viewBox="0 0 80 60">
-    <path d="M65 48H20a18 18 0 010-36c1 0 2 0 3 .1A24 24 0 0168 28h-.5A16 16 0 0165 48z" fill="currentColor" />
-  </svg>
-);
-
-const BEBAS = {
-  fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
-  fontSize: '32px',
-  fontWeight: 400,
-  lineHeight: '32px',
-  color: 'rgb(10,10,10)',
-  fontVariantNumeric: 'tabular-nums' as const,
-};
-
 function SummaryCards({ s }: { s: DbSavingsSummary }) {
-  const cards = [
+  const cards: { label: string; value: string; sub?: string; accent?: boolean }[] = [
     { label: 'Monthly DB Spend', value: fmt$(s.totalDbMonthlyCost) },
-    { label: 'Savings Potential', value: fmt$(s.totalPotentialSavings) },
+    { label: 'Savings Potential', value: fmt$(s.totalPotentialSavings), accent: true },
     { label: 'Total Instances', value: String(s.totalInstances) },
     { label: 'Idle Instances', value: `${s.idleInstances}`, sub: fmt$(s.idleSavingsPotential) + ' savings' },
     { label: 'Right-sizing Candidates', value: `${s.rightsizingCandidates}`, sub: fmt$(s.rightsizingSavingsPotential) + ' savings' },
@@ -50,12 +45,13 @@ function SummaryCards({ s }: { s: DbSavingsSummary }) {
   ];
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
-      {cards.map((c, i) => (
-        <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift" style={{ animation: `fadeInUp 0.4s cubic-bezier(0.22,1,0.36,1) ${i * 0.06}s both` }}>
-          <CloudSVG />
-          <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)] mb-2">{c.label}</p>
-          <p style={BEBAS}>{c.value}</p>
-          {c.sub && <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">{c.sub}</p>}
+      {cards.map(c => (
+        <div key={c.label} className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.45)] mb-2">{c.label}</p>
+          <p className={`text-[22px] leading-7 font-bold tracking-[-0.01em] tabular-nums ${c.accent ? 'text-[#0b8f5a]' : 'text-[rgba(0,0,0,0.88)]'}`}>
+            {c.value}
+          </p>
+          {c.sub && <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1.5 tabular-nums">{c.sub}</p>}
         </div>
       ))}
     </div>
@@ -109,32 +105,32 @@ function InventoryTab({
     <div>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Icon icon="mdi:magnify" width={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.4)]" />
+          <Icon icon="mdi:magnify" width={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)]" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search instances..."
-            className="w-full pl-9 pr-3 py-2 text-sm bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-lg text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
+            className="w-full pl-9 pr-3 py-2 text-[12px] bg-white border border-[rgba(0,0,0,0.1)] rounded-md text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:border-[rgba(0,0,0,0.25)]"
           />
         </div>
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 border border-sky-200 text-sky-700 text-xs font-semibold">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] text-[11px] font-medium">
           <Icon icon="mdi:database-outline" width={12} />
           {filtered.length} instances
         </span>
         <button
           onClick={() => onSelect({ instanceId: '', source: 'agent', engine: 'mysql' })}
-          className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-md text-xs font-medium transition-colors"
+          className="ml-auto flex items-center gap-1.5 px-3.5 py-2 bg-[#1BE68B] hover:bg-[#12c574] text-[#04231a] rounded-lg text-[12px] font-semibold transition-colors"
         >
           <Icon icon="mdi:plus" width={14} /> Connect a Database
         </button>
       </div>
-      <div className="bg-white rounded-xl shadow-sm border border-[rgba(0,0,0,0.12)] overflow-hidden">
+      <div className="bg-white rounded-xl border border-[rgba(0,0,0,0.08)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 dark:border-gray-700/50" style={{ background: 'linear-gradient(90deg, rgba(14,165,233,0.04) 0%, rgba(37,99,235,0.04) 100%)' }}>
+              <tr className="border-b border-[rgba(0,0,0,0.06)]">
                 {['Instance ID', 'Source', 'Engine', 'Class', 'Region', 'Status', 'Storage (GB)', 'Encrypted', 'Backups', 'Multi-AZ', 'Est. Cost/mo', 'Health', ''].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest whitespace-nowrap">{h}</th>
+                  <th key={h} className="text-left px-4 py-2.5 text-[11px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -143,14 +139,14 @@ function InventoryTab({
                 <tr>
                   <td colSpan={13}>
                     <div className="flex flex-col items-center justify-center py-16 gap-3">
-                      <div className="w-14 h-14 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center">
-                        <Icon icon="mdi:database-outline" width={28} color="#0284c7" />
+                      <div className="w-12 h-12 rounded-full bg-[rgba(0,0,0,0.03)] flex items-center justify-center">
+                        <Icon icon="mdi:database-outline" width={24} color="rgba(0,0,0,0.3)" />
                       </div>
                       <p className="text-sm font-medium text-[rgba(0,0,0,0.5)]">No instances found</p>
                     </div>
                   </td>
                 </tr>
-              ) : filtered.map((row, idx) => {
+              ) : filtered.map(row => {
                 const i = row.rdsData;
                 const am = row.source === 'agent'
                   ? agentInstanceMetrics.find(m => m.dbHost === row.agentHost)
@@ -160,62 +156,65 @@ function InventoryTab({
                   <tr
                     key={row.instanceId}
                     onClick={() => onSelect(row)}
-                    className="group dataops-table-row border-b border-gray-50 dark:border-gray-700/30 hover:bg-sky-50/30 dark:hover:bg-sky-900/10 cursor-pointer"
-                    style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.04, 0.4)}s both` }}
+                    className="group border-b border-[rgba(0,0,0,0.04)] last:border-0 hover:bg-[rgba(0,0,0,0.02)] cursor-pointer transition-colors"
                   >
-                    <td className="px-4 py-3 font-semibold text-sky-700 whitespace-nowrap">
-                      <span className="hover:underline underline-offset-2">{row.instanceId}</span>
-                      {am?.dbName && <span className="ml-1.5 text-[10px] text-gray-400 font-normal">({am.dbName})</span>}
+                    <td className="px-4 py-3 font-semibold text-[rgba(0,0,0,0.85)] whitespace-nowrap">
+                      <span className="group-hover:underline underline-offset-2">{row.instanceId}</span>
+                      {am?.dbName && <span className="ml-1.5 text-[10px] text-[rgba(0,0,0,0.35)] font-normal">({am.dbName})</span>}
                     </td>
                     <td className="px-4 py-3">
-                      {row.source === 'rds'
-                        ? <span className="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-700 font-semibold">RDS</span>
-                        : <span className="px-2 py-0.5 text-xs rounded-full bg-violet-100 text-violet-700 font-semibold">Agent</span>}
+                      <SourcePill source={row.source} />
                     </td>
                     <td className="px-4 py-3 text-[rgba(0,0,0,0.7)] font-medium">{row.engine}</td>
                     <td className="px-4 py-3 text-[rgba(0,0,0,0.7)] font-mono text-xs">
                       {i?.instanceClass ?? (am?.ec2InstanceType
-                        ? <span title={am.ec2InstanceId ?? undefined} className="text-orange-600">{am.ec2InstanceType}</span>
-                        : <span className="text-gray-400">—</span>)}
+                        ? <span title={am.ec2InstanceId ?? undefined}>{am.ec2InstanceType}</span>
+                        : <span className="text-[rgba(0,0,0,0.3)]">—</span>)}
                     </td>
                     <td className="px-4 py-3 text-[rgba(0,0,0,0.7)] whitespace-nowrap">
                       {(i?.region ?? am?.region)
-                        ? <span className="inline-flex items-center gap-1"><Icon icon="mdi:map-marker-outline" width={12} className="inline text-[rgba(0,0,0,0.4)]" />{i?.region ?? am?.region}</span>
+                        ? <span className="inline-flex items-center gap-1"><Icon icon="mdi:map-marker-outline" width={12} className="inline text-[rgba(0,0,0,0.35)]" />{i?.region ?? am?.region}</span>
                         : <span className="text-[rgba(0,0,0,0.3)]">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       {i ? (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${i.status === 'available' ? 'bg-emerald-100 text-emerald-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                          {i.status === 'available' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block mr-1 align-middle" />}{i.status}
+                        <span className={`inline-flex items-center gap-1.5 text-[12px] font-medium whitespace-nowrap ${i.status === 'available' ? 'text-[#0b8f5a]' : 'text-amber-600'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${i.status === 'available' ? 'bg-[#1BE68B]' : 'bg-amber-500'}`} />
+                          {i.status}
                         </span>
-                      ) : <span className="px-2 py-0.5 rounded-full text-xs bg-violet-100 text-violet-700 font-semibold">live</span>}
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-violet-600">
+                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                          live
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-[rgba(0,0,0,0.7)] text-center tabular-nums">{i?.allocatedStorage ?? (dbSizeGb ? dbSizeGb : <span className="text-[rgba(0,0,0,0.3)]">—</span>)}</td>
                     <td className="px-4 py-3">{i ? <EncBadge val={i.storageEncrypted} /> : <span className="text-[rgba(0,0,0,0.3)]">—</span>}</td>
                     <td className="px-4 py-3">
                       {i ? (i.backupEnabled
-                        ? <span className="text-emerald-600 font-medium"><Icon icon="mdi:check" width={12} className="inline mr-1" />{i.backupRetentionDays}d</span>
+                        ? <span className="text-[#0b8f5a] font-medium"><Icon icon="mdi:check" width={12} className="inline mr-1" />{i.backupRetentionDays}d</span>
                         : <span className="text-red-500 font-medium"><Icon icon="mdi:close" width={12} className="inline mr-1" />Off</span>)
-                        : <span className="text-gray-400">—</span>}
+                        : <span className="text-[rgba(0,0,0,0.3)]">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-[rgba(0,0,0,0.7)]">{i?.multiAz != null ? (i.multiAz ? <span className="text-emerald-600"><Icon icon="mdi:check" width={12} className="inline mr-1" />Yes</span> : <span className="text-[rgba(0,0,0,0.3)]">No</span>) : <span className="text-[rgba(0,0,0,0.3)]">—</span>}</td>
-                    <td className="px-4 py-3 font-bold text-[rgba(0,0,0,0.88)] whitespace-nowrap tabular-nums">
-                      {i ? <span className="text-emerald-600">{fmt$(i.estimatedMonthlyCost)}</span>
+                    <td className="px-4 py-3 text-[rgba(0,0,0,0.7)]">{i?.multiAz != null ? (i.multiAz ? <span className="text-[#0b8f5a]"><Icon icon="mdi:check" width={12} className="inline mr-1" />Yes</span> : <span className="text-[rgba(0,0,0,0.3)]">No</span>) : <span className="text-[rgba(0,0,0,0.3)]">—</span>}</td>
+                    <td className="px-4 py-3 font-semibold text-[rgba(0,0,0,0.85)] whitespace-nowrap tabular-nums">
+                      {i ? fmt$(i.estimatedMonthlyCost)
                         : (am?.ec2HourlyPrice && am.ec2HourlyPrice > 0
-                          ? <span title="EC2 on-demand monthly cost" className="text-emerald-600">{fmt$(am.ec2HourlyPrice * 730)}</span>
-                          : <span className="text-[rgba(0,0,0,0.3)]">—</span>)}
+                          ? <span title="EC2 on-demand monthly cost">{fmt$(am.ec2HourlyPrice * 730)}</span>
+                          : <span className="text-[rgba(0,0,0,0.3)] font-normal">—</span>)}
                     </td>
                     <td className="px-4 py-3">
                       {(() => {
                         const snap = healthSnapshots.find(s => s.instanceId === row.instanceId);
-                        if (!snap) return <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>;
+                        if (!snap) return <span className="text-[rgba(0,0,0,0.25)] text-xs">—</span>;
                         const colors: Record<string, string> = {
-                          healthy: 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400',
-                          warning: 'text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400',
-                          critical: 'text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400',
+                          healthy: 'text-emerald-700 bg-emerald-50',
+                          warning: 'text-amber-700 bg-amber-50',
+                          critical: 'text-red-600 bg-red-50',
                         };
                         return (
-                          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${colors[snap.status] ?? colors.warning}`}>
+                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-bold tabular-nums ${colors[snap.status] ?? colors.warning}`}>
                             {snap.score}
                           </span>
                         );
@@ -231,7 +230,7 @@ function InventoryTab({
                             onRemove();
                             setRemoving(null);
                           }}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all disabled:opacity-40"
+                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-[rgba(0,0,0,0.35)] hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-40"
                         >
                           {removing === row.instanceId
                             ? <i className="fas fa-spinner fa-spin text-xs" />
@@ -257,16 +256,15 @@ function LoadingSkeleton() {
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="animate-pulse bg-[rgba(0,0,0,0.04)] rounded-xl p-4 h-[96px] border border-[rgba(0,0,0,0.06)]">
-            <div className="w-9 h-9 bg-[rgba(0,0,0,0.06)] rounded-xl mb-3" />
-            <div className="h-2.5 bg-[rgba(0,0,0,0.06)] rounded-full w-2/3 mb-2" />
-            <div className="h-4 bg-[rgba(0,0,0,0.06)] rounded-full w-1/2" />
+          <div key={i} className="animate-pulse bg-white rounded-xl p-5 h-[96px] border border-[rgba(0,0,0,0.06)]">
+            <div className="h-2.5 bg-[rgba(0,0,0,0.06)] rounded-full w-2/3 mb-3" />
+            <div className="h-5 bg-[rgba(0,0,0,0.06)] rounded-full w-1/2" />
           </div>
         ))}
       </div>
-      <div className="animate-pulse bg-[rgba(0,0,0,0.02)] rounded-xl border border-[rgba(0,0,0,0.06)]">
+      <div className="animate-pulse bg-white rounded-xl border border-[rgba(0,0,0,0.06)]">
         <div className="p-4 border-b border-[rgba(0,0,0,0.04)] flex gap-3">
-          <div className="h-9 w-56 bg-[rgba(0,0,0,0.06)] rounded-lg" />
+          <div className="h-9 w-56 bg-[rgba(0,0,0,0.06)] rounded-md" />
           <div className="h-9 w-28 bg-[rgba(0,0,0,0.06)] rounded-full ml-auto" />
         </div>
         {Array.from({ length: 5 }).map((_, i) => (
@@ -292,24 +290,22 @@ function HealthSummaryCard({ snapshots, onFilter }: {
   const warning = snapshots.filter(s => s.status === 'warning').length;
   const healthy = snapshots.filter(s => s.status === 'healthy').length;
   if (snapshots.length === 0) return null;
+  const pill = 'flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[rgba(0,0,0,0.1)] hover:border-[rgba(0,0,0,0.3)] text-[11px] font-medium text-[rgba(0,0,0,0.65)] transition-colors';
   return (
-    <div className="flex items-center gap-3 mb-4 flex-wrap">
+    <div className="flex items-center gap-2 mb-4 flex-wrap">
       {critical > 0 && (
-        <button onClick={() => onFilter('critical')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 text-red-700 dark:text-red-400 text-xs font-semibold hover:bg-red-100 transition-colors">
+        <button onClick={() => onFilter('critical')} className={pill}>
           <span className="w-2 h-2 rounded-full bg-red-500" />{critical} critical
         </button>
       )}
       {warning > 0 && (
-        <button onClick={() => onFilter('warning')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 text-amber-700 dark:text-amber-400 text-xs font-semibold hover:bg-amber-100 transition-colors">
+        <button onClick={() => onFilter('warning')} className={pill}>
           <span className="w-2 h-2 rounded-full bg-amber-500" />{warning} warning
         </button>
       )}
       {healthy > 0 && (
-        <button onClick={() => onFilter(null)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-400 text-xs font-semibold hover:bg-emerald-100 transition-colors">
-          <span className="w-2 h-2 rounded-full bg-emerald-500" />{healthy} healthy
+        <button onClick={() => onFilter(null)} className={pill}>
+          <span className="w-2 h-2 rounded-full bg-[#1BE68B]" />{healthy} healthy
         </button>
       )}
     </div>
@@ -356,86 +352,53 @@ const DataOpsPage: React.FC = () => {
       const endpoint = rd?.endpoint ?? selectedInstance.agentHost ?? '';
       const h = instanceHealth;
 
-      // Accent colour derived from health status
-      const accentRgb = !h ? '99,102,241'
-        : h.status === 'healthy' ? '16,185,129'
-          : h.status === 'warning' ? '245,158,11'
-            : '239,68,68';
-
       setActions(
         <div className="flex items-center gap-2">
 
           {/* ── Back ── */}
           <button
             onClick={() => { setSelectedInstance(null); setInstanceHealth(null); }}
-            className="group flex items-center gap-1.5 h-8 px-3 rounded-md text-[11px] font-medium
-              bg-white
-              border border-[rgba(0,0,0,0.12)]
-              text-[rgba(0,0,0,0.5)]
-              hover:text-[rgba(0,0,0,0.88)]
-              hover:border-[rgba(0,0,0,0.2)]
-              transition-all duration-200"
+            className="flex items-center gap-1.5 h-8 px-3 rounded-md text-[11px] font-medium
+              bg-white border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)]
+              hover:text-[rgba(0,0,0,0.88)] hover:border-[rgba(0,0,0,0.25)] transition-colors"
           >
             <Icon icon="mdi:chevron-left" width={14} />
             Back
           </button>
 
           {/* ── Instance identity card ── */}
-          <div
-            className="flex items-center gap-2 h-9 px-3 rounded-lg
-              bg-white border border-[rgba(0,0,0,0.12)]"
-            style={{ boxShadow: `0 0 0 1px rgba(${accentRgb},0.12), 0 0 14px rgba(${accentRgb},0.07)` }}
-          >
-            {/* Engine icon badge */}
-            <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold shrink-0 shadow-sm
-              ${selectedInstance.source === 'rds'
-                ? 'bg-orange-50 border border-orange-100'
-                : 'bg-indigo-50 border border-indigo-100'}`}>
-              <Icon icon={selectedInstance.source === 'rds' ? 'mdi:database-outline' : 'mdi:server-outline'} width={10} color={selectedInstance.source === 'rds' ? '#ea580c' : '#4F46E5'} />
-            </div>
-
-            {/* Engine text */}
-            <span className="text-[10px] text-[rgba(0,0,0,0.5)] font-medium">{engine}</span>
-
-            {/* Source pill */}
-            {selectedInstance.source === 'rds'
-              ? <span className="px-1.5 py-px text-[9px] rounded font-bold bg-orange-100 text-orange-700 tracking-wide">RDS</span>
-              : <span className="px-1.5 py-px text-[9px] rounded font-bold bg-purple-100 text-purple-700 tracking-wide">Agent</span>}
-
-            {/* Live status dot */}
+          <div className="flex items-center gap-2 h-8 px-3 rounded-md bg-white border border-[rgba(0,0,0,0.1)]">
+            <Icon
+              icon={selectedInstance.source === 'rds' ? 'mdi:database-outline' : 'mdi:server-outline'}
+              width={13}
+              color="rgba(0,0,0,0.45)"
+            />
+            <span className="text-[11px] text-[rgba(0,0,0,0.6)] font-medium">{engine}</span>
+            <SourcePill source={selectedInstance.source} />
             {rd?.status && (
-              <span className="flex items-center gap-1 text-[9px] font-medium text-emerald-600">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-                </span>
+              <span className="flex items-center gap-1 text-[11px] font-medium text-[#0b8f5a]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#1BE68B]" />
                 {rd.status}
               </span>
             )}
-
-            {/* Idle */}
             {instanceIdle && (
-              <span className="px-1.5 py-px text-[9px] rounded font-semibold bg-amber-100 text-amber-700">
-                <Icon icon="mdi:moon-waning-crescent" width={10} className="inline mr-0.5" />Idle
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600">
+                <Icon icon="mdi:moon-waning-crescent" width={11} />Idle
               </span>
             )}
           </div>
 
-          {/* ── Health gauge card ── */}
+          {/* ── Health score ── */}
           {h && (
             <div
-              className={`flex items-center gap-2 h-9 px-3 rounded-xl
-                ${h.status === 'healthy'
-                  ? 'bg-emerald-50 border border-emerald-200'
-                  : h.status === 'warning'
-                    ? 'bg-amber-50 border border-amber-200'
-                    : 'bg-red-50 border border-red-200'}`}
-              style={{ boxShadow: `0 0 16px rgba(${accentRgb},0.13)` }}
+              className={`flex items-center gap-2 h-8 px-2.5 rounded-md border
+                ${h.status === 'healthy' ? 'bg-emerald-50 border-emerald-100'
+                  : h.status === 'warning' ? 'bg-amber-50 border-amber-100'
+                    : 'bg-red-50 border-red-100'}`}
               title={h.issues.length > 0 ? h.issues.join(' · ') : 'No issues detected'}
             >
-              {/* SVG ring */}
-              <div className="relative w-7 h-7 shrink-0">
-                <svg className="w-7 h-7 -rotate-90" viewBox="0 0 28 28">
+              <div className="relative w-6 h-6 shrink-0">
+                <svg className="w-6 h-6 -rotate-90" viewBox="0 0 28 28">
                   <circle cx="14" cy="14" r="10" fill="none" strokeWidth="2.5" stroke="currentColor"
                     className={h.status === 'healthy' ? 'text-emerald-200'
                       : h.status === 'warning' ? 'text-amber-200'
@@ -449,23 +412,18 @@ const DataOpsPage: React.FC = () => {
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className={`text-[9px] font-black leading-none tabular-nums
+                  <span className={`text-[9px] font-bold leading-none tabular-nums
                     ${h.status === 'healthy' ? 'text-emerald-700'
                       : h.status === 'warning' ? 'text-amber-700'
                         : 'text-red-700'}`}>{h.score}</span>
                 </div>
               </div>
-
-              {/* Label */}
-              <div className="flex flex-col leading-none">
-                <span className={`text-[10px] font-bold
-                  ${h.status === 'healthy' ? 'text-emerald-700'
-                    : h.status === 'warning' ? 'text-amber-700'
-                      : 'text-red-700'}`}>
-                  {h.status === 'healthy' ? 'Healthy' : h.status === 'warning' ? 'Warning' : 'Critical'}
-                </span>
-                <span className="text-[8px] text-[rgba(0,0,0,0.4)] mt-0.5">Health Score</span>
-              </div>
+              <span className={`text-[11px] font-semibold
+                ${h.status === 'healthy' ? 'text-emerald-700'
+                  : h.status === 'warning' ? 'text-amber-700'
+                    : 'text-red-700'}`}>
+                {h.status === 'healthy' ? 'Healthy' : h.status === 'warning' ? 'Warning' : 'Critical'}
+              </span>
             </div>
           )}
 
@@ -473,16 +431,16 @@ const DataOpsPage: React.FC = () => {
           {h && h.issues.length > 0 && (
             <div className="hidden md:flex items-center gap-1.5">
               {h.issues.slice(0, 2).map((issue, i) => (
-                <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-semibold
+                <span key={i} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border text-[10px] font-medium
                   ${h.status === 'critical'
-                    ? 'bg-red-50 border border-red-200 text-red-600'
-                    : 'bg-amber-50 border border-amber-200 text-amber-600'}`}>
+                    ? 'bg-white border-red-200 text-red-600'
+                    : 'bg-white border-amber-200 text-amber-600'}`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
                   {issue}
                 </span>
               ))}
               {h.issues.length > 2 && (
-                <span className="text-[9px] text-gray-400 font-medium">
+                <span className="text-[10px] text-[rgba(0,0,0,0.35)] font-medium">
                   +{h.issues.length - 2}
                 </span>
               )}
@@ -490,24 +448,24 @@ const DataOpsPage: React.FC = () => {
           )}
 
           {/* ── Meta strip (class · region · cost) ── */}
-          <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-[rgba(0,0,0,0.4)] font-medium">
+          <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-[rgba(0,0,0,0.45)] font-medium">
             {rd?.instanceClass && (
               <span className="flex items-center gap-1">
-                <Icon icon="mdi:chip" width={10} className="inline text-[rgba(0,0,0,0.3)]" />{rd.instanceClass}
+                <Icon icon="mdi:chip" width={11} className="inline text-[rgba(0,0,0,0.3)]" />{rd.instanceClass}
               </span>
             )}
             {rd?.region && (
               <>
                 <span className="text-[rgba(0,0,0,0.2)]">·</span>
                 <span className="flex items-center gap-1">
-                  <Icon icon="mdi:map-marker-outline" width={10} className="inline text-[rgba(0,0,0,0.3)]" />{rd.region}
+                  <Icon icon="mdi:map-marker-outline" width={11} className="inline text-[rgba(0,0,0,0.3)]" />{rd.region}
                 </span>
               </>
             )}
             {rd?.estimatedMonthlyCost !== undefined && (
               <>
                 <span className="text-[rgba(0,0,0,0.2)]">·</span>
-                <span className="font-bold text-emerald-600 tabular-nums">
+                <span className="font-semibold text-[rgba(0,0,0,0.75)] tabular-nums">
                   {fmt$(rd.estimatedMonthlyCost)}/mo
                 </span>
               </>
@@ -515,7 +473,7 @@ const DataOpsPage: React.FC = () => {
           </div>
 
           {/* ── Vertical separator ── */}
-          <span className="w-px h-5 bg-[rgba(0,0,0,0.12)] mx-0.5" />
+          <span className="w-px h-5 bg-[rgba(0,0,0,0.1)] mx-0.5" />
 
           {/* ── Copy endpoint ── */}
           {endpoint && (
@@ -525,11 +483,10 @@ const DataOpsPage: React.FC = () => {
                 setCopiedEndpoint(true);
                 setTimeout(() => setCopiedEndpoint(false), 2000);
               }}
-              className={`group flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11px] font-medium
-                transition-all duration-200
+              className={`flex items-center gap-1.5 h-8 px-3 rounded-md text-[11px] font-medium transition-colors
                 ${copiedEndpoint
-                  ? 'bg-emerald-50 border border-emerald-300 text-emerald-600'
-                  : 'bg-white border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.6)] hover:border-[rgba(0,0,0,0.2)] hover:text-[rgba(0,0,0,0.88)]'}`}
+                  ? 'bg-emerald-50 border border-emerald-200 text-[#0b8f5a]'
+                  : 'bg-white border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.6)] hover:border-[rgba(0,0,0,0.25)] hover:text-[rgba(0,0,0,0.88)]'}`}
               title={`Copy: ${endpoint}`}
             >
               {copiedEndpoint ? <Icon icon="mdi:check" width={13} /> : <Icon icon="mdi:content-copy" width={13} />}
@@ -541,12 +498,10 @@ const DataOpsPage: React.FC = () => {
           <button
             onClick={() => { refresh(); setLastRefreshed(new Date()); }}
             disabled={loading}
-            className="group flex items-center justify-center w-8 h-8 rounded-md
-              bg-white border border-[rgba(0,0,0,0.12)]
-              text-[rgba(0,0,0,0.5)]
-              hover:text-[rgba(0,0,0,0.88)]
-              hover:border-[rgba(0,0,0,0.2)]
-              transition-all duration-200 disabled:opacity-40"
+            className="flex items-center justify-center w-8 h-8 rounded-md
+              bg-white border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)]
+              hover:text-[rgba(0,0,0,0.88)] hover:border-[rgba(0,0,0,0.25)]
+              transition-colors disabled:opacity-40"
             title={`Last updated: ${lastRefreshed.toLocaleTimeString()}`}
           >
             <Icon icon="mdi:refresh" width={14} className={loading ? 'animate-spin' : ''} />
@@ -558,7 +513,7 @@ const DataOpsPage: React.FC = () => {
       setInstanceHealth(null);
       setActions(
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-300 text-amber-700 text-xs font-semibold">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] text-[11px] font-medium">
             <Icon icon="mdi:flask-outline" width={12} />
             Beta
           </span>
@@ -566,7 +521,7 @@ const DataOpsPage: React.FC = () => {
           <button
             onClick={refresh}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white rounded-md text-xs font-medium hover:bg-black transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.65)] hover:text-[rgba(0,0,0,0.88)] hover:border-[rgba(0,0,0,0.25)] rounded-md text-xs font-medium transition-colors disabled:opacity-50"
           >
             <Icon icon="mdi:refresh" width={14} className={loading ? 'animate-spin' : ''} />
             Refresh
@@ -578,14 +533,14 @@ const DataOpsPage: React.FC = () => {
   }, [setActions, clearActions, selectedInstance, accountId, summary, loading, refresh, idle, instanceHealth, copiedEndpoint, lastRefreshed]);
 
   return (
-    <main className="flex-1 flex flex-col min-h-screen bg-white">
+    <main className="flex-1 flex flex-col min-h-screen">
       <div className={`flex-1 ${selectedInstance ? '' : 'p-6'}`}>
 
         {/* No account selected */}
         {!accountId && (
-          <div className="text-center py-24 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm">
-            <div className="w-14 h-14 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center mx-auto mb-4">
-              <Icon icon="mdi:database-outline" width={28} color="#0284c7" />
+          <div className="text-center py-24 bg-white border border-[rgba(0,0,0,0.08)] rounded-xl">
+            <div className="w-14 h-14 rounded-full bg-[rgba(0,0,0,0.03)] flex items-center justify-center mx-auto mb-4">
+              <Icon icon="mdi:database-outline" width={26} color="rgba(0,0,0,0.35)" />
             </div>
             <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">Select an AWS Account</h3>
             <p className="text-sm text-[rgba(0,0,0,0.5)] max-w-sm mx-auto leading-relaxed">
@@ -596,12 +551,10 @@ const DataOpsPage: React.FC = () => {
 
         {/* Error */}
         {accountId && error && (
-          <div className="mb-4 flex items-center gap-3 p-4 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm">
-            <div className="w-7 h-7 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
-              <Icon icon="mdi:alert-circle-outline" width={16} color="#ef4444" />
-            </div>
+          <div className="mb-4 flex items-center gap-3 p-4 bg-red-50 border border-red-100 rounded-xl text-red-700 text-sm">
+            <Icon icon="mdi:alert-circle-outline" width={18} color="#ef4444" className="flex-shrink-0" />
             <span className="flex-1">{error}</span>
-            <button onClick={refresh} className="px-3 py-1 rounded-lg bg-red-100 text-red-700 text-xs font-semibold hover:bg-red-200 transition-colors">Retry</button>
+            <button onClick={refresh} className="px-3 py-1 rounded-md bg-white border border-red-200 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors">Retry</button>
           </div>
         )}
 

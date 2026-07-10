@@ -182,7 +182,7 @@ export const Dashboard: React.FC = () => {
       {selectedAccountIds.length > 0 && (loadingState.global || (!dashboardData && !error)) && <LoadingSkeleton />}
 
       {/* ── Dashboard Content ── */}
-      {selectedAccountIds.length > 0 && dashboardData && (
+      {selectedAccountIds.length > 0 && dashboardData && !loadingState.global && (
         <div id="widgets-container" className="space-y-5">
 
           {/* Row 1: KPI Cards */}

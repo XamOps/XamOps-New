@@ -101,8 +101,10 @@ public class CicdSyncScheduler {
         String pat = encryptionService.decrypt(config.getEncryptedPat());
         if (pat == null) return;
 
-        List<GitHubWorkflowRunDto> runs = cicdStatusService.getLatestRunPerWorkflow(
-                config.getGithubOwner(), config.getGithubRepo(), pat);
+        // Backfill the full run history within the retention window so KPIs/DORA reflect more
+        // than just the latest run per workflow.
+        List<GitHubWorkflowRunDto> runs = cicdStatusService.getRunsWithinDays(
+                config.getGithubOwner(), config.getGithubRepo(), pat, BACKFILL_DAYS);
 
         for (GitHubWorkflowRunDto run : runs) {
             upsertGitHubRun(run, config);
@@ -131,10 +133,15 @@ public class CicdSyncScheduler {
         record.setHtmlUrl(run.getHtmlUrl());
         record.setDeployment(run.getName() != null && run.getName().toLowerCase().contains("deploy"));
 
-        if (run.getUpdatedAt() != null) {
-            try { record.setStartedAt(Instant.parse(run.getUpdatedAt())); } catch (Exception ignored) {}
+        Instant startedAt = parseInstant(run.getCreatedAt());
+        Instant completedAt = parseInstant(run.getUpdatedAt());
+        // Fall back so the non-null startedAt column is always satisfied.
+        if (startedAt == null) startedAt = completedAt != null ? completedAt : Instant.now();
+        record.setStartedAt(startedAt);
+        record.setCompletedAt(completedAt);
+        if (completedAt != null && !completedAt.isBefore(startedAt)) {
+            record.setDurationSeconds(java.time.Duration.between(startedAt, completedAt).getSeconds());
         }
-        if (record.getStartedAt() == null) record.setStartedAt(Instant.now());
 
         String previousStatus = existing.map(CicdRunRecord::getStatus).orElse(null);
 
@@ -150,6 +157,15 @@ public class CicdSyncScheduler {
                 && !"failure".equals(previousStatus)
                 && !record.isNotificationSent()) {
             triggerNotification(record);
+        }
+    }
+
+    private Instant parseInstant(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Instant.parse(value);
+        } catch (Exception e) {
+            return null;
         }
     }
 

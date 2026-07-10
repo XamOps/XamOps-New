@@ -13,6 +13,8 @@ export interface KPICardDef {
   displayType: 'currency' | 'count' | 'percent';
   unit?: string;
   recommended?: boolean;
+  /** Route of the page with the card's full data ("View more" target). */
+  link?: string;
 }
 
 export const ALL_KPI_CARDS: KPICardDef[] = [
@@ -23,7 +25,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Total cloud spend from the 1st of the current month to today.',
     icon: 'mdi:currency-usd',
     iconBg: '#6b728014', iconColor: '#6b7280',
-    category: 'Cost', displayType: 'currency', recommended: true,
+    category: 'Cost', displayType: 'currency', recommended: true, link: '/cost',
   },
   {
     id: 'forecast',
@@ -31,7 +33,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Projected end-of-month spend based on current usage trajectory.',
     icon: 'mdi:chart-timeline-variant',
     iconBg: '#6b728014', iconColor: '#6b7280',
-    category: 'Cost', displayType: 'currency', recommended: true,
+    category: 'Cost', displayType: 'currency', recommended: true, link: '/cost',
   },
   {
     id: 'lastMonth',
@@ -39,7 +41,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Total spend for the previous calendar month.',
     icon: 'mdi:calendar-month-outline',
     iconBg: '#6b728014', iconColor: '#6b7280',
-    category: 'Cost', displayType: 'currency', recommended: true,
+    category: 'Cost', displayType: 'currency', recommended: true, link: '/cost',
   },
   {
     id: 'potentialSavings',
@@ -47,7 +49,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Combined savings available from rightsizing, waste, and idle resources.',
     icon: 'mdi:piggy-bank-outline',
     iconBg: '#1BE68B14', iconColor: '#158045',
-    category: 'Cost', displayType: 'currency', recommended: true,
+    category: 'Cost', displayType: 'currency', recommended: true, link: '/rightsizing',
   },
 
   // ── Optimization ──────────────────────────────────────────────────────
@@ -57,7 +59,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Number of active optimization recommendations across all resource types.',
     icon: 'mdi:lightbulb-outline',
     iconBg: '#f59e0b14', iconColor: '#d97706',
-    category: 'Optimization', displayType: 'count', unit: 'items',
+    category: 'Optimization', displayType: 'count', unit: 'items', link: '/rightsizing',
   },
   {
     id: 'ec2Recs',
@@ -65,7 +67,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'EC2 instances that are over-provisioned and can be downsized.',
     icon: 'mdi:server-outline',
     iconBg: '#FF990014', iconColor: '#FF9900',
-    category: 'Optimization', displayType: 'count', unit: 'instances',
+    category: 'Optimization', displayType: 'count', unit: 'instances', link: '/rightsizing',
   },
   {
     id: 'ebsRecs',
@@ -73,7 +75,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Unattached or underutilized EBS volumes that can be cleaned up.',
     icon: 'mdi:harddisk',
     iconBg: '#8b5cf614', iconColor: '#7c3aed',
-    category: 'Optimization', displayType: 'count', unit: 'volumes',
+    category: 'Optimization', displayType: 'count', unit: 'volumes', link: '/waste',
   },
   {
     id: 'lambdaRecs',
@@ -81,7 +83,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Lambda functions with over-allocated memory that can be right-sized.',
     icon: 'mdi:lightning-bolt-outline',
     iconBg: '#3b82f614', iconColor: '#2563eb',
-    category: 'Optimization', displayType: 'count', unit: 'functions',
+    category: 'Optimization', displayType: 'count', unit: 'functions', link: '/rightsizing',
   },
   {
     id: 'totalSavingsPotential',
@@ -89,7 +91,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Cumulative dollar value of all detected savings opportunities.',
     icon: 'mdi:cash-multiple',
     iconBg: '#10b98114', iconColor: '#059669',
-    category: 'Optimization', displayType: 'currency',
+    category: 'Optimization', displayType: 'currency', link: '/rightsizing',
   },
 
   // ── Alerts ────────────────────────────────────────────────────────────
@@ -99,7 +101,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'High-severity alerts that require immediate attention.',
     icon: 'mdi:alert-circle-outline',
     iconBg: '#ef444414', iconColor: '#dc2626',
-    category: 'Alerts', displayType: 'count', unit: 'alerts',
+    category: 'Alerts', displayType: 'count', unit: 'alerts', link: '/alerts',
   },
   {
     id: 'anomalies',
@@ -107,7 +109,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Unusual cost spikes detected by anomaly detection across services.',
     icon: 'mdi:pulse',
     iconBg: '#f9731614', iconColor: '#ea580c',
-    category: 'Alerts', displayType: 'count', unit: 'anomalies',
+    category: 'Alerts', displayType: 'count', unit: 'anomalies', link: '/finops',
   },
 
   // ── Resources ─────────────────────────────────────────────────────────
@@ -117,7 +119,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Sum of all active cloud resources in this account.',
     icon: 'mdi:view-grid-outline',
     iconBg: '#3b82f614', iconColor: '#2563eb',
-    category: 'Resources', displayType: 'count', unit: 'resources',
+    category: 'Resources', displayType: 'count', unit: 'resources', link: '/cloudlist',
   },
   {
     id: 'ec2Count',
@@ -125,7 +127,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Number of currently running EC2 compute instances.',
     icon: 'mdi:server',
     iconBg: '#FF990014', iconColor: '#FF9900',
-    category: 'Resources', displayType: 'count', unit: 'instances',
+    category: 'Resources', displayType: 'count', unit: 'instances', link: '/cloudlist',
   },
   {
     id: 's3Count',
@@ -133,7 +135,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Total number of S3 buckets in this account.',
     icon: 'mdi:bucket-outline',
     iconBg: '#22d3ee14', iconColor: '#0891b2',
-    category: 'Resources', displayType: 'count', unit: 'buckets',
+    category: 'Resources', displayType: 'count', unit: 'buckets', link: '/cloudlist',
   },
   {
     id: 'rdsCount',
@@ -141,7 +143,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Active RDS database instances across all engines.',
     icon: 'mdi:database-outline',
     iconBg: '#527FFF14', iconColor: '#3f60ff',
-    category: 'Resources', displayType: 'count', unit: 'databases',
+    category: 'Resources', displayType: 'count', unit: 'databases', link: '/cloudlist',
   },
   {
     id: 'lambdaCount',
@@ -149,7 +151,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Total deployed Lambda functions in this account.',
     icon: 'mdi:function-variant',
     iconBg: '#8b5cf614', iconColor: '#7c3aed',
-    category: 'Resources', displayType: 'count', unit: 'functions',
+    category: 'Resources', displayType: 'count', unit: 'functions', link: '/cloudlist',
   },
 
   // ── AIOps ─────────────────────────────────────────────────────────────
@@ -159,23 +161,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'AI-detected incidents and anomalies across your infrastructure.',
     icon: 'mdi:robot-outline',
     iconBg: '#a855f714', iconColor: '#9333ea',
-    category: 'AIOps', displayType: 'count', unit: 'incidents',
-  },
-  {
-    id: 'aiopsRemediated',
-    title: 'Auto-Remediated',
-    description: 'Issues automatically resolved by AIOps with no human intervention.',
-    icon: 'mdi:auto-fix',
-    iconBg: '#a855f714', iconColor: '#9333ea',
-    category: 'AIOps', displayType: 'count', unit: 'issues',
-  },
-  {
-    id: 'aiopsPredictions',
-    title: 'Predicted Alerts',
-    description: 'Upcoming incidents predicted by AIOps before they occur.',
-    icon: 'mdi:crystal-ball',
-    iconBg: '#a855f714', iconColor: '#9333ea',
-    category: 'AIOps', displayType: 'count', unit: 'predictions',
+    category: 'AIOps', displayType: 'count', unit: 'incidents', link: '/aiops',
   },
 
   // ── DBOps ─────────────────────────────────────────────────────────────
@@ -185,7 +171,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Database performance problems and optimization opportunities detected.',
     icon: 'mdi:database-alert-outline',
     iconBg: '#0891b214', iconColor: '#0891b2',
-    category: 'DBOps', displayType: 'count', unit: 'issues',
+    category: 'DBOps', displayType: 'count', unit: 'issues', link: '/dataops',
   },
   {
     id: 'dbopsSavings',
@@ -193,7 +179,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Potential monthly savings from database rightsizing and query tuning.',
     icon: 'mdi:database-arrow-down-outline',
     iconBg: '#0891b214', iconColor: '#0891b2',
-    category: 'DBOps', displayType: 'currency',
+    category: 'DBOps', displayType: 'currency', link: '/dataops',
   },
   {
     id: 'dbopsSlowQueries',
@@ -201,25 +187,17 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Database queries exceeding performance thresholds requiring tuning.',
     icon: 'mdi:database-clock-outline',
     iconBg: '#0891b214', iconColor: '#0891b2',
-    category: 'DBOps', displayType: 'count', unit: 'queries',
+    category: 'DBOps', displayType: 'count', unit: 'queries', link: '/dataops',
   },
 
   // ── Platform ──────────────────────────────────────────────────────────
-  {
-    id: 'cloudSpotterSavings',
-    title: 'Cloud Spotter Savings',
-    description: 'Savings identified by Cloud Spotter across your infrastructure.',
-    icon: 'mdi:cloud-search-outline',
-    iconBg: '#0ea5e914', iconColor: '#0284c7',
-    category: 'Platform', displayType: 'currency',
-  },
   {
     id: 'flexComputeInstances',
     title: 'Flex Compute Instances',
     description: 'Flexible spot/preemptible compute instances running at reduced cost.',
     icon: 'mdi:server-network',
     iconBg: '#f9731614', iconColor: '#ea580c',
-    category: 'Platform', displayType: 'count', unit: 'instances',
+    category: 'Platform', displayType: 'count', unit: 'instances', link: '/flex-compute',
   },
   {
     id: 'flexComputeSavings',
@@ -227,7 +205,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Monthly savings achieved through flexible compute instance usage.',
     icon: 'mdi:server-minus',
     iconBg: '#f9731614', iconColor: '#ea580c',
-    category: 'Platform', displayType: 'currency',
+    category: 'Platform', displayType: 'currency', link: '/flex-compute',
   },
   {
     id: 'autoSpottingSavings',
@@ -235,7 +213,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Monthly savings from automatic spot/preemptible instance management.',
     icon: 'mdi:lightning-bolt-outline',
     iconBg: '#22c55e14', iconColor: '#16a34a',
-    category: 'Platform', displayType: 'currency',
+    category: 'Platform', displayType: 'currency', link: '/spot-automation',
   },
   {
     id: 'autoSpottingInstances',
@@ -243,7 +221,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Number of instances managed and optimized by AutoSpotting.',
     icon: 'mdi:lightning-bolt',
     iconBg: '#22c55e14', iconColor: '#16a34a',
-    category: 'Platform', displayType: 'count', unit: 'instances',
+    category: 'Platform', displayType: 'count', unit: 'instances', link: '/spot-automation',
   },
   {
     id: 'diskRightsizing',
@@ -251,7 +229,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Disk and volume rightsizing opportunities to reduce storage costs.',
     icon: 'mdi:harddisk-plus',
     iconBg: '#6366f114', iconColor: '#4f46e5',
-    category: 'Platform', displayType: 'count', unit: 'volumes',
+    category: 'Platform', displayType: 'count', unit: 'volumes', link: '/ebs-rightsizing',
   },
   {
     id: 'diskRightsizingSavings',
@@ -259,7 +237,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Potential monthly savings from disk and volume rightsizing.',
     icon: 'mdi:harddisk-remove',
     iconBg: '#6366f114', iconColor: '#4f46e5',
-    category: 'Platform', displayType: 'currency',
+    category: 'Platform', displayType: 'currency', link: '/ebs-rightsizing',
   },
   {
     id: 'cicdPipelines',
@@ -267,7 +245,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Total active CI/CD pipelines monitored across your infrastructure.',
     icon: 'mdi:pipe',
     iconBg: '#f4336614', iconColor: '#e11d48',
-    category: 'Platform', displayType: 'count', unit: 'pipelines',
+    category: 'Platform', displayType: 'count', unit: 'pipelines', link: '/cicd-pipelines',
   },
   {
     id: 'cicdFailures',
@@ -275,7 +253,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Failed CI/CD pipeline runs that require immediate attention.',
     icon: 'mdi:pipe-disconnected',
     iconBg: '#f4336614', iconColor: '#e11d48',
-    category: 'Platform', displayType: 'count', unit: 'failures',
+    category: 'Platform', displayType: 'count', unit: 'failures', link: '/cicd-pipelines',
   },
   {
     id: 'cicdDeployFrequency',
@@ -283,7 +261,7 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
     description: 'Number of successful deployments in the current period.',
     icon: 'mdi:rocket-launch-outline',
     iconBg: '#f4336614', iconColor: '#e11d48',
-    category: 'Platform', displayType: 'count', unit: 'deploys',
+    category: 'Platform', displayType: 'count', unit: 'deploys', link: '/cicd-pipelines',
   },
 ];
 
@@ -306,9 +284,12 @@ interface KPIManageModalProps {
   onSave: (ids: string[]) => void;
   onClose: () => void;
   cards?: KPICardDef[];
+  /** sessionStorage key for the in-progress selection. When set, an
+   *  unexpected page reload mid-selection restores the draft on reopen. */
+  draftKey?: string;
 }
 
-const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSave, onClose, cards }) => {
+const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSave, onClose, cards, draftKey }) => {
   const [local, setLocal]     = useState<string[]>(selectedIds);
   const [search, setSearch]   = useState('');
   const [tab, setTab]         = useState<'all' | 'selected'>('all');
@@ -316,8 +297,37 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
 
   const cardList = cards || ALL_KPI_CARDS;
 
-  // Sync when modal reopens
-  React.useEffect(() => { if (open) { setLocal(selectedIds); setSearch(''); setTab('all'); setCatFilter('All'); } }, [open, selectedIds]);
+  const clearDraft = () => {
+    if (!draftKey) return;
+    try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
+  };
+
+  // Sync when modal reopens — restore an unsaved draft if one survived a reload
+  React.useEffect(() => {
+    if (!open) return;
+    let draft: string[] | null = null;
+    if (draftKey) {
+      try {
+        const raw = sessionStorage.getItem(draftKey);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (Array.isArray(parsed)) {
+          const valid = parsed.filter((id: unknown): id is string =>
+            typeof id === 'string' && cardList.some(c => c.id === id));
+          if (valid.length > 0) draft = valid;
+        }
+      } catch { /* corrupt draft — fall back to saved selection */ }
+    }
+    setLocal(draft ?? selectedIds);
+    setSearch(''); setTab('all'); setCatFilter('All');
+  }, [open, selectedIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the draft in sync while the modal is open
+  React.useEffect(() => {
+    if (!open || !draftKey) return;
+    try { sessionStorage.setItem(draftKey, JSON.stringify(local)); } catch { /* ignore */ }
+  }, [open, draftKey, local]);
+
+  const handleClose = () => { clearDraft(); onClose(); };
 
   const filtered = useMemo(() => {
     let cards = cardList;
@@ -346,7 +356,7 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
   return ReactDOM.createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={handleClose} />
 
       {/* Modal */}
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col overflow-hidden"
@@ -361,7 +371,7 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
                 Select the metrics you want to see on your dashboard
               </p>
             </div>
-            <button onClick={onClose}
+            <button onClick={handleClose}
               className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[rgba(0,0,0,0.06)] transition-colors text-[rgba(0,0,0,0.4)]">
               <Icon icon="mdi:close" width={18} />
             </button>
@@ -485,12 +495,12 @@ const KPIManageModal: React.FC<KPIManageModalProps> = ({ open, selectedIds, onSa
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={onClose}
+            <button onClick={handleClose}
               className="px-4 py-2 rounded-lg text-[13px] font-medium bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.09)] transition-colors">
               Cancel
             </button>
             <button
-              onClick={() => { onSave(local); onClose(); }}
+              onClick={() => { onSave(local); handleClose(); }}
               disabled={belowMin}
               className={`px-5 py-2 rounded-lg text-[13px] font-semibold transition-colors ${
                 belowMin

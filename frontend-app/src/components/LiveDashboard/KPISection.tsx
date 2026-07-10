@@ -1,4 +1,5 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import type { KPIData, CostHistory, OptimizationData, ResourceInventory } from '../../types/liveDashboard';
 import { fmtMoney } from '../../utils/currency';
@@ -8,6 +9,11 @@ const LS_KEY = (provider: string) =>
   provider === 'GCP' ? 'xamops_kpi_cards_gcp_v1'
   : provider === 'Azure' ? 'xamops_kpi_cards_azure_v1'
   : 'xamops_kpi_cards_v1';
+
+// Session-scoped keys so an unexpected page reload mid-selection doesn't
+// discard the user's in-progress KPI picks: the modal reopens with its draft.
+const MODAL_OPEN_KEY = (provider: string) => `xamops_kpi_modal_open_${provider}`;
+const DRAFT_KEY = (provider: string) => `xamops_kpi_draft_${provider}`;
 
 const loadKpiCards = (provider: string): string[] => {
   try {
@@ -60,6 +66,28 @@ const PROVIDER_OVERRIDES: Record<string, Record<string, Partial<KPICardDef>>> = 
   },
 };
 
+// "View more" targets — swap the AWS route for the provider's variant when one exists
+const PROVIDER_LINKS: Record<string, Record<string, string>> = {
+  GCP: {
+    '/cost':            '/gcp-cost',
+    '/finops':          '/gcp-finops',
+    '/waste':           '/gcp-waste',
+    '/rightsizing':     '/gcp-rightsizing',
+    '/alerts':          '/gcp-alerts',
+    '/dataops':         '/gcp-dataops',
+    '/ebs-rightsizing': '/gcp-disk-rightsizing',
+  },
+  Azure: {
+    '/cost':            '/azure-cost',
+    '/finops':          '/azure-finops',
+    '/waste':           '/azure-waste',
+    '/rightsizing':     '/azure-rightsizing',
+    '/alerts':          '/azure-alerts',
+    '/dataops':         '/azure-dataops',
+    '/ebs-rightsizing': '/azure-disk-rightsizing',
+  },
+};
+
 interface KPISectionProps {
   kpiData: KPIData;
   costHistory?: CostHistory;
@@ -73,13 +101,12 @@ interface KPISectionProps {
 
 // IDs that need live API fetching beyond the main dashboard data
 const EXTENDED_CARD_IDS = new Set([
-  'aiopsIncidents', 'aiopsRemediated', 'aiopsPredictions',
+  'aiopsIncidents',
   'dbopsIssues', 'dbopsSavings', 'dbopsSlowQueries',
   'autoSpottingSavings', 'autoSpottingInstances',
   'flexComputeInstances', 'flexComputeSavings',
   'cicdPipelines', 'cicdFailures', 'cicdDeployFrequency',
   'diskRightsizing', 'diskRightsizingSavings',
-  'cloudSpotterSavings',
 ]);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -245,17 +272,28 @@ const KPICard: React.FC<KPICardProps> = ({ def, rawValue, change, changeLabel, t
         )}
 
         {/* Badge row */}
-        <div className="flex items-center gap-2">
-          {showBadge && (
-            <span className={`inline-flex items-center gap-0.5 text-[11px] font-bold ${isGood ? 'text-[#158045]' : 'text-[#DC2626]'}`}>
-              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3}
-                  d={isGood ? "M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" : "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"} />
-              </svg>
-              {badgeText}
-            </span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            {showBadge && (
+              <span className={`inline-flex items-center gap-0.5 text-[11px] font-bold flex-shrink-0 ${isGood ? 'text-[#158045]' : 'text-[#DC2626]'}`}>
+                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3}
+                    d={isGood ? "M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" : "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"} />
+                </svg>
+                {badgeText}
+              </span>
+            )}
+            <span className="text-[11px] text-[rgba(0,0,0,0.35)] truncate">{changeLabel}</span>
+          </div>
+          {def.link && (
+            <Link
+              to={def.link}
+              className="inline-flex items-center gap-0.5 text-[10.5px] font-semibold whitespace-nowrap flex-shrink-0 hover:opacity-70 transition-opacity"
+              style={{ color: def.iconColor }}
+            >
+              View more <Icon icon="mdi:arrow-right" width={10} />
+            </Link>
           )}
-          <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{changeLabel}</span>
         </div>
       </div>
     </div>
@@ -265,14 +303,26 @@ const KPICard: React.FC<KPICardProps> = ({ def, rawValue, change, changeLabel, t
 // ── KPI Section ───────────────────────────────────────────────────────────────
 const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimization, resourceInventory, isLoading, provider = 'AWS', accountId, headerAction }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>(() => loadKpiCards(provider));
-  const [manageOpen, setManageOpen]   = useState(false);
+  const [manageOpen, setManageOpen]   = useState(() => {
+    try { return sessionStorage.getItem(MODAL_OPEN_KEY(provider)) === '1'; } catch { return false; }
+  });
   const [extValues, setExtValues]     = useState<Record<string, number>>({});
 
+  const openManage = (open: boolean) => {
+    setManageOpen(open);
+    try {
+      if (open) sessionStorage.setItem(MODAL_OPEN_KEY(provider), '1');
+      else sessionStorage.removeItem(MODAL_OPEN_KEY(provider));
+    } catch { /* sessionStorage unavailable */ }
+  };
+
   const providerOverrides = PROVIDER_OVERRIDES[provider] || {};
+  const providerLinks = PROVIDER_LINKS[provider] || {};
   const activeCards: KPICardDef[] = useMemo(() =>
     ALL_KPI_CARDS.map(card => ({
       ...card,
       ...(providerOverrides[card.id] || {}),
+      link: card.link ? (providerLinks[card.link] || card.link) : undefined,
     })),
   [provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -433,10 +483,6 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
       // ── AIOps ──────────────────────────────────────────────────────────
       case 'aiopsIncidents':
         return { value: extValues.aiopsIncidents ?? 0, change: 0, changeLabel: 'detected incidents', trendData: [] };
-      case 'aiopsRemediated':
-        return { value: extValues.aiopsRemediated ?? 0, change: 0, changeLabel: 'auto-resolved issues', trendData: [] };
-      case 'aiopsPredictions':
-        return { value: extValues.aiopsPredictions ?? 0, change: 0, changeLabel: 'upcoming alerts predicted', trendData: [] };
 
       // ── DBOps ──────────────────────────────────────────────────────────
       case 'dbopsIssues':
@@ -447,8 +493,6 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
         return { value: extValues.dbopsSlowQueries ?? 0, change: 0, changeLabel: 'slow queries detected', trendData: [] };
 
       // ── Platform ───────────────────────────────────────────────────────
-      case 'cloudSpotterSavings':
-        return { value: extValues.cloudSpotterSavings ?? 0, change: 0, changeLabel: 'identified by Cloud Spotter', trendData: [] };
       case 'flexComputeInstances':
         return { value: extValues.flexComputeInstances ?? 0, change: 0, changeLabel: 'flex instances active', trendData: [] };
       case 'flexComputeSavings':
@@ -485,6 +529,19 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
     localStorage.setItem(LS_KEY(provider), JSON.stringify(ids));
   };
 
+  // Rendered in both branches below so a loading flicker (e.g. dashboard
+  // auto-refresh) never unmounts an open modal mid-selection.
+  const manageModal = (
+    <KPIManageModal
+      open={manageOpen}
+      selectedIds={selectedIds}
+      onSave={handleSave}
+      onClose={() => openManage(false)}
+      cards={activeCards}
+      draftKey={DRAFT_KEY(provider)}
+    />
+  );
+
   if (isLoading) {
     return (
       <div>
@@ -501,6 +558,7 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
             </div>
           ))}
         </div>
+        {manageModal}
       </div>
     );
   }
@@ -518,7 +576,7 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
         <div className="flex items-center gap-2">
           {headerAction}
           <button
-            onClick={() => setManageOpen(true)}
+            onClick={() => openManage(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[rgba(0,0,0,0.8)] transition-colors"
           >
             <Icon icon="mdi:view-dashboard-edit-outline" width={13} />
@@ -547,13 +605,7 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
       </div>
 
       {/* Manage modal */}
-      <KPIManageModal
-        open={manageOpen}
-        selectedIds={selectedIds}
-        onSave={handleSave}
-        onClose={() => setManageOpen(false)}
-        cards={activeCards}
-      />
+      {manageModal}
     </>
   );
 };

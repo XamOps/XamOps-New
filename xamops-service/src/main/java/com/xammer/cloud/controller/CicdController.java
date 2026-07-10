@@ -75,6 +75,7 @@ public class CicdController {
 
         List<GitHubWorkflowRunDto> allRuns = new ArrayList<>();
         int authFailures = 0;
+        int repoNotFound = 0;
 
         for (GitHubIntegrationConfig config : configs) {
             String decryptedPat = encryptionService.decrypt(config.getEncryptedPat());
@@ -98,6 +99,10 @@ public class CicdController {
                 logger.warn("GitHub token invalid for repo {}/{}: {}",
                         config.getGithubOwner(), config.getGithubRepo(), e.getMessage());
                 authFailures++;
+            } catch (com.xammer.cloud.exception.GithubRepoNotFoundException e) {
+                logger.warn("GitHub repository not accessible {}/{}: {}",
+                        config.getGithubOwner(), config.getGithubRepo(), e.getMessage());
+                repoNotFound++;
             } catch (Exception e) {
                 logger.error("Unexpected error fetching runs for repo {}/{}: {}",
                         config.getGithubOwner(), config.getGithubRepo(), e.getMessage(), e);
@@ -131,16 +136,20 @@ public class CicdController {
                 });
         }
 
-        logger.info("Returning {} total GitHub workflow runs for the user ({} repo(s) failed authentication).",
-                allRuns.size(), authFailures);
+        logger.info("Returning {} total GitHub workflow runs for the user ({} auth failure(s), {} repo(s) not found).",
+                allRuns.size(), authFailures, repoNotFound);
 
-        // Surface token/auth failures to the UI via a response header so the page can
-        // show a "reconnect your GitHub token" banner instead of a misleading empty state.
-        // Kept as HTTP 200 (not 401) to avoid tripping the global session-expiry handler.
+        // Surface connection problems to the UI via response headers so the page can show a
+        // helpful banner instead of a misleading empty state. Kept as HTTP 200 (not 401/404)
+        // to avoid tripping the global session-expiry handler in the frontend api client.
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
         if (authFailures > 0) {
             builder.header("X-Github-Auth-Error", "true");
             builder.header("X-Github-Auth-Failed-Count", String.valueOf(authFailures));
+        }
+        if (repoNotFound > 0) {
+            builder.header("X-Github-Repo-Error", "true");
+            builder.header("X-Github-Repo-Error-Count", String.valueOf(repoNotFound));
         }
         return builder.body(allRuns);
     }

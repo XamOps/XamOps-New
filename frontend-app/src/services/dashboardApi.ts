@@ -227,6 +227,12 @@ export const fetchAllGranularData = async (
     const criticalAlertsCount = optimizationSummary.criticalAlertsCount ||
                                  optimizationSummary.criticalAlerts || 0;
 
+    // The backend OptimizationSummary DTO carries no recommendation counts —
+    // derive them from the recommendation arrays in the same payload.
+    const ec2Recommendations = optimizationData.ec2Recommendations || [];
+    const ebsRecommendations = optimizationData.ebsRecommendations || [];
+    const lambdaRecommendations = optimizationData.lambdaRecommendations || [];
+
     const dashboardData = {
       accountId: accountId,
       accountName: '', // Will be filled from account context
@@ -242,17 +248,17 @@ export const fetchAllGranularData = async (
       costHistory: costData.costHistory,
       optimization: {
         summary: {
-          totalRecommendations: optimizationSummary.totalRecommendations || 0,
+          totalRecommendations: ec2Recommendations.length + ebsRecommendations.length + lambdaRecommendations.length,
           totalPotentialSavings: totalPotentialSavings,
           criticalAlerts: criticalAlertsCount,
-          ec2RecommendationCount: optimizationSummary.ec2RecommendationCount || 0,
-          ebsRecommendationCount: optimizationSummary.ebsRecommendationCount || 0,
-          lambdaRecommendationCount: optimizationSummary.lambdaRecommendationCount || 0,
+          ec2RecommendationCount: ec2Recommendations.length,
+          ebsRecommendationCount: ebsRecommendations.length,
+          lambdaRecommendationCount: lambdaRecommendations.length,
         },
         anomalies: optimizationData.costAnomalies || [],
-        ec2Recommendations: optimizationData.ec2Recommendations || [],
-        ebsRecommendations: optimizationData.ebsRecommendations || [],
-        lambdaRecommendations: optimizationData.lambdaRecommendations || [],
+        ec2Recommendations,
+        ebsRecommendations,
+        lambdaRecommendations,
       },
       billingSummary: costData.billingSummary,
       lastUpdated: (kpiRes as any).lastUpdated || new Date().toISOString(),

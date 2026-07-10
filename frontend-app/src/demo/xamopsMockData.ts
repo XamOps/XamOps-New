@@ -3,6 +3,7 @@
  */
 
 import type { Account } from '../types/account';
+import type { FlexComputeCapacity } from '../types/flexCompute';
 
 // ─── /api/xamops/account-manager/accounts ────────────────────────────────────
 export const demoAccounts: Account[] = [
@@ -2414,3 +2415,243 @@ export const demoAzureProwlerFindings = [
   { status_code: 'FAIL', severity: 'medium',   finding_info: { title: 'Network Security Groups should not allow unrestricted inbound SSH', desc: 'NSG rule allows inbound SSH (port 22) from any source (0.0.0.0/0).' },        resources: [{ uid: 'nsg-prod-eastus', region: 'eastus' }],                unmapped: { compliance: { CIS: ['6.2'], SOC2: ['CC6.6'], 'PCI-DSS': ['1.2.1'] } } },
   { status_code: 'FAIL', severity: 'low',      finding_info: { title: 'Azure Key Vault should have purge protection enabled', desc: 'Key Vault xammer-prod-kv does not have purge protection — keys can be permanently deleted.' }, resources: [{ uid: 'xammer-prod-kv', region: 'eastus' }],                unmapped: { compliance: { CIS: ['8.1'], SOC2: ['A1.2'], NIST: ['SC-12'] } } },
 ];
+
+// ─── Flex Compute / CloudiDR (/api/flexcompute/*) ─────────────────────────────
+// linked-accounts must expose accountId values matching the demo sidebar AWS
+// accounts (demo-aws-001 / demo-aws-002) so FlexComputePage's account filter
+// keeps the capacities. Capacity `accountName` must match the linked account
+// name for the page-level filtering + KPI aggregation to include them.
+export const demoFlexComputeLinkedAccounts = [
+  {
+    accountId: 'demo-aws-001',
+    accountName: 'Xammer Production',
+    provider: 'AWS',
+    status: 'ACTIVE',
+    linkedAt: new Date(Date.now() - 90 * 86400_000).toISOString(),
+    accountRegions: ['us-east-1', 'us-west-2', 'eu-west-1'],
+  },
+  {
+    accountId: 'demo-aws-002',
+    accountName: 'Xammer Staging',
+    provider: 'AWS',
+    status: 'ACTIVE',
+    linkedAt: new Date(Date.now() - 60 * 86400_000).toISOString(),
+    accountRegions: ['us-east-1', 'ap-south-1'],
+  },
+];
+
+const nowMs = Date.now();
+const iso = (offsetDays: number) => new Date(nowMs + offsetDays * 86400_000).toISOString();
+
+export const demoFlexComputeCapacities: FlexComputeCapacity[] = [
+  {
+    id: 'cidr-demo-0001a2b3c4d5e6f7',
+    name: 'prod-batch-render-fleet',
+    accountName: 'Xammer Production',
+    policyStatus: 'ACTIVE',
+    instanceState: 'Running',
+    policyOperatingState: 'ACTIVE',
+    instanceType: 'c5.4xlarge',
+    quantities: 4,
+    regionZoneId: 'us-east-1/us-east-1a',
+    estimatedSavings: 1284.60,
+    totalSavings: 1284.60,
+    totalCost: 3853.80,
+    totalUsageHours: 720,
+    remainingHours: 168,
+    consumptionPercent: 81,
+    startDate: iso(-25),
+    endDate: iso(7),
+    autoRenewal: true,
+    vcpu: 16,
+    memory: 32,
+    platform: 'Linux/UNIX',
+    tenancy: 'Shared',
+    region: 'us-east-1',
+    zoneId: 'us-east-1a',
+    ourPrice: 3853.80,
+    awsPrice: 5138.40,
+    savingsPercent: 25,
+    vpc: 'vpc-0a1b2c3d',
+    securityGroups: 'sg-0render01',
+    amiImage: 'ami-0c94855ba95c71c99',
+    sshPairKey: 'prod-render-key',
+    ebsVolumeSize: 100,
+    frequency: 'one-month',
+    createdDate: iso(-25),
+    activityLog: [
+      { createdDate: iso(-25), message: 'Capacity purchased and provisioned' },
+      { createdDate: iso(-25), message: 'Instances launched successfully' },
+    ],
+  },
+  {
+    id: 'cidr-demo-0002b3c4d5e6f708',
+    name: 'ml-training-gpu-run',
+    accountName: 'Xammer Production',
+    policyStatus: 'ACTIVE',
+    instanceState: 'Running',
+    policyOperatingState: 'ACTIVE',
+    instanceType: 'g5.24xlarge',
+    quantities: 2,
+    regionZoneId: 'us-west-2/us-west-2b',
+    estimatedSavings: 4820.00,
+    totalSavings: 4820.00,
+    totalCost: 14460.00,
+    totalUsageHours: 336,
+    remainingHours: 96,
+    consumptionPercent: 71,
+    startDate: iso(-14),
+    endDate: iso(4),
+    autoRenewal: false,
+    vcpu: 96,
+    memory: 384,
+    platform: 'Linux/UNIX',
+    tenancy: 'Shared',
+    region: 'us-west-2',
+    zoneId: 'us-west-2b',
+    ourPrice: 14460.00,
+    awsPrice: 19280.00,
+    savingsPercent: 25,
+    vpc: 'vpc-0d4e5f6a',
+    securityGroups: 'sg-0mltrain02',
+    amiImage: 'ami-0e2c8caa62fdb1c6f',
+    sshPairKey: 'ml-training-key',
+    ebsVolumeSize: 500,
+    frequency: 'one-week',
+    createdDate: iso(-14),
+    activityLog: [
+      { createdDate: iso(-14), message: 'Capacity purchased and provisioned' },
+    ],
+  },
+  {
+    id: 'cidr-demo-0003c4d5e6f70819',
+    name: 'staging-loadtest-cluster',
+    accountName: 'Xammer Staging',
+    policyStatus: 'COMPLETED',
+    instanceState: 'Stopped',
+    policyOperatingState: 'COMPLETED',
+    instanceType: 'm6i.2xlarge',
+    quantities: 6,
+    regionZoneId: 'us-east-1/us-east-1c',
+    estimatedSavings: 946.20,
+    totalSavings: 946.20,
+    totalCost: 2838.60,
+    totalUsageHours: 480,
+    remainingHours: 0,
+    consumptionPercent: 100,
+    startDate: iso(-40),
+    endDate: iso(-8),
+    autoRenewal: false,
+    vcpu: 8,
+    memory: 32,
+    platform: 'Linux/UNIX',
+    tenancy: 'Shared',
+    region: 'us-east-1',
+    zoneId: 'us-east-1c',
+    ourPrice: 2838.60,
+    awsPrice: 3784.80,
+    savingsPercent: 25,
+    vpc: 'vpc-0f7a8b9c',
+    securityGroups: 'sg-0loadtest3',
+    amiImage: 'ami-0c94855ba95c71c99',
+    sshPairKey: 'staging-key',
+    ebsVolumeSize: 50,
+    frequency: 'one-month',
+    createdDate: iso(-40),
+    activityLog: [
+      { createdDate: iso(-40), message: 'Capacity purchased and provisioned' },
+      { createdDate: iso(-8),  message: 'Capacity completed and released' },
+    ],
+  },
+  {
+    id: 'cidr-demo-0004d5e6f7081920',
+    name: 'prod-api-burst-capacity',
+    accountName: 'Xammer Production',
+    policyStatus: 'READY_FOR_PURCHASE',
+    instanceState: 'Pending',
+    policyOperatingState: 'READY_FOR_PURCHASE',
+    instanceType: 'c5.2xlarge',
+    quantities: 3,
+    regionZoneId: 'eu-west-1/eu-west-1a',
+    estimatedSavings: 612.90,
+    totalSavings: 0,
+    totalCost: 1838.70,
+    totalUsageHours: 0,
+    remainingHours: 360,
+    consumptionPercent: 0,
+    startDate: iso(2),
+    endDate: iso(17),
+    autoRenewal: false,
+    vcpu: 8,
+    memory: 16,
+    platform: 'Linux/UNIX',
+    tenancy: 'Shared',
+    region: 'eu-west-1',
+    zoneId: 'eu-west-1a',
+    ourPrice: 1838.70,
+    awsPrice: 2451.60,
+    savingsPercent: 25,
+    frequency: 'one-month',
+    createdDate: iso(-1),
+    activityLog: [
+      { createdDate: iso(-1), message: 'Capacity reserved — awaiting purchase confirmation' },
+    ],
+  },
+  {
+    id: 'cidr-demo-0005e6f708192031',
+    name: 'staging-nightly-etl',
+    accountName: 'Xammer Staging',
+    policyStatus: 'EXPIRED',
+    instanceState: 'Terminated',
+    policyOperatingState: 'EXPIRED_NOT_PURCHASED',
+    instanceType: 'm6i.large',
+    quantities: 2,
+    regionZoneId: 'ap-south-1/ap-south-1a',
+    estimatedSavings: 214.80,
+    totalSavings: 0,
+    totalCost: 644.40,
+    totalUsageHours: 0,
+    remainingHours: 0,
+    consumptionPercent: 0,
+    startDate: iso(-30),
+    endDate: iso(-2),
+    autoRenewal: false,
+    vcpu: 2,
+    memory: 8,
+    platform: 'Linux/UNIX',
+    tenancy: 'Shared',
+    region: 'ap-south-1',
+    zoneId: 'ap-south-1a',
+    ourPrice: 644.40,
+    awsPrice: 859.20,
+    savingsPercent: 25,
+    frequency: 'one-week',
+    createdDate: iso(-30),
+    activityLog: [
+      { createdDate: iso(-30), message: 'Capacity reserved' },
+      { createdDate: iso(-2),  message: 'Reservation expired without purchase' },
+    ],
+  },
+];
+
+/**
+ * Builds the paginated CloudiDR capacity response the frontend hook expects
+ * ({ data, totalElements, totalPageNumbers }). Optionally filters by status
+ * so the dashboard status pills behave like production.
+ */
+export function buildDemoFlexComputeCapacityResponse(
+  statuses?: string[],
+  page = 1,
+  pageSize = 10,
+) {
+  let items = demoFlexComputeCapacities;
+  if (statuses && statuses.length > 0) {
+    const wanted = new Set(statuses.map((s) => s.toUpperCase()));
+    items = items.filter((c) => wanted.has((c.policyStatus || '').toUpperCase()));
+  }
+  const totalElements = items.length;
+  const totalPageNumbers = Math.max(1, Math.ceil(totalElements / pageSize));
+  const start = (page - 1) * pageSize;
+  const data = items.slice(start, start + pageSize);
+  return { data, totalElements, totalPageNumbers, total: totalElements };
+}
