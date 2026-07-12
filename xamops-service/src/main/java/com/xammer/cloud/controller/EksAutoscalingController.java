@@ -3,16 +3,22 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.EksAutoscalingService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * EksAutoscalingController
@@ -39,11 +45,14 @@ public class EksAutoscalingController {
 
     private final EksAutoscalingService autoscalingService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
+    private final CloudAccountRepository cloudAccountRepository;
 
     public EksAutoscalingController(EksAutoscalingService autoscalingService,
-                                    KubernetesClusterConfigRepository clusterConfigRepository) {
+                                    KubernetesClusterConfigRepository clusterConfigRepository,
+                                    CloudAccountRepository cloudAccountRepository) {
         this.autoscalingService = autoscalingService;
         this.clusterConfigRepository = clusterConfigRepository;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -54,6 +63,28 @@ public class EksAutoscalingController {
 
     private static Map<String, Object> err(String message) {
         return Map.of("success", false, "message", message);
+    }
+
+    /**
+     * IDOR Protection: Verifies that the authenticated user owns the requested cloud account
+     * or is a SuperAdmin.
+     */
+    private void validateAccountOwnership(Long cloudAccountId) {
+        ClientUserDetails principal = SecurityUtils.getPrincipal();
+        if (SecurityUtils.isSuperAdmin()) {
+            return;
+        }
+
+        String awsAccountIdPadded = String.format("%012d", cloudAccountId);
+        Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAwsAccountIdAndClientId(
+                awsAccountIdPadded, principal.getClientId());
+
+        if (accountOpt.isEmpty()) {
+            logger.warn("IDOR attempt detected: user {} (clientId: {}) tried to access cloud account {}",
+                    principal.getUsername(), principal.getClientId(), cloudAccountId);
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "You do not have permission to access this cloud account.");
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -78,6 +109,7 @@ public class EksAutoscalingController {
 
         try {
             Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
             AutoscalerDashboardDto dto =
                     autoscalingService.getDashboard(clusterName, cloudAccountId, region);
 
@@ -88,6 +120,8 @@ public class EksAutoscalingController {
 
         } catch (NumberFormatException e) {
             return ResponseEntity.badRequest().body(err("accountId must be a number"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e; // Handled by Spring Security / GlobalExceptionHandler
         } catch (Exception e) {
             logger.error("Error getting autoscaling dashboard for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -109,8 +143,12 @@ public class EksAutoscalingController {
 
         logger.info("PUT scale-out-policy: cluster={} account={}", clusterName, accountId);
         try {
-            autoscalingService.saveScaleOutPolicy(clusterName, Long.parseLong(accountId), policy);
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.saveScaleOutPolicy(clusterName, cloudAccountId, policy);
             return ResponseEntity.ok(ok("Scale-Out policy saved"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error saving scale-out-policy for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -128,8 +166,12 @@ public class EksAutoscalingController {
 
         logger.info("PUT evictor-policy: cluster={} account={}", clusterName, accountId);
         try {
-            autoscalingService.saveEvictorPolicy(clusterName, Long.parseLong(accountId), policy);
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.saveEvictorPolicy(clusterName, cloudAccountId, policy);
             return ResponseEntity.ok(ok("Evictor policy saved"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error saving evictor-policy for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -147,8 +189,12 @@ public class EksAutoscalingController {
 
         logger.info("PUT workload-rightsizer: cluster={} account={}", clusterName, accountId);
         try {
-            autoscalingService.saveWorkloadRightsizerPolicy(clusterName, Long.parseLong(accountId), policy);
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.saveWorkloadRightsizerPolicy(clusterName, cloudAccountId, policy);
             return ResponseEntity.ok(ok("Workload Rightsizer policy saved"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error saving workload-rightsizer for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -166,8 +212,12 @@ public class EksAutoscalingController {
 
         logger.info("PUT safety-guards: cluster={} account={}", clusterName, accountId);
         try {
-            autoscalingService.saveSafetyGuards(clusterName, Long.parseLong(accountId), guards);
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.saveSafetyGuards(clusterName, cloudAccountId, guards);
             return ResponseEntity.ok(ok("Safety Guards saved"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error saving safety-guards for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -186,8 +236,12 @@ public class EksAutoscalingController {
 
         logger.info("PUT node-template {}: cluster={} account={}", templateId, clusterName, accountId);
         try {
-            autoscalingService.saveNodeTemplate(clusterName, Long.parseLong(accountId), templateId, template);
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.saveNodeTemplate(clusterName, cloudAccountId, templateId, template);
             return ResponseEntity.ok(ok("Node template saved"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error saving node-template {} for cluster {}: {}", templateId, clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -205,8 +259,12 @@ public class EksAutoscalingController {
 
         logger.info("DELETE node-template {}: cluster={} account={}", templateId, clusterName, accountId);
         try {
-            autoscalingService.deleteNodeTemplate(clusterName, Long.parseLong(accountId), templateId);
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.deleteNodeTemplate(clusterName, cloudAccountId, templateId);
             return ResponseEntity.ok(ok("Node template deleted"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error deleting node-template {} for cluster {}: {}", templateId, clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -224,8 +282,12 @@ public class EksAutoscalingController {
 
         logger.info("PUT node-optimizer: cluster={} account={}", clusterName, accountId);
         try {
-            autoscalingService.saveNodeOptimizerPolicy(clusterName, Long.parseLong(accountId), policy);
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.saveNodeOptimizerPolicy(clusterName, cloudAccountId, policy);
             return ResponseEntity.ok(ok("Node Optimizer policy saved"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error saving node-optimizer for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -243,8 +305,12 @@ public class EksAutoscalingController {
 
         logger.info("PUT rebalancer: cluster={} account={}", clusterName, accountId);
         try {
-            autoscalingService.saveRebalancerConfig(clusterName, Long.parseLong(accountId), config);
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.saveRebalancerConfig(clusterName, cloudAccountId, config);
             return ResponseEntity.ok(ok("Rebalancer config saved"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error saving rebalancer for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -268,8 +334,12 @@ public class EksAutoscalingController {
             return ResponseEntity.badRequest().body(err("mode must be one of: full, scoped, disabled"));
         }
         try {
-            autoscalingService.setMode(clusterName, Long.parseLong(accountId), mode);
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.setMode(clusterName, cloudAccountId, mode);
             return ResponseEntity.ok(ok("Autoscaler mode set to: " + mode));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error setting mode for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -293,8 +363,12 @@ public class EksAutoscalingController {
 
         logger.info("POST rebalance: cluster={} account={}", clusterName, accountId);
         try {
-            autoscalingService.triggerRebalance(clusterName, Long.parseLong(accountId));
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
+            autoscalingService.triggerRebalance(clusterName, cloudAccountId);
             return ResponseEntity.ok(ok("Rebalance triggered — agent will execute on next sync"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error triggering rebalance for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -323,6 +397,7 @@ public class EksAutoscalingController {
 
         try {
             Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
             var configOpt = clusterConfigRepository.findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
             if (configOpt.isEmpty()) {
                 return ResponseEntity.notFound().build();
@@ -331,6 +406,8 @@ public class EksAutoscalingController {
             return ResponseEntity.ok(ok("Autoscaling " + (enabled ? "enabled" : "disabled")));
         } catch (NumberFormatException e) {
             return ResponseEntity.badRequest().body(err("accountId must be a number"));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (IllegalArgumentException | IllegalStateException e) {
             logger.error("Error setting autoscaling enabled for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
@@ -357,11 +434,15 @@ public class EksAutoscalingController {
 
         logger.debug("GET rightsizing: cluster={} account={}", clusterName, accountId);
         try {
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
             WorkloadRightsizingDto dto = autoscalingService.getRightsizingData(
-                    clusterName, Long.parseLong(accountId));
+                    clusterName, cloudAccountId);
             return ResponseEntity.ok(dto);
         } catch (NumberFormatException e) {
             return ResponseEntity.badRequest().build();
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error getting rightsizing for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().build();
@@ -380,11 +461,15 @@ public class EksAutoscalingController {
 
         logger.debug("GET rebalance-status: cluster={} account={}", clusterName, accountId);
         try {
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
             Map<String, Object> status = autoscalingService.getRebalanceStatus(
-                    clusterName, Long.parseLong(accountId));
+                    clusterName, cloudAccountId);
             return ResponseEntity.ok(status);
         } catch (NumberFormatException e) {
             return ResponseEntity.badRequest().build();
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error getting rebalance status for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().build();
@@ -404,11 +489,15 @@ public class EksAutoscalingController {
 
         logger.debug("GET node-fleet: cluster={} account={}", clusterName, accountId);
         try {
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
             Map<String, Object> report = autoscalingService.getNodeFleetReport(
-                    clusterName, Long.parseLong(accountId));
+                    clusterName, cloudAccountId);
             return ResponseEntity.ok(report);
         } catch (NumberFormatException e) {
             return ResponseEntity.badRequest().build();
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error getting node-fleet for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().build();
@@ -427,11 +516,15 @@ public class EksAutoscalingController {
 
         logger.debug("GET evictor-candidates: cluster={} account={}", clusterName, accountId);
         try {
+            Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
             List<Map<String, Object>> candidates = autoscalingService.getEvictorCandidates(
-                    clusterName, Long.parseLong(accountId));
+                    clusterName, cloudAccountId);
             return ResponseEntity.ok(candidates);
         } catch (NumberFormatException e) {
             return ResponseEntity.badRequest().build();
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error getting evictor candidates for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().build();
