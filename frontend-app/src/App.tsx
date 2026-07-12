@@ -527,7 +527,8 @@ const AppContent: React.FC = () => {
                             <Route path="/gke-details" element={<GkeDetailsPage />} />
                             <Route path="/aks-details" element={<AksDetailsPage />} />
                             <Route path="/security" element={<SecurityPage />} />
-                            <Route path="/xamsecure" element={<XamSecurePage />} />
+                            <Route path="/xamsecure" element={<Navigate to="/xamsecure/issues" replace />} />
+                            <Route path="/xamsecure/:tab" element={<XamSecurePage />} />
                             <Route path="/gcp-security" element={<GcpSecurityPage />} />
                             <Route path="/azure-security" element={<AzureSecurityPage />} />
                             <Route path="/performance" element={<PerformancePage />} />

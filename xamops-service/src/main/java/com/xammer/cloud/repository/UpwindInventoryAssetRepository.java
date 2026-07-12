@@ -25,6 +25,12 @@ public interface UpwindInventoryAssetRepository extends JpaRepository<UpwindInve
            "WHERE a.cloudAccountId IN :accountIds AND a.status = 'ACTIVE' GROUP BY a.assetCategory")
     List<Object[]> countByCategory(@Param("accountIds") List<String> accountIds);
 
+    @Query("SELECT a.assetSubCategory, COUNT(a) FROM UpwindInventoryAsset a " +
+           "WHERE a.cloudAccountId IN :accountIds AND a.status = 'ACTIVE' AND a.assetCategory = :category " +
+           "GROUP BY a.assetSubCategory")
+    List<Object[]> countBySubCategory(@Param("accountIds") List<String> accountIds,
+                                      @Param("category") String category);
+
     @Modifying
     @Query("UPDATE UpwindInventoryAsset a SET a.status = 'RESOLVED' " +
            "WHERE a.syncedAt < :runStart AND a.status <> 'RESOLVED'")

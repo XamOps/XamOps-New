@@ -3,13 +3,19 @@ import apiClient from '../utils/apiClient';
 import type {
   XamSecureSummary, ThreatDetection, VulnerabilityFinding, PostureFinding,
   ComplianceFramework, OnboardingAccount, PageResp, InventoryAsset, ApiEndpoint,
+  IssueSummary, IssueDetail, ThreatStoriesSummary, InventoryCategory, NetworkTopology,
+  AttackSurfaceSummary, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
 } from '../types/xamsecure';
 
 const CACHE_DURATION = 30 * 60 * 1000; // 30 min for scan-based tabs
 const THREAT_POLL_MS = 60 * 1000;      // runtime feed
 
+// Bump this version whenever a cached response's shape changes, so stale
+// localStorage entries miss and refetch instead of masking new fields.
+const CACHE_VERSION = 'v2';
+
 export function xamSecureCacheKey(section: string, accountId: string | null): string {
-  return `xamsecure_${section}_${accountId ?? 'all'}`;
+  return `xamsecure_${CACHE_VERSION}_${section}_${accountId ?? 'all'}`;
 }
 
 function loadCache<T>(key: string): T | null {
@@ -35,12 +41,19 @@ interface UseXamSecureDataParams {
 
 export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureDataParams) => {
   const [summary, setSummary] = useState<XamSecureSummary | null>(null);
+  const [issues, setIssues] = useState<IssueSummary[] | null>(null);
+  const [attackSurface, setAttackSurface] = useState<AttackSurfaceSummary | null>(null);
   const [threats, setThreats] = useState<PageResp<ThreatDetection> | null>(null);
   const [vulnerabilities, setVulnerabilities] = useState<PageResp<VulnerabilityFinding> | null>(null);
+  const [vulnDashboard, setVulnDashboard] = useState<VulnerabilityDashboard | null>(null);
+  const [vulnByCve, setVulnByCve] = useState<PageResp<CveGroupRow> | null>(null);
   const [posture, setPosture] = useState<PageResp<PostureFinding> | null>(null);
   const [inventory, setInventory] = useState<PageResp<InventoryAsset> | null>(null);
+  const [inventoryCategories, setInventoryCategories] = useState<InventoryCategory[] | null>(null);
+  const [networkTopology, setNetworkTopology] = useState<NetworkTopology | null>(null);
   const [compliance, setCompliance] = useState<ComplianceFramework[] | null>(null);
   const [apiSecurity, setApiSecurity] = useState<ApiEndpoint[] | null>(null);
+  const [stories, setStories] = useState<ThreatStoriesSummary | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingAccount[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const pollRef = useRef<number | null>(null);
@@ -59,11 +72,72 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     saveCache(key, data);
   }, [acct, selectedAccountId]);
 
+  const loadIssues = useCallback(async (severity = '', force = false) => {
+    const key = xamSecureCacheKey(`issues_${severity}`, selectedAccountId);
+    if (!force) {
+      const cached = loadCache<IssueSummary[]>(key);
+      if (cached) { setIssues(cached); return; }
+    }
+    const data = await apiClient.get<IssueSummary[]>(
+      `/api/xamsecure/issues?${acct}${severity ? `severity=${severity}` : ''}`);
+    setIssues(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
+  const loadAttackSurface = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('attack_surface', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<AttackSurfaceSummary>(key);
+      if (cached) { setAttackSurface(cached); return; }
+    }
+    const data = await apiClient.get<AttackSurfaceSummary>(`/api/xamsecure/attack-surface?${acct}`);
+    setAttackSurface(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
+  const loadIssueDetail = useCallback(async (check: string): Promise<IssueDetail> => {
+    return apiClient.get<IssueDetail>(
+      `/api/xamsecure/issues/detail?${acct}check=${encodeURIComponent(check)}`);
+  }, [acct]);
+
+  const loadStories = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('stories', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<ThreatStoriesSummary>(key);
+      if (cached) { setStories(cached); return; }
+    }
+    const data = await apiClient.get<ThreatStoriesSummary>(`/api/xamsecure/stories?${acct}`);
+    setStories(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
   const loadThreats = useCallback(async (page = 0, severity = '') => {
     threatPageRef.current = page;
     const data = await apiClient.get<PageResp<ThreatDetection>>(
       `/api/xamsecure/threats?${acct}page=${page}&size=50${severity ? `&severity=${severity}` : ''}`);
     setThreats(data);
+  }, [acct]);
+
+  const loadVulnDashboard = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('vuln_dashboard', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<VulnerabilityDashboard>(key);
+      if (cached) { setVulnDashboard(cached); return; }
+    }
+    const data = await apiClient.get<VulnerabilityDashboard>(`/api/xamsecure/vulnerabilities/dashboard?${acct}`);
+    setVulnDashboard(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
+  const loadVulnByCve = useCallback(async (page = 0, severity = '') => {
+    const data = await apiClient.get<PageResp<CveGroupRow>>(
+      `/api/xamsecure/vulnerabilities/by-cve?${acct}page=${page}&size=50${severity ? `&severity=${severity}` : ''}`);
+    setVulnByCve(data);
+  }, [acct]);
+
+  const loadCveFindings = useCallback(async (cveId: string): Promise<CveResourceFinding[]> => {
+    return apiClient.get<CveResourceFinding[]>(
+      `/api/xamsecure/vulnerabilities/cve/findings?${acct}cveId=${encodeURIComponent(cveId)}`);
   }, [acct]);
 
   const loadVulnerabilities = useCallback(async (page = 0, severity = '', force = false) => {
@@ -99,6 +173,28 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     const data = await apiClient.get<PageResp<InventoryAsset>>(
       `/api/xamsecure/inventory?${acct}page=${page}&size=50${category ? `&category=${category}` : ''}`);
     setInventory(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
+  const loadInventoryCategories = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('inventory_categories', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<InventoryCategory[]>(key);
+      if (cached) { setInventoryCategories(cached); return; }
+    }
+    const data = await apiClient.get<InventoryCategory[]>(`/api/xamsecure/inventory/categories?${acct}`);
+    setInventoryCategories(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
+  const loadNetworkTopology = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('inventory_network', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<NetworkTopology>(key);
+      if (cached) { setNetworkTopology(cached); return; }
+    }
+    const data = await apiClient.get<NetworkTopology>(`/api/xamsecure/inventory/network?${acct}`);
+    setNetworkTopology(data);
     saveCache(key, data);
   }, [acct, selectedAccountId]);
 
@@ -140,11 +236,19 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     const run = async () => {
       setIsLoading(true);
       try {
-        if (activeTab === 'overview') await loadSummary();
+        if (activeTab === 'issues') await loadIssues();
+        else if (activeTab === 'overview') {
+          await Promise.all([loadSummary(), loadIssues(), loadThreats(), loadStories()]);
+        }
+        else if (activeTab === 'attack-surface') await loadAttackSurface();
         else if (activeTab === 'threats') await loadThreats();
-        else if (activeTab === 'vulnerabilities') await loadVulnerabilities();
+        else if (activeTab === 'vulnerabilities') {
+          await Promise.all([loadVulnDashboard(), loadVulnByCve()]);
+        }
         else if (activeTab === 'posture') await loadPosture();
-        else if (activeTab === 'inventory') await loadInventory();
+        else if (activeTab === 'inventory') {
+          await Promise.all([loadInventory(), loadInventoryCategories(), loadNetworkTopology()]);
+        }
         else if (activeTab === 'compliance') await loadCompliance();
         else if (activeTab === 'api-security') await loadApiSecurity();
         else if (activeTab === 'onboarding') await loadOnboarding();
@@ -166,26 +270,37 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       cancelled = true;
       if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
     };
-  }, [activeTab, selectedAccountId, loadSummary, loadThreats, loadVulnerabilities,
-      loadPosture, loadInventory, loadCompliance, loadApiSecurity, loadOnboarding]);
+  }, [activeTab, selectedAccountId, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories,
+      loadVulnerabilities, loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
+      loadNetworkTopology, loadCompliance, loadApiSecurity, loadOnboarding]);
 
   const refresh = useCallback(() => {
-    if (activeTab === 'overview') return loadSummary(true);
+    if (activeTab === 'issues') return loadIssues('', true);
+    if (activeTab === 'attack-surface') return loadAttackSurface(true);
+    if (activeTab === 'overview') {
+      return Promise.all([loadSummary(true), loadIssues('', true), loadThreats(), loadStories(true)]);
+    }
     if (activeTab === 'threats') return loadThreats();
-    if (activeTab === 'vulnerabilities') return loadVulnerabilities(0, '', true);
+    if (activeTab === 'vulnerabilities') {
+      return Promise.all([loadVulnDashboard(true), loadVulnByCve()]);
+    }
     if (activeTab === 'posture') return loadPosture(0, '', true);
-    if (activeTab === 'inventory') return loadInventory(0, '', true);
+    if (activeTab === 'inventory') {
+      return Promise.all([loadInventory(0, '', true), loadInventoryCategories(true), loadNetworkTopology(true)]);
+    }
     if (activeTab === 'compliance') return loadCompliance(true);
     if (activeTab === 'api-security') return loadApiSecurity(true);
     if (activeTab === 'onboarding') return loadOnboarding();
     return Promise.resolve();
-  }, [activeTab, loadSummary, loadThreats, loadVulnerabilities, loadPosture, loadInventory,
+  }, [activeTab, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories, loadVulnerabilities,
+      loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories, loadNetworkTopology,
       loadCompliance, loadApiSecurity, loadOnboarding]);
 
   return {
-    summary, threats, vulnerabilities, posture, inventory, compliance, onboarding, apiSecurity,
+    summary, issues, attackSurface, threats, vulnerabilities, vulnDashboard, vulnByCve, posture, inventory,
+    inventoryCategories, networkTopology, compliance, onboarding, apiSecurity, stories,
     isLoading, refresh,
-    loadThreats, loadVulnerabilities, loadPosture, loadInventory, loadApiSecurity,
-    archiveThreat,
+    loadIssues, loadIssueDetail, loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,
+    loadPosture, loadInventory, loadApiSecurity, archiveThreat,
   };
 };

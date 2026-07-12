@@ -1,6 +1,9 @@
 export { default as SeverityChip } from './SeverityChip';
 export { default as XamSecureHeader } from './XamSecureHeader';
 export { default as FindingDrawer } from './FindingDrawer';
+export { default as IssueDrawer } from './IssueDrawer';
+export { default as IssuesTab } from './IssuesTab';
+export { default as AttackSurfaceTab } from './AttackSurfaceTab';
 export { default as OverviewTab } from './OverviewTab';
 export { default as ThreatsTab } from './ThreatsTab';
 export { default as VulnerabilitiesTab } from './VulnerabilitiesTab';

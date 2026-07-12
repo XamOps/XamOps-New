@@ -19,7 +19,7 @@ const ThreatsTab: React.FC<Props> = ({ threats, isLoading, onPage, onArchive }) 
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Runtime Threat Detections</p>
         <span className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500">
-          <span className="w-1.5 h-1.5 rounded-full bg-gray-900 animate-pulse" />
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           LIVE — refreshes every 60s
         </span>
       </div>

@@ -1,10 +1,10 @@
 import React from 'react';
 
 const STYLES: Record<string, string> = {
-  CRITICAL: 'bg-gray-900 text-white',
-  HIGH: 'bg-gray-700 text-white',
-  MEDIUM: 'bg-gray-400 text-white',
-  LOW: 'bg-gray-200 text-gray-700',
+  CRITICAL: 'bg-red-500 text-white',
+  HIGH: 'bg-orange-500 text-white',
+  MEDIUM: 'bg-yellow-400 text-gray-900',
+  LOW: 'bg-emerald-500 text-white',
 };
 
 const SeverityChip: React.FC<{ severity: string | null }> = ({ severity }) => {

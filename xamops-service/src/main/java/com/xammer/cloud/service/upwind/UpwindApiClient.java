@@ -73,6 +73,11 @@ public class UpwindApiClient {
         return fetchAll("/configuration-findings", maxPages);
     }
 
+    /** Compliance framework definitions (title, version, status, last_scan_time, compliance score). */
+    public List<JsonNode> fetchConfigurationFrameworks(int maxPages) {
+        return fetchAll("/configuration-frameworks", maxPages);
+    }
+
     /**
      * GETs {apiBaseUrl}/v1/organizations/{orgId}{path}, following Link rel="next"
      * up to maxPages pages. Each page is a JSON array; items are concatenated.
@@ -122,6 +127,34 @@ public class UpwindApiClient {
             }
         } catch (Exception e) {
             throw new IllegalStateException("Upwind inventory search failed", e);
+        }
+        return items;
+    }
+
+    /**
+     * v2 threat-stories search (cursor paging), newest first. {@code conditions} is the
+     * request body's "conditions" array (e.g. a cloud_account_id filter for tenancy).
+     * Returns the raw story objects.
+     */
+    public List<JsonNode> searchThreatStories(java.util.List<java.util.Map<String, Object>> conditions, int maxItems) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/threats/stories/search?limit=100&sort=create_time:desc";
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(java.util.Map.of("conditions", conditions));
+            while (url != null && items.size() < maxItems) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = restTemplate.exchange(
+                        java.net.URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                JsonNode arr = json.has("items") ? json.path("items") : json;
+                if (arr.isArray()) arr.forEach(items::add);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind threat-stories search failed", e);
         }
         return items;
     }

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ApiEndpoint } from '../../types/xamsecure';
+import Pager, { usePaged } from './Pager';
 
 interface Props {
   data: ApiEndpoint[] | null;
@@ -7,8 +8,9 @@ interface Props {
 }
 
 const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
-  const rows = data ?? [];
-  if (isLoading && rows.length === 0) {
+  const allRows = data ?? [];
+  const { page, setPage, pageItems: rows, totalPages, total } = usePaged(allRows, 50);
+  if (isLoading && allRows.length === 0) {
     return <div className="text-center py-16 text-sm text-gray-400">Loading API endpoints...</div>;
   }
   return (
@@ -31,7 +33,7 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                 <td className="px-5 py-3 font-mono text-gray-800 max-w-md truncate">{e.uri}</td>
                 <td className="px-5 py-3">
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    e.internetExposed ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    e.internetExposed ? 'bg-red-500 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
                     {e.internetExposed ? 'Exposed' : 'Internal'}
                   </span>
                 </td>
@@ -50,6 +52,7 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
           </tbody>
         </table>
       </div>
+      <Pager page={page} totalPages={totalPages} total={total} unit="endpoints" onPage={setPage} />
     </div>
   );
 };

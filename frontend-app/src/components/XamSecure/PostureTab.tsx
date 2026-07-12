@@ -33,7 +33,10 @@ const PostureTab: React.FC<Props> = ({ data, isLoading, onPage }) => {
                   className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
                   onClick={() => setSelected(p)}>
                 <td className="px-5 py-3"><SeverityChip severity={p.severity} /></td>
-                <td className="px-5 py-3 font-semibold text-gray-700">{p.status}</td>
+                <td className={`px-5 py-3 font-semibold ${
+                  p.status === 'FAIL' ? 'text-red-600' : p.status === 'PASS' ? 'text-emerald-600' : 'text-gray-500'}`}>
+                  {p.status}
+                </td>
                 <td className="px-5 py-3 font-medium text-gray-800 max-w-md truncate">{p.title}</td>
                 <td className="px-5 py-3 text-gray-600">
                   {p.resourceName}

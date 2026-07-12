@@ -22,6 +22,32 @@ public class XamSecureController {
         return ResponseEntity.ok(xamSecureService.getSummary(user.getClientId(), accountId));
     }
 
+    @GetMapping("/issues")
+    public ResponseEntity<?> issues(@AuthenticationPrincipal ClientUserDetails user,
+                                    @RequestParam(required = false) String accountId,
+                                    @RequestParam(required = false) String severity) {
+        return ResponseEntity.ok(xamSecureService.getIssues(user.getClientId(), accountId, severity));
+    }
+
+    @GetMapping("/issues/detail")
+    public ResponseEntity<?> issueDetail(@AuthenticationPrincipal ClientUserDetails user,
+                                         @RequestParam(required = false) String accountId,
+                                         @RequestParam String check) {
+        return ResponseEntity.ok(xamSecureService.getIssueDetail(user.getClientId(), accountId, check));
+    }
+
+    @GetMapping("/stories")
+    public ResponseEntity<?> stories(@AuthenticationPrincipal ClientUserDetails user,
+                                     @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getThreatStories(user.getClientId(), accountId));
+    }
+
+    @GetMapping("/attack-surface")
+    public ResponseEntity<?> attackSurface(@AuthenticationPrincipal ClientUserDetails user,
+                                           @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getAttackSurface(user.getClientId(), accountId));
+    }
+
     @GetMapping("/threats")
     public ResponseEntity<?> threats(@AuthenticationPrincipal ClientUserDetails user,
                                      @RequestParam(required = false) String accountId,
@@ -29,6 +55,28 @@ public class XamSecureController {
                                      @RequestParam(defaultValue = "0") int page,
                                      @RequestParam(defaultValue = "50") int size) {
         return ResponseEntity.ok(xamSecureService.getThreats(user.getClientId(), accountId, severity, page, size));
+    }
+
+    @GetMapping("/vulnerabilities/dashboard")
+    public ResponseEntity<?> vulnerabilityDashboard(@AuthenticationPrincipal ClientUserDetails user,
+                                                    @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getVulnerabilityDashboard(user.getClientId(), accountId));
+    }
+
+    @GetMapping("/vulnerabilities/by-cve")
+    public ResponseEntity<?> vulnerabilitiesByCve(@AuthenticationPrincipal ClientUserDetails user,
+                                                  @RequestParam(required = false) String accountId,
+                                                  @RequestParam(required = false) String severity,
+                                                  @RequestParam(defaultValue = "0") int page,
+                                                  @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(xamSecureService.getVulnerabilitiesByCve(user.getClientId(), accountId, severity, page, size));
+    }
+
+    @GetMapping("/vulnerabilities/cve/findings")
+    public ResponseEntity<?> cveFindings(@AuthenticationPrincipal ClientUserDetails user,
+                                         @RequestParam(required = false) String accountId,
+                                         @RequestParam String cveId) {
+        return ResponseEntity.ok(xamSecureService.getCveFindings(user.getClientId(), accountId, cveId));
     }
 
     @GetMapping("/vulnerabilities")
@@ -47,6 +95,18 @@ public class XamSecureController {
                                      @RequestParam(defaultValue = "0") int page,
                                      @RequestParam(defaultValue = "50") int size) {
         return ResponseEntity.ok(xamSecureService.getPosture(user.getClientId(), accountId, severity, page, size));
+    }
+
+    @GetMapping("/inventory/categories")
+    public ResponseEntity<?> inventoryCategories(@AuthenticationPrincipal ClientUserDetails user,
+                                                 @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getInventoryCategories(user.getClientId(), accountId));
+    }
+
+    @GetMapping("/inventory/network")
+    public ResponseEntity<?> inventoryNetwork(@AuthenticationPrincipal ClientUserDetails user,
+                                              @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getNetworkTopology(user.getClientId(), accountId));
     }
 
     @GetMapping("/inventory")

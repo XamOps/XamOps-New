@@ -32,6 +32,44 @@ public interface UpwindPostureFindingRepository extends JpaRepository<UpwindPost
            "GROUP BY p.frameworkTitle, p.status")
     List<Object[]> countByFrameworkAndStatus(@Param("accountIds") List<String> accountIds);
 
+    /**
+     * Scalar projection of every failing finding for the given accounts. Grouped in the
+     * service layer into one "issue" per check. Deliberately excludes raw_payload so we
+     * never load the large JSON blobs for the list view.
+     * Columns: checkTitle, title, severity, frameworkTitle, firstSeenTime, lastSeenTime,
+     *          resourceId, resourceName, resourceType, cloudProvider, region, cloudAccountId
+     */
+    @Query("SELECT p.checkTitle, p.title, p.severity, p.frameworkTitle, p.firstSeenTime, " +
+           "p.lastSeenTime, p.resourceId, p.resourceName, p.resourceType, p.cloudProvider, " +
+           "p.region, p.cloudAccountId " +
+           "FROM UpwindPostureFinding p " +
+           "WHERE p.cloudAccountId IN :accountIds AND p.status = 'FAIL'")
+    List<Object[]> findFailingForIssues(@Param("accountIds") List<String> accountIds);
+
+    /**
+     * Failing findings whose resource is internet/externally exposed (Upwind's
+     * {@code hasExposure} risk category). Powers the Attack Surface view. Native query:
+     * risk_categories lives in the raw_payload JSON, and jsonb_exists avoids the '?'
+     * operator clashing with JDBC bind placeholders.
+     * Columns: checkTitle, title, severity, resourceId, resourceName, resourceType,
+     *          firstSeenTime, lastSeenTime, frameworkTitle
+     */
+    @Query(value = "SELECT check_title, title, severity, resource_id, resource_name, resource_type, " +
+           "first_seen_time, last_seen_time, framework_title, region " +
+           "FROM upwind_posture_finding " +
+           "WHERE cloud_account_id IN (:accountIds) AND status = 'FAIL' " +
+           "AND jsonb_exists((cast(raw_payload as jsonb) -> 'resource' -> 'risk_categories'), 'hasExposure')",
+           nativeQuery = true)
+    List<Object[]> findExposureFailings(@Param("accountIds") List<String> accountIds);
+
+    /** Full failing findings for one check — used by the issue detail drawer. */
+    @Query("SELECT p FROM UpwindPostureFinding p " +
+           "WHERE p.cloudAccountId IN :accountIds AND p.status = 'FAIL' " +
+           "AND (p.checkTitle = :check OR (p.checkTitle IS NULL AND p.title = :check)) " +
+           "ORDER BY p.lastSeenTime DESC")
+    List<UpwindPostureFinding> findFailingByCheck(@Param("accountIds") List<String> accountIds,
+                                                  @Param("check") String check);
+
     @Transactional
     @Modifying
     @Query("UPDATE UpwindPostureFinding p SET p.status = 'RESOLVED' " +
