@@ -248,6 +248,65 @@ public final class FeatureFaqCatalog {
             new FeatureFaqEntry("xam-tickets-account-billing", "Tickets", "Account & Billing",
                     List.of("billing ticket", "account support", "billops ticket", "billing case"),
                     "The Account & Billing Tickets tab lets you create and track support cases for " +
-                    "billing or account issues linked to your cloud accounts.")
+                    "billing or account issues linked to your cloud accounts."),
+
+            // ── Module-level catch-alls ──────────────────────────────────────────
+            // One entry per multi-tab module (from XAMOPS_MODULES), for bare
+            // "what is <module>" questions. tabKey uses the module's own key
+            // (never a leaf tab key, so no collision with the entries above).
+            // Deliberately no keyword duplicates the bare module name — the +3
+            // label match alone clears MIN_SCORE, so a module entry never
+            // outscores a more specific tab entry on a tab-specific query.
+            // "Dashboard" has no catch-all: it's a single-tab module already
+            // covered by account-dashboard, and "Dashboard" bare would just
+            // collide with sre-dashboard's identical label.
+
+            new FeatureFaqEntry("finops", "FinOps", "FinOps",
+                    List.of("finops module", "cost optimization suite", "cloud spend management", "financial operations"),
+                    "FinOps is XamOps's cost-management suite — Cost Management, Reservations, FinOps " +
+                    "Reports, Waste Management, Rightsizing, Disk Rightsizing, CloudSitter scheduling, " +
+                    "Flex Compute, and AutoSpotting all live here, covering cost visibility, savings " +
+                    "automation, and spend optimization across your cloud accounts."),
+
+            new FeatureFaqEntry("cloudops", "CloudOps", "CloudOps",
+                    List.of("cloudops module", "engineering operations", "devops tooling suite"),
+                    "CloudOps covers your engineering operations tooling — CloudK8s cluster monitoring, " +
+                    "Code Quality (SonarQube), CICD Pipelines, DevOps-in-the-Box scripts, AIOps (LLM " +
+                    "cost/usage monitoring), and DbOps database monitoring."),
+
+            new FeatureFaqEntry("secops", "SecOps", "SecOps",
+                    List.of("secops module", "security operations", "cloud security suite"),
+                    "SecOps covers your security tooling — Security Center findings, XamSecure (CNAPP), " +
+                    "ComplianceOps framework scoring, Performance Insights, and Alerts."),
+
+            new FeatureFaqEntry("observability", "Observability", "Observability",
+                    List.of("observability module", "logs metrics traces", "monitoring suite"),
+                    "Observability covers your logs, metrics, and traces — an Overview, Logs explorer, " +
+                    "Metrics dashboard, Traces (coming soon), Alerts, a Setup guide, and an embedded " +
+                    "Grafana dashboard."),
+
+            new FeatureFaqEntry("sre", "SRE", "SRE",
+                    List.of("sre module", "site reliability engineering", "reliability engineering suite"),
+                    "SRE covers reliability engineering — a Dashboard of detection events and " +
+                    "investigations, an Investigations list for root-cause analysis, and a Setup wizard " +
+                    "to connect your existing observability stack. This module is marked Coming Soon in " +
+                    "the sidebar."),
+
+            new FeatureFaqEntry("mediaops", "MediaOps", "MediaOps",
+                    List.of("mediaops module", "media processing suite", "video transcoding platform"),
+                    "MediaOps is XamOps's media processing suite — an Overview, Transcoding Jobs, Live " +
+                    "Streams, Media Storage, and Cost Savings versus AWS Media Services, positioned as a " +
+                    "lower-cost alternative to AWS MediaConvert, MediaLive, and MediaPackage."),
+
+            new FeatureFaqEntry("licenses", "Licenses", "Licenses",
+                    List.of("licenses module", "software licensing", "subscription management"),
+                    "Licenses covers your subscriptions and seats — MarketOps (cloud Marketplace " +
+                    "subscription billing) and Licenses & Tools (Google Workspace seat tracking and " +
+                    "reclaiming)."),
+
+            new FeatureFaqEntry("tickets", "Tickets", "Tickets",
+                    List.of("tickets module", "support tickets", "help desk"),
+                    "Tickets is where you submit and track support requests — Technical tickets for " +
+                    "engineering issues, and Account & Billing tickets for billing or account issues.")
     );
 }

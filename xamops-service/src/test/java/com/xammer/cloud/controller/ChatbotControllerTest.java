@@ -49,7 +49,7 @@ class ChatbotControllerTest {
     }
 
     @Test
-    void chat_whenUnmatched_behavesExactlyAsBefore() {
+    void chat_whenUnmatched_forwardsToHumanAndPersistsVisibleAck() {
         when(featureFaqMatcher.match("my billing is wrong")).thenReturn(Optional.empty());
 
         ChatRequest request = new ChatRequest();
@@ -58,9 +58,15 @@ class ChatbotControllerTest {
 
         ChatResponse response = controller.chat(request);
 
+        // Still escalates to a human exactly as before this feature: the user's own
+        // question is saved via sendUserMessage (default UNREAD status), not the
+        // auto-resolved path.
         verify(supportChatService).sendUserMessage("my billing is wrong", "acc-1");
         verify(supportChatService, never()).recordAutoResolvedQuestion(anyString(), anyString());
-        verify(supportChatService, never()).sendBotAnswer(anyString());
+        // New: a visible ack is now persisted so the widget isn't silent while waiting
+        // on a human — this does not affect the BillOps admin unread badge, since it's
+        // the user's own UNREAD question (not this bot message) that signals the queue.
+        verify(supportChatService).sendBotAnswer("Request received. An agent will be with you shortly.");
         assertThat(response.getResponse()).isEqualTo("Request received. An agent will be with you shortly.");
     }
 }

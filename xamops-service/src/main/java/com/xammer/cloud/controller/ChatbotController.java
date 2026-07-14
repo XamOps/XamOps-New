@@ -44,12 +44,13 @@ public class ChatbotController {
             return new ChatResponse(answer);
         }
 
-        // No feature/tab match — forward to human support (unchanged from before this feature).
+        // No feature/tab match — forward to human support (still flags the question as
+        // UNREAD for the BillOps admin inbox, unchanged from before this feature), and
+        // persist a visible acknowledgement so the widget never looks silently unresponsive.
         supportChatService.sendUserMessage(request.getMessage(), request.getAccountId());
-
-        // Return a standard acknowledgement.
-        // In a real real-time app, this might be empty, but we return a system note.
-        return new ChatResponse("Request received. An agent will be with you shortly.");
+        String ack = "Request received. An agent will be with you shortly.";
+        supportChatService.sendBotAnswer(ack);
+        return new ChatResponse(ack);
     }
 
     @GetMapping("/chat/history")

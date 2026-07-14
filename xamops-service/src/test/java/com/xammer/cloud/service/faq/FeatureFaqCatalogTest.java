@@ -31,13 +31,24 @@ class FeatureFaqCatalogTest {
             "xam-tickets-technical", "xam-tickets-account-billing"
     );
 
+    // Module-level catch-all entries (tabKey == the module's own key from
+    // XAMOPS_MODULES, e.g. "finops" — never a leaf tab key, so no collision
+    // with EXPECTED_TAB_KEYS above). No entry for "dashboard": it's a
+    // single-tab module already covered by account-dashboard.
+    private static final List<String> EXPECTED_MODULE_KEYS = List.of(
+            "finops", "cloudops", "secops", "observability", "sre", "mediaops", "licenses", "tickets"
+    );
+
     @Test
-    void catalog_coversEveryExpectedTabKey() {
+    void catalog_coversEveryExpectedTabKeyAndModuleKey() {
         Set<String> actualKeys = FeatureFaqCatalog.ENTRIES.stream()
                 .map(FeatureFaqEntry::tabKey)
                 .collect(Collectors.toSet());
 
-        assertThat(actualKeys).containsExactlyInAnyOrderElementsOf(EXPECTED_TAB_KEYS);
+        List<String> expected = new java.util.ArrayList<>(EXPECTED_TAB_KEYS);
+        expected.addAll(EXPECTED_MODULE_KEYS);
+
+        assertThat(actualKeys).containsExactlyInAnyOrderElementsOf(expected);
     }
 
     @Test
