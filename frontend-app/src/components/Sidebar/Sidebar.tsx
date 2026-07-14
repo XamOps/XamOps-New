@@ -17,6 +17,22 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { makeXamTabGate } from '../../constants/xamopsTabs';
 import clsx from 'clsx';
 
+/** XamSecure nested sidebar entries — mirror the tabs on XamSecurePage. */
+const XAMSECURE_SUBTABS: { id: string; label: string; icon: string }[] = [
+  { id: 'overview', label: 'Overview', icon: 'fas fa-gauge-high' },
+  { id: 'issues', label: 'Issues', icon: 'fas fa-triangle-exclamation' },
+  { id: 'inventory', label: 'Inventory', icon: 'fas fa-boxes-stacked' },
+  { id: 'attack-surface', label: 'Attack Surface', icon: 'fas fa-globe' },
+  { id: 'vulnerabilities', label: 'Vulnerabilities', icon: 'fas fa-bug' },
+  { id: 'posture', label: 'Configurations', icon: 'fas fa-clipboard-check' },
+  { id: 'api-security', label: 'API Security', icon: 'fas fa-plug' },
+  { id: 'components', label: 'Components', icon: 'fas fa-cubes' },
+  { id: 'threats', label: 'Threats', icon: 'fas fa-bolt' },
+  { id: 'threat-policies', label: 'Threat Policies', icon: 'fas fa-shield-halved' },
+  { id: 'workflows', label: 'Workflows', icon: 'fas fa-diagram-project' },
+  { id: 'onboarding', label: 'Onboarding', icon: 'fas fa-plug-circle-plus' },
+];
+
 const Sidebar: React.FC = () => {
   const { hasAnyRole } = useAuth();
   const { selectedAccountDisplay, accounts, selectedAccountIds } = useAccounts();
@@ -100,7 +116,7 @@ const Sidebar: React.FC = () => {
     const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/aiops', '/dataops', '/gcp-dataops', '/azure-dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
-    const secopsRoutes = ['/security', '/gcp-security', '/azure-security', '/complianceops',
+    const secopsRoutes = ['/xamsecure', '/security', '/gcp-security', '/azure-security', '/complianceops',
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
     const observabilityRoutes = ['/observability', '/grafana-dashboard'];
@@ -349,6 +365,27 @@ const Sidebar: React.FC = () => {
                 onToggle={() => toggleDropdown('security')}
               >
                 {isXamTabAllowed('secops-security-center') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : selectedAccountDisplay.provider === 'Azure' ? '/azure-security' : '/security'} icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security') || isActive('/gcp-security') || isActive('/azure-security')} />}
+                {isXamTabAllowed('secops-xamsecure') && (
+                  <>
+                    <NavItem href="/xamsecure/issues" icon="fas fa-user-shield" label="XamSecure" isActive={isActive('/xamsecure')} />
+                    {location.pathname.startsWith('/xamsecure') && (
+                      <div className={clsx(
+                        'ml-3 pl-3 border-l space-y-0.5',
+                        theme === 'dark' ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)]'
+                      )}>
+                        {XAMSECURE_SUBTABS.map((s) => (
+                          <NavItem
+                            key={s.id}
+                            href={`/xamsecure/${s.id}`}
+                            icon={s.icon}
+                            label={s.label}
+                            isActive={location.pathname === `/xamsecure/${s.id}`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
                 {isXamTabAllowed('secops-compliance') && <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />}
                 {isXamTabAllowed('secops-performance') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />}
                 {isXamTabAllowed('secops-alerts') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />}

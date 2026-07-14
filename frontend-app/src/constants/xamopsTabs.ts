@@ -69,6 +69,7 @@ export const XAMOPS_MODULES: XamOpsModule[] = [
     icon: 'mdi:shield-outline',
     tabs: [
       { key: 'secops-security-center', label: 'Security Center', icon: 'mdi:shield-check-outline' },
+      { key: 'secops-xamsecure', label: 'XamSecure', icon: 'mdi:shield-account-outline' },
       { key: 'secops-compliance', label: 'ComplianceOps', icon: 'mdi:file-certificate-outline' },
       { key: 'secops-performance', label: 'Performance Insights', icon: 'mdi:speedometer' },
       { key: 'secops-alerts', label: 'Alerts', icon: 'mdi:bell-outline' },

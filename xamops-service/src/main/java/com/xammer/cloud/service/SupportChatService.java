@@ -59,6 +59,21 @@ public class SupportChatService {
 
     @Transactional
     public SupportMessage sendUserMessage(String messageContent, String selectedAccountId) {
+        return saveUserMessage(messageContent, selectedAccountId, "UNREAD");
+    }
+
+    /**
+     * Records a user's question that the chatbot auto-answered from the feature FAQ.
+     * Saved with status "READ" (not the default "UNREAD") so it does not count toward
+     * the BillOps admin inbox's unread/needs-attention badge — the question was already
+     * resolved automatically, not escalated to a human.
+     */
+    @Transactional
+    public SupportMessage recordAutoResolvedQuestion(String messageContent, String selectedAccountId) {
+        return saveUserMessage(messageContent, selectedAccountId, "READ");
+    }
+
+    private SupportMessage saveUserMessage(String messageContent, String selectedAccountId, String status) {
         // 1. Get Logged-in User
         String username = ((UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getUsername();
         User user = userRepository.findByUsername(username)
@@ -87,8 +102,28 @@ public class SupportChatService {
         supportMessage.setAccountName(accountName);
         supportMessage.setCloudProvider(provider);
         supportMessage.setSenderUsername(user.getUsername());
+        supportMessage.setStatus(status);
 
         return messageRepository.save(supportMessage);
+    }
+
+    /**
+     * Persists an automated bot reply (chatbot FAQ auto-answer) for the current user.
+     * Uses status "DELIVERED" so it participates in the existing unread-badge and
+     * read-receipt flow the same way a human admin reply does.
+     */
+    @Transactional
+    public SupportMessage sendBotAnswer(String content) {
+        User user = getCurrentUser();
+        if (user == null) {
+            throw new RuntimeException("User not found");
+        }
+
+        SupportMessage botMessage = new SupportMessage(user, content, false);
+        botMessage.setStatus("DELIVERED");
+        botMessage.setSenderUsername("XamOps Assistant");
+
+        return messageRepository.save(botMessage);
     }
 
     private User getCurrentUser() {
