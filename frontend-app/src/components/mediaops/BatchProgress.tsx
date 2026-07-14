@@ -1,4 +1,3 @@
-import React from 'react';
 import { motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useTheme } from '../../contexts/ThemeContext';

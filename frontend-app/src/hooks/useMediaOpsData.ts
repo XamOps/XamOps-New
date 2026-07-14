@@ -476,6 +476,33 @@ export function useMediaOpsData() {
     return job;
   }, [subscribeToJob]);
 
+  // Download the transcoded video plus related files (segments, manifests,
+  // thumbnails, subtitles) as a single ZIP archive saved to the user's machine.
+  const downloadJob = useCallback(async (jobId: number, fileName?: string): Promise<void> => {
+    const res = await fetch(`/api/media-ops/jobs/${jobId}/download`, {
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      if (res.status === 409) throw new Error('Job output is not ready yet');
+      if (res.status === 404) throw new Error('No output files available for this job');
+      throw new Error('Failed to download job output');
+    }
+    const blob = await res.blob();
+    // Prefer the server-provided filename from Content-Disposition when available.
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/i);
+    const name = match?.[1] || fileName || `transcode-${jobId}.zip`;
+
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
   const refresh = useCallback(() => {
     setLoadingOverview(true);
     setLoadingJobs(true);
@@ -560,6 +587,7 @@ export function useMediaOpsData() {
     error,
     createJob,
     retryJob,
+    downloadJob,
     uploadFile,
     createStream,
     startStream,

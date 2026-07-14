@@ -377,6 +377,7 @@ interface TranscodeTabProps {
   onCreateJob: (req: CreateJobRequest) => Promise<any>;
   onUploadFile: (file: File) => Promise<ApiStorageFile>;
   onRetryJob: (id: number) => Promise<any>;
+  onDownloadJob: (id: number, fileName?: string) => Promise<void>;
 }
 
 // Backend returns paths like /media/jobs/48/master.m3u8 — use as-is (proxied via Vite → 8084).
@@ -412,7 +413,7 @@ function outputCompatNote(format: string): { good: boolean; text: string } {
   }
 }
 
-function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: TranscodeTabProps) {
+function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, onDownloadJob }: TranscodeTabProps) {
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState<JobStatus | 'all'>('all');
   const [sourceMode, setSourceMode] = useState<'url' | 'upload'>('url');
@@ -435,6 +436,8 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
   const [dashPlayerUrl, setDashPlayerUrl] = useState<string | null>(null);
   const [videoPlayerUrl, setVideoPlayerUrl] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<number | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [expandedError, setExpandedError] = useState<string | null>(null);
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
   const [embedJob, setEmbedJob] = useState<TranscodeJob | null>(null);
@@ -458,6 +461,19 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
     setRetryingId(job.rawId);
     try { await onRetryJob(job.rawId); } catch (e: any) { console.error('Retry failed', e); } finally { setRetryingId(null); }
   }, [onRetryJob]);
+
+  const handleDownload = useCallback(async (job: TranscodeJob) => {
+    setDownloadingId(job.rawId);
+    setDownloadError(null);
+    try {
+      await onDownloadJob(job.rawId, job.name);
+    } catch (e: any) {
+      console.error('Download failed', e);
+      setDownloadError(e?.message || 'Download failed');
+    } finally {
+      setDownloadingId(null);
+    }
+  }, [onDownloadJob]);
 
   const canSubmit = sourceMode === 'url' ? !!sourceUrl.trim() : !!localFile;
 
@@ -653,6 +669,17 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
 
   return (
     <div className="space-y-5">
+      {/* Download error toast */}
+      {downloadError && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl shadow-lg text-[12px] font-semibold text-red-700">
+          <Icon icon="mdi:alert-circle-outline" className="text-base" />
+          <span>{downloadError}</span>
+          <button onClick={() => setDownloadError(null)} className="ml-1 text-red-400 hover:text-red-600">
+            <Icon icon="mdi:close" className="text-sm" />
+          </button>
+        </div>
+      )}
+
       {/* Title + primary action */}
       <div className="flex items-end justify-between gap-3">
         <div>
@@ -888,6 +915,13 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob }: 
                               title="Output URL"
                               className={`p-1.5 rounded-lg transition-colors ${expandedUrl === job.id ? 'bg-sky-50 text-sky-600' : 'hover:bg-sky-50 text-[rgba(0,0,0,0.35)] hover:text-sky-600'}`}>
                               <Icon icon="mdi:link-variant" className="text-sm" />
+                            </button>
+                          )}
+                          {job.status === 'completed' && (
+                            <button onClick={() => handleDownload(job)} disabled={downloadingId === job.rawId}
+                              title="Download video & related files (.zip)"
+                              className="p-1.5 rounded-lg hover:bg-indigo-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-indigo-600 disabled:opacity-50">
+                              <Icon icon={downloadingId === job.rawId ? 'mdi:loading' : 'mdi:download'} className={`text-sm ${downloadingId === job.rawId ? 'animate-spin' : ''}`} />
                             </button>
                           )}
                           <button onClick={() => copyCmd(job)} title="Copy command"
@@ -2292,6 +2326,7 @@ const MediaOpsPage: React.FC = () => {
     error,
     createJob,
     retryJob,
+    downloadJob,
     uploadFile,
     createStream,
     startStream,
@@ -2449,7 +2484,7 @@ const MediaOpsPage: React.FC = () => {
             />
           )}
           {activeTab === 'transcode' && (
-            <TranscodeTab jobs={jobs} loading={loadingJobs} onCreateJob={createJob} onUploadFile={uploadFile} onRetryJob={retryJob} />
+            <TranscodeTab jobs={jobs} loading={loadingJobs} onCreateJob={createJob} onUploadFile={uploadFile} onRetryJob={retryJob} onDownloadJob={downloadJob} />
           )}
           {activeTab === 'streams' && (
             <StreamsTab streams={streams} loading={loadingStreams} onCreateStream={createStream} onStartStream={startStream} onStopStream={stopStream} />

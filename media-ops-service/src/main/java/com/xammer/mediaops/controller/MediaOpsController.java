@@ -20,11 +20,14 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -144,6 +147,37 @@ public class MediaOpsController {
         return jobService.getJob(id, clientId)
                 .map(j -> ResponseEntity.ok(TranscodeJobDto.from(j)))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/jobs/{id}/download")
+    public void downloadJob(@PathVariable Long id, HttpSession session, HttpServletResponse response) throws IOException {
+        Long clientId = resolveClientId(session);
+        if (clientId == null) { response.setStatus(HttpServletResponse.SC_UNAUTHORIZED); return; }
+
+        Optional<TranscodeJob> opt = jobService.getJob(id, clientId);
+        if (opt.isEmpty()) { response.setStatus(HttpServletResponse.SC_NOT_FOUND); return; }
+
+        TranscodeJob job = opt.get();
+        if (job.getStatus() != TranscodeJob.JobStatus.COMPLETED) {
+            response.setStatus(HttpServletResponse.SC_CONFLICT);
+            return;
+        }
+        if (!jobService.hasDownloadableOutput(job)) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+
+        String baseName = (job.getName() != null && !job.getName().isBlank())
+                ? job.getName().replaceAll("\\.[^.]+$", "")   // strip source extension
+                : "job-" + id;
+        String safeName = baseName.replaceAll("[^a-zA-Z0-9._-]", "_");
+        String filename = "transcode-" + id + "-" + safeName + ".zip";
+
+        response.setStatus(HttpServletResponse.SC_OK);
+        response.setContentType("application/zip");
+        response.setHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+        jobService.writeJobArchive(job, response.getOutputStream());
+        response.flushBuffer();
     }
 
     @PostMapping("/jobs/{id}/retry")

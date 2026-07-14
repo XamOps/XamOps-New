@@ -1287,6 +1287,29 @@ public class DashboardDataService {
         target.setVpc(target.getVpc() + source.getVpc());
         target.setLambdas(target.getLambdas() + source.getLambdas());
         target.setEbsVolumes(target.getEbsVolumes() + source.getEbsVolumes());
+        target.setEcs(target.getEcs() + source.getEcs());
+        target.setImages(target.getImages() + source.getImages());
+        target.setSnapshots(target.getSnapshots() + source.getSnapshots());
+        target.setRoute53Zones(target.getRoute53Zones() + source.getRoute53Zones());
+        target.setLoadBalancers(target.getLoadBalancers() + source.getLoadBalancers());
+        target.setLightsail(target.getLightsail() + source.getLightsail());
+        target.setAmplify(target.getAmplify() + source.getAmplify());
+
+        // Keep the frontend-compatibility *Count fields in sync so the dashboard KPI
+        // cards (Total Resources, EC2 Instances, S3 Buckets, ...) reflect the
+        // aggregated multi-account totals rather than showing 0.
+        target.setEc2Count(target.getEc2());
+        target.setS3Count(target.getS3Buckets());
+        target.setRdsCount(target.getRdsInstances());
+        target.setVpcCount(target.getVpc());
+        target.setLambdaCount(target.getLambdas());
+        target.setEbsCount(target.getEbsVolumes());
+        target.setRoute53Count(target.getRoute53Zones());
+        target.setLoadBalancerCount(target.getLoadBalancers());
+        target.setEcsCount(target.getEcs());
+        target.setEksCount(target.getKubernetes());
+        target.setLightsailCount(target.getLightsail());
+        target.setAmplifyCount(target.getAmplify());
     }
 
     private DashboardData getMultiAccountGcpDashboardData(List<String> accountIds, boolean forceRefresh,
@@ -1529,6 +1552,87 @@ public class DashboardDataService {
         return aggregated;
     }
 
+    /**
+     * Build a fully-populated single-account snapshot for the multi-account
+     * aggregation by combining all granular dashboard pieces (KPI, inventory,
+     * regions, cost/billing and optimization).
+     *
+     * Each granular call is individually cached, so this stays fast while giving
+     * the aggregator everything it needs: resource inventory, region status,
+     * billing summary and the optimization recommendation lists. Reusing the
+     * granular endpoints also keeps MTD spend consistent with the Account
+     * Dashboard, Cost and FinOps pages (all read from the same caches).
+     */
+    private DashboardData getCompleteAccountData(CloudAccount account, boolean forceRefresh,
+            ClientUserDetails userDetails) {
+        String accountId = account.getAwsAccountId();
+
+        DashboardData kpiData = getGranularKpi(accountId, forceRefresh, userDetails);
+        DashboardData invData = getGranularInventory(accountId, forceRefresh, userDetails);
+        DashboardData mapData = getGranularMap(accountId, forceRefresh, userDetails);
+        DashboardData costData = getGranularCost(accountId, forceRefresh, userDetails);
+        DashboardData optData = getGranularOptimization(accountId, forceRefresh, userDetails);
+
+        DashboardData.Account kpiAcc = kpiData != null ? kpiData.getSelectedAccount() : null;
+        DashboardData.Account invAcc = invData != null ? invData.getSelectedAccount() : null;
+        DashboardData.Account mapAcc = mapData != null ? mapData.getSelectedAccount() : null;
+        DashboardData.Account costAcc = costData != null ? costData.getSelectedAccount() : null;
+        DashboardData.Account optAcc = optData != null ? optData.getSelectedAccount() : null;
+
+        DashboardData.Account merged = new DashboardData.Account();
+        merged.setId(accountId);
+        merged.setName(account.getAccountName());
+
+        // Spend, cost history and KPI-level optimization summary come from the KPI
+        // endpoint (same source used by the single-account dashboard).
+        if (kpiAcc != null) {
+            merged.setMonthToDateSpend(kpiAcc.getMonthToDateSpend());
+            merged.setForecastedSpend(kpiAcc.getForecastedSpend());
+            merged.setLastMonthSpend(kpiAcc.getLastMonthSpend());
+            merged.setCostHistory(kpiAcc.getCostHistory());
+            merged.setOptimizationSummary(kpiAcc.getOptimizationSummary());
+            merged.setActiveAlertCount(kpiAcc.getActiveAlertCount());
+        }
+
+        // Resource inventory + CloudWatch status.
+        if (invAcc != null) {
+            merged.setResourceInventory(invAcc.getResourceInventory());
+            merged.setCloudWatchStatus(invAcc.getCloudWatchStatus());
+        }
+
+        // Region status (for Cost by Region + map).
+        if (mapAcc != null) {
+            merged.setRegionStatus(mapAcc.getRegionStatus());
+        }
+
+        // Billing summary (Top Services / Billing Summary widgets); prefer the cost
+        // endpoint's cost history if the KPI one was empty.
+        if (costAcc != null) {
+            merged.setBillingSummary(costAcc.getBillingSummary());
+            if (merged.getCostHistory() == null && costAcc.getCostHistory() != null) {
+                merged.setCostHistory(costAcc.getCostHistory());
+            }
+        }
+
+        // Optimization detail: recommendation lists, waste, anomalies and savings.
+        if (optAcc != null) {
+            merged.setEc2Recommendations(optAcc.getEc2Recommendations());
+            merged.setEbsRecommendations(optAcc.getEbsRecommendations());
+            merged.setLambdaRecommendations(optAcc.getLambdaRecommendations());
+            merged.setWastedResources(optAcc.getWastedResources());
+            merged.setCostAnomalies(optAcc.getCostAnomalies());
+            merged.setSavingsSummary(optAcc.getSavingsSummary());
+            if (optAcc.getOptimizationSummary() != null) {
+                merged.setOptimizationSummary(optAcc.getOptimizationSummary());
+            }
+        }
+
+        DashboardData result = new DashboardData();
+        result.setSelectedProvider("AWS");
+        result.setSelectedAccount(merged);
+        return result;
+    }
+
     private DashboardData getMultiAccountAwsDashboardData(List<String> accountIds, boolean forceRefresh,
             ClientUserDetails userDetails) throws ExecutionException, InterruptedException, IOException {
         long startTime = System.currentTimeMillis();
@@ -1572,10 +1676,12 @@ public class DashboardDataService {
                         ACCOUNT_SEMAPHORE.acquireUninterruptibly();
                         return CompletableFuture.supplyAsync(() -> {
                             try {
-                                // Use getGranularKpi so the unified dashboard reads from the same
-                                // AWS_COST_BREAKDOWN cache as Account Dashboard, Cost, and FinOps pages.
-                                // This guarantees MTD spend is identical across all pages.
-                                return getGranularKpi(account.getAwsAccountId(), forceRefresh, userDetails);
+                                // Fetch the COMPLETE account snapshot (KPI + inventory + regions +
+                                // billing + optimization) so the aggregated multi-account view shows
+                                // all widgets, not just spend. Granular pieces are individually cached
+                                // and MTD stays consistent with the Account Dashboard / Cost / FinOps
+                                // pages because KPI spend is read from the same AWS_COST_BREAKDOWN cache.
+                                return getCompleteAccountData(account, forceRefresh, userDetails);
                             } catch (Exception e) {
                                 logger.error("Failed to fetch data for account {} — isolated, continuing",
                                         account.getAwsAccountId(), e);
@@ -1706,10 +1812,35 @@ public class DashboardDataService {
 
         List<DashboardData.Account> subAccounts = new ArrayList<>();
 
+        // Combined optimization detail across all selected accounts — drives the KPI
+        // recommendation counts (EC2 Rightsizing, EBS Waste, Total Recommendations,
+        // Cost Anomalies) in the aggregated view.
+        List<DashboardData.OptimizationRecommendation> allEc2Recommendations = new ArrayList<>();
+        List<DashboardData.OptimizationRecommendation> allEbsRecommendations = new ArrayList<>();
+        List<DashboardData.OptimizationRecommendation> allLambdaRecommendations = new ArrayList<>();
+        List<DashboardData.WastedResource> allWastedResources = new ArrayList<>();
+        List<DashboardData.CostAnomaly> allCostAnomalies = new ArrayList<>();
+
         for (DashboardData data : accountDataList) {
             DashboardData.Account account = data.getSelectedAccount();
             if (account == null)
                 continue;
+
+            if (account.getEc2Recommendations() != null) {
+                allEc2Recommendations.addAll(account.getEc2Recommendations());
+            }
+            if (account.getEbsRecommendations() != null) {
+                allEbsRecommendations.addAll(account.getEbsRecommendations());
+            }
+            if (account.getLambdaRecommendations() != null) {
+                allLambdaRecommendations.addAll(account.getLambdaRecommendations());
+            }
+            if (account.getWastedResources() != null) {
+                allWastedResources.addAll(account.getWastedResources());
+            }
+            if (account.getCostAnomalies() != null) {
+                allCostAnomalies.addAll(account.getCostAnomalies());
+            }
 
             DashboardData.Account subAcc = new DashboardData.Account(account.getId(), account.getName(),
                     account.getMonthToDateSpend(),
@@ -1852,11 +1983,11 @@ public class DashboardDataService {
                 .orElse(100.0);
         aggregatedAccount.setSecurityScore(avgSecurityScore);
 
-        aggregatedAccount.setEc2Recommendations(Collections.emptyList());
-        aggregatedAccount.setEbsRecommendations(Collections.emptyList());
-        aggregatedAccount.setLambdaRecommendations(Collections.emptyList());
-        aggregatedAccount.setCostAnomalies(Collections.emptyList());
-        aggregatedAccount.setWastedResources(Collections.emptyList());
+        aggregatedAccount.setEc2Recommendations(allEc2Recommendations);
+        aggregatedAccount.setEbsRecommendations(allEbsRecommendations);
+        aggregatedAccount.setLambdaRecommendations(allLambdaRecommendations);
+        aggregatedAccount.setCostAnomalies(allCostAnomalies);
+        aggregatedAccount.setWastedResources(allWastedResources);
         aggregatedAccount.setSecurityInsights(Collections.emptyList());
         aggregatedAccount.setReservationAnalysis(null);
         aggregatedAccount.setReservationPurchaseRecommendations(Collections.emptyList());

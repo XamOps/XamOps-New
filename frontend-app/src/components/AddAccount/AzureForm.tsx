@@ -18,8 +18,7 @@ const commands = [
   { id: 'connect', label: 'Step 1 — Authenticate', code: 'Connect-AzAccount -UseDeviceAuthentication' },
   { id: 'context', label: 'Step 2 — Set Subscription', code: 'Set-AzContext -Subscription "YOUR_SUBSCRIPTION_ID"', highlight: '"YOUR_SUBSCRIPTION_ID"' },
   { id: 'download', label: 'Step 3 — Download Script', code: 'Invoke-WebRequest -Uri "https://xamops-azure-connector1.s3.ap-south-1.amazonaws.com/setup-xamops-connection1.ps" -OutFile "setup-xamops-connection.ps1"' },
-  { id: 'source', label: 'Step 4 — Source Script', code: '. .\\setup-xamops-connection.ps1' },
-  { id: 'setup', label: 'Step 5 — Run Setup', code: 'Setup-XamOpsConnection -SubscriptionId "YOUR_SUBSCRIPTION_ID" -ApplicationName "XamOps" -CreateSpCredential $true', highlight: '"YOUR_SUBSCRIPTION_ID"' },
+  { id: 'source', label: 'Step 4 — Run Setup Script', code: '. .\\setup-xamops-connection.ps1' },
 ];
 
 const inputCls = 'w-full px-3.5 py-2.5 text-[13px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-[rgba(0,0,0,0.25)] transition-colors placeholder:text-[rgba(0,0,0,0.3)]';

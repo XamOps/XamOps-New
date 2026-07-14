@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { useCspBillingConfig } from '../../hooks/useCspBillingConfig';
 import { apiFetch } from '../../utils/apiClient';
@@ -11,8 +10,6 @@ const labelCls = 'block text-[13px] font-medium text-[rgba(0,0,0,0.7)] mb-1.5';
 const hintCls = 'text-[11px] text-[rgba(0,0,0,0.4)] mt-1';
 
 const GCPForm: React.FC = () => {
-  const navigate = useNavigate();
-
   const [accountName, setAccountName] = useState('');
   const [projectId, setProjectId] = useState('');
   const [accessType, setAccessType] = useState<'read-only' | 'read-write'>('read-only');
@@ -28,7 +25,7 @@ const GCPForm: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  const step4Ref = useRef<HTMLDivElement>(null);
+  const step4Ref = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     const pid = projectId.trim() || 'YOUR_PROJECT_ID';

@@ -8,6 +8,15 @@
 -- 1. Enhance existing devops_script table
 -- =============================================
 
+-- Ensure the base table exists. Flyway runs BEFORE Hibernate's ddl-auto, so on a
+-- fresh database (e.g. first prod deploy) the table won't have been created yet
+-- and the ALTERs below would fail with "relation devops_script does not exist".
+-- The entity maps id as GenerationType.IDENTITY (Long) -> BIGSERIAL on Postgres.
+-- CREATE ... IF NOT EXISTS is a no-op where the table already exists (e.g. UAT).
+CREATE TABLE IF NOT EXISTS devops_script (
+    id BIGSERIAL PRIMARY KEY
+);
+
 -- Ensure base columns exist (table may have been created by Hibernate with a
 -- different/older schema, or these columns may otherwise be missing). These are
 -- referenced later in this migration (indexes, UPDATE, INSERT ... WHERE).

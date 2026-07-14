@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import {
   PieChart, Pie, Cell,
@@ -27,24 +27,45 @@ interface FrameworkScore {
   lowFindings: number;
 }
 
+interface CheckResource {
+  id: string;
+  name?: string;
+  type?: string;
+  region?: string;
+  detail?: string;
+}
+
 interface CheckRow {
   key: string;
   checkTitle: string;
+  title?: string;
+  checkId?: string;
   severity: string;
   failedCount: number;
   frameworks: string[];
+  frameworkControls: Record<string, string[]>;
   resourceIds: string[];
   regions: string[];
+  resources: CheckResource[];
+  remediation?: string;
+  remediationRefs?: string[];
 }
 
 interface NormalizedFinding {
   complianceFramework?: string;
   controlId?: string;
+  title?: string;
   description?: string;
   severity: string;
   resourceId: string;
+  resourceName?: string;
+  resourceType?: string;
   region?: string;
   status: 'PASS' | 'FAIL';
+  statusDetail?: string;
+  checkId?: string;
+  remediation?: string;
+  remediationRefs?: string[];
 }
 
 type CloudProvider = 'AWS' | 'GCP' | 'Azure';
@@ -185,6 +206,47 @@ function getFwConfig(key: string) {
   return FRAMEWORK_CONFIG[key] || { ...DEFAULT_FW_CONFIG, displayName: key };
 }
 
+const SEVERITY_STYLE: Record<string, { color: string; letter: string; label: string }> = {
+  CRITICAL: { color: '#dc2626', letter: 'C', label: 'Critical' },
+  HIGH:     { color: '#ea580c', letter: 'H', label: 'High' },
+  MEDIUM:   { color: '#f59e0b', letter: 'M', label: 'Medium' },
+  LOW:      { color: '#22c55e', letter: 'L', label: 'Low' },
+};
+
+// Prowler descriptions use inline markdown (**bold**, `code`) — render it instead of showing raw asterisks/backticks
+const MdText: React.FC<{ text: string; className?: string }> = ({ text, className }) => (
+  <span className={className}>
+    {text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**') && part.length >= 5) {
+        return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith('`') && part.endsWith('`') && part.length >= 3) {
+        return <code key={i} className="font-mono text-[0.92em] bg-[rgba(0,0,0,0.05)] px-1 py-[1px] rounded">{part.slice(1, -1)}</code>;
+      }
+      return <React.Fragment key={i}>{part}</React.Fragment>;
+    })}
+  </span>
+);
+
+const FrameworkLogo: React.FC<{ fwKey: string; size?: number }> = ({ fwKey, size = 24 }) => {
+  const logoPath = FRAMEWORK_LOGO_PATH[fwKey];
+  const logoOv = LOGO_OVERRIDE[fwKey];
+  const cfg = getFwConfig(fwKey);
+  return (
+    <div title={cfg.displayName} className="rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(0,0,0,0.08)] overflow-hidden" style={{ width: size, height: size }}>
+      {logoPath ? (
+        <img src={logoPath} alt={cfg.displayName} className="w-full h-full rounded-full object-cover" />
+      ) : logoOv ? (
+        <div className="w-full h-full flex items-center justify-center rounded-full" style={{ backgroundColor: logoOv.bg }}>
+          <span className="font-bold leading-none select-none" style={{ fontSize: logoOv.text.length <= 2 ? size / 3 : size / 4, color: logoOv.textColor }}>{logoOv.text}</span>
+        </div>
+      ) : (
+        <Icon icon={cfg.icon} width={size / 2} className={cfg.color} />
+      )}
+    </div>
+  );
+};
+
 // --- Prowler data hook (works for AWS / GCP / Azure) ---
 
 function useProwlerComplianceData(provider: CloudProvider, accountId: string | null) {
@@ -207,20 +269,34 @@ function useProwlerComplianceData(provider: CloudProvider, accountId: string | n
       .flatMap(f => {
         const status: 'PASS' | 'FAIL' = ((f.status_code as string) ?? '').toUpperCase() === 'PASS' ? 'PASS' : 'FAIL';
         const findingInfo = f.finding_info as { title?: string; desc?: string } | undefined;
-        const resources = f.resources as Array<{ uid?: string; region?: string }> | undefined;
+        const resources = f.resources as Array<{ uid?: string; name?: string; region?: string; type?: string }> | undefined;
         const unmapped = f.unmapped as { compliance?: Record<string, string[]> } | undefined;
+        const metadata = f.metadata as { event_code?: string } | undefined;
+        const remediationInfo = f.remediation as { desc?: string; references?: string[] } | undefined;
         const compliance = unmapped?.compliance ?? {};
         const frameworks = Object.keys(compliance);
         const desc = findingInfo?.desc ?? (f.message as string) ?? '';
-        const resourceId = resources?.[0]?.uid ?? '';
-        const region = resources?.[0]?.region;
         const severity = ((f.severity as string) ?? 'LOW').toUpperCase();
+        const base = {
+          title: findingInfo?.title,
+          description: desc,
+          severity,
+          resourceId: resources?.[0]?.uid ?? '',
+          resourceName: resources?.[0]?.name,
+          resourceType: resources?.[0]?.type,
+          region: resources?.[0]?.region,
+          status,
+          statusDetail: (f.message as string) ?? '',
+          checkId: metadata?.event_code,
+          remediation: remediationInfo?.desc,
+          remediationRefs: remediationInfo?.references,
+        };
 
         if (frameworks.length === 0) {
-          return [{ complianceFramework: 'CUSTOM', controlId: findingInfo?.title ?? 'N/A', description: desc, severity, resourceId, region, status }];
+          return [{ complianceFramework: 'CUSTOM', controlId: findingInfo?.title ?? 'N/A', ...base }];
         }
         return frameworks.flatMap(fw =>
-          (compliance[fw] ?? []).map(controlId => ({ complianceFramework: fw, controlId, description: desc, severity, resourceId, region, status }))
+          (compliance[fw] ?? []).map(controlId => ({ complianceFramework: fw, controlId, ...base }))
         );
       });
   }, []);
@@ -307,15 +383,27 @@ const ComplianceOpsPage: React.FC = () => {
   const [manageSearch, setManageSearch] = useState('');
   const [manageTab, setManageTab] = useState<'all' | 'selected'>('all');
 
-  // Lock body scroll when modal is open so background page doesn't scroll
+  // Check detail drawer
+  const [selectedCheck, setSelectedCheck] = useState<CheckRow | null>(null);
+
+  useEffect(() => setSelectedCheck(null), [selectedAccountId]);
+
   useEffect(() => {
-    if (showManageModal) {
+    if (!selectedCheck) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedCheck(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedCheck]);
+
+  // Lock body scroll when a modal/drawer is open so background page doesn't scroll
+  useEffect(() => {
+    if (showManageModal || selectedCheck) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
     return () => { document.body.style.overflow = ''; };
-  }, [showManageModal]);
+  }, [showManageModal, selectedCheck]);
 
   // Table state
   const [statusFilter, setStatusFilter] = useState<'Failed' | 'Passed' | 'All'>('Failed');
@@ -416,17 +504,31 @@ const ComplianceOpsPage: React.FC = () => {
         map.set(rowKey, {
           key: rowKey,
           checkTitle: f.description || f.controlId || 'Unknown check',
+          title: f.title,
+          checkId: f.checkId,
           severity: f.severity?.toUpperCase() || 'LOW',
           failedCount: 0, // derived from resourceIds.length after loop
           frameworks: [fwKey],
+          frameworkControls: fwKey !== 'CUSTOM' && f.controlId ? { [fwKey]: [f.controlId] } : {},
           resourceIds: f.resourceId ? [f.resourceId] : [],
           regions: f.region ? [f.region] : [],
+          resources: f.resourceId ? [{ id: f.resourceId, name: f.resourceName, type: f.resourceType, region: f.region, detail: f.statusDetail }] : [],
+          remediation: f.remediation,
+          remediationRefs: f.remediationRefs,
         });
       } else {
         const ex = map.get(rowKey)!;
         if (!ex.frameworks.includes(fwKey)) ex.frameworks.push(fwKey);
-        if (f.resourceId && !ex.resourceIds.includes(f.resourceId)) ex.resourceIds.push(f.resourceId);
+        if (fwKey !== 'CUSTOM' && f.controlId) {
+          const controls = ex.frameworkControls[fwKey] ?? (ex.frameworkControls[fwKey] = []);
+          if (!controls.includes(f.controlId)) controls.push(f.controlId);
+        }
+        if (f.resourceId && !ex.resourceIds.includes(f.resourceId)) {
+          ex.resourceIds.push(f.resourceId);
+          ex.resources.push({ id: f.resourceId, name: f.resourceName, type: f.resourceType, region: f.region, detail: f.statusDetail });
+        }
         if (f.region && !ex.regions.includes(f.region)) ex.regions.push(f.region);
+        if (!ex.remediation && f.remediation) { ex.remediation = f.remediation; ex.remediationRefs = f.remediationRefs; }
         const order: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
         if ((order[f.severity?.toUpperCase()] || 0) > (order[ex.severity] || 0)) ex.severity = f.severity?.toUpperCase() || 'LOW';
       }
@@ -770,21 +872,17 @@ const ComplianceOpsPage: React.FC = () => {
                     </td>
                   </tr>
                 ) : paginatedChecks.map((c, idx) => {
-                  const sevBadge: Record<string, { color: string; letter: string }> = {
-                    CRITICAL: { color: '#dc2626', letter: 'C' },
-                    HIGH:     { color: '#ea580c', letter: 'H' },
-                    MEDIUM:   { color: '#f59e0b', letter: 'M' },
-                    LOW:      { color: '#22c55e', letter: 'L' },
-                  };
-                  const sc2 = sevBadge[c.severity] || sevBadge.LOW;
+                  const sc2 = SEVERITY_STYLE[c.severity] || SEVERITY_STYLE.LOW;
                   return (
-                    <tr key={idx} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.015)] transition-colors">
+                    <tr key={idx} onClick={() => setSelectedCheck(c)} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.015)] transition-colors cursor-pointer">
                       <td className="px-5 py-3.5">
                         <div className="flex items-start gap-3">
                           <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: sc2.color }}>
                             <span className="text-[9px] font-bold text-white leading-none">{sc2.letter}</span>
                           </div>
-                          <p className="text-[12px] text-blue-600 underline decoration-blue-200 leading-relaxed line-clamp-2 max-w-[520px] hover:text-blue-700 cursor-pointer transition-colors">{c.checkTitle}</p>
+                          <p className="text-[12px] text-blue-600 underline decoration-blue-200 leading-relaxed line-clamp-2 max-w-[520px] hover:text-blue-700 transition-colors">
+                            <MdText text={c.checkTitle} />
+                          </p>
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-right">
@@ -981,6 +1079,137 @@ const ComplianceOpsPage: React.FC = () => {
           </motion.div>
         </div>
       )}
+
+      {/* ── Check Detail Drawer ── */}
+      <AnimatePresence>
+        {selectedCheck && (() => {
+          const sev = SEVERITY_STYLE[selectedCheck.severity] || SEVERITY_STYLE.LOW;
+          return (
+            <React.Fragment key="check-detail">
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+                className="fixed inset-0 bg-black/30 z-50"
+                onClick={() => setSelectedCheck(null)}
+              />
+              <motion.div
+                initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'tween', duration: 0.22 }}
+                className="fixed right-0 top-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 flex flex-col"
+              >
+                {/* Header */}
+                <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 border-b border-[rgba(0,0,0,0.06)]">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold text-white" style={{ backgroundColor: sev.color }}>
+                        {sev.letter} <span className="font-semibold">{sev.label}</span>
+                      </span>
+                      {selectedCheck.checkId && (
+                        <span className="px-2 py-0.5 bg-[rgba(0,0,0,0.05)] rounded-md text-[10px] font-mono text-[rgba(0,0,0,0.55)]">{selectedCheck.checkId}</span>
+                      )}
+                    </div>
+                    <h2 className="text-[15px] font-semibold text-[#1a1a1a] leading-snug">
+                      <MdText text={selectedCheck.title || selectedCheck.checkTitle} />
+                    </h2>
+                    <p className="text-[11px] text-[rgba(0,0,0,0.45)] mt-1.5">
+                      <span className="font-semibold text-red-600">{selectedCheck.failedCount}</span> failed resource{selectedCheck.failedCount === 1 ? '' : 's'}
+                      {selectedCheck.regions.length > 0 && <> · {selectedCheck.regions.join(', ')}</>}
+                    </p>
+                  </div>
+                  <button onClick={() => setSelectedCheck(null)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[rgba(0,0,0,0.05)] transition-colors flex-shrink-0">
+                    <Icon icon="mdi:close" width={18} className="text-[rgba(0,0,0,0.4)]" />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-5 space-y-5">
+                  {/* Full description */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wide mb-2">What this check does</p>
+                    <p className="text-[13px] text-[rgba(0,0,0,0.7)] leading-relaxed">
+                      <MdText text={selectedCheck.checkTitle} />
+                    </p>
+                  </div>
+
+                  {/* Remediation */}
+                  {selectedCheck.remediation && (
+                    <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Icon icon="mdi:wrench-outline" width={15} className="text-emerald-600" />
+                        <p className="text-[12px] font-semibold text-emerald-800">How to fix</p>
+                      </div>
+                      <p className="text-[12.5px] text-[rgba(0,0,0,0.65)] leading-relaxed">
+                        <MdText text={selectedCheck.remediation} />
+                      </p>
+                      {selectedCheck.remediationRefs && selectedCheck.remediationRefs.length > 0 && (
+                        <div className="mt-3 space-y-1">
+                          {selectedCheck.remediationRefs.filter(r => r.startsWith('http')).slice(0, 4).map((ref, i) => (
+                            <a key={i} href={ref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11.5px] text-blue-600 hover:text-blue-700 hover:underline truncate">
+                              <Icon icon="mdi:open-in-new" width={12} className="flex-shrink-0" />
+                              <span className="truncate">{ref}</span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Frameworks affected */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wide mb-2">Frameworks affected ({selectedCheck.frameworks.length})</p>
+                    <div className="space-y-2">
+                      {selectedCheck.frameworks.map(fwKey => {
+                        const controls = selectedCheck.frameworkControls[fwKey] ?? [];
+                        return (
+                          <div key={fwKey} className="flex items-start gap-2.5 border border-[rgba(0,0,0,0.06)] rounded-lg px-3 py-2.5">
+                            <FrameworkLogo fwKey={fwKey} size={24} />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[12px] font-medium text-[#1a1a1a]">{getFwConfig(fwKey).displayName}</p>
+                              {controls.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                  {controls.slice(0, 12).map(ctl => (
+                                    <span key={ctl} className="px-1.5 py-0.5 bg-[rgba(0,0,0,0.04)] rounded text-[10px] font-mono text-[rgba(0,0,0,0.55)]">{ctl}</span>
+                                  ))}
+                                  {controls.length > 12 && <span className="text-[10px] text-[rgba(0,0,0,0.4)] font-semibold self-center">+{controls.length - 12} more</span>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Affected resources */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wide mb-2">Failed resources ({selectedCheck.resources.length})</p>
+                    {selectedCheck.resources.length === 0 ? (
+                      <p className="text-[12px] text-[rgba(0,0,0,0.4)]">No resource details available for this check.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {selectedCheck.resources.map((r, i) => (
+                          <div key={i} className="border border-[rgba(0,0,0,0.06)] rounded-lg px-3 py-2.5">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-[11.5px] font-mono text-[#1a1a1a] truncate" title={r.id}>{r.name || r.id}</p>
+                              {r.region && <span className="px-1.5 py-0.5 bg-[rgba(0,0,0,0.04)] rounded text-[10px] text-[rgba(0,0,0,0.5)] flex-shrink-0">{r.region}</span>}
+                            </div>
+                            {r.name && r.id !== r.name && (
+                              <p className="text-[10.5px] font-mono text-[rgba(0,0,0,0.4)] truncate mt-0.5" title={r.id}>{r.id}</p>
+                            )}
+                            {r.detail && (
+                              <p className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed mt-1.5">
+                                <MdText text={r.detail} />
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            </React.Fragment>
+          );
+        })()}
+      </AnimatePresence>
     </main>
   );
 };

@@ -359,7 +359,10 @@ public class MessagingWebhookController {
         msg.setUserMessage(true);
         msg.setStatus("UNREAD");
         msg.setTimestamp(LocalDateTime.now(IST));
-        msg.setSenderUsername(platform.toLowerCase() + "_user");
+        String senderUsername = appUserRepository.findById(userId)
+                .map(u -> u.getUsername())
+                .orElse(platform.toLowerCase() + "_user");
+        msg.setSenderUsername(senderUsername);
         msg.setExternalPlatform(platform);
         msg.setExternalMessageId(externalId);
 

@@ -8,6 +8,15 @@
 -- 1. Add failure intelligence columns to cicd_run_record
 -- =============================================
 
+-- Flyway runs before Hibernate ddl-auto, so on a fresh DB (first prod deploy)
+-- cicd_run_record may not exist yet, which would make the ALTER below fail with
+-- "relation cicd_run_record does not exist". Ensure the base table exists first.
+-- Entity maps id as GenerationType.IDENTITY (Long) -> BIGSERIAL. No-op if it
+-- already exists; Hibernate ddl-auto=update fills in the remaining columns.
+CREATE TABLE IF NOT EXISTS cicd_run_record (
+    id BIGSERIAL PRIMARY KEY
+);
+
 ALTER TABLE cicd_run_record
     ADD COLUMN IF NOT EXISTS failure_category VARCHAR(30),
     ADD COLUMN IF NOT EXISTS notification_sent BOOLEAN NOT NULL DEFAULT FALSE;

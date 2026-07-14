@@ -142,6 +142,8 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   /* ── scroll-to-bottom ── */
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const isNearBottomRef = useRef(true);
+  const prevConvKeyRef = useRef<string | number | null>(null);
   /* ── copy message ── */
   const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null);
   /* ── edit message (admin) ── */
@@ -200,12 +202,18 @@ const BillOpsSupportDashboardPage: React.FC = () => {
 
   /* ────────────────────────────────────── effects ── */
 
-  // Scroll chat to bottom on new messages
+  // Scroll chat to bottom on new messages — but only when the user is already
+  // near the bottom (or a different conversation was opened), so polling
+  // refreshes don't yank them down while reading older messages
   useEffect(() => {
-    if (chatBoxRef.current) {
+    if (!chatBoxRef.current) return;
+    const convKey = activeAccount?.userId ?? null;
+    const convChanged = prevConvKeyRef.current !== convKey;
+    prevConvKeyRef.current = convKey;
+    if (convChanged || isNearBottomRef.current) {
       chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
     }
-  }, [messages, showTyping]);
+  }, [messages, showTyping, activeAccount]);
 
   // Hide typing indicator after 2s of inactivity
   useEffect(() => {
@@ -442,7 +450,9 @@ const BillOpsSupportDashboardPage: React.FC = () => {
   const handleChatScroll = useCallback(() => {
     if (!chatBoxRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = chatBoxRef.current;
-    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 100);
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    isNearBottomRef.current = distanceFromBottom <= 100;
+    setShowScrollBtn(distanceFromBottom > 100);
   }, []);
 
   const scrollToBottom = useCallback(() => {

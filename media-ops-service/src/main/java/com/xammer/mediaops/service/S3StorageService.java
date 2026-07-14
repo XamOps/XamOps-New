@@ -7,16 +7,23 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -106,6 +113,38 @@ public class S3StorageService {
 
     public boolean isDeleteLocalAfterUpload() {
         return deleteLocalAfterUpload;
+    }
+
+    /** S3 key prefix (with trailing slash) under which a job's outputs are stored. */
+    public String jobKeyPrefix(long jobId) {
+        return keyPrefix + "/jobs/" + jobId + "/";
+    }
+
+    /**
+     * List every object key stored under a job's output prefix. Returns an empty
+     * list when S3 is disabled or the job has no uploaded objects.
+     */
+    public List<String> listJobKeys(long jobId) {
+        List<String> keys = new ArrayList<>();
+        if (!isEnabled()) return keys;
+        String prefix = jobKeyPrefix(jobId);
+        String continuationToken = null;
+        do {
+            ListObjectsV2Request req = ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .prefix(prefix)
+                    .continuationToken(continuationToken)
+                    .build();
+            ListObjectsV2Response resp = s3.listObjectsV2(req);
+            resp.contents().forEach(o -> keys.add(o.key()));
+            continuationToken = Boolean.TRUE.equals(resp.isTruncated()) ? resp.nextContinuationToken() : null;
+        } while (continuationToken != null);
+        return keys;
+    }
+
+    /** Open a stream to a single S3 object. Caller is responsible for closing it. */
+    public ResponseInputStream<GetObjectResponse> getObject(String key) {
+        return s3.getObject(GetObjectRequest.builder().bucket(bucket).key(key).build());
     }
 
     /**

@@ -238,6 +238,7 @@ import './styles/azureCloudList.css';
 import './styles/azureFinops.css';
 import './styles/flexCompute.css';
 import './styles/autoscaling.css';
+import './styles/observability.css';
 // import './styles/accessops.css';
 
 

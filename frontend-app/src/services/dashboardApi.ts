@@ -20,15 +20,83 @@ import type {
 } from '../types/liveDashboard';
 
 /**
- * Fetch multi-account dashboard data
+ * Transform the backend multi-account response into the DashboardAccount shape
+ * the dashboard UI consumes.
+ *
+ * The backend aggregates all selected accounts into a single `selectedAccount`
+ * (see DashboardDataService.aggregateDashboardData). This mirrors the mapping
+ * done in fetchAllGranularData for single accounts so both paths produce an
+ * identical shape for the dashboard components.
+ */
+export const transformMultiAccountResponse = (data: any): DashboardAccount => {
+  // Aggregated account lives under `selectedAccount`. Fall back to the raw
+  // payload just in case the backend shape changes.
+  const acc = data?.selectedAccount || data?.aggregated || data || {};
+
+  const optSummary = acc.optimizationSummary || {};
+  const ec2Recommendations = acc.ec2Recommendations || [];
+  const ebsRecommendations = acc.ebsRecommendations || [];
+  const lambdaRecommendations = acc.lambdaRecommendations || [];
+
+  const totalPotentialSavings =
+    acc.savingsSummary?.totalPotentialSavings ??
+    optSummary.totalPotentialSavings ??
+    optSummary.potentialMonthlySavings ??
+    0;
+
+  const criticalAlerts =
+    optSummary.criticalAlertsCount ?? optSummary.criticalAlerts ?? 0;
+
+  return {
+    accountId: acc.id || 'multi-account',
+    accountName: acc.name || 'Multi-Account',
+    provider: (data?.selectedProvider || 'AWS') as 'AWS' | 'GCP' | 'Azure',
+    kpi: {
+      mtdSpend: acc.monthToDateSpend || 0,
+      forecastedSpend: acc.forecastedSpend || 0,
+      lastMonthSpend: acc.lastMonthSpend || 0,
+      potentialSavings: totalPotentialSavings,
+    },
+    resourceInventory: acc.resourceInventory,
+    regionStatus: acc.regionStatus || [],
+    costHistory: acc.costHistory,
+    optimization: {
+      summary: {
+        totalRecommendations:
+          ec2Recommendations.length +
+          ebsRecommendations.length +
+          lambdaRecommendations.length,
+        totalPotentialSavings,
+        criticalAlerts,
+        ec2RecommendationCount: ec2Recommendations.length,
+        ebsRecommendationCount: ebsRecommendations.length,
+        lambdaRecommendationCount: lambdaRecommendations.length,
+      },
+      anomalies: acc.costAnomalies || [],
+      ec2Recommendations,
+      ebsRecommendations,
+      lambdaRecommendations,
+    },
+    billingSummary: acc.billingSummary,
+    lastUpdated: data?.lastUpdated || new Date().toISOString(),
+  };
+};
+
+/**
+ * Fetch multi-account dashboard data (aggregated / combined view).
  * Endpoint: GET /api/xamops/dashboard/data/multi-account
+ *
+ * The backend combines the selected accounts server-side and returns the result
+ * under `selectedAccount`; we normalize it here so the caller receives a ready
+ * to render DashboardAccount.
  */
 export const fetchMultiAccountData = async (
   accountIds: string[],
   forceRefresh: boolean = false
-): Promise<MultiAccountDashboardData> => {
+): Promise<DashboardAccount> => {
   const url = `/api/xamops/dashboard/data/multi-account?accountIds=${accountIds.join(',')}&forceRefresh=${forceRefresh}`;
-  return apiClient.get<MultiAccountDashboardData>(url);
+  const raw = await apiClient.get<MultiAccountDashboardData>(url);
+  return transformMultiAccountResponse(raw);
 };
 
 /**

@@ -34,7 +34,6 @@ import { Icon } from '@iconify/react';
 import { useAddAccount } from '../hooks/useAddAccount';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import {
-  ProviderSelector,
   ConnectionSteps,
   AWSForm,
   GCPForm,
@@ -45,6 +44,7 @@ import {
   IntegrationsSection,
   DataSourcesGrid,
 } from '../components/AddAccount';
+import type { Provider } from '../types/addAccount';
 
 // Import styles
 import '../styles/addAccount.css';
@@ -264,16 +264,6 @@ const AddAccountPage: React.FC = () => {
     if (provider) return 1;
     return 0;
   }, [autoConnected, isVerifying, isLoading, provider]);
-
-  const mainVariants = {
-    hidden: {},
-    visible: { transition: { staggerChildren: 0.12, delayChildren: 0.1 } },
-  };
-
-  const itemVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
-  };
 
   return (
     <main ref={shellRef} className="aa-page-shell">

@@ -40,16 +40,6 @@ function getMonthlyRunCost(resource: EC2Resource): number {
   return Math.round(getHourlyPrice(resource.type) * 730 * 100) / 100;
 }
 
-function getPotentialSavings(resource: EC2Resource): number | null {
-  if (resource.savings > 0) return resource.savings;
-  if (resource.recommendedSavings === undefined) return null;
-  return resource.recommendedSavings ?? 0;
-}
-
-function isRecommendationLoading(resource: EC2Resource): boolean {
-  return !resource.policyName && resource.state === 'running' && resource.recommendedSavings === undefined;
-}
-
 interface KpiData {
   totalInstances: number;
   managedCount: number;
@@ -296,9 +286,6 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
           </div>
 
           {resources.map((resource, idx) => {
-            const isTerminated = resource.state === 'terminated' || resource.state === 'stopped';
-            const hasPolicy    = !!resource.policyName;
-
             return (
               <div
                 key={resource.id}

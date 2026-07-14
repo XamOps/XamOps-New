@@ -112,8 +112,9 @@ export const useDashboardData = ({
 
         if (isMultiAccountMode && selectedAccountIds.length > 1) {
           console.log('📊 Loading multi-account data for:', selectedAccountIds);
-          const data = await fetchMultiAccountData(selectedAccountIds, forceRefresh);
-          newData = data.aggregated || data.accounts[0];
+          // fetchMultiAccountData already normalizes the aggregated backend
+          // response into a DashboardAccount shape.
+          newData = await fetchMultiAccountData(selectedAccountIds, forceRefresh);
         } else {
           const accountId = selectedAccountIds[0];
           console.log('📊 Loading single-account data for:', accountId);

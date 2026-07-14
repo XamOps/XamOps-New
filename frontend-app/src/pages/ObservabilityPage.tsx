@@ -56,60 +56,36 @@ function OverviewTab({ config, overview, instances }: {
       label: 'Total Streams',
       value: overview?.streamCount ?? '—',
       icon: 'mdi:sine-wave',
-      iconBox: 'w-9 h-9 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center',
-      iconColor: 'text-violet-500',
-      border: 'border-l-violet-500',
       tooltip: 'Total number of data streams in your org — includes log, metric, and trace streams.',
     },
     {
       label: 'Log Streams',
       value: overview?.logStreamCount ?? '—',
       icon: 'mdi:file-document-outline',
-      iconBox: (overview?.logStreamCount ?? 0) > 0
-        ? 'w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center'
-        : 'w-9 h-9 rounded-xl bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] flex items-center justify-center',
-      iconColor: (overview?.logStreamCount ?? 0) > 0 ? 'text-emerald-500' : 'text-[rgba(0,0,0,0.4)]',
-      border: (overview?.logStreamCount ?? 0) > 0 ? 'border-l-emerald-500' : 'border-l-[rgba(0,0,0,0.2)]',
       tooltip: 'Streams receiving log records — e.g. application logs, syslog, Docker container logs.',
     },
     {
       label: 'Metric Streams',
       value: overview?.metricStreamCount ?? '—',
       icon: 'mdi:speedometer',
-      iconBox: (overview?.metricStreamCount ?? 0) > 0
-        ? 'w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center'
-        : 'w-9 h-9 rounded-xl bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] flex items-center justify-center',
-      iconColor: (overview?.metricStreamCount ?? 0) > 0 ? 'text-emerald-500' : 'text-[rgba(0,0,0,0.4)]',
-      border: (overview?.metricStreamCount ?? 0) > 0 ? 'border-l-emerald-500' : 'border-l-[rgba(0,0,0,0.2)]',
       tooltip: 'Streams receiving time-series metrics — e.g. CPU, memory, disk, network from your hosts.',
     },
     {
       label: 'Trace Streams',
       value: overview?.traceStreamCount ?? '—',
       icon: 'mdi:graph-outline',
-      iconBox: (overview?.traceStreamCount ?? 0) > 0
-        ? 'w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center'
-        : 'w-9 h-9 rounded-xl bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] flex items-center justify-center',
-      iconColor: (overview?.traceStreamCount ?? 0) > 0 ? 'text-emerald-500' : 'text-[rgba(0,0,0,0.4)]',
-      border: (overview?.traceStreamCount ?? 0) > 0 ? 'border-l-emerald-500' : 'border-l-[rgba(0,0,0,0.2)]',
       tooltip: 'Streams receiving distributed traces — spans from your services via OTLP. Used to track request flows across microservices.',
     },
     {
       label: 'Retention',
       value: config ? `${config.retentionDays}d` : '—',
       icon: 'mdi:clock-outline',
-      iconBox: 'w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center',
-      iconColor: 'text-sky-500',
-      border: 'border-l-sky-500',
       tooltip: 'How long your data is stored before being automatically deleted. Configurable under the Setup tab.',
     },
     {
       label: 'Org ID',
       value: overview?.orgId ?? config?.orgId ?? '—',
       icon: 'mdi:office-building-outline',
-      iconBox: 'w-9 h-9 rounded-xl bg-pink-50 border border-pink-100 flex items-center justify-center',
-      iconColor: 'text-pink-500',
-      border: 'border-l-pink-500',
       tooltip: 'Your unique organisation identifier in OpenObserve. Used in the collector endpoint URL when sending data.',
     },
   ];
@@ -117,19 +93,16 @@ function OverviewTab({ config, overview, instances }: {
   return (
     <div className="space-y-6">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         {statCards.map((c, i) => (
-          <div key={i} className={`group relative rounded-2xl border border-l-4 p-4 shadow-sm flex flex-col gap-2 bg-white border-[rgba(0,0,0,0.12)] ${c.border}`}>
-            <div className="flex items-start justify-between">
-              <div className={c.iconBox}>
-                <Icon icon={c.icon} className={`${c.iconColor} text-base`} />
-              </div>
-              <Icon icon="mdi:information-outline" className="text-[11px] mt-1 opacity-0 group-hover:opacity-100 transition-opacity text-[rgba(0,0,0,0.4)]" />
+          <div key={i} className="group relative rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-4 flex flex-col gap-1.5 hover:border-[rgba(0,0,0,0.2)] transition-colors">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.45)]">
+                {c.label}
+              </p>
+              <Icon icon={c.icon} width={15} className="text-[rgba(0,0,0,0.3)]" />
             </div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.5)]">
-              {c.label}
-            </p>
-            <p style={{ fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif", fontSize: '24px', fontWeight: 400, lineHeight: '24px', color: 'rgb(10,10,10)', fontVariantNumeric: 'tabular-nums' }}>
+            <p className="text-[22px] font-bold leading-7 text-black truncate" style={{ fontVariantNumeric: 'tabular-nums' }} title={String(c.value)}>
               {String(c.value)}
             </p>
             {/* Tooltip */}
@@ -143,24 +116,23 @@ function OverviewTab({ config, overview, instances }: {
 
       {/* Ingestion KPI cards */}
       {overview && (
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
-          <p className="text-xs font-semibold uppercase tracking-wider mb-4 text-[rgba(0,0,0,0.5)]">
-            Ingestion Stats
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl p-5">
+          <h2 className="text-[14px] font-semibold text-black">Ingestion</h2>
+          <p className="text-[12px] text-[rgba(0,0,0,0.45)] mb-4">Volume received and stored across all streams.</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { label: 'Events', value: fmtEvents(overview.totalEvents), icon: 'mdi:database-outline', color: 'text-violet-500', tooltip: 'Total number of individual log records, metric data points, and trace spans ingested across all streams.' },
-              { label: 'Ingested Size', value: fmtMb(overview.ingestedSizeMb), icon: 'mdi:arrow-down', color: 'text-sky-500', tooltip: 'Raw uncompressed size of all data received. This is what your agents sent over the network.' },
-              { label: 'Compressed Size', value: fmtMb(overview.compressedSizeMb), icon: 'mdi:arrow-collapse', color: 'text-emerald-500', tooltip: 'Actual disk space used after compression. Typically 10–20x smaller than the ingested size.' },
-              { label: 'Index Size', value: fmtMb(overview.indexSizeMb), icon: 'mdi:magnify', color: 'text-amber-500', tooltip: 'Size of the search index. Larger indexes improve query speed but use more storage.' },
+              { label: 'Events', value: fmtEvents(overview.totalEvents), icon: 'mdi:database-outline', tooltip: 'Total number of individual log records, metric data points, and trace spans ingested across all streams.' },
+              { label: 'Ingested Size', value: fmtMb(overview.ingestedSizeMb), icon: 'mdi:arrow-down', tooltip: 'Raw uncompressed size of all data received. This is what your agents sent over the network.' },
+              { label: 'Compressed Size', value: fmtMb(overview.compressedSizeMb), icon: 'mdi:arrow-collapse', tooltip: 'Actual disk space used after compression. Typically 10–20x smaller than the ingested size.' },
+              { label: 'Index Size', value: fmtMb(overview.indexSizeMb), icon: 'mdi:magnify', tooltip: 'Size of the search index. Larger indexes improve query speed but use more storage.' },
             ].map((k, i) => (
-              <div key={i} className="group relative rounded-xl p-4 flex items-center gap-3 bg-[rgba(0,0,0,0.02)]">
-                <Icon icon={k.icon} className={`${k.color} text-lg w-5 text-center flex-shrink-0`} />
+              <div key={i} className="group relative rounded-lg border border-[rgba(0,0,0,0.06)] p-4 flex items-center gap-3 bg-[rgba(0,0,0,0.02)]">
+                <Icon icon={k.icon} width={16} className="text-[rgba(0,0,0,0.4)] flex-shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">
+                  <p className="text-[11px] font-medium text-[rgba(0,0,0,0.45)]">
                     {k.label}
                   </p>
-                  <p className="text-base font-bold leading-tight mt-0.5 text-[rgba(0,0,0,0.88)]">
+                  <p className="text-[15px] font-bold leading-tight mt-0.5 text-black" style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {k.value}
                   </p>
                 </div>
@@ -177,15 +149,13 @@ function OverviewTab({ config, overview, instances }: {
 
       {/* Connected Instances */}
       {instances.length > 0 && (
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Icon icon="mdi:server-outline" className="text-emerald-500 text-xs" />
-              <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
-                Connected Instances
-              </span>
+        <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+            <div>
+              <h2 className="text-[14px] font-semibold text-black">Connected Instances</h2>
+              <p className="text-[12px] text-[rgba(0,0,0,0.45)]">Hosts that reported data in the selected window.</p>
             </div>
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)]">
               {instances.length}
             </span>
           </div>
@@ -198,14 +168,14 @@ function OverviewTab({ config, overview, instances }: {
               const isOnline = ageMins < 15;
               return (
                 <div key={inst.hostName}
-                  className="flex items-center gap-3 rounded-xl border px-3 py-2.5 bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.08)]">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-500 shadow-[0_0_6px_2px_rgba(52,211,153,0.5)]' : 'bg-amber-400'}`} />
+                  className="flex items-center gap-3 rounded-lg border px-3 py-2.5 bg-white border-[rgba(0,0,0,0.08)] hover:border-[rgba(0,0,0,0.2)] transition-colors">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-500' : 'bg-amber-400'}`} />
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold truncate text-[rgba(0,0,0,0.88)]"
+                    <p className="text-[12px] font-medium truncate text-black"
                        title={inst.hostName}>
                       {short}
                     </p>
-                    <p className="text-[10px] mt-0.5 text-[rgba(0,0,0,0.4)]">
+                    <p className="text-[11px] mt-0.5 text-[rgba(0,0,0,0.4)]">
                       {isOnline ? 'Online' : 'Last seen'} · {relativeTime(inst.lastSeenMs)}
                     </p>
                   </div>
@@ -218,43 +188,37 @@ function OverviewTab({ config, overview, instances }: {
 
       {/* Streams list */}
       {overview && overview.streams.length > 0 && (
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
-            <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
-              Active Streams
-            </span>
-            <span className="text-xs font-medium text-[rgba(0,0,0,0.4)]">
+        <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
+            <div>
+              <h2 className="text-[14px] font-semibold text-black">Active Streams</h2>
+              <p className="text-[12px] text-[rgba(0,0,0,0.45)]">All log, metric and trace streams in your org.</p>
+            </div>
+            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.4)]">
               {overview.streams.length} total
             </span>
           </div>
           <div className="divide-y divide-[rgba(0,0,0,0.06)] max-h-96 overflow-y-auto">
             {overview.streams.slice(0, 50).map((s, i) => {
-              const typeBadge: Record<string, string> = {
-                logs:    'bg-violet-100 text-violet-600',
-                metrics: 'bg-sky-100 text-sky-600',
-                traces:  'bg-amber-100 text-amber-600',
-              };
               const typeKey = s.stream_type ?? 'logs';
-              const badgeCls = typeBadge[typeKey] ?? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)]';
               return (
-                <div key={i} className="flex items-center justify-between px-5 py-2.5 hover:bg-[rgba(0,0,0,0.025)]">
+                <div key={i} className="flex items-center justify-between px-5 py-2.5 hover:bg-[rgba(0,0,0,0.02)]">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="w-2 h-2 flex-shrink-0 rounded-full bg-emerald-500" />
-                    <span className="text-sm font-medium truncate text-[rgba(0,0,0,0.7)]">
+                    <span className="text-[13px] font-medium truncate text-[rgba(0,0,0,0.75)]">
                       {s.name}
                     </span>
-                    <span className={`flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wide ${badgeCls}`}>
+                    <span className="flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border border-[rgba(0,0,0,0.1)] uppercase tracking-wide text-[rgba(0,0,0,0.5)]">
                       {typeKey}
                     </span>
                   </div>
-                  <span className="text-xs flex-shrink-0 ml-2 text-[rgba(0,0,0,0.4)]">
+                  <span className="text-[12px] flex-shrink-0 ml-2 text-[rgba(0,0,0,0.4)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {s.stats?.doc_count ? `${s.stats.doc_count.toLocaleString()} events` : ''}
                   </span>
                 </div>
               );
             })}
             {overview.streams.length > 50 && (
-              <div className="px-5 py-3 text-xs text-center text-[rgba(0,0,0,0.4)]">
+              <div className="px-5 py-3 text-[12px] text-center text-[rgba(0,0,0,0.4)]">
                 +{overview.streams.length - 50} more streams in OpenObserve
               </div>
             )}
@@ -264,10 +228,10 @@ function OverviewTab({ config, overview, instances }: {
 
       {/* Empty state */}
       {(!overview || overview.streamCount === 0) && (
-        <div className="rounded-2xl border border-dashed border-[rgba(0,0,0,0.12)] p-12 flex flex-col items-center gap-3 text-[rgba(0,0,0,0.4)]">
-          <Icon icon="mdi:satellite-uplink" className="text-4xl opacity-30" />
-          <p className="text-sm font-medium">No data yet</p>
-          <p className="text-xs text-center max-w-xs">
+        <div className="rounded-xl border border-dashed border-[rgba(0,0,0,0.15)] p-12 flex flex-col items-center gap-2 text-[rgba(0,0,0,0.4)]">
+          <Icon icon="mdi:satellite-uplink" width={32} className="opacity-40" />
+          <p className="text-[13px] font-medium text-[rgba(0,0,0,0.6)]">No data yet</p>
+          <p className="text-[12px] text-center max-w-xs">
             Go to the <strong>Setup</strong> tab to deploy a collector and start ingesting logs and metrics.
           </p>
         </div>
@@ -339,9 +303,62 @@ function AlertsTab() {
   const [selectedDest, setSelectedDest]     = useState('');
   const [savingAlert, setSavingAlert]       = useState(false);
 
-  const card = 'rounded-2xl border border-[rgba(0,0,0,0.12)] bg-white shadow-sm p-5';
-  const inputCls = 'w-full text-sm rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.04)] px-3 py-2 outline-none focus:border-[rgba(0,0,0,0.2)] text-[rgba(0,0,0,0.88)]';
-  const labelCls = 'block text-xs font-medium mb-1 text-[rgba(0,0,0,0.5)]';
+  // Log alert draft — pre-filled when arriving from the Logs tab's "Alert" button
+  const [logAlertDraft, setLogAlertDraft]   = useState<null | { stream: string }>(null);
+  const [logAlertName, setLogAlertName]     = useState('');
+  const [logAlertSql, setLogAlertSql]       = useState('');
+  const [logThreshold, setLogThreshold]     = useState(10);
+  const [logPeriod, setLogPeriod]           = useState(5);
+  const [logSilence, setLogSilence]         = useState(30);
+  const [logDest, setLogDest]               = useState('');
+  const [savingLogAlert, setSavingLogAlert] = useState(false);
+
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('fromLogs') !== '1') return;
+    const stream = p.get('stream') || 'default';
+    const q      = p.get('q') || '';
+    const level  = p.get('level') || '';
+    const host   = p.get('host') || '';
+    const esc = (s: string) => s.replace(/'/g, "''");
+    const conds: string[] = [];
+    if (q) conds.push(`match_all('${esc(q)}')`);
+    if (level && level !== 'ALL') conds.push(`match_all('${esc(level.toLowerCase())}')`);
+    if (host) conds.push(`match_all('${esc(host)}')`);
+    setLogAlertDraft({ stream });
+    setLogAlertSql(`SELECT * FROM "${stream}"${conds.length ? ' WHERE ' + conds.join(' AND ') : ''}`);
+    setLogAlertName(['log', level || 'match', q || host || stream].join('_').toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 50));
+    // Clear the handoff params so a refresh doesn't reopen the form.
+    window.history.replaceState(null, '', window.location.pathname);
+  }, []);
+
+  const handleCreateLogAlert = async () => {
+    if (!logAlertDraft || !logAlertSql.trim() || !logAlertName.trim()) return;
+    setSavingLogAlert(true);
+    const payload: ObservabilityAlert = {
+      name: logAlertName.trim().replace(/[^a-zA-Z0-9_]/g, '_'),
+      stream_type: 'logs',
+      stream_name: logAlertDraft.stream,
+      is_real_time: false,
+      enabled: true,
+      severity: 'medium',
+      description: `Log alert — fires when matching entries ≥ ${logThreshold} within ${logPeriod} min`,
+      destinations: logDest ? [logDest] : [],
+      query_condition: { type: 'sql', sql: logAlertSql.trim() },
+      trigger_condition: { period: logPeriod, frequency: logPeriod, silence: logSilence, threshold: logThreshold, operator: '>=' },
+    };
+    const ok = await createAlert(payload);
+    setSavingLogAlert(false);
+    if (ok) {
+      setLogAlertDraft(null);
+      const a = await fetchAlerts();
+      setAlerts(a);
+    }
+  };
+
+  const card = 'rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-5';
+  const inputCls = 'w-full text-[13px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-black/5 focus:border-[rgba(0,0,0,0.25)] text-black placeholder:text-[rgba(0,0,0,0.3)] transition-colors';
+  const labelCls = 'block text-[12px] font-medium mb-1.5 text-[rgba(0,0,0,0.6)]';
 
   const reload = async () => {
     setLoading(true);
@@ -400,25 +417,91 @@ function AlertsTab() {
   return (
     <div className="space-y-6">
 
+      {/* Log alert — pre-filled from the Logs tab */}
+      {logAlertDraft && (
+        <div className={`${card} border-black`}>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-[14px] font-semibold text-black flex items-center gap-2">
+              <Icon icon="mdi:bell-plus-outline" width={15} className="text-[rgba(0,0,0,0.5)]" />
+              Create Log Alert
+            </h2>
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)]">
+              stream: {logAlertDraft.stream}
+            </span>
+          </div>
+          <p className="text-[12px] text-[rgba(0,0,0,0.45)] mb-4">
+            Built from your Logs search — fires when matching entries reach the threshold within the evaluation window.
+          </p>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+            <div className="md:col-span-2">
+              <label className={labelCls}>Alert name</label>
+              <input className={inputCls} value={logAlertName} onChange={e => setLogAlertName(e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Threshold (entries)</label>
+              <input type="number" min={1} className={inputCls} value={logThreshold} onChange={e => setLogThreshold(Number(e.target.value))} />
+            </div>
+            <div>
+              <label className={labelCls}>Evaluate over (min)</label>
+              <input type="number" min={1} className={inputCls} value={logPeriod} onChange={e => setLogPeriod(Number(e.target.value))} />
+            </div>
+            <div>
+              <label className={labelCls}>Re-alert silence (min)</label>
+              <input type="number" min={1} className={inputCls} value={logSilence} onChange={e => setLogSilence(Number(e.target.value))} />
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <label className={labelCls}>Match query (editable)</label>
+            <textarea
+              rows={2}
+              spellCheck={false}
+              value={logAlertSql}
+              onChange={e => setLogAlertSql(e.target.value)}
+              className={`${inputCls} font-mono resize-y`}
+            />
+          </div>
+
+          <div className="flex items-end gap-3 flex-wrap">
+            <div>
+              <label className={labelCls}>Notify destination</label>
+              <select className={inputCls} style={{ width: 'auto' }} value={logDest} onChange={e => setLogDest(e.target.value)}>
+                <option value="">— none —</option>
+                {destinations.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
+              </select>
+            </div>
+            <button onClick={handleCreateLogAlert} disabled={savingLogAlert || !logAlertName.trim() || !logAlertSql.trim()}
+              className="px-4 py-2 rounded-lg bg-black hover:bg-[rgba(0,0,0,0.85)] text-white text-xs font-medium disabled:opacity-40 transition-colors">
+              {savingLogAlert ? 'Creating…' : 'Create Alert'}
+            </button>
+            <button onClick={() => setLogAlertDraft(null)}
+              className="px-4 py-2 rounded-md text-xs font-medium bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.07)] transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Destinations */}
       <div className={card}>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <p className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
+            <h2 className="text-[14px] font-semibold text-black">
               Notification Destinations
-            </p>
-            <p className="text-xs mt-0.5 text-[rgba(0,0,0,0.5)]">
+            </h2>
+            <p className="text-[12px] mt-0.5 text-[rgba(0,0,0,0.45)]">
               Where to send alerts — Slack webhook, PagerDuty, or any HTTP endpoint
             </p>
           </div>
           <button onClick={() => setShowDestForm(v => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium transition-colors">
-            <Icon icon="mdi:plus" className="text-[10px]" /> Add
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-black hover:bg-[rgba(0,0,0,0.85)] text-white text-xs font-medium transition-colors">
+            <Icon icon="mdi:plus" width={12} /> Add
           </button>
         </div>
 
         {showDestForm && (
-          <div className="rounded-xl border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)] p-4 mb-4 space-y-3">
+          <div className="rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)] p-4 mb-4 space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label className={labelCls}>Name</label>
@@ -439,11 +522,11 @@ function AlertsTab() {
               </div>
               <div className="flex gap-2 mt-4">
                 <button onClick={handleSaveDest} disabled={savingDest || !destName || !destUrl}
-                  className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-50 transition-colors">
+                  className="px-4 py-2 rounded-lg bg-black hover:bg-[rgba(0,0,0,0.85)] text-white text-xs font-medium disabled:opacity-40 transition-colors">
                   {savingDest ? 'Saving…' : 'Save'}
                 </button>
                 <button onClick={() => setShowDestForm(false)}
-                  className="px-4 py-2 rounded-lg text-xs font-medium border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)] transition-colors">
+                  className="px-4 py-2 rounded-md text-xs font-medium bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.07)] transition-colors">
                   Cancel
                 </button>
               </div>
@@ -458,12 +541,12 @@ function AlertsTab() {
         ) : (
           <div className="space-y-2">
             {destinations.map(d => (
-              <div key={d.name} className="flex items-center justify-between rounded-xl px-4 py-2.5 bg-[rgba(0,0,0,0.02)]">
+              <div key={d.name} className="flex items-center justify-between rounded-lg border border-[rgba(0,0,0,0.08)] px-4 py-2.5 bg-white">
                 <div className="flex items-center gap-3">
-                  <Icon icon="mdi:send-outline" className="text-violet-500 text-xs" />
+                  <Icon icon="mdi:send-outline" width={14} className="text-[rgba(0,0,0,0.4)]" />
                   <div>
-                    <p className="text-sm font-medium text-[rgba(0,0,0,0.88)]">{d.name}</p>
-                    <p className="text-[11px] truncate max-w-xs text-[rgba(0,0,0,0.5)]">{d.url}</p>
+                    <p className="text-[13px] font-medium text-black">{d.name}</p>
+                    <p className="text-[11px] truncate max-w-xs text-[rgba(0,0,0,0.45)]">{d.url}</p>
                   </div>
                 </div>
                 <button onClick={async () => { await deleteDestination(d.name); setDestinations(prev => prev.filter(x => x.name !== d.name)); }}
@@ -478,10 +561,10 @@ function AlertsTab() {
 
       {/* Quick alert templates */}
       <div className={card}>
-        <p className="font-semibold text-sm mb-1 text-[rgba(0,0,0,0.88)]">
+        <h2 className="text-[14px] font-semibold text-black">
           Quick Alert Templates
-        </p>
-        <p className="text-xs mb-4 text-[rgba(0,0,0,0.5)]">
+        </h2>
+        <p className="text-[12px] mt-0.5 mb-4 text-[rgba(0,0,0,0.45)]">
           Click a template to configure and create an alert in seconds.
         </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -489,20 +572,20 @@ function AlertsTab() {
             <button key={t.id} onClick={() => { setActiveTemplate(t); setThreshold(t.defaultThreshold); }}
               className={
                 activeTemplate?.id === t.id
-                  ? 'rounded-xl border border-violet-500 bg-violet-50 p-4 text-left transition-all hover:shadow-md'
-                  : 'rounded-xl border border-[rgba(0,0,0,0.12)] bg-white p-4 text-left transition-all hover:shadow-md hover:border-[rgba(0,0,0,0.2)]'
+                  ? 'rounded-xl border border-black bg-[rgba(0,0,0,0.02)] p-4 text-left transition-all shadow-sm'
+                  : 'rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-4 text-left transition-all hover:shadow-sm hover:border-[rgba(0,0,0,0.2)]'
               }>
               <Icon icon={t.icon} className={`${t.color} text-lg mb-2 block`} />
-              <p className="text-xs font-semibold text-[rgba(0,0,0,0.88)]">{t.label}</p>
-              <p className="text-[10px] mt-0.5 leading-relaxed text-[rgba(0,0,0,0.5)]">{t.description}</p>
+              <p className="text-[12px] font-semibold text-black">{t.label}</p>
+              <p className="text-[11px] mt-0.5 leading-relaxed text-[rgba(0,0,0,0.45)]">{t.description}</p>
             </button>
           ))}
         </div>
 
         {/* Template config form */}
         {activeTemplate && (
-          <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50 p-4 space-y-4">
-            <p className="text-sm font-semibold text-violet-700">
+          <div className="mt-4 rounded-lg border border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.02)] p-4 space-y-4">
+            <p className="text-[13px] font-semibold text-black">
               Configure — {activeTemplate.label}
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -531,11 +614,11 @@ function AlertsTab() {
             </div>
             <div className="flex gap-2">
               <button onClick={handleCreateAlert} disabled={savingAlert}
-                className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-50 transition-colors">
+                className="px-4 py-2 rounded-lg bg-black hover:bg-[rgba(0,0,0,0.85)] text-white text-xs font-medium disabled:opacity-40 transition-colors">
                 {savingAlert ? 'Creating…' : 'Create Alert'}
               </button>
               <button onClick={() => setActiveTemplate(null)}
-                className="px-4 py-2 rounded-lg text-xs font-medium border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)] transition-colors">
+                className="px-4 py-2 rounded-md text-xs font-medium bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.07)] transition-colors">
                 Cancel
               </button>
             </div>
@@ -546,33 +629,33 @@ function AlertsTab() {
       {/* Active alerts list */}
       <div className={card}>
         <div className="flex items-center justify-between mb-4">
-          <p className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
+          <h2 className="text-[14px] font-semibold text-black">
             Active Alerts
-          </p>
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.7)]">
+          </h2>
+          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)]">
             {alerts.length}
           </span>
         </div>
 
         {loading ? (
           <div className="flex items-center gap-2 py-4">
-            <div className="w-4 h-4 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
             <span className="text-xs text-[rgba(0,0,0,0.4)]">Loading…</span>
           </div>
         ) : alerts.length === 0 ? (
-          <div className="rounded-xl border-dashed border-2 border-[rgba(0,0,0,0.12)] p-8 flex flex-col items-center gap-2 text-[rgba(0,0,0,0.4)]">
-            <Icon icon="mdi:bell-off-outline" className="text-3xl opacity-30" />
-            <p className="text-sm">No alerts yet</p>
-            <p className="text-xs">Use a template above to create your first alert.</p>
+          <div className="rounded-xl border border-dashed border-[rgba(0,0,0,0.15)] p-8 flex flex-col items-center gap-2 text-[rgba(0,0,0,0.4)]">
+            <Icon icon="mdi:bell-off-outline" width={28} className="opacity-40" />
+            <p className="text-[13px] font-medium text-[rgba(0,0,0,0.6)]">No alerts yet</p>
+            <p className="text-[12px]">Use a template above to create your first alert.</p>
           </div>
         ) : (
           <div className="space-y-2">
             {alerts.map(a => (
-              <div key={a.name} className="flex items-start gap-4 rounded-xl px-4 py-3 border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)]">
-                <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${a.enabled ? 'bg-emerald-500 shadow-[0_0_6px_2px_rgba(52,211,153,0.4)]' : 'bg-[rgba(0,0,0,0.2)]'}`} />
+              <div key={a.name} className="flex items-start gap-4 rounded-lg px-4 py-3 border border-[rgba(0,0,0,0.08)] bg-white">
+                <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${a.enabled ? 'bg-emerald-500' : 'bg-[rgba(0,0,0,0.2)]'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-[rgba(0,0,0,0.88)]">
+                    <span className="text-[13px] font-medium text-black">
                       {a.name}
                     </span>
                     {a.severity && (
@@ -623,14 +706,14 @@ function AlertsTab() {
 
 function TracesTab() {
   return (
-    <div className="rounded-2xl border border-dashed border-[rgba(0,0,0,0.12)] p-16 flex flex-col items-center gap-3 text-[rgba(0,0,0,0.4)]">
-      <Icon icon="mdi:graph-outline" className="text-5xl opacity-30" />
-      <p className="text-base font-semibold">Distributed Tracing</p>
-      <p className="text-sm text-center max-w-sm">
+    <div className="rounded-xl border border-dashed border-[rgba(0,0,0,0.15)] p-16 flex flex-col items-center gap-3 text-[rgba(0,0,0,0.4)]">
+      <Icon icon="mdi:graph-outline" width={40} className="opacity-40" />
+      <p className="text-[15px] font-semibold text-black">Distributed Tracing</p>
+      <p className="text-[13px] text-center max-w-sm text-[rgba(0,0,0,0.45)]">
         Instrument your services with OpenTelemetry SDK and deploy the OTel Collector
         to start seeing request traces across your infrastructure.
       </p>
-      <span className="text-xs px-3 py-1 rounded-full bg-violet-100 text-violet-600 font-medium">
+      <span className="text-[11px] px-3 py-1 rounded-full bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)] font-medium">
         Coming soon
       </span>
     </div>
@@ -649,17 +732,17 @@ function CodeBlock({ code, label }: { code: string; label?: string }) {
   };
 
   return (
-    <div className="rounded-xl border border-[rgba(0,0,0,0.12)] overflow-hidden">
+    <div className="rounded-xl border border-[rgba(0,0,0,0.08)] overflow-hidden">
       {(label || true) && (
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)]">
-          <span className="text-xs font-medium text-[rgba(0,0,0,0.5)]">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
+          <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">
             {label || 'command'}
           </span>
           <button onClick={handleCopy}
-            className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors flex items-center gap-1.5 ${
+            className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors flex items-center gap-1.5 ${
               copied
-                ? 'bg-emerald-600 border-emerald-600 text-white'
-                : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)]'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.07)]'
             }`}>
             <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} className="text-xs" />
             {copied ? 'Copied!' : 'Copy'}
@@ -676,11 +759,11 @@ function CodeBlock({ code, label }: { code: string; label?: string }) {
 function DeployStep({ num, title, children }: { num: number; title: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-4">
-      <div className="flex-shrink-0 w-7 h-7 rounded-full bg-violet-600 text-white text-xs font-bold flex items-center justify-center mt-0.5">
+      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-black text-white text-[10px] font-bold flex items-center justify-center mt-0.5">
         {num}
       </div>
       <div className="flex-1 space-y-3">
-        <p className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">{title}</p>
+        <p className="text-[13px] font-semibold text-black">{title}</p>
         {children}
       </div>
     </div>
@@ -788,12 +871,12 @@ function SetupTab() {
     },
   ];
 
-  const cardCls = 'rounded-2xl border border-[rgba(0,0,0,0.12)] bg-white shadow-sm p-5 space-y-4';
+  const cardCls = 'rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-5 space-y-4';
   const divider = <div className="border-t border-[rgba(0,0,0,0.06)]" />;
 
   const LoadingSpinner = () => (
     <div className="flex items-center gap-2 py-4">
-      <div className="w-4 h-4 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
+      <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
       <span className="text-xs text-[rgba(0,0,0,0.4)]">Loading…</span>
     </div>
   );
@@ -802,9 +885,9 @@ function SetupTab() {
     <div className="space-y-5">
 
       {/* Beta warning banner */}
-      <div className="flex items-start gap-3 rounded-xl border px-4 py-3 bg-amber-50 border-amber-300 text-amber-800">
-        <Icon icon="mdi:flask-outline" className="mt-0.5 text-sm flex-shrink-0" />
-        <div className="text-xs leading-relaxed">
+      <div className="flex items-start gap-3 rounded-lg border px-4 py-3 bg-amber-50 border-amber-200 text-amber-800">
+        <Icon icon="mdi:flask-outline" width={14} className="mt-0.5 flex-shrink-0" />
+        <div className="text-[12px] leading-relaxed">
           <span className="font-bold uppercase tracking-wide mr-1.5">Beta</span>
           Observability is currently in beta. Features and data formats may change without notice. Use with caution in production environments.
         </div>
@@ -817,36 +900,36 @@ function SetupTab() {
             <button
               onClick={() => !s.comingSoon && setActiveSetup(s.id)}
               disabled={s.comingSoon}
-              className={`w-full rounded-2xl border p-4 text-left transition-all ${
+              className={`w-full rounded-xl border p-4 text-left transition-all ${
                 s.comingSoon
-                  ? 'cursor-not-allowed opacity-60 border-[rgba(0,0,0,0.12)] bg-white'
+                  ? 'cursor-not-allowed opacity-60 border-[rgba(0,0,0,0.08)] bg-white'
                   : activeSetup === s.id
-                    ? 'border-violet-500 bg-violet-50 shadow-md'
-                    : 'border-[rgba(0,0,0,0.12)] bg-white hover:border-[rgba(0,0,0,0.2)]'
+                    ? 'border-black bg-[rgba(0,0,0,0.02)] shadow-sm'
+                    : 'border-[rgba(0,0,0,0.08)] bg-white hover:border-[rgba(0,0,0,0.2)] hover:shadow-sm'
               }`}>
               <div className="flex items-center gap-2 mb-1.5">
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs flex-shrink-0 ${
                   s.comingSoon
                     ? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.4)]'
-                    : activeSetup === s.id ? 'bg-violet-600 text-white' : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)]'
+                    : activeSetup === s.id ? 'bg-black text-white' : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.5)]'
                 }`}>
                   <Icon icon={s.icon} />
                 </div>
-                <span className={`font-semibold text-sm ${s.comingSoon ? 'text-[rgba(0,0,0,0.4)]' : 'text-[rgba(0,0,0,0.88)]'}`}>
+                <span className={`font-semibold text-[13px] ${s.comingSoon ? 'text-[rgba(0,0,0,0.4)]' : 'text-black'}`}>
                   {s.label}
                 </span>
                 {s.comingSoon && (
-                  <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">
+                  <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 whitespace-nowrap">
                     Coming Soon
                   </span>
                 )}
                 {s.badge && !s.comingSoon && (
-                  <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                  <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">
                     {s.badge}
                   </span>
                 )}
               </div>
-              <p className={`text-xs leading-snug ${s.comingSoon ? 'text-[rgba(0,0,0,0.3)]' : 'text-[rgba(0,0,0,0.5)]'}`}>
+              <p className={`text-[11px] leading-snug ${s.comingSoon ? 'text-[rgba(0,0,0,0.3)]' : 'text-[rgba(0,0,0,0.45)]'}`}>
                 {s.description}
               </p>
             </button>
@@ -856,27 +939,27 @@ function SetupTab() {
 
       {/* ── Coming Soon overlay for EKS setups ───────────────────────────────── */}
       {(activeSetup === 'eks-helm' || activeSetup === 'eks-manual') && (
-        <div className="rounded-2xl border border-[rgba(0,0,0,0.12)] bg-white p-10 flex flex-col items-center justify-center text-center gap-4">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.4)]">
+        <div className="rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-10 flex flex-col items-center justify-center text-center gap-4">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-xl bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.4)]">
             <Icon icon={activeSetup === 'eks-helm' ? 'mdi:kubernetes' : 'mdi:file-code-outline'} />
           </div>
           <div>
             <div className="flex items-center justify-center gap-2 mb-2">
-              <span className="font-bold text-base text-[rgba(0,0,0,0.88)]">
+              <span className="font-bold text-[15px] text-black">
                 {activeSetup === 'eks-helm' ? 'EKS — Helm Setup' : 'EKS — Manual Setup'}
               </span>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700">
                 Coming Soon
               </span>
             </div>
-            <p className="text-xs max-w-sm leading-relaxed text-[rgba(0,0,0,0.5)]">
+            <p className="text-[12px] max-w-sm leading-relaxed text-[rgba(0,0,0,0.45)]">
               EKS observability setup is currently under development and has not been tested yet.
               In the meantime, use the <strong>EC2 / Linux VM</strong> setup for node-level observability.
             </p>
           </div>
           <button
             onClick={() => setActiveSetup('ec2')}
-            className="mt-2 px-4 py-2 rounded-xl text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white transition-colors">
+            className="mt-1 px-4 py-2 rounded-lg text-xs font-medium bg-black hover:bg-[rgba(0,0,0,0.85)] text-white transition-colors">
             Switch to EC2 Setup
           </button>
         </div>
@@ -886,7 +969,7 @@ function SetupTab() {
       {false && activeSetup === 'eks-helm' && (
         <div className={cardCls}>
           <div className="flex items-center gap-2">
-            <Icon icon="mdi:kubernetes" className="text-violet-500" />
+            <Icon icon="mdi:kubernetes" className="text-[rgba(0,0,0,0.45)]" />
             <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
               Deploy via Helm — single command installs everything
             </span>
@@ -936,8 +1019,8 @@ function SetupTab() {
             </DeployStep>
           </div>
 
-          <div className="rounded-xl p-4 mt-2 bg-violet-50">
-            <p className="text-xs font-semibold mb-2 text-violet-700">
+          <div className="rounded-xl p-4 mt-2 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)]">
+            <p className="text-xs font-semibold mb-2 text-[rgba(0,0,0,0.7)]">
               What flows into XamOps after deploy:
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
@@ -950,7 +1033,7 @@ function SetupTab() {
                 ['Metrics → k8s_deployment_*', 'Desired vs available replicas'],
               ].map(([label, desc]) => (
                 <div key={label} className="flex gap-2">
-                  <span className="font-mono font-medium flex-shrink-0 text-[11px] text-violet-700">{label}</span>
+                  <span className="font-mono font-medium flex-shrink-0 text-[11px] text-[rgba(0,0,0,0.7)]">{label}</span>
                   <span className="text-[11px] text-[rgba(0,0,0,0.5)]">— {desc}</span>
                 </div>
               ))}
@@ -962,16 +1045,18 @@ function SetupTab() {
       {/* ── EC2 / Linux VM ────────────────────────────────────────────────────── */}
       {activeSetup === 'ec2' && (
         <div className={cardCls}>
-          <div className="flex items-center gap-2">
-            <Icon icon="mdi:server-outline" className="text-violet-500" />
-            <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
-              Install on EC2 / Linux VM
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#FF9900]/10 border border-[#FF9900]/20 flex items-center justify-center">
+              <Icon icon="mdi:server-outline" width={20} className="text-[#FF9900]" />
+            </div>
+            <div>
+              <h2 className="text-[15px] font-bold text-black">Install on EC2 / Linux VM</h2>
+              <p className="text-[12px] text-[rgba(0,0,0,0.45)]">OpenTelemetry Collector as a systemd service — logs + host metrics.</p>
+            </div>
           </div>
-          <p className="text-xs text-[rgba(0,0,0,0.5)]">
-            Installs <strong>OpenTelemetry Collector</strong> as a <code className="px-1 rounded bg-[rgba(0,0,0,0.04)]">systemd</code> service.
-            Collects system logs (<code>/var/log/syslog</code>, auth logs, app logs) and host metrics (CPU, memory, disk, network).
-            Your <strong>org ID and credentials are pre-filled</strong> in the config.
+          <p className="text-[12px] text-[rgba(0,0,0,0.5)]">
+            Collects system logs (<code className="px-1 rounded bg-[rgba(0,0,0,0.04)]">/var/log/syslog</code>, auth logs, app logs) and host
+            metrics (CPU, memory, disk, network). Your <strong>org ID and credentials are pre-filled</strong> in the config.
           </p>
 
           {divider}
@@ -980,12 +1065,12 @@ function SetupTab() {
             <LoadingSpinner />
           ) : ec2Config ? (
             <div className="space-y-4">
-              <p className="text-xs font-medium text-[rgba(0,0,0,0.7)]">
+              <p className="text-[13px] font-medium text-[rgba(0,0,0,0.7)]">
                 Copy the script below and run it on your EC2 instance as root / sudo:
               </p>
               <CodeBlock label="bash — run on EC2" code={ec2Config} />
-              <div className="rounded-xl p-4 bg-sky-50">
-                <p className="text-xs font-semibold mb-2 text-sky-700">
+              <div className="rounded-lg border border-[rgba(0,0,0,0.06)] p-4 bg-[rgba(0,0,0,0.02)]">
+                <p className="text-[12px] font-semibold mb-2 text-black">
                   After install, data flows into:
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
@@ -998,8 +1083,8 @@ function SetupTab() {
                     ['Metrics → system_load_average', 'System load (1m, 5m, 15m)'],
                   ].map(([label, desc]) => (
                     <div key={label} className="flex gap-2">
-                      <span className="font-mono font-medium flex-shrink-0 text-[11px] text-sky-700">{label}</span>
-                      <span className="text-[11px] text-[rgba(0,0,0,0.5)]">— {desc}</span>
+                      <span className="font-mono font-medium flex-shrink-0 text-[11px] text-[rgba(0,0,0,0.7)]">{label}</span>
+                      <span className="text-[11px] text-[rgba(0,0,0,0.45)]">— {desc}</span>
                     </div>
                   ))}
                 </div>
@@ -1016,16 +1101,19 @@ function SetupTab() {
       {/* ── GCE / Linux VM ───────────────────────────────────────────────────── */}
       {activeSetup === 'gce' && (
         <div className={cardCls}>
-          <div className="flex items-center gap-2">
-            <Icon icon="mdi:google" className="text-violet-500" />
-            <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
-              Install on GCE / Linux VM
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#4285F4]/10 border border-[#4285F4]/20 flex items-center justify-center">
+              <Icon icon="mdi:google" width={20} className="text-[#4285F4]" />
+            </div>
+            <div>
+              <h2 className="text-[15px] font-bold text-black">Install on GCE / Linux VM</h2>
+              <p className="text-[12px] text-[rgba(0,0,0,0.45)]">OpenTelemetry Collector as a systemd service — logs + host metrics.</p>
+            </div>
           </div>
-          <p className="text-xs text-[rgba(0,0,0,0.5)]">
-            Installs <strong>OpenTelemetry Collector</strong> as a <code className="px-1 rounded bg-[rgba(0,0,0,0.04)]">systemd</code> service.
-            Collects system logs (<code>/var/log/syslog</code>, auth logs, app logs) and host metrics (CPU, memory, disk, network).
-            GCE instance metadata (zone, project, machine-type) is auto-detected. Your <strong>org ID and credentials are pre-filled</strong> in the config.
+          <p className="text-[12px] text-[rgba(0,0,0,0.5)]">
+            Collects system logs (<code className="px-1 rounded bg-[rgba(0,0,0,0.04)]">/var/log/syslog</code>, auth logs, app logs) and host
+            metrics (CPU, memory, disk, network). GCE instance metadata (zone, project, machine-type) is auto-detected.
+            Your <strong>org ID and credentials are pre-filled</strong> in the config.
           </p>
 
           {divider}
@@ -1034,12 +1122,12 @@ function SetupTab() {
             <LoadingSpinner />
           ) : gceConfig ? (
             <div className="space-y-4">
-              <p className="text-xs font-medium text-[rgba(0,0,0,0.7)]">
+              <p className="text-[13px] font-medium text-[rgba(0,0,0,0.7)]">
                 Copy the script below and run it on your GCE instance as root / sudo:
               </p>
               <CodeBlock label="bash — run on GCE" code={gceConfig} />
-              <div className="rounded-xl p-4 bg-sky-50">
-                <p className="text-xs font-semibold mb-2 text-sky-700">
+              <div className="rounded-lg border border-[rgba(0,0,0,0.06)] p-4 bg-[rgba(0,0,0,0.02)]">
+                <p className="text-[12px] font-semibold mb-2 text-black">
                   After install, data flows into:
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
@@ -1052,8 +1140,8 @@ function SetupTab() {
                     ['Metrics → system_load_average', 'System load (1m, 5m, 15m)'],
                   ].map(([label, desc]) => (
                     <div key={label} className="flex gap-2">
-                      <span className="font-mono font-medium flex-shrink-0 text-[11px] text-sky-700">{label}</span>
-                      <span className="text-[11px] text-[rgba(0,0,0,0.5)]">— {desc}</span>
+                      <span className="font-mono font-medium flex-shrink-0 text-[11px] text-[rgba(0,0,0,0.7)]">{label}</span>
+                      <span className="text-[11px] text-[rgba(0,0,0,0.45)]">— {desc}</span>
                     </div>
                   ))}
                 </div>
@@ -1071,7 +1159,7 @@ function SetupTab() {
       {false && activeSetup === 'eks-manual' && (
         <div className={cardCls}>
           <div className="flex items-center gap-2">
-            <Icon icon="mdi:file-code-outline" className="text-violet-500" />
+            <Icon icon="mdi:file-code-outline" className="text-[rgba(0,0,0,0.45)]" />
             <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
               Manual kubectl Deploy
             </span>
@@ -1166,23 +1254,24 @@ function SettingsPanel({ config }: { config: ObservabilityConfig | null }) {
   };
 
   return (
-    <div className="rounded-2xl border border-[rgba(0,0,0,0.12)] bg-white shadow-sm p-5 space-y-4">
-      <p className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">
-        Settings
-      </p>
-      <div className="flex items-center justify-between">
+    <div className="rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-5 space-y-4">
+      <div>
+        <h2 className="text-[14px] font-semibold text-black">Settings</h2>
+        <p className="text-[12px] text-[rgba(0,0,0,0.45)]">Storage and retention preferences for your org.</p>
+      </div>
+      <div className="flex items-center justify-between py-3 border-t border-b border-[rgba(0,0,0,0.06)]">
         <div>
-          <p className="text-sm text-[rgba(0,0,0,0.7)]">
+          <p className="text-[13px] font-medium text-[rgba(0,0,0,0.7)]">
             Data Retention
           </p>
-          <p className="text-xs mt-0.5 text-[rgba(0,0,0,0.4)]">
+          <p className="text-[11px] mt-0.5 text-[rgba(0,0,0,0.4)]">
             Applied to all streams in OpenObserve
           </p>
         </div>
         <select
           value={retentionDays}
           onChange={e => setRetentionDays(Number(e.target.value))}
-          className="text-sm rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.04)] px-3 py-1.5 text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.2)]"
+          className="text-[13px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-[rgba(0,0,0,0.25)]"
         >
           {[7, 15, 30, 60, 90].map(d => (
             <option key={d} value={d}>{d} days</option>
@@ -1192,14 +1281,36 @@ function SettingsPanel({ config }: { config: ObservabilityConfig | null }) {
       <button
         onClick={handleSave}
         disabled={saving}
-        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+        className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
           saved
             ? 'bg-emerald-600 text-white'
-            : 'bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-60'
+            : 'bg-black hover:bg-[rgba(0,0,0,0.85)] text-white disabled:opacity-40'
         }`}
       >
         {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save Settings'}
       </button>
+    </div>
+  );
+}
+
+// ── Tab header ────────────────────────────────────────────────────────────────
+
+const TAB_META: Record<Tab, { title: string; subtitle: string }> = {
+  overview: { title: 'Overview', subtitle: 'Streams, ingestion volume and connected hosts at a glance.' },
+  logs:     { title: 'Logs',     subtitle: 'Search, filter and query your log streams.' },
+  metrics:  { title: 'Metrics',  subtitle: 'Host and Kubernetes metrics — dashboards and PromQL.' },
+  traces:   { title: 'Traces',   subtitle: 'Distributed request traces across your services.' },
+  alerts:   { title: 'Alerts',   subtitle: 'Alert rules and notification destinations.' },
+  setup:    { title: 'Setup',    subtitle: 'Deploy collectors and manage data retention.' },
+};
+
+function TabHeader({ tab }: { tab: Tab }) {
+  const meta = TAB_META[tab];
+  return (
+    <div>
+      <span className="obs-eyebrow mb-1">Observability</span>
+      <h1 className="obs-h1">{meta.title}</h1>
+      <p className="text-[13px] text-[#64748b] mt-1">{meta.subtitle}</p>
     </div>
   );
 }
@@ -1229,17 +1340,18 @@ const ObservabilityPage: React.FC = () => {
   }, [setTitle, fetchConfig, fetchOverview, fetchStreams, fetchConnectedInstances]);
 
   return (
-    <div className="px-6 pb-12 pt-6 space-y-6">
+    <div className="obs-wrap px-6 pb-12 pt-6 space-y-6">
 
       {/* Loading state */}
       {configLoading && (
         <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
+          <div className="obs-spinner" />
         </div>
       )}
 
       {!configLoading && (
         <>
+          <TabHeader tab={activeTab} />
           {activeTab === 'overview' && (
             <OverviewTab config={config} overview={overview} instances={instances} />
           )}

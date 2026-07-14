@@ -196,6 +196,70 @@ public class TranscodeJobService {
         return jobRepo.findByIdAndClientId(id, clientId);
     }
 
+    /**
+     * Whether a completed job has output files available for download, either on the
+     * local disk (dev / delete-local-after-upload=false) or in S3 (production).
+     */
+    public boolean hasDownloadableOutput(TranscodeJob job) {
+        if (job.getOutputPath() != null) {
+            Path dir = Paths.get(job.getOutputPath());
+            if (Files.isDirectory(dir)) {
+                try {
+                    if (Files.walk(dir).anyMatch(Files::isRegularFile)) return true;
+                } catch (java.io.IOException ignored) { }
+            }
+        }
+        return !s3Storage.listJobKeys(job.getId()).isEmpty();
+    }
+
+    /**
+     * Stream a ZIP archive of all output files for a job (the transcoded video plus
+     * related files — HLS/DASH segments and manifests, thumbnails, subtitles, keys).
+     * Local files are used when present, otherwise the objects are pulled from S3.
+     */
+    public void writeJobArchive(TranscodeJob job, java.io.OutputStream out) throws java.io.IOException {
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(out)) {
+            boolean wroteAnything = false;
+
+            // Prefer local files when the output directory still exists on disk.
+            if (job.getOutputPath() != null) {
+                Path dir = Paths.get(job.getOutputPath());
+                if (Files.isDirectory(dir)) {
+                    java.util.List<Path> files;
+                    try (java.util.stream.Stream<Path> walk = Files.walk(dir)) {
+                        files = walk.filter(Files::isRegularFile).collect(java.util.stream.Collectors.toList());
+                    }
+                    for (Path file : files) {
+                        String entryName = dir.relativize(file).toString().replace('\\', '/');
+                        zip.putNextEntry(new java.util.zip.ZipEntry(entryName));
+                        Files.copy(file, zip);
+                        zip.closeEntry();
+                        wroteAnything = true;
+                    }
+                }
+            }
+
+            // Fall back to S3 when nothing was found locally.
+            if (!wroteAnything && s3Storage.isEnabled()) {
+                String prefix = s3Storage.jobKeyPrefix(job.getId());
+                for (String key : s3Storage.listJobKeys(job.getId())) {
+                    String entryName = key.startsWith(prefix) ? key.substring(prefix.length()) : key;
+                    if (entryName.isEmpty()) continue;
+                    zip.putNextEntry(new java.util.zip.ZipEntry(entryName));
+                    try (var in = s3Storage.getObject(key)) {
+                        in.transferTo(zip);
+                    }
+                    zip.closeEntry();
+                    wroteAnything = true;
+                }
+            }
+
+            if (!wroteAnything) {
+                log.warn("[MediaOps] No output files found to archive for job {}", job.getId());
+            }
+        }
+    }
+
     @Transactional
     public Optional<TranscodeJob> retryJob(Long id, Long clientId) {
         return jobRepo.findByIdAndClientId(id, clientId).map(job -> {

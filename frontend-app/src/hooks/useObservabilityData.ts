@@ -77,6 +77,7 @@ export interface ObservabilityAlert {
   query_condition?: {
     type: string;
     promql?: string;
+    sql?: string;
   };
   trigger_condition?: {
     period: number;
@@ -224,20 +225,24 @@ export const useObservabilityData = () => {
     }
   }, [activeAccountId]);
 
-  const fetchHistogram = useCallback(async (stream: string, startTime: number, endTime: number) => {
+  // `match` adds a full-text condition (e.g. "error") — those calls return buckets
+  // without touching the shared histogram state, so overlays don't clobber the total.
+  const fetchHistogram = useCallback(async (stream: string, startTime: number, endTime: number, interval?: string, match?: string) => {
     try {
       const data = await apiClient.post('/api/observability/logs/histogram', {
         stream, startTime, endTime,
+        interval: interval ?? undefined,
+        match: match ?? undefined,
         providerAccountId: activeAccountId ?? undefined,
       });
       const buckets: HistogramBucket[] = (data?.hits || []).map((h: Record<string, unknown>) => ({
         key: String(h.key),
         num: Number(h.num),
       }));
-      setHistogram(buckets);
+      if (!match) setHistogram(buckets);
       return buckets;
     } catch {
-      setHistogram([]);
+      if (!match) setHistogram([]);
       return [];
     }
   }, [activeAccountId]);

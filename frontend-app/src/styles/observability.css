@@ -1,0 +1,326 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+/**
+ * XamOps Observability — same design DNA as the login page.
+ * White cards, hairline borders, flat brand-green primary actions,
+ * slate ink (never pure black), quiet 0.15s transitions.
+ * Everything is scoped under .obs-wrap so nothing leaks onto other pages.
+ */
+
+.obs-wrap {
+  --obs-brand: #1be68b;
+  --obs-brand-deep: #0b8f5a;
+  --obs-brand-hover: #12c574;
+  --obs-brand-ink: #04231a;
+  --obs-brand-tint: rgba(27, 230, 139, 0.12);
+
+  --obs-ink: #0b1220;
+  --obs-ink-soft: #334155;
+  --obs-muted: #64748b;
+  --obs-muted-2: #94a3b8;
+
+  --obs-line: rgba(15, 23, 42, 0.08);
+  --obs-line-2: rgba(15, 23, 42, 0.14);
+  --obs-panel: #f4f5f7;
+
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--obs-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Typography ──────────────────────────────────────── */
+
+.obs-eyebrow {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--obs-muted-2);
+}
+
+.obs-h1 {
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--obs-ink);
+  line-height: 1.2;
+}
+
+.obs-h2 {
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--obs-ink);
+}
+
+.obs-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--obs-ink-soft);
+}
+
+/* ── Cards ───────────────────────────────────────────── */
+
+.obs-card {
+  background: #ffffff;
+  border: 1px solid var(--obs-line);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.obs-card-click {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.obs-card-click:hover {
+  border-color: var(--obs-line-2);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 28px -16px rgba(15, 23, 42, 0.18);
+  transform: translateY(-1px);
+}
+
+.obs-fade-up {
+  animation: obs-fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes obs-fade-up {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Inputs (login .input-field, toolbar density) ────── */
+
+.obs-input {
+  background: #ffffff;
+  border: 1px solid var(--obs-line-2);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  color: var(--obs-ink);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.obs-input::placeholder { color: var(--obs-muted-2); }
+
+.obs-input:hover { border-color: rgba(15, 23, 42, 0.24); }
+
+.obs-input:focus {
+  outline: none;
+  border-color: var(--obs-brand-deep);
+  box-shadow: 0 0 0 3px rgba(27, 230, 139, 0.16);
+}
+
+.obs-input:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Buttons ─────────────────────────────────────────── */
+
+.obs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.obs-btn:active:not(:disabled) { transform: scale(0.99); }
+.obs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Flat brand green — the login submit button */
+.obs-btn-primary {
+  background: var(--obs-brand);
+  border: 1px solid transparent;
+  color: var(--obs-brand-ink);
+}
+
+.obs-btn-primary:hover:not(:disabled) { background: var(--obs-brand-hover); }
+
+/* White with hairline — the login Google button */
+.obs-btn-ghost {
+  background: #ffffff;
+  border: 1px solid var(--obs-line-2);
+  color: var(--obs-ink-soft);
+}
+
+.obs-btn-ghost:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: var(--obs-muted-2);
+  color: var(--obs-ink);
+}
+
+/* Quiet panel tint — tertiary actions */
+.obs-btn-soft {
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--obs-line);
+  color: var(--obs-ink-soft);
+}
+
+.obs-btn-soft:hover:not(:disabled) { background: rgba(15, 23, 42, 0.07); color: var(--obs-ink); }
+
+.obs-btn-sm { padding: 0.3rem 0.65rem; font-size: 0.75rem; border-radius: 7px; }
+
+/* ── Segmented control (mutually exclusive choices) ──── */
+
+.obs-seg {
+  display: inline-flex;
+  background: var(--obs-panel);
+  border: 1px solid var(--obs-line);
+  border-radius: 9px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.obs-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.32rem 0.75rem;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--obs-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.obs-seg-btn:hover:not(.active) { color: var(--obs-ink); }
+
+.obs-seg-btn.active {
+  background: #ffffff;
+  color: var(--obs-ink);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 1px var(--obs-line);
+}
+
+/* ── Boolean toggle chip (on = brand tint) ───────────── */
+
+.obs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--obs-line);
+  border-radius: 7px;
+  padding: 0.3rem 0.65rem;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--obs-ink-soft);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.obs-toggle:hover:not(:disabled) { background: rgba(15, 23, 42, 0.07); }
+.obs-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.obs-toggle.on {
+  background: var(--obs-brand-tint);
+  border-color: rgba(27, 230, 139, 0.32);
+  color: var(--obs-brand-deep);
+}
+
+.obs-toggle.on:hover:not(:disabled) { background: rgba(27, 230, 139, 0.18); }
+
+/* ── Log level chips (login alert-box tints) ─────────── */
+
+.obs-lvl {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.obs-lvl-error { background: rgba(239, 68, 68, 0.08);  border-color: rgba(239, 68, 68, 0.22);  color: #b91c1c; }
+.obs-lvl-warn  { background: rgba(245, 158, 11, 0.1);  border-color: rgba(245, 158, 11, 0.28); color: #b45309; }
+.obs-lvl-info  { background: rgba(59, 130, 246, 0.08); border-color: rgba(59, 130, 246, 0.22); color: #1d4ed8; }
+.obs-lvl-debug { background: rgba(15, 23, 42, 0.04);   border-color: rgba(15, 23, 42, 0.1);    color: #475569; }
+.obs-lvl-trace { background: rgba(139, 92, 246, 0.08); border-color: rgba(139, 92, 246, 0.22); color: #6d28d9; }
+
+button.obs-lvl { cursor: pointer; transition: box-shadow 0.15s ease; }
+button.obs-lvl:hover { box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08); }
+
+/* ── Detail drawer ───────────────────────────────────── */
+
+.obs-drawer-backdrop {
+  background: rgba(11, 18, 32, 0.32);
+  animation: obs-fade 0.2s ease both;
+}
+
+.obs-drawer {
+  animation: obs-drawer-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  box-shadow: -24px 0 60px -24px rgba(15, 23, 42, 0.28);
+}
+
+@keyframes obs-fade {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes obs-drawer-in {
+  0%   { transform: translateX(24px); opacity: 0; }
+  100% { transform: translateX(0);    opacity: 1; }
+}
+
+/* ── Spinner (login .loading-ring) ───────────────────── */
+
+.obs-spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--obs-line-2);
+  border-radius: 50%;
+  border-top-color: var(--obs-brand-deep);
+  animation: obs-spin 0.8s linear infinite;
+}
+
+.obs-spinner-sm { width: 16px; height: 16px; }
+
+@keyframes obs-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── Live pulse dot ──────────────────────────────────── */
+
+.obs-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--obs-brand-deep);
+  animation: obs-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes obs-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(27, 230, 139, 0.45); }
+  50%      { box-shadow: 0 0 0 4px rgba(27, 230, 139, 0); }
+}
+
+/* ── Respect reduced motion ──────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .obs-fade-up,
+  .obs-drawer,
+  .obs-drawer-backdrop,
+  .obs-live-dot {
+    animation: none !important;
+  }
+
+  .obs-card-click:hover { transform: none; }
+}

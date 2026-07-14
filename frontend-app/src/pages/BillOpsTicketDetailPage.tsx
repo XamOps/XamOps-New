@@ -836,7 +836,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
       `font-size:13px;font-weight:700;letter-spacing:0.2px;">🎥 Join Google Meet</a></div>`;
     setIsSharingMeet(true);
     try {
-      await submitReply(html, null, false);
+      await submitReply(html, [], false);
       closeMeetModal();
     } catch {
       globalThis.alert('Failed to share in chat. Please try again.');

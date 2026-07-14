@@ -354,7 +354,11 @@ public class OpenObserveService {
                 conditions.add("match_all('" + keyword.replace("'", "''") + "')");
             }
             if (level != null && !level.isBlank() && !level.equalsIgnoreCase("ALL")) {
-                conditions.add("LOWER(level) = '" + level.toLowerCase() + "'");
+                // Full-text match instead of a `level` column equality: OTel journald/docker
+                // streams have no populated level column (severity=0) — the level only exists
+                // inside the log body. match_all uses the inverted index and never fails on
+                // streams that lack the column.
+                conditions.add("match_all('" + level.toLowerCase().replace("'", "''") + "')");
             }
             // Source filter: matches host.name (EC2 hostname) or service.name or namespace
             if (sourceFilter != null && !sourceFilter.isBlank()) {
@@ -400,8 +404,21 @@ public class OpenObserveService {
         long startTime = toLong(params.getOrDefault("startTime", System.currentTimeMillis() - 3600_000L));
         long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
 
-        String sql = "SELECT histogram(_timestamp, '5 minute') AS key, COUNT(*) AS num" +
-                " FROM \"" + stream + "\" GROUP BY key ORDER BY key";
+        // Bucket width follows the selected window (sent by the UI) so a 7-day view
+        // spans 7 days instead of maxing out at 288 five-minute buckets (= 24h).
+        // Whitelisted pattern only — the value is interpolated into SQL.
+        String interval = (String) params.getOrDefault("interval", "5 minute");
+        if (interval == null || !interval.matches("\\d{1,3} (second|minute|hour|day)s?")) {
+            interval = "5 minute";
+        }
+        // Optional full-text condition (e.g. "error") — used by the UI to overlay an
+        // error-only series on the volume chart. Index-based, safe on any stream schema.
+        String match = (String) params.getOrDefault("match", null);
+        String where = (match != null && !match.isBlank())
+                ? " WHERE match_all('" + match.replace("'", "''") + "')"
+                : "";
+        String sql = "SELECT histogram(_timestamp, '" + interval + "') AS key, COUNT(*) AS num" +
+                " FROM \"" + stream + "\"" + where + " GROUP BY key ORDER BY key";
 
         Map<String, Object> query = Map.of(
                 "sql", sql,
