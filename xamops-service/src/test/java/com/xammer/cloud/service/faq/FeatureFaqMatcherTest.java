@@ -82,4 +82,15 @@ class FeatureFaqMatcherTest {
 
         assertThat(result).isEmpty();
     }
+
+    @Test
+    void match_doesNotFalsePositiveOnShortKeywordSubstring() {
+        // Regression: "ri" is a finops-reservations keyword. Before the word-boundary
+        // fix, it matched as a raw substring inside "security", combining with the
+        // legitimate "coverage" keyword hit to reach MIN_SCORE and produce a wrong,
+        // non-tied auto-answer about Reservations.
+        Optional<FeatureFaqEntry> result = matcher.match("is there a security coverage issue on my account");
+
+        assertThat(result).isEmpty();
+    }
 }

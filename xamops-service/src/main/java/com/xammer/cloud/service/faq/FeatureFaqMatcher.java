@@ -44,15 +44,28 @@ public class FeatureFaqMatcher {
 
     private int score(FeatureFaqEntry entry, String normalizedMessage) {
         int score = 0;
-        if (normalizedMessage.contains(normalize(entry.tabLabel()))) {
+        if (containsWholeWordPhrase(normalizedMessage, entry.tabLabel())) {
             score += LABEL_MATCH_SCORE;
         }
         for (String keyword : entry.keywords()) {
-            if (normalizedMessage.contains(normalize(keyword))) {
+            if (containsWholeWordPhrase(normalizedMessage, keyword)) {
                 score += KEYWORD_MATCH_SCORE;
             }
         }
         return score;
+    }
+
+    /**
+     * True if {@code phrase} appears in {@code normalizedMessage} on whole-word
+     * boundaries — e.g. the keyword "ri" must not match inside "security".
+     * Both sides are normalized and padded with sentinel spaces so one substring
+     * check covers start/end boundaries uniformly, including multi-word phrases
+     * like "reserved instances".
+     */
+    private static boolean containsWholeWordPhrase(String normalizedMessage, String phrase) {
+        String paddedMessage = " " + normalizedMessage + " ";
+        String paddedPhrase = " " + normalize(phrase) + " ";
+        return paddedMessage.contains(paddedPhrase);
     }
 
     private static String normalize(String s) {

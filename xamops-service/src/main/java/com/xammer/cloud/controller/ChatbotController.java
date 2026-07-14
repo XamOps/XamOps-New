@@ -44,10 +44,10 @@ public class ChatbotController {
             return new ChatResponse(answer);
         }
 
-        // 1. Send message to Human Support (Database)
+        // No feature/tab match — forward to human support (unchanged from before this feature).
         supportChatService.sendUserMessage(request.getMessage(), request.getAccountId());
 
-        // 2. Return a standard acknowledgement
+        // Return a standard acknowledgement.
         // In a real real-time app, this might be empty, but we return a system note.
         return new ChatResponse("Request received. An agent will be with you shortly.");
     }
