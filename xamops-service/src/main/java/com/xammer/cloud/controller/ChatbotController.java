@@ -4,10 +4,13 @@ import com.xammer.cloud.domain.SupportMessage;
 import com.xammer.cloud.dto.ChatRequest;
 import com.xammer.cloud.dto.ChatResponse;
 import com.xammer.cloud.service.SupportChatService;
+import com.xammer.cloud.service.faq.FeatureFaqEntry;
+import com.xammer.cloud.service.faq.FeatureFaqMatcher;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.http.ResponseEntity;
 
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -17,15 +20,30 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/ai") // Keeping path same for now to match frontend
 public class ChatbotController {
 
-    private final SupportChatService supportChatService;
+    private static final String FAQ_FOLLOW_UP =
+            " Did this answer your question? If not, just send another message and I'll loop in our support team.";
 
-    public ChatbotController(SupportChatService supportChatService) {
+    private final SupportChatService supportChatService;
+    private final FeatureFaqMatcher featureFaqMatcher;
+
+    public ChatbotController(SupportChatService supportChatService, FeatureFaqMatcher featureFaqMatcher) {
         this.supportChatService = supportChatService;
+        this.featureFaqMatcher = featureFaqMatcher;
     }
 
     @PostMapping("/chat")
     @PreAuthorize("hasAuthority('ROLE_XAMOPS')")
     public ChatResponse chat(@RequestBody ChatRequest request) {
+        Optional<FeatureFaqEntry> match = featureFaqMatcher.match(request.getMessage());
+
+        if (match.isPresent()) {
+            // Question matched a known feature/tab — auto-answer instead of queuing for a human.
+            supportChatService.recordAutoResolvedQuestion(request.getMessage(), request.getAccountId());
+            String answer = match.get().description() + FAQ_FOLLOW_UP;
+            supportChatService.sendBotAnswer(answer);
+            return new ChatResponse(answer);
+        }
+
         // 1. Send message to Human Support (Database)
         supportChatService.sendUserMessage(request.getMessage(), request.getAccountId());
 
