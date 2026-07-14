@@ -93,4 +93,20 @@ class FeatureFaqMatcherTest {
 
         assertThat(result).isEmpty();
     }
+
+    @Test
+    void match_returnsEntry_whenCompoundBrandLabelIsTypedWithSpacing() {
+        // Regression: a bare "xamsecure" (one word) label match requires the exact
+        // one-word form. Real users type it spaced ("xam secure"), which previously
+        // only earned +1 from a keyword (below MIN_SCORE). The label check must also
+        // recognize the camelCase-boundary-spaced form to earn the +3 label bonus.
+        assertThat(matcher.match("What is xam secure?").map(FeatureFaqEntry::tabKey))
+                .contains("secops-xamsecure");
+        assertThat(matcher.match("tell me about auto spotting").map(FeatureFaqEntry::tabKey))
+                .contains("finops-autospotting");
+        assertThat(matcher.match("what does cloud sitter do").map(FeatureFaqEntry::tabKey))
+                .contains("finops-cloudsitter");
+        assertThat(matcher.match("what is db ops").map(FeatureFaqEntry::tabKey))
+                .contains("cloudops-dbops");
+    }
 }

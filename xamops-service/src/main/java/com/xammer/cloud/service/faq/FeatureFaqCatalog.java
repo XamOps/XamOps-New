@@ -60,7 +60,7 @@ public final class FeatureFaqCatalog {
                     "change — all with zero downtime."),
 
             new FeatureFaqEntry("finops-cloudsitter", "FinOps", "CloudSitter",
-                    List.of("cloudsitter", "schedule", "start stop", "ec2", "timezone", "policy"),
+                    List.of("cloudsitter", "cloud sitter", "schedule", "start stop", "ec2", "timezone", "policy"),
                     "CloudSitter schedules your EC2 instances to start and stop on a weekly, " +
                     "timezone-aware grid, so you stop paying for compute outside business hours, and " +
                     "estimates the savings from each schedule."),
@@ -71,14 +71,14 @@ public final class FeatureFaqCatalog {
                     "integration, which you connect and authenticate from this page."),
 
             new FeatureFaqEntry("finops-autospotting", "FinOps", "AutoSpotting",
-                    List.of("autospotting", "spot instances", "asg", "auto scaling group", "mig", "vmss"),
+                    List.of("autospotting", "auto spotting", "spot instances", "asg", "auto scaling group", "mig", "vmss"),
                     "AutoSpotting automates Spot Instance usage inside your Auto Scaling Groups (or GCP " +
                     "MIGs / Azure VMSS), replacing on-demand capacity with spot capacity for up to " +
                     "around 70% compute savings, with per-group enable/disable toggles and a " +
                     "savings-history chart."),
 
             new FeatureFaqEntry("cloudops-cloudk8s", "CloudOps", "CloudK8s",
-                    List.of("kubernetes", "eks", "gke", "aks", "cluster", "monitoring", "k8s"),
+                    List.of("kubernetes", "cloud k8s", "eks", "gke", "aks", "cluster", "monitoring", "k8s"),
                     "CloudK8s monitors your EKS, GKE, or AKS clusters in real time, lets you enable " +
                     "monitoring per cluster, and walks you through observability setup."),
 
@@ -94,7 +94,7 @@ public final class FeatureFaqCatalog {
                     "with log viewing."),
 
             new FeatureFaqEntry("cloudops-devops-box", "CloudOps", "DevOps-in-the-Box",
-                    List.of("devops in the box", "scripts", "terraform", "bash", "python", "ansible", "templates"),
+                    List.of("devops in the box", "dev ops", "scripts", "terraform", "bash", "python", "ansible", "templates"),
                     "DevOps-in-the-Box is a searchable library of ready-made infrastructure scripts " +
                     "(Terraform, Bash, Python, Ansible) with fill-in placeholder tokens that you can " +
                     "customize and download."),
@@ -107,7 +107,7 @@ public final class FeatureFaqCatalog {
                     "token usage heatmap."),
 
             new FeatureFaqEntry("cloudops-dbops", "CloudOps", "DbOps",
-                    List.of("dbops", "database", "rds", "idle instance", "snapshot waste"),
+                    List.of("dbops", "db ops", "database", "rds", "idle instance", "snapshot waste"),
                     "DbOps monitors your RDS and other managed database instances: monthly DB spend, " +
                     "savings potential, idle-instance detection, rightsizing candidates, snapshot waste, " +
                     "and per-instance drill-down and alerts."),
@@ -118,7 +118,7 @@ public final class FeatureFaqCatalog {
                     "and compliance framework."),
 
             new FeatureFaqEntry("secops-xamsecure", "SecOps", "XamSecure",
-                    List.of("xamsecure", "cnapp", "attack surface", "cve", "vulnerabilities", "posture",
+                    List.of("xamsecure", "xam secure", "cnapp", "attack surface", "cve", "vulnerabilities", "posture",
                             "exposed resources", "api security"),
                     "XamSecure is a cloud security (CNAPP) module covering an Overview, Issues, asset " +
                     "Inventory, Attack Surface (internet-exposed resources), Vulnerabilities (CVE " +

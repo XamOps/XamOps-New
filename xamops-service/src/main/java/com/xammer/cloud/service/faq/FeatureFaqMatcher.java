@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Deterministic keyword/label matcher for the chatbot's feature/tab FAQ.
@@ -42,9 +43,12 @@ public class FeatureFaqMatcher {
         return Optional.of(scored.get(0).entry());
     }
 
+    private static final Pattern CAMEL_CASE_BOUNDARY = Pattern.compile("(?<=[a-z0-9])(?=[A-Z])");
+
     private int score(FeatureFaqEntry entry, String normalizedMessage) {
         int score = 0;
-        if (containsWholeWordPhrase(normalizedMessage, entry.tabLabel())) {
+        if (containsWholeWordPhrase(normalizedMessage, entry.tabLabel())
+                || containsWholeWordPhrase(normalizedMessage, spaceCamelCaseBoundaries(entry.tabLabel()))) {
             score += LABEL_MATCH_SCORE;
         }
         for (String keyword : entry.keywords()) {
@@ -66,6 +70,16 @@ public class FeatureFaqMatcher {
         String paddedMessage = " " + normalizedMessage + " ";
         String paddedPhrase = " " + normalize(phrase) + " ";
         return paddedMessage.contains(paddedPhrase);
+    }
+
+    /**
+     * Inserts a space at lower/digit-to-uppercase transitions, so a compound
+     * brand label like "XamSecure" or "CloudK8s" also matches how a user
+     * naturally types it with spacing ("xam secure", "cloud k8s") — without
+     * this, only the exact one-word form would earn the label bonus.
+     */
+    private static String spaceCamelCaseBoundaries(String label) {
+        return CAMEL_CASE_BOUNDARY.matcher(label).replaceAll(" ");
     }
 
     private static String normalize(String s) {
