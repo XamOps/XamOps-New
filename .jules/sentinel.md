@@ -1,0 +1,4 @@
+## 2026-07-14 - [Authorization Hardening in AgentController]
+**Vulnerability:** UI-facing management endpoints in `AgentController` (like `/install-info` leaking the global API key and `/db/config` leaking DB credentials) were unauthenticated due to broad `permitAll()` wildcards in `SecurityConfig`.
+**Learning:** Method-level security with `@PreAuthorize("isAuthenticated()")` is a reliable way to overlay session-based authentication on top of existing broad permit-all configurations without risking breaking external agent communication that relies on those same wildcards.
+**Prevention:** Always use `@PreAuthorize("isAuthenticated()")` on controller methods intended exclusively for the frontend UI, especially when the class-level mapping falls under a broad `permitAll()` rule in `SecurityConfig.java`. Use `isAuthenticated()` instead of the invalid `authenticated` SpEL expression.

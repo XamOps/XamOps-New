@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
@@ -229,6 +230,7 @@ public class AgentController {
      * Authorization: Bearer <global_api_key>
      * Body: { "agentName": "my-rds-agent", "cloudAccountId": "015764906357" }
      */
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/db/register")
     public ResponseEntity<Map<String, Object>> registerDbAgent(
             @RequestBody Map<String, String> body) {
@@ -259,6 +261,7 @@ public class AgentController {
      * DELETE /api/v1/agent/db/register?agentName=xxx&cloudAccountId=xxx
      * Deregisters a DB agent and deletes all its cached data.
      */
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/db/register")
     public ResponseEntity<Map<String, Object>> deleteDbAgent(
             @RequestParam String agentName,
@@ -355,6 +358,7 @@ public class AgentController {
      *
      * GET /api/v1/agent/status/{clusterConfigId}
      */
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/status/{clusterConfigId}")
     public ResponseEntity<Map<String, Object>> getAgentStatus(@PathVariable Long clusterConfigId) {
         Optional<KubernetesClusterConfig> configOpt = clusterConfigRepository.findById(clusterConfigId);
@@ -404,6 +408,7 @@ public class AgentController {
      *
      * GET /api/v1/agent/status?clusterName=xxx&cloudAccountId=xxx
      */
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getAgentStatusByCluster(
             @RequestParam String clusterName,
@@ -428,6 +433,7 @@ public class AgentController {
      * Returns pre-filled values needed to generate the agent install command in the UI.
      * Called by the frontend "Agent Stats" tab to build the one-liner.
      */
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/install-info")
     public ResponseEntity<Map<String, String>> getInstallInfo() {
         return ResponseEntity.ok(Map.of(
@@ -492,6 +498,7 @@ public class AgentController {
      * POST /api/v1/agent/db/config
      * Save connection configuration from the wizard (Step 2).
      */
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/db/config")
     public ResponseEntity<Map<String, Object>> saveDbAgentConfig(
             @RequestBody Map<String, String> body) {
@@ -520,6 +527,7 @@ public class AgentController {
      * GET /api/v1/agent/db/config?agentName=xxx&cloudAccountId=xxx
      * Load saved connection configuration — pre-fills the wizard fields.
      */
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/db/config")
     public ResponseEntity<Map<String, Object>> loadDbAgentConfig(
             @RequestParam String agentName,
@@ -546,6 +554,7 @@ public class AgentController {
      * GET /api/v1/agent/db/status?agentName=xxx&cloudAccountId=xxx
      * Returns live status of a registered DB agent — used by the wizard polling.
      */
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/db/status")
     public ResponseEntity<Map<String, Object>> getDbAgentStatus(
             @RequestParam String agentName,
@@ -587,6 +596,7 @@ public class AgentController {
      *
      * GET /api/v1/agent/events/{clusterConfigId}
      */
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/events/{clusterConfigId}")
     public ResponseEntity<List<AgentEvent>> getAgentEvents(
             @PathVariable Long clusterConfigId,
