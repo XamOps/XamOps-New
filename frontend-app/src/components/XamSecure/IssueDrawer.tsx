@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '@iconify/react';
 import type { IssueDetail } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
+import SecurityMarkup from './SecurityMarkup';
 import { FrameworkLogo, hasFrameworkLogo } from '../../utils/frameworkBranding';
 
 interface Props {
@@ -45,7 +46,7 @@ const IssueDrawer: React.FC<Props> = ({ title, detail, isLoading, onClose }) => 
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {isLoading && (
             <div className="px-6 py-12 text-center text-xs text-gray-400">Loading issue details...</div>
           )}
@@ -82,16 +83,12 @@ const IssueDrawer: React.FC<Props> = ({ title, detail, isLoading, onClose }) => 
 
               {/* Finding details */}
               <Section title="Finding details">
-                <p className="text-xs leading-relaxed text-gray-700 whitespace-pre-wrap">
-                  {detail.description ?? 'No description provided.'}
-                </p>
+                <SecurityMarkup text={detail.description} fallback="No description provided." />
               </Section>
 
               {/* Remediation */}
               <Section title="Remediation">
-                <p className="text-xs leading-relaxed text-gray-700 whitespace-pre-wrap">
-                  {detail.remediation ?? 'No remediation guidance provided.'}
-                </p>
+                <SecurityMarkup text={detail.remediation} fallback="No remediation guidance provided." />
               </Section>
 
               {/* Affected resources */}

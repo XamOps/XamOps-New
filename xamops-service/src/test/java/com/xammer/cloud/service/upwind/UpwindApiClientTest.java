@@ -117,6 +117,39 @@ class UpwindApiClientTest {
     }
 
     @Test
+    void retriesOn5xxThenSucceeds() {
+        mockToken();
+        client.setMaxAttempts(3);
+        client.setRetryBackoffMs(1); // keep the test fast
+        URI uri = URI.create("https://api.example/v1/organizations/org_test/threat-detections");
+        when(restTemplate.exchange(eq(uri), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new org.springframework.web.client.HttpServerErrorException(
+                        org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE))
+                .thenThrow(new org.springframework.web.client.HttpServerErrorException(
+                        org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE))
+                .thenReturn(ResponseEntity.ok("[{\"id\":\"a\"}]"));
+
+        List<JsonNode> all = client.fetchThreatDetections(1);
+        assertEquals(1, all.size());
+        verify(restTemplate, times(3)).exchange(eq(uri), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+    }
+
+    @Test
+    void doesNotRetryOn4xx() {
+        mockToken();
+        client.setMaxAttempts(3);
+        client.setRetryBackoffMs(1);
+        URI uri = URI.create("https://api.example/v1/organizations/org_test/threat-detections");
+        when(restTemplate.exchange(eq(uri), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new org.springframework.web.client.HttpClientErrorException(
+                        org.springframework.http.HttpStatus.UNAUTHORIZED));
+
+        assertThrows(org.springframework.web.client.HttpClientErrorException.class,
+                () -> client.fetchThreatDetections(1));
+        verify(restTemplate, times(1)).exchange(eq(uri), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+    }
+
+    @Test
     void tokenIsReusedAcrossCalls() {
         mockToken();
         ResponseEntity<String> page = ResponseEntity.ok("[]");

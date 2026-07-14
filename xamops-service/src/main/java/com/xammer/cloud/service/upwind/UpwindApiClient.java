@@ -9,8 +9,11 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -93,8 +96,8 @@ public class UpwindApiClient {
             headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
             // Link-header next URLs are already percent-encoded; the String overload
             // would re-encode them (double encoding -> Upwind 400)
-            ResponseEntity<String> resp = restTemplate.exchange(
-                    java.net.URI.create(url), HttpMethod.GET, new HttpEntity<>(headers), String.class);
+            ResponseEntity<String> resp = exchangeWithRetry(
+                    URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
             try {
                 JsonNode body = objectMapper.readTree(resp.getBody());
                 if (body.isArray()) {
@@ -118,8 +121,8 @@ public class UpwindApiClient {
             String body = objectMapper.writeValueAsString(java.util.Map.of("conditions", conditions));
             while (url != null && items.size() < maxItems) {
                 HttpHeaders headers = authHeaders();
-                ResponseEntity<String> resp = restTemplate.exchange(
-                        java.net.URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
                 JsonNode json = objectMapper.readTree(resp.getBody());
                 for (JsonNode item : json.path("items")) items.add(item);
                 String cursor = json.path("metadata").path("next_cursor").asText(null);
@@ -145,8 +148,8 @@ public class UpwindApiClient {
             String body = objectMapper.writeValueAsString(java.util.Map.of("conditions", conditions));
             while (url != null && items.size() < maxItems) {
                 HttpHeaders headers = authHeaders();
-                ResponseEntity<String> resp = restTemplate.exchange(
-                        java.net.URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
                 JsonNode json = objectMapper.readTree(resp.getBody());
                 JsonNode arr = json.has("items") ? json.path("items") : json;
                 if (arr.isArray()) arr.forEach(items::add);
@@ -167,8 +170,8 @@ public class UpwindApiClient {
         int pages = 0;
         while (url != null && pages < maxPages) {
             HttpHeaders headers = authHeaders();
-            ResponseEntity<String> resp = restTemplate.exchange(
-                    java.net.URI.create(url), HttpMethod.GET, new HttpEntity<>(headers), String.class);
+            ResponseEntity<String> resp = exchangeWithRetry(
+                    URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
             try {
                 JsonNode body = objectMapper.readTree(resp.getBody());
                 if (body.isArray()) body.forEach(items::add);
@@ -181,13 +184,35 @@ public class UpwindApiClient {
         return items;
     }
 
+    /** v1 SBOM software packages, tenant-filtered by cloud-account-id query param, Link paging. */
+    public List<JsonNode> fetchSbomPackages(String cloudAccountId, int maxPages) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String url = apiBaseUrl + "/v1/organizations/" + orgId
+                + "/sbom-packages?cloud-account-id=" + cloudAccountId + "&per-page=100";
+        int pages = 0;
+        while (url != null && pages < maxPages) {
+            HttpHeaders headers = authHeaders();
+            ResponseEntity<String> resp = exchangeWithRetry(
+                    URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
+            try {
+                JsonNode body = objectMapper.readTree(resp.getBody());
+                if (body.isArray()) body.forEach(items::add);
+            } catch (Exception e) {
+                throw new IllegalStateException("Upwind sbom-packages response invalid", e);
+            }
+            url = nextLink(resp.getHeaders());
+            pages++;
+        }
+        return items;
+    }
+
     /** v1 create webhook integration. Returns the created object. */
     public JsonNode createWebhook(JsonNode body) {
         String url = apiBaseUrl + "/v1/organizations/" + orgId + "/integration-webhooks";
         try {
             HttpHeaders headers = authHeaders();
-            ResponseEntity<String> resp = restTemplate.exchange(java.net.URI.create(url),
-                    HttpMethod.POST, new HttpEntity<>(objectMapper.writeValueAsString(body), headers), String.class);
+            ResponseEntity<String> resp = exchangeWithRetry(URI.create(url),
+                    HttpMethod.POST, new HttpEntity<>(objectMapper.writeValueAsString(body), headers));
             return objectMapper.readTree(resp.getBody());
         } catch (Exception e) {
             throw new IllegalStateException("Upwind webhook create failed", e);
@@ -200,11 +225,47 @@ public class UpwindApiClient {
         try {
             HttpHeaders headers = authHeaders();
             String body = objectMapper.writeValueAsString(java.util.Map.of("status", status));
-            restTemplate.exchange(java.net.URI.create(url), HttpMethod.PATCH,
-                    new HttpEntity<>(body, headers), String.class);
+            exchangeWithRetry(URI.create(url), HttpMethod.PATCH, new HttpEntity<>(body, headers));
         } catch (Exception e) {
             throw new IllegalStateException("Upwind detection update failed", e);
         }
+    }
+
+    // Retry tuning: total attempts and initial backoff (doubles each retry).
+    @Setter @Value("${upwind.http.max-attempts:3}")
+    private int maxAttempts;
+    @Setter @Value("${upwind.http.retry-backoff-ms:1000}")
+    private long retryBackoffMs;
+
+    /**
+     * Wraps restTemplate.exchange with retry-with-backoff for transient failures within a
+     * single sync run: HTTP 5xx (e.g. Upwind's "503 upstream connect error") and I/O errors
+     * (connection refused/reset). 4xx (auth/bad request) are NOT retried — they won't fix
+     * themselves. Backoff starts at retryBackoffMs and doubles each attempt.
+     */
+    private ResponseEntity<String> exchangeWithRetry(URI uri, HttpMethod method, HttpEntity<?> entity) {
+        int attempts = Math.max(1, maxAttempts);
+        long backoff = Math.max(0, retryBackoffMs);
+        RuntimeException last = null;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                return restTemplate.exchange(uri, method, entity, String.class);
+            } catch (HttpServerErrorException | ResourceAccessException e) {
+                last = e;
+                if (attempt < attempts) {
+                    log.warn("[Upwind] {} {} failed (attempt {}/{}): {} — retrying in {}ms",
+                            method, uri, attempt, attempts, e.getMessage(), backoff);
+                    try {
+                        Thread.sleep(backoff);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    backoff *= 2;
+                }
+            }
+        }
+        throw last != null ? last : new IllegalStateException("Upwind request failed: " + uri);
     }
 
     private HttpHeaders authHeaders() {

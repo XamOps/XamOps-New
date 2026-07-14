@@ -23,6 +23,34 @@ public interface UpwindPostureFindingRepository extends JpaRepository<UpwindPost
     Page<UpwindPostureFinding> findByCloudAccountIdInAndSeverityOrderByLastSeenTimeDesc(
             List<String> accountIds, String severity, Pageable pageable);
 
+    /**
+     * Distinct findings for the Configurations → Findings list. A finding is stored once per
+     * framework it maps to (same check on the same resource → many rows), so this collapses
+     * to one row per (check, resource) via DISTINCT ON, keeping the most recently seen copy.
+     * Severity is optional (pass null for all). Uses cast(:severity as text) — NOT ::text —
+     * so Hibernate's native-query parser doesn't misread the PostgreSQL cast operator.
+     * Pass an UNSORTED Pageable: ordering is baked in; Spring only appends LIMIT/OFFSET.
+     */
+    @Query(value =
+            "SELECT * FROM (" +
+            "  SELECT DISTINCT ON (coalesce(p.check_title, p.title), p.resource_id) p.* " +
+            "  FROM upwind_posture_finding p " +
+            "  WHERE p.cloud_account_id IN (:accountIds) " +
+            "  AND (cast(:severity as text) IS NULL OR p.severity = cast(:severity as text)) " +
+            "  ORDER BY coalesce(p.check_title, p.title), p.resource_id, p.last_seen_time DESC" +
+            ") t ORDER BY t.last_seen_time DESC",
+           countQuery =
+            "SELECT count(*) FROM (" +
+            "  SELECT DISTINCT coalesce(p.check_title, p.title) ct, p.resource_id " +
+            "  FROM upwind_posture_finding p " +
+            "  WHERE p.cloud_account_id IN (:accountIds) " +
+            "  AND (cast(:severity as text) IS NULL OR p.severity = cast(:severity as text))" +
+            ") x",
+           nativeQuery = true)
+    Page<UpwindPostureFinding> findDistinctFindings(@Param("accountIds") List<String> accountIds,
+                                                    @Param("severity") String severity,
+                                                    Pageable pageable);
+
     @Query("SELECT p.severity, COUNT(p) FROM UpwindPostureFinding p " +
            "WHERE p.cloudAccountId IN :accountIds AND p.status = 'FAIL' GROUP BY p.severity")
     List<Object[]> countFailBySeverity(@Param("accountIds") List<String> accountIds);

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ComplianceFramework } from '../../types/xamsecure';
+import { FrameworkLogo } from '../../utils/frameworkBranding';
 
 interface Props {
   data: ComplianceFramework[] | null;
@@ -31,7 +32,9 @@ const ComplianceTab: React.FC<Props> = ({ data, isLoading }) => {
         return (
           <div key={f.framework} className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <FrameworkLogo framework={f.framework} size={32} />
+                <div className="min-w-0">
                 <p className="text-sm font-bold text-gray-900">{f.framework}</p>
                 <div className="flex items-center gap-2 mt-1">
                   {f.version && (
@@ -43,6 +46,7 @@ const ComplianceTab: React.FC<Props> = ({ data, isLoading }) => {
                       {f.status}
                     </span>
                   )}
+                </div>
                 </div>
               </div>
               <p className={`text-2xl font-extrabold flex-shrink-0 ${

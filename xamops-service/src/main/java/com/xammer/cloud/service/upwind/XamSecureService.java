@@ -62,6 +62,127 @@ public class XamSecureService {
         this.apiClient = apiClient;
     }
 
+    /**
+     * Threat detection policies (org-level), fetched live from Upwind
+     * ({@code GET /v1/threat-policies}). Org-wide config — gated on the client having
+     * Upwind-connected accounts, like compliance frameworks.
+     */
+    public List<Map<String, Object>> getThreatPolicies(Long clientId, String accountId) {
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty() || !apiClient.isConfigured()) return List.of();
+        String cacheKey = "xamsecure:policies:" + clientId;
+        Optional<List<Map<String, Object>>> cached =
+                redisCacheService.get(cacheKey, new TypeReference<List<Map<String, Object>>>() {});
+        if (cached.isPresent()) return cached.get();
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        try {
+            for (JsonNode p : apiClient.fetchAll("/threat-policies", 10)) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", p.path("id").asText(null));
+                m.put("displayName", p.path("display_name").asText(null));
+                m.put("category", p.path("category").asText(null));
+                m.put("scope", p.path("scope").asText(null));
+                m.put("openIssues", p.path("open_issues").asInt(0));
+                m.put("managedBy", p.path("managed_by").asText(null));
+                m.put("enabled", p.path("enabled").asBoolean(false));
+                rows.add(m);
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] threat-policies fetch failed: {}", e.getMessage());
+        }
+        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        return rows;
+    }
+
+    /**
+     * Response automation workflows (org-level), fetched live from Upwind
+     * ({@code GET /v1/workflows}).
+     */
+    public List<Map<String, Object>> getWorkflows(Long clientId, String accountId) {
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty() || !apiClient.isConfigured()) return List.of();
+        String cacheKey = "xamsecure:workflows:" + clientId;
+        Optional<List<Map<String, Object>>> cached =
+                redisCacheService.get(cacheKey, new TypeReference<List<Map<String, Object>>>() {});
+        if (cached.isPresent()) return cached.get();
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        try {
+            for (JsonNode w : apiClient.fetchAll("/workflows", 10)) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", w.path("id").asText(null));
+                m.put("name", w.path("name").asText(null));
+                m.put("type", w.path("type").asText(null));
+                m.put("status", w.path("status").asText(null));
+                m.put("lastExecutionTime", w.path("last_execution_time").asText(null));
+                m.put("cron", w.path("config").path("cron").asText(null));
+                List<String> actions = new ArrayList<>();
+                w.path("config").path("actions").forEach(a -> actions.add(a.path("type").asText()));
+                m.put("actions", actions);
+                rows.add(m);
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] workflows fetch failed: {}", e.getMessage());
+        }
+        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        return rows;
+    }
+
+    /**
+     * Software components (SBOM) for the tenant's accounts, fetched live from Upwind
+     * ({@code GET /v1/sbom-packages}) and cached briefly. Tenant-filtered via the
+     * cloud-account-id query param; defence-in-depth post-filter on cloud_account_id.
+     */
+    public List<Map<String, Object>> getComponents(Long clientId, String accountId) {
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty() || !apiClient.isConfigured()) return List.of();
+        String cacheKey = "xamsecure:components:" + clientId + ":" + (accountId == null ? "all" : accountId);
+        Optional<List<Map<String, Object>>> cached =
+                redisCacheService.get(cacheKey, new TypeReference<List<Map<String, Object>>>() {});
+        if (cached.isPresent()) return cached.get();
+
+        Set<String> allowed = new HashSet<>(ids);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (String id : ids) {
+            try {
+                for (JsonNode p : apiClient.fetchSbomPackages(id, 50)) {
+                    String acct = p.path("cloud_account_id").asText(null);
+                    if (acct != null && !allowed.contains(acct)) continue; // defence in depth
+                    JsonNode vs = p.path("vulnerabilities_summary");
+                    JsonNode rs = p.path("resources_summary");
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("name", p.path("name").asText(null));
+                    m.put("version", p.path("version").asText(null));
+                    m.put("packageManager", p.path("package_manager").asText(null));
+                    m.put("framework", p.path("framework").asText(null));
+                    List<String> licenses = new ArrayList<>();
+                    p.path("licenses").forEach(l -> licenses.add(l.asText()));
+                    m.put("licenses", licenses);
+                    m.put("cloudProvider", p.path("cloud_provider").asText(null));
+                    m.put("cloudAccountId", acct != null ? acct : id);
+                    m.put("critical", vs.path("critical_count").asInt(0));
+                    m.put("high", vs.path("high_count").asInt(0));
+                    m.put("medium", vs.path("medium_count").asInt(0));
+                    m.put("low", vs.path("low_count").asInt(0));
+                    m.put("totalVulns", vs.path("total_count").asInt(0));
+                    m.put("inUse", rs.path("in_use_count").asInt(0));
+                    m.put("resourceCount", rs.path("total_count").asInt(0));
+                    m.put("affectedImages", p.path("images_summary").path("affected_count").asInt(0));
+                    rows.add(m);
+                }
+            } catch (Exception e) {
+                log.warn("[Upwind] sbom fetch failed for account {}: {}", id, e.getMessage());
+            }
+        }
+        // Highest-risk components first (most vulns, then in-use).
+        rows.sort(Comparator
+                .comparingInt((Map<String, Object> m) -> -((Integer) m.getOrDefault("totalVulns", 0)))
+                .thenComparingInt(m -> -((Integer) m.getOrDefault("inUse", 0))));
+        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        return rows;
+    }
+
     public List<Map<String, Object>> getApiSecurity(Long clientId, String accountId) {
         List<String> ids = resolveAccountIds(clientId, accountId);
         if (ids.isEmpty() || !apiClient.isConfigured()) return List.of();
@@ -243,13 +364,41 @@ public class XamSecureService {
             out.put("severityCounts", Map.of()); out.put("byWorkloadType", List.of());
             out.put("exploitableCves", 0); out.put("epssPrioritizedCves", 0);
             out.put("newLast7Days", Map.of()); out.put("overTime", List.of());
+            out.put("severityOverTime", List.of()); out.put("criticalWorkloadOverTime", List.of());
+            out.put("workloadLabels", List.of());
             return out;
         }
+
+        // Cumulative-over-time series for the last 7 days, at findings level, derived from
+        // first_seen_time. Mirrors Upwind's "Vulnerability findings by severity" (stacked,
+        // near-flat total) and "Critical vulnerability findings by workload type". A finding
+        // counts toward every day on/after the day it was first seen; anything first seen
+        // before the window sits in the baseline (index 0) so early days already reflect the
+        // standing backlog. This is a real derivation (not fabricated) — it does not model
+        // per-day resolution history, which Upwind retains but we don't.
+        java.time.LocalDate todayUtc = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        java.util.List<java.time.LocalDate> trendDays = new ArrayList<>();
+        for (int i = 6; i >= 0; i--) trendDays.add(todayUtc.minusDays(i));
+        long[] newCrit = new long[7], newHigh = new long[7], newOther = new long[7];
+        java.util.Map<String, long[]> critWorkloadNew = new LinkedHashMap<>();
 
         Map<String, CveAgg> byCve = new HashMap<>();
         long totalFindings = 0;
         for (Object[] r : vulnRepo.findForDashboard(ids)) {
             totalFindings++;
+            // --- trend accumulation (all findings, including those without a CVE id) ---
+            int idx = trendIndex((Instant) r[5], trendDays);
+            if (idx >= 0) {
+                String bucket = sevBucket((String) r[1]);
+                if ("CRITICAL".equals(bucket)) {
+                    newCrit[idx]++;
+                    critWorkloadNew.computeIfAbsent(workloadLabel((String) r[2]), k -> new long[7])[idx]++;
+                } else if ("HIGH".equals(bucket)) {
+                    newHigh[idx]++;
+                } else {
+                    newOther[idx]++;
+                }
+            }
             String cve = (String) r[0];
             if (cve == null || cve.isBlank()) continue;
             CveAgg a = byCve.computeIfAbsent(cve, k -> new CveAgg());
@@ -259,6 +408,30 @@ public class XamSecureService {
             double e = parseDoubleSafe((String) r[4]);
             if (e > a.epss) a.epss = e;
             a.firstSeen = earliest(a.firstSeen, (Instant) r[5]);
+        }
+
+        // Build cumulative series from the new-on-day counts.
+        List<Map<String, Object>> severityOverTime = new ArrayList<>();
+        long cCrit = 0, cHigh = 0, cOther = 0;
+        for (int i = 0; i < 7; i++) {
+            cCrit += newCrit[i]; cHigh += newHigh[i]; cOther += newOther[i];
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("date", trendDays.get(i).toString().substring(5)); // MM-DD
+            m.put("CRITICAL", cCrit); m.put("HIGH", cHigh); m.put("OTHER", cOther);
+            severityOverTime.add(m);
+        }
+        List<String> workloadLabels = new ArrayList<>(critWorkloadNew.keySet());
+        List<Map<String, Object>> criticalWorkloadOverTime = new ArrayList<>();
+        Map<String, Long> wlRunning = new LinkedHashMap<>();
+        for (String l : workloadLabels) wlRunning.put(l, 0L);
+        for (int i = 0; i < 7; i++) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("date", trendDays.get(i).toString().substring(5));
+            for (String l : workloadLabels) {
+                wlRunning.merge(l, critWorkloadNew.get(l)[i], Long::sum);
+                m.put(l, wlRunning.get(l));
+            }
+            criticalWorkloadOverTime.add(m);
         }
 
         Map<String, Long> severityCounts = new LinkedHashMap<>();
@@ -318,8 +491,42 @@ public class XamSecureService {
         out.put("epssPrioritizedCves", epssPrioritized);
         out.put("newLast7Days", newBySeverity);
         out.put("overTime", overTime);
+        out.put("severityOverTime", severityOverTime);
+        out.put("criticalWorkloadOverTime", criticalWorkloadOverTime);
+        out.put("workloadLabels", workloadLabels);
         out.put("funnel", funnel);
         return out;
+    }
+
+    /** Index (0-6) of the trend day a finding first counts toward; baseline (0) if on/before
+     *  the window start or unknown; -1 if in the future (skipped). */
+    private static int trendIndex(Instant firstSeen, java.util.List<java.time.LocalDate> days) {
+        if (firstSeen == null) return 0;
+        java.time.LocalDate d = firstSeen.atZone(java.time.ZoneOffset.UTC).toLocalDate();
+        java.time.LocalDate start = days.get(0);
+        java.time.LocalDate end = days.get(days.size() - 1);
+        if (!d.isAfter(start)) return 0;
+        if (d.isAfter(end)) return -1;
+        return (int) java.time.temporal.ChronoUnit.DAYS.between(start, d);
+    }
+
+    /** Buckets severity into Upwind's Critical / High / Other groups. */
+    private static String sevBucket(String severity) {
+        String s = severity == null ? "" : severity.toUpperCase();
+        if (s.equals("CRITICAL")) return "CRITICAL";
+        if (s.equals("HIGH")) return "HIGH";
+        return "OTHER";
+    }
+
+    /** Maps a resource type to an Upwind workload category. */
+    private static String workloadLabel(String resourceType) {
+        String t = resourceType == null ? "" : resourceType.toUpperCase();
+        if (t.contains("LAMBDA") || t.contains("FUNCTION")) return "Serverless";
+        if (t.contains("ECS") || t.contains("EKS") || t.contains("KUBER")
+                || t.contains("POD") || t.contains("CONTAINER")) return "Kubernetes workloads";
+        if (t.contains("ASG") || t.contains("SCALING")) return "Scaling groups";
+        if (t.contains("INSTANCE") || t.contains("EC2") || t.contains("HOST") || t.contains("VM")) return "Hosts";
+        return "Other";
     }
 
     private static Map<String, Object> funnelStage(String label, int value, boolean available) {
@@ -392,39 +599,75 @@ public class XamSecureService {
     public List<Map<String, Object>> getCveFindings(Long clientId, String accountId, String cveId) {
         List<String> ids = resolveAccountIds(clientId, accountId);
         if (ids.isEmpty() || cveId == null || cveId.isEmpty()) return List.of();
-        return vulnRepo.findByCloudAccountIdInAndCveIdOrderByLastScanTimeDesc(ids, cveId).stream()
-                .map(v -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("resourceName", v.getResourceName());
-                    m.put("resourceType", v.getResourceType());
-                    m.put("region", v.getRegion());
-                    m.put("cloudProvider", v.getCloudProvider());
-                    m.put("cvssScore", v.getCvssScore());
-                    m.put("exploitable", v.getExploitable());
-                    m.put("firstSeenTime", v.getFirstSeenTime());
-                    m.put("lastScanTime", v.getLastScanTime());
-                    // Package / image / fix live in the raw payload — these differentiate the
-                    // per-package findings so the drill-down isn't a wall of identical rows.
-                    JsonNode root = parseJson(v.getRawPayload());
-                    if (root != null) {
-                        JsonNode pkg = root.path("package");
-                        m.put("packageName", textOrNull(pkg, "name"));
-                        m.put("packageVersion", textOrNull(pkg, "version"));
-                        m.put("inUse", pkg.path("in_use").asBoolean(false));
-                        m.put("image", textOrNull(root.path("image"), "name"));
-                        JsonNode rem = root.path("remediation");
-                        String fixed = null;
-                        if (rem.isArray()) {
-                            for (JsonNode r : rem) {
-                                String f = r.path("data").path("fixed_in_version").asText(null);
-                                if (f != null && !f.isEmpty()) { fixed = f; break; }
-                            }
+
+        // Group by affected RESOURCE (Upwind's framing). A single CVE can hit many distinct
+        // packages on one resource (e.g. a Perl CVE flags 100 perl-* subpackages), which would
+        // otherwise render as 100 near-identical rows. We collapse to one row per resource and
+        // summarise: how many packages are affected, whether any is in use, whether a fix exists.
+        Map<String, CveResourceAgg> byResource = new LinkedHashMap<>();
+        for (UpwindVulnerabilityFinding v : vulnRepo.findByCloudAccountIdInAndCveIdOrderByLastScanTimeDesc(ids, cveId)) {
+            String key = v.getResourceId() != null ? v.getResourceId()
+                    : (v.getResourceName() != null ? v.getResourceName() : "unknown");
+            CveResourceAgg agg = byResource.computeIfAbsent(key, k -> new CveResourceAgg());
+            if (agg.resourceName == null) {
+                agg.resourceName = v.getResourceName();
+                agg.resourceType = v.getResourceType();
+                agg.region = v.getRegion();
+                agg.cloudProvider = v.getCloudProvider();
+                agg.cvssScore = v.getCvssScore();
+            }
+            if (Boolean.TRUE.equals(v.getExploitable())) agg.exploitable = true;
+            agg.firstSeen = earliest(agg.firstSeen, v.getFirstSeenTime());
+            agg.lastScan = latest(agg.lastScan, v.getLastScanTime());
+
+            JsonNode root = parseJson(v.getRawPayload());
+            if (root != null) {
+                JsonNode pkg = root.path("package");
+                String pkgName = textOrNull(pkg, "name");
+                if (pkgName != null) agg.packages.add(pkgName);
+                if (pkg.path("in_use").asBoolean(false)) agg.anyInUse = true;
+                String img = textOrNull(root.path("image"), "name");
+                if (img != null) agg.images.add(img);
+                if (agg.fixedInVersion == null) {
+                    JsonNode rem = root.path("remediation");
+                    if (rem.isArray()) {
+                        for (JsonNode r : rem) {
+                            String f = r.path("data").path("fixed_in_version").asText(null);
+                            if (f != null && !f.isEmpty()) { agg.fixedInVersion = f; break; }
                         }
-                        m.put("fixedInVersion", fixed);
                     }
-                    return m;
-                })
-                .collect(Collectors.toList());
+                }
+            }
+        }
+
+        return byResource.values().stream().map(a -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("resourceName", a.resourceName);
+            m.put("resourceType", a.resourceType);
+            m.put("region", a.region);
+            m.put("cloudProvider", a.cloudProvider);
+            m.put("cvssScore", a.cvssScore);
+            m.put("exploitable", a.exploitable);
+            m.put("firstSeenTime", a.firstSeen);
+            m.put("lastScanTime", a.lastScan);
+            m.put("packageCount", a.packages.size());
+            m.put("packageName", a.packages.size() == 1 ? a.packages.iterator().next()
+                    : a.packages.size() + " packages");
+            m.put("image", a.images.size() == 1 ? a.images.iterator().next()
+                    : (a.images.isEmpty() ? null : a.images.size() + " images"));
+            m.put("inUse", a.anyInUse);
+            m.put("fixAvailable", a.fixedInVersion != null);
+            m.put("fixedInVersion", a.fixedInVersion);
+            return m;
+        }).collect(Collectors.toList());
+    }
+
+    private static final class CveResourceAgg {
+        String resourceName, resourceType, region, cloudProvider, cvssScore, fixedInVersion;
+        boolean exploitable, anyInUse;
+        Instant firstSeen, lastScan;
+        final Set<String> packages = new LinkedHashSet<>();
+        final Set<String> images = new LinkedHashSet<>();
     }
 
     private static final List<String> VULN_SEVERITY_ORDER = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW");
@@ -485,11 +728,11 @@ public class XamSecureService {
                                                  String severity, int page, int size) {
         List<String> ids = resolveAccountIds(clientId, accountId);
         if (ids.isEmpty()) return Page.empty();
+        // Unsorted page — the dedup query bakes in its own ordering; Spring only adds LIMIT/OFFSET.
         Pageable pageable = PageRequest.of(page, Math.min(size, 200));
-        if (severity != null && !severity.isEmpty()) {
-            return postureRepo.findByCloudAccountIdInAndSeverityOrderByLastSeenTimeDesc(ids, severity, pageable);
-        }
-        return postureRepo.findByCloudAccountIdInOrderByLastSeenTimeDesc(ids, pageable);
+        String sev = (severity != null && !severity.isEmpty()) ? severity : null;
+        // Collapse per-framework duplicates → one row per distinct (check, resource).
+        return postureRepo.findDistinctFindings(ids, sev, pageable);
     }
 
     /** Highest-to-lowest severity ranking used to collapse a check's findings to one chip. */
@@ -860,6 +1103,13 @@ public class XamSecureService {
         return null;
     }
 
+    /** Normalizes a framework title for reliable matching: trim, collapse internal
+     *  whitespace to single spaces, lowercase. */
+    private static String normalizeFramework(String title) {
+        if (title == null) return "";
+        return title.trim().replaceAll("\\s+", " ").toLowerCase();
+    }
+
     public List<Map<String, Object>> getCompliance(Long clientId, String accountId) {
         List<String> ids = resolveAccountIds(clientId, accountId);
         if (ids.isEmpty()) return List.of();
@@ -870,40 +1120,52 @@ public class XamSecureService {
         if (cached.isPresent()) return cached.get();
 
         // Tenant-filtered pass/fail per framework (from synced posture findings).
+        // Keyed by a NORMALIZED title (trim + collapse whitespace + lowercase) so it
+        // reliably merges with Upwind's framework metadata even when titles differ by
+        // stray whitespace/case (e.g. "NIST  SP 800-53 AWS" vs "NIST SP 800-53 AWS").
         Map<String, Map<String, Long>> byFramework = new LinkedHashMap<>();
         for (Object[] row : postureRepo.countByFrameworkAndStatus(ids)) {
             String framework = (String) row[0];
+            if (framework == null) continue;
             String status = (String) row[1];
             Long count = (Long) row[2];
-            byFramework.computeIfAbsent(framework, k -> new HashMap<>()).put(status, count);
+            byFramework.computeIfAbsent(normalizeFramework(framework), k -> new HashMap<>()).put(status, count);
         }
 
-        // Framework metadata (version, status, score, last scan) from Upwind, matched by title.
+        // Framework metadata (title, version, status, score, last scan) from Upwind,
+        // keyed by normalized title; keep the canonical display title from Upwind.
         Map<String, JsonNode> meta = new LinkedHashMap<>();
+        Map<String, String> displayTitle = new LinkedHashMap<>();
         if (apiClient.isConfigured()) {
             try {
                 for (JsonNode fw : apiClient.fetchConfigurationFrameworks(10)) {
                     String title = fw.path("title").asText(null);
-                    if (title != null) meta.put(title, fw);
+                    if (title != null) {
+                        String key = normalizeFramework(title);
+                        meta.put(key, fw);
+                        displayTitle.putIfAbsent(key, title);
+                    }
                 }
             } catch (Exception e) {
                 log.warn("[Upwind] framework metadata fetch failed: {}", e.getMessage());
             }
         }
 
-        // Union: frameworks Upwind knows about + any that produced findings.
-        Set<String> allFrameworks = new LinkedHashSet<>();
-        allFrameworks.addAll(meta.keySet());
-        allFrameworks.addAll(byFramework.keySet());
+        // Union of normalized keys: frameworks Upwind knows about + any that produced findings.
+        Set<String> allKeys = new LinkedHashSet<>();
+        allKeys.addAll(meta.keySet());
+        allKeys.addAll(byFramework.keySet());
 
-        List<Map<String, Object>> result = allFrameworks.stream().map(title -> {
-            Map<String, Long> counts = byFramework.getOrDefault(title, Map.of());
-            JsonNode fw = meta.get(title);
+        List<Map<String, Object>> result = allKeys.stream().map(key -> {
+            Map<String, Long> counts = byFramework.getOrDefault(key, Map.of());
+            JsonNode fw = meta.get(key);
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("framework", title);
+            // Prefer Upwind's canonical title; fall back to whatever the posture data used.
+            m.put("framework", displayTitle.getOrDefault(key, key));
             m.put("failCount", counts.getOrDefault("FAIL", 0L));
             m.put("passCount", counts.getOrDefault("PASS", 0L));
             if (fw != null) {
+                m.put("framework", fw.path("title").asText((String) m.get("framework")));
                 m.put("version", textOrNull(fw, "version"));
                 m.put("status", textOrNull(fw, "status"));
                 m.put("lastScanTime", textOrNull(fw, "last_scan_time"));

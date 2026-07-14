@@ -130,6 +130,24 @@ public class XamSecureController {
         return ResponseEntity.ok(xamSecureService.getApiSecurity(user.getClientId(), accountId));
     }
 
+    @GetMapping("/components")
+    public ResponseEntity<?> components(@AuthenticationPrincipal ClientUserDetails user,
+                                        @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getComponents(user.getClientId(), accountId));
+    }
+
+    @GetMapping("/threat-policies")
+    public ResponseEntity<?> threatPolicies(@AuthenticationPrincipal ClientUserDetails user,
+                                            @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getThreatPolicies(user.getClientId(), accountId));
+    }
+
+    @GetMapping("/workflows")
+    public ResponseEntity<?> workflows(@AuthenticationPrincipal ClientUserDetails user,
+                                       @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getWorkflows(user.getClientId(), accountId));
+    }
+
     @PostMapping("/threats/{upwindId}/status")
     public ResponseEntity<?> updateThreatStatus(@AuthenticationPrincipal ClientUserDetails user,
                                                 @PathVariable String upwindId,

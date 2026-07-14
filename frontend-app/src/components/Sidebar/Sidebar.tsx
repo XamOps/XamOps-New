@@ -24,10 +24,12 @@ const XAMSECURE_SUBTABS: { id: string; label: string; icon: string }[] = [
   { id: 'inventory', label: 'Inventory', icon: 'fas fa-boxes-stacked' },
   { id: 'attack-surface', label: 'Attack Surface', icon: 'fas fa-globe' },
   { id: 'vulnerabilities', label: 'Vulnerabilities', icon: 'fas fa-bug' },
-  { id: 'posture', label: 'Posture', icon: 'fas fa-clipboard-check' },
+  { id: 'posture', label: 'Configurations', icon: 'fas fa-clipboard-check' },
   { id: 'api-security', label: 'API Security', icon: 'fas fa-plug' },
+  { id: 'components', label: 'Components', icon: 'fas fa-cubes' },
   { id: 'threats', label: 'Threats', icon: 'fas fa-bolt' },
-  { id: 'compliance', label: 'Compliance', icon: 'fas fa-file-contract' },
+  { id: 'threat-policies', label: 'Threat Policies', icon: 'fas fa-shield-halved' },
+  { id: 'workflows', label: 'Workflows', icon: 'fas fa-diagram-project' },
   { id: 'onboarding', label: 'Onboarding', icon: 'fas fa-plug-circle-plus' },
 ];
 

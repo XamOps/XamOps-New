@@ -1,16 +1,21 @@
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, Legend as ReLegend } from 'recharts';
 import type {
-  XamSecureSummary, IssueSummary, PageResp, ThreatDetection, ThreatStoriesSummary,
+  XamSecureSummary, IssueSummary, PageResp, ThreatDetection, ThreatStoriesSummary, VulnerabilityDashboard,
 } from '../../types/xamsecure';
 import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
+
+/** Upwind severity palette (matches the Vulnerabilities tab). */
+const SEV_COLOR = { CRITICAL: '#dc2626', HIGH: '#f97316', OTHER: '#3b82f6' } as const;
 
 interface Props {
   summary: XamSecureSummary | null;
   issues: IssueSummary[] | null;
   threats: PageResp<ThreatDetection> | null;
   stories: ThreatStoriesSummary | null;
+  vulnDashboard: VulnerabilityDashboard | null;
   isLoading: boolean;
 }
 
@@ -66,7 +71,7 @@ const BarChart: React.FC<{ data: { label: string; value: number }[] }> = ({ data
   );
 };
 
-const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, isLoading }) => {
+const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, vulnDashboard, isLoading }) => {
   const days = useMemo(() => last7Days(), []);
   const activeStories = stories?.activeCount ?? 0;
 
@@ -88,16 +93,6 @@ const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, isLoa
   const threatEvents = useMemo(
     () => (threats?.content ?? []).reduce((a, t) => a + (t.occurrenceCount ?? 1), 0),
     [threats]);
-
-  const detectionsOverTime = useMemo(() => {
-    const buckets = Object.fromEntries(days.map((d) => [d.key, 0])) as Record<string, number>;
-    (threats?.content ?? []).forEach((t) => {
-      if (!t.lastSeenTime) return;
-      const key = new Date(t.lastSeenTime).toISOString().slice(0, 10);
-      if (key in buckets) buckets[key] += t.occurrenceCount ?? 1;
-    });
-    return days.map((d) => ({ label: d.label, value: buckets[d.key] }));
-  }, [threats, days]);
 
   const findingsOverTime = useMemo(() => {
     const buckets = Object.fromEntries(days.map((d) => [d.key, 0])) as Record<string, number>;
@@ -180,9 +175,25 @@ const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, isLoa
           </div>
         </Panel>
 
-        <Panel title="Threat detections over time">
+        <Panel title="Vulnerability findings by severity">
           <p className="text-[10px] text-gray-400 mb-2">Last 7 days</p>
-          <BarChart data={detectionsOverTime} />
+          {(vulnDashboard?.severityOverTime ?? []).length === 0 ? (
+            <div className="py-10 text-center text-xs text-gray-400">No vulnerability data.</div>
+          ) : (
+            <div style={{ width: '100%', height: 150 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={vulnDashboard?.severityOverTime ?? []} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={34} />
+                  <Tooltip />
+                  <ReLegend wrapperStyle={{ fontSize: 10 }} />
+                  <Area type="monotone" dataKey="CRITICAL" name="Critical" stackId="1" stroke={SEV_COLOR.CRITICAL} fill={SEV_COLOR.CRITICAL} fillOpacity={0.85} />
+                  <Area type="monotone" dataKey="HIGH" name="High" stackId="1" stroke={SEV_COLOR.HIGH} fill={SEV_COLOR.HIGH} fillOpacity={0.85} />
+                  <Area type="monotone" dataKey="OTHER" name="Other" stackId="1" stroke={SEV_COLOR.OTHER} fill={SEV_COLOR.OTHER} fillOpacity={0.85} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </Panel>
       </div>
 

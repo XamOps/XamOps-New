@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Icon } from '@iconify/react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis,
+  AreaChart, Area, Legend as ReLegend } from 'recharts';
 import type { FunnelStage } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
 import type {
@@ -48,6 +49,12 @@ const VulnerabilitiesTab: React.FC<Props> = ({ dashboard, byCve, isLoading, onCv
   const newSev = dashboard?.newLast7Days ?? {};
   const overTime = dashboard?.overTime ?? {};
   const trend = days.map((d) => ({ label: d.label, value: overTime[d.key] ?? 0 }));
+
+  // Upwind-style cumulative trends (findings-level), from the backend.
+  const severityOverTime = dashboard?.severityOverTime ?? [];
+  const criticalWorkloadOverTime = dashboard?.criticalWorkloadOverTime ?? [];
+  const workloadLabels = dashboard?.workloadLabels ?? [];
+  const WORKLOAD_COLORS = ['#7c3aed', '#a855f7', '#c084fc', '#6366f1', '#818cf8'];
 
   return (
     <div className="space-y-4">
@@ -107,6 +114,47 @@ const VulnerabilitiesTab: React.FC<Props> = ({ dashboard, byCve, isLoading, onCv
               </div>
             </Panel>
           </div>
+          {/* Upwind-style cumulative trend charts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Panel title="Vulnerability findings by severity">
+              <p className="text-[10px] text-gray-400 mb-2">Last 7 days</p>
+              <div style={{ width: '100%', height: 200 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={severityOverTime} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={34} />
+                    <Tooltip />
+                    <ReLegend wrapperStyle={{ fontSize: 10 }} />
+                    <Area type="monotone" dataKey="CRITICAL" name="Critical" stackId="1" stroke={SEV_COLOR.Critical} fill={SEV_COLOR.Critical} fillOpacity={0.85} />
+                    <Area type="monotone" dataKey="HIGH" name="High" stackId="1" stroke={SEV_COLOR.High} fill={SEV_COLOR.High} fillOpacity={0.85} />
+                    <Area type="monotone" dataKey="OTHER" name="Other" stackId="1" stroke={SEV_COLOR.Other} fill={SEV_COLOR.Other} fillOpacity={0.85} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </Panel>
+            <Panel title="Critical vulnerability findings by workload type">
+              <p className="text-[10px] text-gray-400 mb-2">Last 7 days</p>
+              <div style={{ width: '100%', height: 200 }}>
+                {workloadLabels.length === 0 ? (
+                  <p className="py-16 text-center text-xs text-gray-400">No critical findings.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={criticalWorkloadOverTime} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={34} />
+                      <Tooltip cursor={{ fill: '#f3f4f6' }} />
+                      <ReLegend wrapperStyle={{ fontSize: 10 }} />
+                      {workloadLabels.map((l, i) => (
+                        <Bar key={l} dataKey={l} name={l} fill={WORKLOAD_COLORS[i % WORKLOAD_COLORS.length]}
+                          radius={[2, 2, 0, 0]} maxBarSize={26} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </Panel>
+          </div>
+
           <RuntimeFunnel stages={dashboard?.funnel ?? []} />
 
           <div className="grid grid-cols-1 gap-4">
@@ -250,8 +298,8 @@ const CveDrill: React.FC<{ findings: CveResourceFinding[] }> = ({ findings }) =>
         <thead>
           <tr className="text-left text-[9px] uppercase text-gray-400 border-b border-gray-100">
             <th className="px-3 py-2">Resource</th>
-            <th className="px-3 py-2">Package</th>
-            <th className="px-3 py-2">Image</th>
+            <th className="px-3 py-2">Type</th>
+            <th className="px-3 py-2">Affected packages</th>
             <th className="px-3 py-2">In use</th>
             <th className="px-3 py-2">Fix available</th>
             <th className="px-3 py-2">Region</th>
@@ -261,16 +309,25 @@ const CveDrill: React.FC<{ findings: CveResourceFinding[] }> = ({ findings }) =>
         <tbody>
           {pageItems.map((r, i) => (
             <tr key={i} className="border-b border-gray-50 last:border-0">
-              <td className="px-3 py-2 text-gray-800 font-medium max-w-[160px] truncate">{r.resourceName ?? '—'}</td>
-              <td className="px-3 py-2 text-gray-700">
-                {r.packageName ?? '—'}
-                {r.packageVersion && <span className="block text-[9px] text-gray-400">{r.packageVersion}</span>}
+              <td className="px-3 py-2 text-gray-800 font-medium max-w-[160px] truncate">
+                {r.resourceName ?? '—'}
+                {r.cloudProvider && <span className="block text-[9px] text-gray-400">{r.cloudProvider}</span>}
               </td>
-              <td className="px-3 py-2 text-gray-500 max-w-[140px] truncate">{r.image ?? '—'}</td>
-              <td className="px-3 py-2 text-gray-600">{r.inUse ? 'Yes' : 'No'}</td>
+              <td className="px-3 py-2 text-gray-600">{r.resourceType ?? '—'}</td>
+              <td className="px-3 py-2 text-gray-700">
+                {(r.packageCount ?? 0) > 1
+                  ? <span className="font-medium">{r.packageCount} packages</span>
+                  : (r.packageName ?? '—')}
+              </td>
               <td className="px-3 py-2">
-                {r.fixedInVersion
-                  ? <span className="text-emerald-600 font-medium">{r.fixedInVersion}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                  r.inUse ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                  {r.inUse ? 'Yes' : 'No'}
+                </span>
+              </td>
+              <td className="px-3 py-2">
+                {r.fixAvailable
+                  ? <span className="text-emerald-600 font-medium">{r.fixedInVersion ?? 'Yes'}</span>
                   : <span className="text-gray-300">—</span>}
               </td>
               <td className="px-3 py-2 text-gray-600">{r.region ?? '—'}</td>
@@ -278,11 +335,11 @@ const CveDrill: React.FC<{ findings: CveResourceFinding[] }> = ({ findings }) =>
             </tr>
           ))}
           {findings.length === 0 && (
-            <tr><td colSpan={7} className="px-3 py-3 text-center text-gray-400">No affected packages.</td></tr>
+            <tr><td colSpan={7} className="px-3 py-3 text-center text-gray-400">No affected resources.</td></tr>
           )}
         </tbody>
       </table>
-      <Pager page={page} totalPages={totalPages} total={total} unit="packages" onPage={setPage} />
+      <Pager page={page} totalPages={totalPages} total={total} unit="resources" onPage={setPage} />
     </div>
   );
 };

@@ -640,6 +640,12 @@ const ComplianceOpsPage: React.FC = () => {
               );
             })}
           </div>
+          <div className="flex items-start gap-2 px-5 py-2.5 border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
+            <Icon icon="mdi:information-outline" width={13} className="text-[rgba(0,0,0,0.35)] shrink-0 mt-[1px]" />
+            <p className="text-[11px] leading-snug text-[rgba(0,0,0,0.45)]">
+              Scores reflect automated cloud-configuration checks mapped to each framework and are a coverage indicator, not a certification. Formal compliance (e.g. SOC 2) requires an independent auditor's attestation.
+            </p>
+          </div>
         </div>
 
         {/* ── By severity + Trend over time ── */}

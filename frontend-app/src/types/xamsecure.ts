@@ -45,6 +45,9 @@ export interface VulnerabilityDashboard {
   epssPrioritizedCves: number;
   newLast7Days: Record<string, number>;
   overTime: Record<string, number>;
+  severityOverTime: Array<Record<string, number | string>>;
+  criticalWorkloadOverTime: Array<Record<string, number | string>>;
+  workloadLabels: string[];
   funnel: FunnelStage[];
 }
 
@@ -62,7 +65,7 @@ export interface CveGroupRow {
   lastScan: string | null;
 }
 
-/** Drill-down row: one per-package finding for a CVE. */
+/** Drill-down row: one per affected RESOURCE for a CVE (packages summarised). */
 export interface CveResourceFinding {
   resourceName: string | null;
   resourceType: string | null;
@@ -72,10 +75,12 @@ export interface CveResourceFinding {
   exploitable: boolean | null;
   firstSeenTime: string | null;
   lastScanTime: string | null;
-  packageName?: string | null;
+  packageName?: string | null;     // single package name, or "N packages"
+  packageCount?: number | null;
   packageVersion?: string | null;
   inUse?: boolean | null;
   image?: string | null;
+  fixAvailable?: boolean | null;
   fixedInVersion?: string | null;
 }
 
@@ -157,6 +162,44 @@ export interface ApiEndpoint {
   lastSeenTime: string | null;
   internetExposed: boolean;
   cloudAccountId: string | null;
+}
+
+export interface ThreatPolicy {
+  id: string;
+  displayName: string | null;
+  category: string | null;
+  scope: string | null;
+  openIssues: number;
+  managedBy: string | null;
+  enabled: boolean;
+}
+
+export interface Workflow {
+  id: string;
+  name: string | null;
+  type: string | null;
+  status: string | null;
+  lastExecutionTime: string | null;
+  cron: string | null;
+  actions: string[];
+}
+
+export interface SbomComponent {
+  name: string | null;
+  version: string | null;
+  packageManager: string | null;
+  framework: string | null;
+  licenses: string[];
+  cloudProvider: string | null;
+  cloudAccountId: string | null;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  totalVulns: number;
+  inUse: number;
+  resourceCount: number;
+  affectedImages: number;
 }
 
 export interface ComplianceFramework {

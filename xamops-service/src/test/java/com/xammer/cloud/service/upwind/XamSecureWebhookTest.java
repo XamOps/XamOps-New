@@ -28,17 +28,17 @@ class XamSecureWebhookTest {
     }
 
     @Test
-    void ingestsSingleDetection() {
+    void ingestsSingleEvent() {
         var resp = controller.ingest("s3cr3t", "{\"id\":\"uwnd-1\",\"severity\":\"HIGH\"}");
         assertEquals(200, resp.getStatusCodeValue());
-        verify(syncService, times(1)).ingestDetection(any());
+        verify(syncService, times(1)).ingestEvent(any());
     }
 
     @Test
-    void ingestsArrayOfDetections() {
+    void ingestsArrayOfEvents() {
         var resp = controller.ingest("s3cr3t", "[{\"id\":\"a\"},{\"id\":\"b\"}]");
         assertEquals(200, resp.getStatusCodeValue());
-        verify(syncService, times(2)).ingestDetection(any());
+        verify(syncService, times(2)).ingestEvent(any());
     }
 
     @Test
@@ -52,6 +52,6 @@ class XamSecureWebhookTest {
     void acceptsSecretViaAuthorizationBearerHeader() {
         var resp = controller.ingest(null, "Bearer s3cr3t", "{\"id\":\"uwnd-1\"}");
         assertEquals(200, resp.getStatusCodeValue());
-        verify(syncService, times(1)).ingestDetection(any());
+        verify(syncService, times(1)).ingestEvent(any());
     }
 }

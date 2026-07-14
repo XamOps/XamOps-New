@@ -176,4 +176,42 @@ class UpwindSyncServiceTest {
 
         verify(inventoryRepo, never()).markResolvedNotSyncedSince(any());
     }
+
+    // --- Webhook event-type routing (ingestEvent) ---
+
+    @Test
+    void ingestEventRoutesVulnerabilityByType() {
+        String r = service.ingestEvent(parse(
+            "{\"id\":\"uvf-1\",\"type\":\"vulnerability\",\"vulnerability\":{\"nvd_cve_id\":\"CVE-1\"}," +
+            "\"resource\":{\"cloud_account_id\":\"111\"}}"));
+        assertEquals("vulnerability", r);
+        verify(vulnRepo).findByUpwindId("uvf-1");
+        verifyNoInteractions(detectionRepo);
+    }
+
+    @Test
+    void ingestEventRoutesPostureByType() {
+        String r = service.ingestEvent(parse(
+            "{\"id\":\"fnd-1\",\"event_type\":\"posture_finding\",\"status\":\"FAIL\"," +
+            "\"resource\":{\"cloud_account_id\":\"111\"}}"));
+        assertEquals("posture", r);
+        verify(postureRepo).findByUpwindId("fnd-1");
+    }
+
+    @Test
+    void ingestEventRoutesInventoryByType() {
+        String r = service.ingestEvent(parse(
+            "{\"id\":\"uwr-1\",\"object_type\":\"inventory_asset\",\"asset_category\":\"compute_platform\"," +
+            "\"label\":\"aws_ec2_instance\",\"cloud_provider\":\"AWS\",\"cloud_account_id\":\"605134457560\"," +
+            "\"name\":\"XamCloud-Website\",\"region\":\"ap-south-2\"}"));
+        assertEquals("inventory", r);
+        verify(inventoryRepo).findByUpwindId("uwr-1");
+    }
+
+    @Test
+    void ingestEventDefaultsToDetectionWhenTypeUnknown() {
+        String r = service.ingestEvent(parse(DETECTION_JSON));
+        assertEquals("detection", r);
+        verify(detectionRepo).findByUpwindId("uwnd-1");
+    }
 }

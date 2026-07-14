@@ -152,6 +152,63 @@ public class UpwindSyncService {
         upsertDetection(item, Instant.now());
     }
 
+    @Transactional
+    public void ingestVulnerability(JsonNode item) {
+        upsertVulnerability(item, Instant.now());
+    }
+
+    @Transactional
+    public void ingestPosture(JsonNode item) {
+        upsertPosture(item, Instant.now());
+    }
+
+    @Transactional
+    public void ingestInventoryAsset(JsonNode item) {
+        upsertAsset(item, Instant.now());
+    }
+
+    /**
+     * Routes a single webhook event to the correct upsert based on a type discriminator
+     * in the payload. Upwind webhooks may label the object under any of a few common keys
+     * ("type", "event_type", "object_type", "kind", "category"); we match case-insensitively
+     * on substrings. Unknown/absent types fall back to a detection (backward compatible with
+     * the original detection-only webhook).
+     *
+     * @return the domain the event was routed to ("detection", "vulnerability", "posture", "inventory")
+     */
+    @Transactional
+    public String ingestEvent(JsonNode item) {
+        String type = firstNonBlank(
+                text(item, "type"), text(item, "event_type"), text(item, "eventType"),
+                text(item, "object_type"), text(item, "objectType"), text(item, "kind"),
+                text(item, "category"));
+        String t = type == null ? "" : type.toLowerCase();
+
+        if (t.contains("vuln") || t.contains("cve")) {
+            upsertVulnerability(item, Instant.now());
+            return "vulnerability";
+        }
+        if (t.contains("posture") || t.contains("config") || t.contains("misconfig") || t.contains("compliance")) {
+            upsertPosture(item, Instant.now());
+            return "posture";
+        }
+        if (t.contains("inventory") || t.contains("asset") || t.contains("resource")) {
+            upsertAsset(item, Instant.now());
+            return "inventory";
+        }
+        // Default: threat detection (also covers t.contains("detection")/"threat")
+        upsertDetection(item, Instant.now());
+        return "detection";
+    }
+
+    private static String firstNonBlank(String... vals) {
+        if (vals == null) return null;
+        for (String v : vals) {
+            if (v != null && !v.trim().isEmpty()) return v;
+        }
+        return null;
+    }
+
     private void upsertDetection(JsonNode item, Instant now) {
         String upwindId = text(item, "id");
         if (upwindId == null) return;

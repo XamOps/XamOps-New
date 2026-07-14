@@ -61,12 +61,19 @@ public class XamSecureWebhookController {
         try {
             JsonNode json = objectMapper.readTree(body);
             int count = 0;
+            java.util.Map<String, Integer> byType = new java.util.HashMap<>();
             if (json.isArray()) {
-                for (JsonNode item : json) { syncService.ingestDetection(item); count++; }
+                for (JsonNode item : json) {
+                    String domain = syncService.ingestEvent(item);
+                    byType.merge(domain, 1, (a, b) -> a + b);
+                    count++;
+                }
             } else if (json.has("id")) {
-                syncService.ingestDetection(json); count++;
+                String domain = syncService.ingestEvent(json);
+                byType.merge(domain, 1, (a, b) -> a + b);
+                count++;
             }
-            return ResponseEntity.ok(Map.of("ingested", count));
+            return ResponseEntity.ok(Map.of("ingested", count, "byType", byType));
         } catch (Exception e) {
             log.error("[Upwind webhook] ingest failed: {}", e.getMessage());
             return ResponseEntity.badRequest().body(Map.of("error", "invalid payload"));

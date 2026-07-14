@@ -4,12 +4,13 @@ import { useAccounts } from '../contexts/AccountContext';
 import { useXamSecureData } from '../hooks/useXamSecureData';
 import {
   XamSecureHeader, IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsTab, VulnerabilitiesTab,
-  PostureTab, InventoryTab, ApiSecurityTab, ComplianceTab, OnboardingTab,
+  ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, ThreatPoliciesTab, WorkflowsTab,
+  OnboardingTab,
 } from '../components/XamSecure';
 
 export type XamSecureTab =
   | 'issues' | 'overview' | 'attack-surface' | 'threats' | 'vulnerabilities' | 'posture'
-  | 'inventory' | 'api-security' | 'compliance' | 'onboarding';
+  | 'inventory' | 'api-security' | 'components' | 'threat-policies' | 'workflows' | 'compliance' | 'onboarding';
 
 export const XAMSECURE_TABS: { id: XamSecureTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -17,10 +18,12 @@ export const XAMSECURE_TABS: { id: XamSecureTab; label: string }[] = [
   { id: 'inventory', label: 'Inventory' },
   { id: 'attack-surface', label: 'Attack Surface' },
   { id: 'vulnerabilities', label: 'Vulnerabilities' },
-  { id: 'posture', label: 'Posture' },
+  { id: 'posture', label: 'Configurations' },
   { id: 'api-security', label: 'API Security' },
+  { id: 'components', label: 'Components' },
   { id: 'threats', label: 'Threats' },
-  { id: 'compliance', label: 'Compliance' },
+  { id: 'threat-policies', label: 'Threat Policies' },
+  { id: 'workflows', label: 'Workflows' },
   { id: 'onboarding', label: 'Onboarding' },
 ];
 
@@ -38,7 +41,8 @@ const XamSecurePage: React.FC = () => {
 
   const {
     summary, issues, attackSurface, threats, vulnDashboard, vulnByCve, posture, inventory,
-    inventoryCategories, networkTopology, compliance, onboarding, apiSecurity, stories,
+    inventoryCategories, networkTopology, compliance, onboarding, apiSecurity, components,
+    threatPolicies, workflows, stories,
     isLoading, refresh, loadIssueDetail, loadThreats, loadVulnByCve, loadCveFindings, loadPosture, loadInventory,
     archiveThreat,
   } = useXamSecureData({ selectedAccountId, activeTab });
@@ -55,7 +59,7 @@ const XamSecurePage: React.FC = () => {
         )}
         {activeTab === 'overview' && (
           <OverviewTab summary={summary} issues={issues} threats={threats}
-                       stories={stories} isLoading={isLoading} />
+                       stories={stories} vulnDashboard={vulnDashboard} isLoading={isLoading} />
         )}
         {activeTab === 'threats' && (
           <ThreatsTab threats={threats} isLoading={isLoading} onPage={(p) => loadThreats(p)} onArchive={archiveThreat} />
@@ -65,14 +69,17 @@ const XamSecurePage: React.FC = () => {
                               onCvePage={(p) => loadVulnByCve(p)} loadCveFindings={loadCveFindings} />
         )}
         {activeTab === 'posture' && (
-          <PostureTab data={posture} isLoading={isLoading} onPage={(p) => loadPosture(p)} />
+          <ConfigurationsTab posture={posture} compliance={compliance} isLoading={isLoading}
+                             onPage={(p) => loadPosture(p)} />
         )}
         {activeTab === 'inventory' && (
           <InventoryTab data={inventory} categories={inventoryCategories} network={networkTopology}
                         isLoading={isLoading} onLoad={(page, category) => loadInventory(page, category)} />
         )}
         {activeTab === 'api-security' && <ApiSecurityTab data={apiSecurity} isLoading={isLoading} />}
-        {activeTab === 'compliance' && <ComplianceTab data={compliance} isLoading={isLoading} />}
+        {activeTab === 'components' && <ComponentsTab data={components} isLoading={isLoading} />}
+        {activeTab === 'threat-policies' && <ThreatPoliciesTab data={threatPolicies} isLoading={isLoading} />}
+        {activeTab === 'workflows' && <WorkflowsTab data={workflows} isLoading={isLoading} />}
         {activeTab === 'onboarding' && <OnboardingTab accounts={onboarding} isLoading={isLoading} />}
       </div>
     </main>
