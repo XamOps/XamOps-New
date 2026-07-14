@@ -13,7 +13,7 @@ describe('xamsecure helpers', () => {
   });
 
   it('cache key is scoped per account', () => {
-    expect(xamSecureCacheKey('summary', '111')).toBe('xamsecure_v2_summary_111');
-    expect(xamSecureCacheKey('summary', null)).toBe('xamsecure_v2_summary_all');
+    expect(xamSecureCacheKey('summary', '111')).toBe('xamsecure_v3_summary_111');
+    expect(xamSecureCacheKey('summary', null)).toBe('xamsecure_v3_summary_all');
   });
 });
