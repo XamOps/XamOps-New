@@ -6,6 +6,7 @@ export { default as IssuesTab } from './IssuesTab';
 export { default as AttackSurfaceTab } from './AttackSurfaceTab';
 export { default as OverviewTab } from './OverviewTab';
 export { default as ThreatsTab } from './ThreatsTab';
+export { default as ThreatsSection } from './ThreatsSection';
 export { default as VulnerabilitiesTab } from './VulnerabilitiesTab';
 export { default as PostureTab } from './PostureTab';
 export { default as ConfigurationsTab } from './ConfigurationsTab';

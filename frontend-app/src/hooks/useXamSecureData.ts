@@ -278,7 +278,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
           await Promise.all([loadSummary(), loadIssues(), loadThreats(), loadStories(), loadVulnDashboard()]);
         }
         else if (activeTab === 'attack-surface') await loadAttackSurface();
-        else if (activeTab === 'threats') await loadThreats();
+        else if (activeTab === 'threats') await Promise.all([loadThreats(), loadThreatPolicies()]);
         else if (activeTab === 'vulnerabilities') {
           await Promise.all([loadVulnDashboard(), loadVulnByCve()]);
         }
@@ -321,7 +321,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     if (activeTab === 'overview') {
       return Promise.all([loadSummary(true), loadIssues('', true), loadThreats(), loadStories(true), loadVulnDashboard(true)]);
     }
-    if (activeTab === 'threats') return loadThreats();
+    if (activeTab === 'threats') return Promise.all([loadThreats(), loadThreatPolicies(true)]);
     if (activeTab === 'vulnerabilities') {
       return Promise.all([loadVulnDashboard(true), loadVulnByCve()]);
     }

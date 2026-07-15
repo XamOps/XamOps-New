@@ -19,18 +19,15 @@ import clsx from 'clsx';
 
 /** XamSecure nested sidebar entries — mirror the tabs on XamSecurePage. */
 const XAMSECURE_SUBTABS: { id: string; label: string; icon: string }[] = [
-  { id: 'overview', label: 'Overview', icon: 'fas fa-gauge-high' },
+  { id: 'overview', label: 'Home', icon: 'fas fa-house' },
   { id: 'issues', label: 'Issues', icon: 'fas fa-triangle-exclamation' },
   { id: 'inventory', label: 'Inventory', icon: 'fas fa-boxes-stacked' },
   { id: 'attack-surface', label: 'Attack Surface', icon: 'fas fa-globe' },
   { id: 'vulnerabilities', label: 'Vulnerabilities', icon: 'fas fa-bug' },
   { id: 'posture', label: 'Configurations', icon: 'fas fa-clipboard-check' },
-  { id: 'api-security', label: 'API Security', icon: 'fas fa-plug' },
-  { id: 'components', label: 'Components', icon: 'fas fa-cubes' },
+  { id: 'api-security', label: 'APIs', icon: 'fas fa-plug' },
   { id: 'threats', label: 'Threats', icon: 'fas fa-bolt' },
-  { id: 'threat-policies', label: 'Threat Policies', icon: 'fas fa-shield-halved' },
-  { id: 'workflows', label: 'Workflows', icon: 'fas fa-diagram-project' },
-  { id: 'onboarding', label: 'Onboarding', icon: 'fas fa-plug-circle-plus' },
+  { id: 'components', label: 'Components', icon: 'fas fa-cubes' },
 ];
 
 const Sidebar: React.FC = () => {
@@ -367,7 +364,7 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('secops-security-center') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : selectedAccountDisplay.provider === 'Azure' ? '/azure-security' : '/security'} icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security') || isActive('/gcp-security') || isActive('/azure-security')} />}
                 {isXamTabAllowed('secops-xamsecure') && (
                   <>
-                    <NavItem href="/xamsecure/issues" icon="fas fa-user-shield" label="XamSecure" isActive={isActive('/xamsecure')} />
+                    <NavItem href="/xamsecure/overview" icon="fas fa-user-shield" label="XamSecure" isActive={isActive('/xamsecure')} />
                     {location.pathname.startsWith('/xamsecure') && (
                       <div className={clsx(
                         'ml-3 pl-3 border-l space-y-0.5',

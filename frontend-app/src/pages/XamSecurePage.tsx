@@ -3,9 +3,8 @@ import { useParams } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useXamSecureData } from '../hooks/useXamSecureData';
 import {
-  XamSecureHeader, IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsTab, VulnerabilitiesTab,
-  ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, ThreatPoliciesTab, WorkflowsTab,
-  OnboardingTab,
+  XamSecureHeader, IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsSection, VulnerabilitiesTab,
+  ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, WorkflowsTab, OnboardingTab,
 } from '../components/XamSecure';
 
 export type XamSecureTab =
@@ -13,16 +12,17 @@ export type XamSecureTab =
   | 'inventory' | 'api-security' | 'components' | 'threat-policies' | 'workflows' | 'compliance' | 'onboarding';
 
 export const XAMSECURE_TABS: { id: XamSecureTab; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'overview', label: 'Home' },
   { id: 'issues', label: 'Issues' },
   { id: 'inventory', label: 'Inventory' },
   { id: 'attack-surface', label: 'Attack Surface' },
   { id: 'vulnerabilities', label: 'Vulnerabilities' },
   { id: 'posture', label: 'Configurations' },
-  { id: 'api-security', label: 'API Security' },
-  { id: 'components', label: 'Components' },
+  { id: 'api-security', label: 'APIs' },
   { id: 'threats', label: 'Threats' },
-  { id: 'threat-policies', label: 'Threat Policies' },
+  { id: 'components', label: 'Components' },
+  // Workflows & Onboarding remain valid routes (deep-link reachable) but are not in the
+  // sidebar nav — they map to Upwind's Settings area, not its security nav.
   { id: 'workflows', label: 'Workflows' },
   { id: 'onboarding', label: 'Onboarding' },
 ];
@@ -35,7 +35,7 @@ const XamSecurePage: React.FC = () => {
   const { tab } = useParams<{ tab?: string }>();
 
   const activeTab = useMemo<XamSecureTab>(
-    () => (tab && VALID_TABS.has(tab) ? (tab as XamSecureTab) : 'issues'),
+    () => (tab && VALID_TABS.has(tab) ? (tab as XamSecureTab) : 'overview'),
     [tab]
   );
 
@@ -62,7 +62,8 @@ const XamSecurePage: React.FC = () => {
                        stories={stories} vulnDashboard={vulnDashboard} isLoading={isLoading} />
         )}
         {activeTab === 'threats' && (
-          <ThreatsTab threats={threats} isLoading={isLoading} onPage={(p) => loadThreats(p)} onArchive={archiveThreat} />
+          <ThreatsSection threats={threats} policies={threatPolicies} isLoading={isLoading}
+                          onPage={(p) => loadThreats(p)} onArchive={archiveThreat} />
         )}
         {activeTab === 'vulnerabilities' && (
           <VulnerabilitiesTab dashboard={vulnDashboard} byCve={vulnByCve} isLoading={isLoading}
@@ -78,7 +79,6 @@ const XamSecurePage: React.FC = () => {
         )}
         {activeTab === 'api-security' && <ApiSecurityTab data={apiSecurity} isLoading={isLoading} />}
         {activeTab === 'components' && <ComponentsTab data={components} isLoading={isLoading} />}
-        {activeTab === 'threat-policies' && <ThreatPoliciesTab data={threatPolicies} isLoading={isLoading} />}
         {activeTab === 'workflows' && <WorkflowsTab data={workflows} isLoading={isLoading} />}
         {activeTab === 'onboarding' && <OnboardingTab accounts={onboarding} isLoading={isLoading} />}
       </div>
