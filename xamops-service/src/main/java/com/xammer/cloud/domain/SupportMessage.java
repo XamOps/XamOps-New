@@ -18,7 +18,9 @@ public class SupportMessage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    // TEXT, not the JPA-default varchar(255): chatbot FAQ auto-answers are full
+    // sentences plus a follow-up nudge and routinely exceed 255 characters.
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
     @Column(nullable = false)
