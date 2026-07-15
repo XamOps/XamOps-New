@@ -57,10 +57,14 @@ const ComplianceTab: React.FC<Props> = ({ data, isLoading }) => {
                    style={{ width: `${score}%` }} />
             </div>
             <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
-              <div className="flex gap-4">
-                <span><span className="font-bold text-gray-900">{f.passCount}</span> passing</span>
-                <span><span className="font-bold text-gray-900">{f.failCount}</span> failing</span>
-              </div>
+              {/* Upwind's API only returns FAILING findings (no passing count), and the % above
+                  is Upwind's compliance score. Showing "0 passing" alongside a non-zero score is
+                  misleading, so we surface the real failing count and let the score convey the rate. */}
+              {f.failCount > 0 ? (
+                <span><span className="font-bold text-red-600">{f.failCount}</span> failing {f.failCount === 1 ? 'control' : 'controls'}</span>
+              ) : (
+                <span className="font-semibold text-emerald-600">No failing controls</span>
+              )}
               {f.lastScanTime && (
                 <span className="text-[10px] text-gray-400">Scanned {fmtDate(f.lastScanTime)}</span>
               )}
