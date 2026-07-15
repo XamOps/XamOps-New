@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Icon } from '@iconify/react';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -9,13 +10,25 @@ export interface EncryptionToggleProps {
   onChange: (enabled: boolean) => void;
 }
 
+// Only HLS supports AES-128 segment encryption. Every other output format
+// (MP4, MOV, WEBM, DASH, and the audio-only formats) has no equivalent.
+const ENCRYPTION_SUPPORTED_FORMATS = ['HLS'];
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function EncryptionToggle({ enabled, outputFormat, onChange }: EncryptionToggleProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const isHLS = outputFormat.toUpperCase() === 'HLS';
+  const format = (outputFormat || '').toUpperCase();
+  const isHLS = ENCRYPTION_SUPPORTED_FORMATS.includes(format);
+
+  // Auto-disable when the selected format doesn't support encryption. Without this,
+  // switching from HLS (encryption on) to e.g. MP4 would leave encryptionEnabled=true
+  // in the form state and submit it to the backend even though it can't be applied.
+  useEffect(() => {
+    if (!isHLS && enabled) onChange(false);
+  }, [isHLS, enabled, onChange]);
 
   return (
     <div className="space-y-2">
@@ -55,7 +68,9 @@ export function EncryptionToggle({ enabled, outputFormat, onChange }: Encryption
       {!isHLS && (
         <p className={`text-[11px] flex items-center gap-1.5 pl-12 ${dark ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.4)]'}`}>
           <Icon icon="mdi:information-outline" className="text-xs flex-shrink-0" />
-          Only available for HLS output format
+          {format
+            ? `Encryption is not available for ${format} — only HLS supports AES-128`
+            : 'Only available for HLS output format'}
         </p>
       )}
 

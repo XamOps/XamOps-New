@@ -395,20 +395,30 @@ const ComplianceOpsPage: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedCheck]);
 
-  // Lock body scroll when a modal/drawer is open so background page doesn't scroll
+  // Lock background scroll when a modal/drawer is open so the page behind doesn't scroll.
+  // The actual scroll container is the app's `.main-content-scroll` element, not <body>.
   useEffect(() => {
+    const scroller = document.querySelector('.main-content-scroll') as HTMLElement | null;
     if (showManageModal || selectedCheck) {
       document.body.style.overflow = 'hidden';
+      if (scroller) scroller.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
+      if (scroller) scroller.style.overflow = '';
     }
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      document.body.style.overflow = '';
+      if (scroller) scroller.style.overflow = '';
+    };
   }, [showManageModal, selectedCheck]);
 
   // Table state
   const [statusFilter, setStatusFilter] = useState<'Failed' | 'Passed' | 'All'>('Failed');
   const [checkSearch, setCheckSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState('all');
+  const [frameworkFilter, setFrameworkFilter] = useState<string[]>([]);
+  const [fwDropdownOpen, setFwDropdownOpen] = useState(false);
+  const fwDropdownRef = useRef<HTMLDivElement>(null);
   const [checkPage, setCheckPage] = useState(1);
   const checksPerPage = 20;
 
@@ -565,22 +575,54 @@ const ComplianceOpsPage: React.FC = () => {
     });
   }, [overallStats]);
 
+  // --- Available frameworks (from current findings) ---
+  const availableFrameworks = useMemo(() => {
+    const keys = new Set<string>();
+    checkRows.forEach(c => c.frameworks.forEach(fw => keys.add(fw)));
+    return Array.from(keys)
+      .map(key => ({ key, displayName: getFwConfig(key).displayName }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }, [checkRows]);
+
+  // Drop any selected framework that no longer exists in the data
+  useEffect(() => {
+    setFrameworkFilter(prev => {
+      const valid = prev.filter(k => availableFrameworks.some(f => f.key === k));
+      return valid.length === prev.length ? prev : valid;
+    });
+  }, [availableFrameworks]);
+
+  // Close the framework dropdown on outside click
+  useEffect(() => {
+    if (!fwDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (fwDropdownRef.current && !fwDropdownRef.current.contains(e.target as Node)) setFwDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [fwDropdownOpen]);
+
+  const toggleFramework = useCallback((key: string) => {
+    setFrameworkFilter(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  }, []);
+
   // --- Filtered Checks ---
   const filteredChecks = useMemo(() => {
     let r = checkRows;
     if (statusFilter === 'Passed') r = []; // we only have FAIL data
     if (severityFilter !== 'all') r = r.filter(c => c.severity === severityFilter.toUpperCase());
+    if (frameworkFilter.length > 0) r = r.filter(c => c.frameworks.some(fw => frameworkFilter.includes(fw)));
     if (checkSearch.trim()) {
       const s = checkSearch.toLowerCase();
       r = r.filter(c => c.checkTitle.toLowerCase().includes(s));
     }
     return r;
-  }, [checkRows, statusFilter, severityFilter, checkSearch]);
+  }, [checkRows, statusFilter, severityFilter, frameworkFilter, checkSearch]);
 
   const totalCheckPages = Math.ceil(filteredChecks.length / checksPerPage);
   const paginatedChecks = filteredChecks.slice((checkPage - 1) * checksPerPage, checkPage * checksPerPage);
 
-  useEffect(() => setCheckPage(1), [statusFilter, severityFilter, checkSearch]);
+  useEffect(() => setCheckPage(1), [statusFilter, severityFilter, frameworkFilter, checkSearch]);
 
   // --- Donut data ---
   const donutData = [
@@ -592,13 +634,37 @@ const ComplianceOpsPage: React.FC = () => {
 
   // --- Export ---
   const exportReport = useCallback(() => {
-    const hdr = ['Check', 'Severity', 'Failed Count', 'Frameworks', 'Regions'];
-    const rows = checkRows.map(c => [`"${c.checkTitle.replace(/"/g, '""')}"`, c.severity, c.failedCount, `"${c.frameworks.join('; ')}"`, `"${c.regions.join(', ')}"`]);
-    const csv = 'data:text/csv;charset=utf-8,' + hdr.join(',') + '\n' + rows.map(r => r.join(',')).join('\n');
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const hdr = ['Check', 'Severity', 'Failed Count', 'Frameworks', 'Regions', 'Steps to Resolve', 'Prowler URL', 'Failed Resources'];
+    const rows = checkRows.map(c => {
+      const prowlerUrls = (c.remediationRefs ?? []).filter(r => r.startsWith('http'));
+      const failedResources = c.resources
+        .map(r => {
+          const label = r.name && r.name !== r.id ? `${r.name} (${r.id})` : (r.name || r.id);
+          const parts = [label];
+          if (r.region) parts.push(`[${r.region}]`);
+          if (r.detail) parts.push(`- ${r.detail}`);
+          return parts.join(' ');
+        })
+        .join('\n');
+      return [
+        esc(c.checkTitle),
+        esc(c.severity),
+        c.failedCount,
+        esc(c.frameworks.join('; ')),
+        esc(c.regions.join(', ')),
+        esc(c.remediation ?? ''),
+        esc(prowlerUrls.join('\n')),
+        esc(failedResources),
+      ];
+    });
+    const csvBody = hdr.join(',') + '\n' + rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csvBody], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    link.href = encodeURI(csv);
+    link.href = URL.createObjectURL(blob);
     link.download = `compliance_${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link); link.click(); link.remove();
+    URL.revokeObjectURL(link.href);
   }, [checkRows]);
 
   // --- Topbar ---
@@ -840,6 +906,65 @@ const ComplianceOpsPage: React.FC = () => {
               <div className="relative">
                 <Icon icon="mdi:magnify" width={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)]" />
                 <input type="text" placeholder="Filter finding..." value={checkSearch} onChange={e => setCheckSearch(e.target.value)} className="pl-8 pr-3 py-1.5 border border-[rgba(0,0,0,0.12)] rounded-lg text-[12px] w-40 bg-white focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.15)] placeholder:text-[rgba(0,0,0,0.3)]" />
+              </div>
+              {/* Framework multi-select filter */}
+              <div className="relative" ref={fwDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setFwDropdownOpen(o => !o)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 border border-[rgba(0,0,0,0.12)] rounded-lg text-[12px] text-[rgba(0,0,0,0.55)] bg-white hover:bg-[rgba(0,0,0,0.02)] focus:outline-none transition-colors"
+                >
+                  <Icon icon="mdi:shield-check-outline" width={14} className="text-[rgba(0,0,0,0.4)]" />
+                  <span>
+                    {frameworkFilter.length === 0
+                      ? 'Framework'
+                      : frameworkFilter.length === 1
+                        ? getFwConfig(frameworkFilter[0]).displayName
+                        : `${frameworkFilter.length} frameworks`}
+                  </span>
+                  {frameworkFilter.length > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-semibold">{frameworkFilter.length}</span>
+                  )}
+                  <Icon icon="mdi:chevron-down" width={14} className={`text-[rgba(0,0,0,0.4)] transition-transform ${fwDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                <AnimatePresence>
+                  {fwDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.12 }}
+                      className="absolute right-0 mt-1.5 w-64 bg-white border border-[rgba(0,0,0,0.1)] rounded-lg shadow-lg z-30 overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-[rgba(0,0,0,0.06)]">
+                        <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wide">Filter by framework</span>
+                        {frameworkFilter.length > 0 && (
+                          <button onClick={() => setFrameworkFilter([])} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-medium">Clear</button>
+                        )}
+                      </div>
+                      <div className="max-h-64 overflow-y-auto py-1 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                        {availableFrameworks.length === 0 ? (
+                          <p className="px-3 py-3 text-[12px] text-[rgba(0,0,0,0.4)]">No frameworks available.</p>
+                        ) : availableFrameworks.map(fw => {
+                          const checked = frameworkFilter.includes(fw.key);
+                          return (
+                            <button
+                              key={fw.key}
+                              onClick={() => toggleFramework(fw.key)}
+                              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-[rgba(0,0,0,0.03)] transition-colors"
+                            >
+                              <span className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border ${checked ? 'bg-emerald-600 border-emerald-600' : 'border-[rgba(0,0,0,0.2)]'}`}>
+                                {checked && <Icon icon="mdi:check" width={12} className="text-white" />}
+                              </span>
+                              <FrameworkLogo fwKey={fw.key} size={18} />
+                              <span className="text-[12px] text-[rgba(0,0,0,0.7)] truncate">{fw.displayName}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value)} className="px-2.5 py-1.5 border border-[rgba(0,0,0,0.12)] rounded-lg text-[12px] text-[rgba(0,0,0,0.55)] bg-white focus:outline-none">
                 <option value="all">Severity</option>
@@ -1126,7 +1251,7 @@ const ComplianceOpsPage: React.FC = () => {
                 </div>
 
                 {/* Body */}
-                <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-5 space-y-5">
+                <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-5 space-y-5 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                   {/* Full description */}
                   <div>
                     <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wide mb-2">What this check does</p>

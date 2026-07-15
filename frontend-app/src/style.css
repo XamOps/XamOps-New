@@ -11,6 +11,15 @@
     scrollbar-width: none;
 }
 
+/* Hide scrollbar but keep scroll functional (Chrome/Safari/Opera/Firefox/Edge) */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
 /* NOTE: Dark mode styles use !important to override hardcoded colors in individual CSS files */
 
 /* Global Dark Mode Variables - Overrides dashboard.css and all other CSS variables */

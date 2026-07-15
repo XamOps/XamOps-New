@@ -11,7 +11,7 @@ import { WatermarkConfig, type WatermarkType } from './WatermarkConfig';
 import { VideoPreviewPanel } from './VideoPreviewPanel';
 import { ThumbnailConfig } from './ThumbnailConfig';
 import { AudioConfig } from './AudioConfig';
-import { CustomParams } from './CustomParams';
+// import { CustomParams } from './CustomParams'; // hidden from UI for now — see below
 import { EncryptionToggle } from './EncryptionToggle';
 import { FileProbePanel } from './FileProbePanel';
 import { SizeEstimate } from './SizeEstimate';
@@ -383,11 +383,14 @@ export function AdvancedMode({ formState, onFormChange, onSubmit, onCancel, canS
         )}
 
         {/* ── Custom params ── */}
+        {/* Hidden from the UI for now — advanced FFmpeg flags are a power-user
+            feature and are also ignored for adaptive jobs. Revisit later.
         <SectionGroup icon="mdi:console" title="Custom Params" />
         <CustomParams
           value={advState.customFfmpegParams}
           onChange={(v) => updateAdv('customFfmpegParams', v)}
         />
+        */}
       </div>
 
       {/* Size Estimate - near the submit button area */}

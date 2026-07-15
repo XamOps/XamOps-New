@@ -11,6 +11,7 @@ import { useMediaOpsNotifications } from '../hooks/useMediaOpsNotifications';
 import { NotificationBell } from '../components/mediaops/NotificationBell';
 import { NotificationList } from '../components/mediaops/NotificationList';
 import { S3PickerModal } from '../components/mediaops/S3PickerModal';
+import { ThumbnailGrid } from '../components/mediaops/ThumbnailGrid';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ interface TranscodeJob {
   dashUrl?: string;
   videoUrl?: string;
   errorMessage?: string;
+  thumbnailPaths?: string[];
 }
 
 interface LiveStream {
@@ -446,6 +448,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [expandedError, setExpandedError] = useState<string | null>(null);
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
+  const [expandedThumbs, setExpandedThumbs] = useState<string | null>(null);
   const [embedJob, setEmbedJob] = useState<TranscodeJob | null>(null);
 
   // Mode toggle: persisted to localStorage
@@ -969,6 +972,13 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
                               <Icon icon="mdi:link-variant" className="text-sm" />
                             </button>
                           )}
+                          {job.thumbnailPaths && job.thumbnailPaths.length > 0 && (
+                            <button onClick={() => setExpandedThumbs(expandedThumbs === job.id ? null : job.id)}
+                              title={`Thumbnails (${job.thumbnailPaths.length})`}
+                              className={`p-1.5 rounded-lg transition-colors ${expandedThumbs === job.id ? 'bg-violet-50 text-violet-600' : 'hover:bg-violet-50 text-[rgba(0,0,0,0.35)] hover:text-violet-600'}`}>
+                              <Icon icon="mdi:image-multiple-outline" className="text-sm" />
+                            </button>
+                          )}
                           {job.status === 'completed' && (
                             <button onClick={() => handleDownload(job)} disabled={downloadingId === job.rawId}
                               title="Download video & related files (.zip)"
@@ -1036,6 +1046,20 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
                               Open
                             </a>
                             <button onClick={() => setExpandedUrl(null)} className="p-1 hover:bg-[rgba(0,0,0,0.06)] rounded flex-shrink-0">
+                              <Icon icon="mdi:close" className="text-[rgba(0,0,0,0.4)] text-sm" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {expandedThumbs === job.id && job.thumbnailPaths && job.thumbnailPaths.length > 0 && (
+                      <tr className="bg-violet-50/40">
+                        <td colSpan={9} className="px-4 py-3">
+                          <div className="flex items-start gap-2">
+                            <div className="flex-1 min-w-0">
+                              <ThumbnailGrid thumbnailPaths={job.thumbnailPaths} jobId={job.rawId} />
+                            </div>
+                            <button onClick={() => setExpandedThumbs(null)} className="p-1 hover:bg-[rgba(0,0,0,0.06)] rounded flex-shrink-0">
                               <Icon icon="mdi:close" className="text-[rgba(0,0,0,0.4)] text-sm" />
                             </button>
                           </div>

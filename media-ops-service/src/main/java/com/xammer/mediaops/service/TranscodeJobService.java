@@ -157,6 +157,13 @@ public class TranscodeJobService {
             if (duration > 0)
                 job.setAwsEquivalentCost(AWS_COST_PER_MINUTE.multiply(BigDecimal.valueOf(duration / 60.0)));
 
+            // Persist and broadcast COMPLETED immediately once FFmpeg succeeds — the
+            // transcode itself is done. Thumbnail generation and the S3 backup below
+            // are secondary steps that can take minutes; without this early save the
+            // UI would sit at "Processing 100%" for that entire window.
+            jobRepo.save(job);
+            broadcast(job);
+
             // Thumbnail generation after successful transcode
             if (job.isThumbnailEnabled()) {
                 log.info("[MediaOps] Generating thumbnails for job {}", job.getId());

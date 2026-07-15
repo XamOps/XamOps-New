@@ -455,6 +455,124 @@ class FFmpegServiceTest {
     }
 
     @Test
+    void buildTranscodeCommand_adaptiveHlsEncryptionEnabled_addsKeyInfoFlag() {
+        TranscodeJob job = createBasicJob(OutputFormat.HLS);
+        job.setEnableAdaptive(true);
+        job.setEncryptionEnabled(true);
+
+        List<String> cmd = ffmpegService.buildTranscodeCommand(job, "/tmp/output");
+
+        int keyIdx = cmd.indexOf("-hls_key_info_file");
+        int segIdx = cmd.indexOf("-hls_segment_filename");
+        assertTrue(keyIdx >= 0, "Adaptive HLS with encryption should contain -hls_key_info_file");
+        // Encryption flag must precede the segment/playlist output options.
+        assertTrue(segIdx > keyIdx, "-hls_key_info_file must come before -hls_segment_filename");
+    }
+
+    @Test
+    void buildTranscodeCommand_adaptiveHlsNoEncryption_hasNoKeyInfoFlag() {
+        TranscodeJob job = createBasicJob(OutputFormat.HLS);
+        job.setEnableAdaptive(true);
+
+        List<String> cmd = ffmpegService.buildTranscodeCommand(job, "/tmp/output");
+
+        assertFalse(cmd.contains("-hls_key_info_file"),
+                "Adaptive HLS without encryption should not contain -hls_key_info_file");
+    }
+
+    @Test
+    void parseBitrateKbps_handlesUnits() {
+        assertEquals(5000, ffmpegService.parseBitrateKbps("5000k"));
+        assertEquals(5000, ffmpegService.parseBitrateKbps("5000kbps"));
+        assertEquals(8000, ffmpegService.parseBitrateKbps("8M"));
+        assertEquals(8000, ffmpegService.parseBitrateKbps("8mbps"));
+        assertEquals(3000, ffmpegService.parseBitrateKbps("3000"));
+        assertEquals(-1, ffmpegService.parseBitrateKbps(null));
+        assertEquals(-1, ffmpegService.parseBitrateKbps(""));
+        assertEquals(-1, ffmpegService.parseBitrateKbps("abc"));
+    }
+
+    @Test
+    void adaptiveVideoBitrates_defaultLadderWhenNoBitrate() {
+        TranscodeJob job = createBasicJob(OutputFormat.HLS);
+        job.setBitrate(null);
+
+        String[] ladder = ffmpegService.adaptiveVideoBitrates(job);
+
+        // Reproduces the historical fixed ladder exactly.
+        assertArrayEquals(new String[]{"4500k", "2500k", "1000k"}, ladder);
+    }
+
+    @Test
+    void adaptiveVideoBitrates_scalesFromUserBitrate() {
+        TranscodeJob job = createBasicJob(OutputFormat.HLS);
+        job.setBitrate("6000k");
+
+        String[] ladder = ffmpegService.adaptiveVideoBitrates(job);
+
+        // Top rung = user's value; lower rungs scale by 0.5556 / 0.2222.
+        assertEquals("6000k", ladder[0]);
+        assertEquals("3334k", ladder[1]);
+        assertEquals("1333k", ladder[2]);
+    }
+
+    @Test
+    void buildTranscodeCommand_adaptiveHls_usesDerivedTopRung() {
+        TranscodeJob job = createBasicJob(OutputFormat.HLS);
+        job.setEnableAdaptive(true);
+        job.setBitrate("6000k");
+
+        List<String> cmd = ffmpegService.buildTranscodeCommand(job, "/tmp/output");
+
+        int i = cmd.indexOf("-b:v:0");
+        assertTrue(i >= 0 && cmd.get(i + 1).equals("6000k"),
+                "Adaptive top rung should use the user's bitrate");
+    }
+
+    @Test
+    void buildTranscodeCommand_adaptiveHlsH264_usesLibx264AndTsSegments() {
+        TranscodeJob job = createBasicJob(OutputFormat.HLS);
+        job.setEnableAdaptive(true); // codec null → default H.264
+
+        List<String> cmd = ffmpegService.buildTranscodeCommand(job, "/tmp/output");
+
+        assertEquals("libx264", cmd.get(cmd.indexOf("-c:v:0") + 1));
+        assertFalse(cmd.contains("-hls_segment_type"), "H.264 HLS should use default TS segments");
+        assertTrue(cmd.stream().anyMatch(s -> s.endsWith("stream_%v_%03d.ts")),
+                "H.264 HLS should write .ts segments");
+    }
+
+    @Test
+    void buildTranscodeCommand_adaptiveHlsH265_usesLibx265AndFmp4Segments() {
+        TranscodeJob job = createBasicJob(OutputFormat.HLS);
+        job.setEnableAdaptive(true);
+        job.setCodec("H265");
+
+        List<String> cmd = ffmpegService.buildTranscodeCommand(job, "/tmp/output");
+
+        assertEquals("libx265", cmd.get(cmd.indexOf("-c:v:0") + 1));
+        assertEquals("hvc1", cmd.get(cmd.indexOf("-tag:v:0") + 1));
+        int segTypeIdx = cmd.indexOf("-hls_segment_type");
+        assertTrue(segTypeIdx >= 0 && cmd.get(segTypeIdx + 1).equals("fmp4"),
+                "H.265 HLS must use fMP4 segments");
+        assertTrue(cmd.stream().anyMatch(s -> s.endsWith("stream_%v_%03d.m4s")),
+                "H.265 HLS should write .m4s segments");
+    }
+
+    @Test
+    void buildTranscodeCommand_adaptiveDashH265_usesLibx265() {
+        TranscodeJob job = createBasicJob(OutputFormat.DASH);
+        job.setEnableAdaptive(true);
+        job.setCodec("HEVC");
+
+        List<String> cmd = ffmpegService.buildTranscodeCommand(job, "/tmp/output");
+
+        assertEquals("libx265", cmd.get(cmd.indexOf("-c:v:0") + 1));
+        assertEquals("hvc1", cmd.get(cmd.indexOf("-tag:v:0") + 1));
+        assertTrue(cmd.get(cmd.size() - 1).endsWith("manifest.mpd"));
+    }
+
+    @Test
     void buildTranscodeCommand_defaultCodec_usesLibx264() {
         TranscodeJob job = createBasicJob(OutputFormat.MP4);
         // codec is null by default

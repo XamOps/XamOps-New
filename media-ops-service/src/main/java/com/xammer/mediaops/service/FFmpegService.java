@@ -1048,6 +1048,80 @@ public class FFmpegService {
         }
     }
 
+    /**
+     * Parses a user-supplied bitrate string (e.g. "5000k", "8M", "5000kbps", or a bare
+     * kbps number) into kbps. Returns -1 when the value is missing or unparseable.
+     */
+    int parseBitrateKbps(String s) {
+        if (s == null) return -1;
+        String t = s.trim().toLowerCase();
+        if (t.isEmpty()) return -1;
+        try {
+            if (t.endsWith("kbps")) return (int) Math.round(Double.parseDouble(t.substring(0, t.length() - 4).trim()));
+            if (t.endsWith("mbps")) return (int) Math.round(Double.parseDouble(t.substring(0, t.length() - 4).trim()) * 1000);
+            if (t.endsWith("k"))    return (int) Math.round(Double.parseDouble(t.substring(0, t.length() - 1).trim()));
+            if (t.endsWith("m"))    return (int) Math.round(Double.parseDouble(t.substring(0, t.length() - 1).trim()) * 1000);
+            return (int) Math.round(Double.parseDouble(t)); // bare number → treat as kbps
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * Builds the 3-rung adaptive bitrate ladder from the job's requested bitrate.
+     * The top rung (1080p) uses the user's value; the 720p and 480p rungs scale down
+     * proportionally using the same ratios as the historical default ladder
+     * (4500k / 2500k / 1000k → 1.0 / 0.556 / 0.222). When no valid bitrate is set,
+     * the top rung falls back to 4500k, reproducing the original fixed ladder exactly.
+     */
+    String[] adaptiveVideoBitrates(TranscodeJob job) {
+        int top = parseBitrateKbps(job.getBitrate());
+        if (top <= 0) top = 4500;          // default top rung
+        top = Math.max(top, 300);          // floor so lower rungs don't collapse
+        int mid = Math.max(200, (int) Math.round(top * 0.5556));
+        int low = Math.max(100, (int) Math.round(top * 0.2222));
+        return new String[]{ top + "k", mid + "k", low + "k" };
+    }
+
+    /**
+     * True when the job requests H.265/HEVC video. That's the only non-H.264 codec
+     * valid in an adaptive HLS/DASH ladder (the UI restricts AV1/VP9 to non-adaptive
+     * containers), so any other value falls back to H.264.
+     */
+    boolean isHevcSelected(TranscodeJob job) {
+        String c = job.getCodec();
+        if (c == null) return false;
+        String u = c.trim().toUpperCase();
+        return u.equals("H265") || u.equals("HEVC");
+    }
+
+    /**
+     * Appends the three per-rung video encoding options shared by adaptive HLS and DASH.
+     * H.264 (libx264, high profile) is the default; H.265/HEVC (libx265, main profile,
+     * hvc1 tag) is used when selected. The bitrate ladder is applied per rung.
+     */
+    private void addAdaptiveVideoRungs(List<String> cmd, TranscodeJob job, String[] vbr) {
+        boolean hevc = isHevcSelected(job);
+        String encoder = hevc ? "libx265" : "libx264";
+        String profile = hevc ? "main" : "high";
+        // Explicit preset: without one, x264/x265 default to medium — 3-4x slower,
+        // prohibitive when encoding three renditions of a long video.
+        cmd.addAll(Arrays.asList("-preset", presetFor(job)));
+        String[] labels = { "[v1out]", "[v2out]", "[v3out]" };
+        for (int i = 0; i < labels.length; i++) {
+            cmd.addAll(Arrays.asList(
+                    "-map", labels[i],
+                    "-c:v:" + i, encoder,
+                    "-profile:v:" + i, profile,
+                    "-pix_fmt:v:" + i, "yuv420p",
+                    "-b:v:" + i, vbr[i]));
+            if (hevc) {
+                // hvc1 tag → decodable by Apple/QuickTime and standards-compliant players.
+                cmd.addAll(Arrays.asList("-tag:v:" + i, "hvc1"));
+            }
+        }
+    }
+
     private List<String> buildAdaptiveHls(TranscodeJob job, String outputDir) {
         boolean hasAudio = hasAudioStream(job.getSourceUrl());
         boolean hasWatermarkImage = job.getWatermarkImagePath() != null && !job.getWatermarkImagePath().isEmpty();
@@ -1069,16 +1143,10 @@ public class FFmpegService {
         cmd.add("-y");
 
         cmd.addAll(Arrays.asList("-filter_complex", buildAdaptiveFilterComplex(job, hasWatermarkImage, hasWatermarkText)));
-        cmd.addAll(Arrays.asList(
-                // yuv420p + High profile on every variant so the HLS stream is decodable
-                // by Safari/iOS and all standards-compliant players, regardless of source.
-                // Explicit preset: without one x264 defaults to medium, which is 3-4x
-                // slower — prohibitive when encoding three renditions of long videos.
-                "-preset", presetFor(job),
-                "-map", "[v1out]", "-c:v:0", "libx264", "-profile:v:0", "high", "-pix_fmt:v:0", "yuv420p", "-b:v:0", "4500k",
-                "-map", "[v2out]", "-c:v:1", "libx264", "-profile:v:1", "high", "-pix_fmt:v:1", "yuv420p", "-b:v:1", "2500k",
-                "-map", "[v3out]", "-c:v:2", "libx264", "-profile:v:2", "high", "-pix_fmt:v:2", "yuv420p", "-b:v:2", "1000k"
-        ));
+        // Bitrate ladder derived from the requested bitrate (top rung = user's value).
+        String[] vbr = adaptiveVideoBitrates(job);
+        // Per-rung video encoding — H.264 (default) or H.265/HEVC when selected.
+        addAdaptiveVideoRungs(cmd, job, vbr);
         if (hasAudio) {
             cmd.addAll(Arrays.asList("-map", "0:a", "-map", "0:a", "-map", "0:a",
                     "-c:a", "aac", "-b:a", "128k"));
@@ -1087,8 +1155,25 @@ public class FFmpegService {
         cmd.addAll(Arrays.asList(
                 "-var_stream_map", hasAudio ? "v:0,a:0 v:1,a:1 v:2,a:2" : "v:0 v:1 v:2",
                 "-master_pl_name", "master.m3u8",
-                "-f", "hls", "-hls_time", "10", "-hls_list_size", "0",
-                "-hls_segment_filename", Paths.get(outputDir, "stream_%v_%03d.ts").toString(),
+                "-f", "hls", "-hls_time", "10", "-hls_list_size", "0"
+        ));
+        // H.265/HEVC is not valid in MPEG-TS HLS segments — it requires fMP4 (CMAF)
+        // segments with a per-variant init file. H.264 keeps the widely-compatible .ts.
+        boolean hevc = isHevcSelected(job);
+        if (hevc) {
+            cmd.addAll(Arrays.asList("-hls_segment_type", "fmp4",
+                    "-hls_fmp4_init_filename", "init_%v.mp4"));
+        }
+        // AES-128 encryption: applied to every variant's segments. Must sit with the
+        // other HLS output options (before -hls_segment_filename / the playlist path).
+        // The non-adaptive path applies this too — kept consistent so the toggle works
+        // whether or not adaptive streaming is enabled.
+        if (job.isEncryptionEnabled()) {
+            applyEncryption(cmd, job, outputDir);
+        }
+        String segExt = hevc ? "m4s" : "ts";
+        cmd.addAll(Arrays.asList(
+                "-hls_segment_filename", Paths.get(outputDir, "stream_%v_%03d." + segExt).toString(),
                 Paths.get(outputDir, "stream_%v.m3u8").toString()
         ));
         return cmd;
@@ -1115,14 +1200,11 @@ public class FFmpegService {
         cmd.add("-y");
 
         cmd.addAll(Arrays.asList("-filter_complex", buildAdaptiveFilterComplex(job, hasWatermarkImage, hasWatermarkText)));
-        cmd.addAll(Arrays.asList(
-                // yuv420p + High profile on every variant for maximum player compatibility.
-                // Explicit preset: see buildAdaptiveHls — x264's default medium is 3-4x slower.
-                "-preset", presetFor(job),
-                "-map", "[v1out]", "-c:v:0", "libx264", "-profile:v:0", "high", "-pix_fmt:v:0", "yuv420p", "-b:v:0", "4500k",
-                "-map", "[v2out]", "-c:v:1", "libx264", "-profile:v:1", "high", "-pix_fmt:v:1", "yuv420p", "-b:v:1", "2500k",
-                "-map", "[v3out]", "-c:v:2", "libx264", "-profile:v:2", "high", "-pix_fmt:v:2", "yuv420p", "-b:v:2", "1000k"
-        ));
+        // Bitrate ladder derived from the requested bitrate (top rung = user's value).
+        String[] vbr = adaptiveVideoBitrates(job);
+        // Per-rung video encoding — H.264 (default) or H.265/HEVC when selected.
+        // DASH already uses fMP4 (.m4s) segments, so HEVC needs no container change.
+        addAdaptiveVideoRungs(cmd, job, vbr);
         if (hasAudio) {
             cmd.addAll(Arrays.asList("-map", "0:a", "-c:a", "aac", "-b:a", "128k"));
         }

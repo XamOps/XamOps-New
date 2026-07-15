@@ -33,6 +33,7 @@ export interface ApiTranscodeJob {
   awsEquivalentCost: number | null;
   createdAt: string;
   completedAt: string | null;
+  thumbnailPaths?: string[] | null;
 }
 
 export interface ApiMediaStream {
@@ -367,17 +368,24 @@ export function useMediaOpsData() {
     rawJobs.filter(j => j.status === 'PROCESSING').forEach(j => subscribeToJob(j.id));
   }, [rawJobs, subscribeToJob]);
 
-  // Fallback: if the WebSocket is down (CDN script blocked, connection dropped and
-  // not yet re-established), poll while any job is active so the progress bar still
-  // moves without a manual page reload.
+  // Reconciliation poll: while any job is active, refresh the list on an interval.
+  //
+  // STOMP topics are fire-and-forget — if a terminal (COMPLETED/FAILED/CANCELLED)
+  // message is broadcast during a brief WebSocket drop/reconnect, or before the
+  // client has subscribed, the update is lost and the row would sit at "Processing"
+  // until a manual reload. Polling regardless of WebSocket state guarantees the UI
+  // converges on the real server-side status within one interval. When the socket
+  // is connected it still drives the fast, real-time progress updates; this poll is
+  // just the safety net that catches missed terminal transitions.
   useEffect(() => {
     const anyActive = rawJobs.some(j => j.status === 'PROCESSING' || j.status === 'QUEUED');
     if (!anyActive) return;
     const timer = setInterval(() => {
-      if (!stompClientRef.current) fetchJobs();
+      fetchJobs();
+      fetchOverview();
     }, 10000);
     return () => clearInterval(timer);
-  }, [rawJobs, fetchJobs]);
+  }, [rawJobs, fetchJobs, fetchOverview]);
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -597,6 +605,7 @@ export function useMediaOpsData() {
     dashUrl: j.dashUrl ?? undefined,
     videoUrl: j.videoUrl ?? undefined,
     errorMessage: j.errorMessage ?? undefined,
+    thumbnailPaths: j.thumbnailPaths ?? [],
     rawId: j.id,
   }));
 
