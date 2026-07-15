@@ -198,6 +198,24 @@ public class MediaOpsController {
                 : ResponseEntity.notFound().build();
     }
 
+    @PostMapping("/jobs/{id}/pause")
+    public ResponseEntity<TranscodeJobDto> pauseJob(@PathVariable Long id, HttpSession session) {
+        Long clientId = resolveClientId(session);
+        if (clientId == null) return ResponseEntity.status(401).build();
+        return jobService.pauseJob(id, clientId)
+                .map(j -> ResponseEntity.ok(TranscodeJobDto.from(j)))
+                .orElse(ResponseEntity.status(409).build());
+    }
+
+    @PostMapping("/jobs/{id}/resume")
+    public ResponseEntity<TranscodeJobDto> resumeJob(@PathVariable Long id, HttpSession session) {
+        Long clientId = resolveClientId(session);
+        if (clientId == null) return ResponseEntity.status(401).build();
+        return jobService.resumeJob(id, clientId)
+                .map(j -> ResponseEntity.ok(TranscodeJobDto.from(j)))
+                .orElse(ResponseEntity.status(409).build());
+    }
+
     // ─── Priority and Scheduling ───────────────────────────────────────────────
 
     @PatchMapping("/jobs/{id}/priority")

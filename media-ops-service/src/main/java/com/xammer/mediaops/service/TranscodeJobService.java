@@ -121,7 +121,7 @@ public class TranscodeJobService {
         return jobRepo.save(job);
     }
 
-    @Async
+    @Async("transcodeExecutor")
     public void processJobAsync(Long jobId) {
         TranscodeJob job = jobRepo.findById(jobId).orElse(null);
         if (job == null) return;
@@ -173,6 +173,11 @@ public class TranscodeJobService {
 
             jobRepo.save(job);
             registerOutputFile(job);
+        } else if (ffmpegService.consumeStopRequested(job.getId())) {
+            // Killed by an explicit user stop — cancelled, not failed.
+            job.setStatus(TranscodeJob.JobStatus.CANCELLED);
+            if (job.getCompletedAt() == null) job.setCompletedAt(Instant.now());
+            jobRepo.save(job);
         } else {
             job.setStatus(TranscodeJob.JobStatus.FAILED);
             job.setCompletedAt(Instant.now());
@@ -281,13 +286,55 @@ public class TranscodeJobService {
     @Transactional
     public boolean cancelJob(Long id, Long clientId) {
         return jobRepo.findByIdAndClientId(id, clientId).map(job -> {
-            if (job.getStatus() == TranscodeJob.JobStatus.QUEUED) {
-                job.setStatus(TranscodeJob.JobStatus.CANCELLED);
-                jobRepo.save(job);
-                return true;
+            switch (job.getStatus()) {
+                case QUEUED:
+                    job.setStatus(TranscodeJob.JobStatus.CANCELLED);
+                    jobRepo.save(job);
+                    broadcast(job);
+                    return true;
+                case PROCESSING:
+                case PAUSED:
+                    // Kill the live FFmpeg process; processJobAsync sees the stop flag
+                    // and finalizes as CANCELLED. Status is set here too so the UI
+                    // reacts immediately rather than waiting on the async worker.
+                    // If no process is alive (service restarted mid-job), still cancel
+                    // the orphaned row so it doesn't sit at "Processing" forever.
+                    ffmpegService.stopJobProcess(id);
+                    job.setStatus(TranscodeJob.JobStatus.CANCELLED);
+                    job.setCompletedAt(Instant.now());
+                    jobRepo.save(job);
+                    broadcast(job);
+                    return true;
+                default:
+                    return false;
             }
-            return false;
         }).orElse(false);
+    }
+
+    /** Pauses a PROCESSING job by suspending its FFmpeg process (SIGSTOP). */
+    @Transactional
+    public Optional<TranscodeJob> pauseJob(Long id, Long clientId) {
+        return jobRepo.findByIdAndClientId(id, clientId).map(job -> {
+            if (job.getStatus() != TranscodeJob.JobStatus.PROCESSING) return null;
+            if (!ffmpegService.pauseJobProcess(id)) return null;
+            job.setStatus(TranscodeJob.JobStatus.PAUSED);
+            jobRepo.save(job);
+            broadcast(job);
+            return job;
+        });
+    }
+
+    /** Resumes a PAUSED job's FFmpeg process (SIGCONT) — continues where it stopped. */
+    @Transactional
+    public Optional<TranscodeJob> resumeJob(Long id, Long clientId) {
+        return jobRepo.findByIdAndClientId(id, clientId).map(job -> {
+            if (job.getStatus() != TranscodeJob.JobStatus.PAUSED) return null;
+            if (!ffmpegService.resumeJobProcess(id)) return null;
+            job.setStatus(TranscodeJob.JobStatus.PROCESSING);
+            jobRepo.save(job);
+            broadcast(job);
+            return job;
+        });
     }
 
     private void broadcast(TranscodeJob job) {

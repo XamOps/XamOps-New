@@ -342,6 +342,11 @@ export function useMediaOpsData() {
         },
         (_err: any) => {
           stompClientRef.current = null;
+          // The old connection's subscriptions died with it. Clear the registry,
+          // otherwise subscribeToJob() sees the stale entries and skips
+          // resubscribing on the new connection — progress then freezes until
+          // a manual page reload.
+          subscriptionsRef.current.clear();
           if (!isMountedRef.current) return;
           reconnectTimerRef.current = setTimeout(() => {
             if (isMountedRef.current) connectWebSocket();
@@ -358,6 +363,18 @@ export function useMediaOpsData() {
     if (!stompClientRef.current) return;
     rawJobs.filter(j => j.status === 'PROCESSING').forEach(j => subscribeToJob(j.id));
   }, [rawJobs, subscribeToJob]);
+
+  // Fallback: if the WebSocket is down (CDN script blocked, connection dropped and
+  // not yet re-established), poll while any job is active so the progress bar still
+  // moves without a manual page reload.
+  useEffect(() => {
+    const anyActive = rawJobs.some(j => j.status === 'PROCESSING' || j.status === 'QUEUED');
+    if (!anyActive) return;
+    const timer = setInterval(() => {
+      if (!stompClientRef.current) fetchJobs();
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [rawJobs, fetchJobs]);
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -476,6 +493,40 @@ export function useMediaOpsData() {
     return job;
   }, [subscribeToJob]);
 
+  // Stops a queued/processing/paused job — kills the FFmpeg process server-side.
+  // The job ends up CANCELLED and can be re-run via retry.
+  const cancelJob = useCallback(async (jobId: number): Promise<void> => {
+    const res = await fetch(`/api/media-ops/jobs/${jobId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Failed to stop job');
+    fetchJobs();
+  }, [fetchJobs]);
+
+  // Suspends the job's FFmpeg process (keeps encode state, frees CPU).
+  const pauseJob = useCallback(async (jobId: number): Promise<void> => {
+    const res = await fetch(`/api/media-ops/jobs/${jobId}/pause`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(res.status === 409 ? 'Job is not running' : 'Failed to pause job');
+    const job: ApiTranscodeJob = await res.json();
+    setRawJobs(prev => prev.map(j => j.id === jobId ? job : j));
+  }, []);
+
+  // Resumes a paused job's FFmpeg process where it left off.
+  const resumeJob = useCallback(async (jobId: number): Promise<void> => {
+    const res = await fetch(`/api/media-ops/jobs/${jobId}/resume`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(res.status === 409 ? 'Job is not paused' : 'Failed to resume job');
+    const job: ApiTranscodeJob = await res.json();
+    setRawJobs(prev => prev.map(j => j.id === jobId ? job : j));
+    setTimeout(() => { if (stompClientRef.current) subscribeToJob(jobId); }, 800);
+  }, [subscribeToJob]);
+
   // Download the transcoded video plus related files (segments, manifests,
   // thumbnails, subtitles) as a single ZIP archive saved to the user's machine.
   const downloadJob = useCallback(async (jobId: number, fileName?: string): Promise<void> => {
@@ -523,7 +574,7 @@ export function useMediaOpsData() {
     inputFormat: ((j.sourceUrl?.split('.').pop() || 'MP4').toUpperCase().slice(0, 4)),
     outputFormat: j.outputFormat ?? '—',
     resolution: j.enableAdaptive ? 'Adaptive (1080p·720p·480p)' : (j.resolution ?? '—'),
-    status: (j.status ?? 'queued').toLowerCase() as 'queued' | 'processing' | 'completed' | 'failed',
+    status: (j.status ?? 'queued').toLowerCase() as 'queued' | 'processing' | 'paused' | 'completed' | 'failed' | 'cancelled',
     progress: j.progress ?? 0,
     duration: formatSeconds(j.durationSeconds),
     fileSize: '—',
@@ -587,6 +638,9 @@ export function useMediaOpsData() {
     error,
     createJob,
     retryJob,
+    cancelJob,
+    pauseJob,
+    resumeJob,
     downloadJob,
     uploadFile,
     createStream,

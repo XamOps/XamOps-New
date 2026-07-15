@@ -18,7 +18,7 @@ import javax.persistence.TemporalType;
 import com.xammer.cloud.domain.User;
 
 import java.math.BigDecimal;
-import java.util.Date;
+import java.util.Date;  
 
 @Entity
 @Table(name = "credit_requests")

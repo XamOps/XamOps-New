@@ -16,7 +16,7 @@ import { S3PickerModal } from '../components/mediaops/S3PickerModal';
 
 type Tab = 'overview' | 'transcode' | 'streams' | 'storage' | 'cost-savings';
 
-type JobStatus = 'queued' | 'processing' | 'completed' | 'failed';
+type JobStatus = 'queued' | 'processing' | 'paused' | 'completed' | 'failed' | 'cancelled';
 type StreamStatus = 'live' | 'idle' | 'error';
 
 interface TranscodeJob {
@@ -140,7 +140,9 @@ const STAT_DEFS: {
 function StatusBadge({ status }: { status: JobStatus | StreamStatus }) {
   const map: Record<string, { label: string; cls: string; dot: string }> = {
     processing: { label: 'Processing', cls: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.65)] border-[rgba(0,0,0,0.08)]', dot: 'bg-[rgba(0,0,0,0.4)] animate-pulse' },
+    paused: { label: 'Paused', cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
     queued: { label: 'Queued', cls: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.55)] border-[rgba(0,0,0,0.08)]', dot: 'bg-[rgba(0,0,0,0.3)]' },
+    cancelled: { label: 'Cancelled', cls: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.08)]', dot: 'bg-[rgba(0,0,0,0.25)]' },
     completed: { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
     failed: { label: 'Failed', cls: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
     live: { label: 'LIVE', cls: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500 animate-pulse' },
@@ -378,6 +380,9 @@ interface TranscodeTabProps {
   onUploadFile: (file: File) => Promise<ApiStorageFile>;
   onRetryJob: (id: number) => Promise<any>;
   onDownloadJob: (id: number, fileName?: string) => Promise<void>;
+  onCancelJob: (id: number) => Promise<void>;
+  onPauseJob: (id: number) => Promise<void>;
+  onResumeJob: (id: number) => Promise<void>;
 }
 
 // Backend returns paths like /media/jobs/48/master.m3u8 — use as-is (proxied via Vite → 8084).
@@ -413,7 +418,7 @@ function outputCompatNote(format: string): { good: boolean; text: string } {
   }
 }
 
-function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, onDownloadJob }: TranscodeTabProps) {
+function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, onDownloadJob, onCancelJob, onPauseJob, onResumeJob }: TranscodeTabProps) {
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState<JobStatus | 'all'>('all');
   const [sourceMode, setSourceMode] = useState<'url' | 'upload'>('url');
@@ -455,12 +460,32 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
     try { localStorage.setItem('transcode-mode', mode); } catch {}
   }, []);
 
-  const filtered = filterStatus === 'all' ? jobs : jobs.filter(j => j.status === filterStatus);
+  // Paused jobs stay visible under the Processing filter — they're still active work.
+  const filtered = filterStatus === 'all'
+    ? jobs
+    : jobs.filter(j => j.status === filterStatus || (filterStatus === 'processing' && j.status === 'paused'));
 
   const handleRetry = useCallback(async (job: TranscodeJob) => {
     setRetryingId(job.rawId);
     try { await onRetryJob(job.rawId); } catch (e: any) { console.error('Retry failed', e); } finally { setRetryingId(null); }
   }, [onRetryJob]);
+
+  // Pause / resume / stop for running jobs. One busy-id covers all three so a row's
+  // control buttons lock together while a request is in flight.
+  const [controllingId, setControllingId] = useState<number | null>(null);
+  const handlePause = useCallback(async (job: TranscodeJob) => {
+    setControllingId(job.rawId);
+    try { await onPauseJob(job.rawId); } catch (e: any) { console.error('Pause failed', e); } finally { setControllingId(null); }
+  }, [onPauseJob]);
+  const handleResume = useCallback(async (job: TranscodeJob) => {
+    setControllingId(job.rawId);
+    try { await onResumeJob(job.rawId); } catch (e: any) { console.error('Resume failed', e); } finally { setControllingId(null); }
+  }, [onResumeJob]);
+  const handleStop = useCallback(async (job: TranscodeJob) => {
+    if (!window.confirm('Stop this job? Encoding progress will be lost — you can start it again later with Retry.')) return;
+    setControllingId(job.rawId);
+    try { await onCancelJob(job.rawId); } catch (e: any) { console.error('Stop failed', e); } finally { setControllingId(null); }
+  }, [onCancelJob]);
 
   const handleDownload = useCallback(async (job: TranscodeJob) => {
     setDownloadingId(job.rawId);
@@ -661,10 +686,13 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
 
   const jobCounts: Record<JobStatus | 'all', number> = {
     all: jobs.length,
-    processing: jobs.filter(j => j.status === 'processing').length,
+    // paused jobs count as processing — they're still active work, just suspended
+    processing: jobs.filter(j => j.status === 'processing' || j.status === 'paused').length,
+    paused: jobs.filter(j => j.status === 'paused').length,
     queued: jobs.filter(j => j.status === 'queued').length,
     completed: jobs.filter(j => j.status === 'completed').length,
     failed: jobs.filter(j => j.status === 'failed').length,
+    cancelled: jobs.filter(j => j.status === 'cancelled').length,
   };
 
   return (
@@ -858,7 +886,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
                       <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
                       <td className="px-4 py-3 w-28">
                         <div className="flex items-center gap-2">
-                          <ProgressBar value={job.progress} color={job.status === 'failed' ? 'bg-red-400' : job.status === 'completed' ? 'bg-emerald-500' : undefined} />
+                          <ProgressBar value={job.progress} color={job.status === 'failed' ? 'bg-red-400' : job.status === 'completed' ? 'bg-emerald-500' : job.status === 'paused' ? 'bg-amber-400' : undefined} />
                           <span className="text-[10px] text-[rgba(0,0,0,0.4)] whitespace-nowrap">{job.progress}%</span>
                         </div>
                       </td>
@@ -869,18 +897,37 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
                       <td className="px-4 py-3 text-[11px] text-[rgba(0,0,0,0.4)] whitespace-nowrap">{job.createdAt}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
+                          {job.status === 'processing' && (
+                            <button onClick={() => handlePause(job)} disabled={controllingId === job.rawId} title="Pause job"
+                              className="p-1.5 rounded-lg hover:bg-amber-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-amber-600 disabled:opacity-50">
+                              <Icon icon={controllingId === job.rawId ? 'mdi:loading' : 'mdi:pause'} className={`text-sm ${controllingId === job.rawId ? 'animate-spin' : ''}`} />
+                            </button>
+                          )}
+                          {job.status === 'paused' && (
+                            <button onClick={() => handleResume(job)} disabled={controllingId === job.rawId} title="Resume job"
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors text-emerald-700 text-[11px] font-bold disabled:opacity-50">
+                              <Icon icon={controllingId === job.rawId ? 'mdi:loading' : 'mdi:play'} className={`text-sm ${controllingId === job.rawId ? 'animate-spin' : ''}`} />
+                              Resume
+                            </button>
+                          )}
+                          {(job.status === 'processing' || job.status === 'paused' || job.status === 'queued') && (
+                            <button onClick={() => handleStop(job)} disabled={controllingId === job.rawId} title="Stop job"
+                              className="p-1.5 rounded-lg hover:bg-red-50 transition-colors text-[rgba(0,0,0,0.35)] hover:text-red-500 disabled:opacity-50">
+                              <Icon icon="mdi:stop" className="text-sm" />
+                            </button>
+                          )}
+                          {(job.status === 'failed' || job.status === 'cancelled') && (
+                            <button onClick={() => handleRetry(job)} disabled={retryingId === job.rawId} title={job.status === 'cancelled' ? 'Start again' : 'Retry job'}
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-colors text-amber-700 text-[11px] font-bold disabled:opacity-50">
+                              <Icon icon={retryingId === job.rawId ? 'mdi:loading' : 'mdi:refresh'} className={`text-sm ${retryingId === job.rawId ? 'animate-spin' : ''}`} />
+                              {job.status === 'cancelled' ? 'Start again' : 'Retry'}
+                            </button>
+                          )}
                           {job.status === 'failed' && (
-                            <>
-                              <button onClick={() => handleRetry(job)} disabled={retryingId === job.rawId} title="Retry job"
-                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-colors text-amber-700 text-[11px] font-bold disabled:opacity-50">
-                                <Icon icon={retryingId === job.rawId ? 'mdi:loading' : 'mdi:refresh'} className={`text-sm ${retryingId === job.rawId ? 'animate-spin' : ''}`} />
-                                Retry
-                              </button>
-                              <button onClick={() => setExpandedError(expandedError === job.id ? null : job.id)} title="Show error details"
-                                className="p-1.5 rounded-lg hover:bg-red-50 transition-colors text-red-400">
-                                <Icon icon="mdi:alert-circle-outline" className="text-sm" />
-                              </button>
-                            </>
+                            <button onClick={() => setExpandedError(expandedError === job.id ? null : job.id)} title="Show error details"
+                              className="p-1.5 rounded-lg hover:bg-red-50 transition-colors text-red-400">
+                              <Icon icon="mdi:alert-circle-outline" className="text-sm" />
+                            </button>
                           )}
                           {job.hlsUrl && (
                             <>
@@ -2326,6 +2373,9 @@ const MediaOpsPage: React.FC = () => {
     error,
     createJob,
     retryJob,
+    cancelJob,
+    pauseJob,
+    resumeJob,
     downloadJob,
     uploadFile,
     createStream,
@@ -2484,7 +2534,7 @@ const MediaOpsPage: React.FC = () => {
             />
           )}
           {activeTab === 'transcode' && (
-            <TranscodeTab jobs={jobs} loading={loadingJobs} onCreateJob={createJob} onUploadFile={uploadFile} onRetryJob={retryJob} onDownloadJob={downloadJob} />
+            <TranscodeTab jobs={jobs} loading={loadingJobs} onCreateJob={createJob} onUploadFile={uploadFile} onRetryJob={retryJob} onDownloadJob={downloadJob} onCancelJob={cancelJob} onPauseJob={pauseJob} onResumeJob={resumeJob} />
           )}
           {activeTab === 'streams' && (
             <StreamsTab streams={streams} loading={loadingStreams} onCreateStream={createStream} onStartStream={startStream} onStopStream={stopStream} />

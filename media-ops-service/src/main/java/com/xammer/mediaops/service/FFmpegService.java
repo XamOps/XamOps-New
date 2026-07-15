@@ -17,6 +17,7 @@ import java.io.*;
 import java.nio.file.*;
 import java.security.SecureRandom;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -43,6 +44,12 @@ public class FFmpegService {
 
     @Value("${mediaops.hls.base-url:http://localhost:8084/media}")
     private String hlsBaseUrl;
+
+    // Live FFmpeg processes by job id, so running jobs can be paused/stopped.
+    private final Map<Long, Process> activeProcesses = new ConcurrentHashMap<>();
+    // Jobs whose process was killed by an explicit user stop — lets processJobAsync
+    // distinguish CANCELLED from FAILED when transcode() returns false.
+    private final Set<Long> stopRequested = ConcurrentHashMap.newKeySet();
 
     @PostConstruct
     public void init() {
@@ -261,6 +268,7 @@ public class FFmpegService {
         int totalSeconds = job.getDurationSeconds() != null ? job.getDurationSeconds() : 0;
         try {
             Process process = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            activeProcesses.put(job.getId(), process);
             StringBuilder ffmpegOutput = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
@@ -278,6 +286,11 @@ public class FFmpegService {
                 }
             }
             boolean done = process.waitFor(6, TimeUnit.HOURS);
+            if (stopRequested.contains(job.getId())) {
+                log.info("[MediaOps] Job {} stopped by user", job.getId());
+                job.setErrorMessage("Stopped by user.");
+                return false;
+            }
             if (!done) {
                 process.destroyForcibly();
                 job.setErrorMessage("FFmpeg timed out after 6 hours.");
@@ -295,6 +308,47 @@ public class FFmpegService {
         } catch (Exception e) {
             log.error("[MediaOps] Transcode job {} failed: {}", job.getId(), e.getMessage());
             job.setErrorMessage("Exception: " + e.getMessage());
+            return false;
+        } finally {
+            activeProcesses.remove(job.getId());
+        }
+    }
+
+    // ─── Running-job process control (stop / pause / resume) ─────────────────
+
+    /** Kills the running FFmpeg process for a job. Returns false if none is running. */
+    public boolean stopJobProcess(long jobId) {
+        Process p = activeProcesses.get(jobId);
+        if (p == null || !p.isAlive()) return false;
+        stopRequested.add(jobId);
+        signal(p, "-CONT"); // wake a paused process so its pipes drain and it dies cleanly
+        p.destroyForcibly();
+        return true;
+    }
+
+    /** SIGSTOPs the running FFmpeg process — frees CPU, keeps all encode state. */
+    public boolean pauseJobProcess(long jobId) {
+        Process p = activeProcesses.get(jobId);
+        return p != null && p.isAlive() && signal(p, "-STOP");
+    }
+
+    /** SIGCONTs a paused FFmpeg process — encoding resumes where it left off. */
+    public boolean resumeJobProcess(long jobId) {
+        Process p = activeProcesses.get(jobId);
+        return p != null && p.isAlive() && signal(p, "-CONT");
+    }
+
+    /** True (once) if the job's process was killed by an explicit user stop. */
+    public boolean consumeStopRequested(long jobId) {
+        return stopRequested.remove(jobId);
+    }
+
+    private boolean signal(Process p, String sig) {
+        try {
+            Process kill = new ProcessBuilder("kill", sig, String.valueOf(p.pid())).start();
+            return kill.waitFor(5, TimeUnit.SECONDS) && kill.exitValue() == 0;
+        } catch (Exception e) {
+            log.warn("[MediaOps] kill {} pid {} failed: {}", sig, p.pid(), e.getMessage());
             return false;
         }
     }
@@ -1000,6 +1054,9 @@ public class FFmpegService {
         cmd.addAll(Arrays.asList(
                 // yuv420p + High profile on every variant so the HLS stream is decodable
                 // by Safari/iOS and all standards-compliant players, regardless of source.
+                // veryfast: without an explicit preset x264 defaults to medium, which is
+                // 3-4x slower — prohibitive when encoding three renditions of long videos.
+                "-preset", "veryfast",
                 "-map", "[v1out]", "-c:v:0", "libx264", "-profile:v:0", "high", "-pix_fmt:v:0", "yuv420p", "-b:v:0", "4500k",
                 "-map", "[v2out]", "-c:v:1", "libx264", "-profile:v:1", "high", "-pix_fmt:v:1", "yuv420p", "-b:v:1", "2500k",
                 "-map", "[v3out]", "-c:v:2", "libx264", "-profile:v:2", "high", "-pix_fmt:v:2", "yuv420p", "-b:v:2", "1000k"
@@ -1042,6 +1099,8 @@ public class FFmpegService {
         cmd.addAll(Arrays.asList("-filter_complex", buildAdaptiveFilterComplex(job, hasWatermarkImage, hasWatermarkText)));
         cmd.addAll(Arrays.asList(
                 // yuv420p + High profile on every variant for maximum player compatibility.
+                // veryfast preset: see buildAdaptiveHls — x264's default medium is 3-4x slower.
+                "-preset", "veryfast",
                 "-map", "[v1out]", "-c:v:0", "libx264", "-profile:v:0", "high", "-pix_fmt:v:0", "yuv420p", "-b:v:0", "4500k",
                 "-map", "[v2out]", "-c:v:1", "libx264", "-profile:v:1", "high", "-pix_fmt:v:1", "yuv420p", "-b:v:1", "2500k",
                 "-map", "[v3out]", "-c:v:2", "libx264", "-profile:v:2", "high", "-pix_fmt:v:2", "yuv420p", "-b:v:2", "1000k"

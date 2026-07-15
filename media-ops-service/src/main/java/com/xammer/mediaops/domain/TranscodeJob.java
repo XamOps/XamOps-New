@@ -190,7 +190,7 @@ public class TranscodeJob {
     // ========================================================
 
     public enum JobStatus {
-        QUEUED, PROCESSING, COMPLETED, FAILED, CANCELLED, SCHEDULED
+        QUEUED, PROCESSING, PAUSED, COMPLETED, FAILED, CANCELLED, SCHEDULED
     }
 
     public enum OutputFormat {
