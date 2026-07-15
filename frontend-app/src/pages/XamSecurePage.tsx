@@ -35,7 +35,7 @@ const XamSecurePage: React.FC = () => {
   const { tab } = useParams<{ tab?: string }>();
 
   const activeTab = useMemo<XamSecureTab>(
-    () => (tab && VALID_TABS.has(tab) ? (tab as XamSecureTab) : 'issues'),
+    () => (tab && VALID_TABS.has(tab) ? (tab as XamSecureTab) : 'overview'),
     [tab]
   );
 

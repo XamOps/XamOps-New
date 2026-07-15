@@ -364,7 +364,7 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('secops-security-center') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : selectedAccountDisplay.provider === 'Azure' ? '/azure-security' : '/security'} icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security') || isActive('/gcp-security') || isActive('/azure-security')} />}
                 {isXamTabAllowed('secops-xamsecure') && (
                   <>
-                    <NavItem href="/xamsecure/issues" icon="fas fa-user-shield" label="XamSecure" isActive={isActive('/xamsecure')} />
+                    <NavItem href="/xamsecure/overview" icon="fas fa-user-shield" label="XamSecure" isActive={isActive('/xamsecure')} />
                     {location.pathname.startsWith('/xamsecure') && (
                       <div className={clsx(
                         'ml-3 pl-3 border-l space-y-0.5',
