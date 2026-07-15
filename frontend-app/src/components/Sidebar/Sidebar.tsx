@@ -28,9 +28,6 @@ const XAMSECURE_SUBTABS: { id: string; label: string; icon: string }[] = [
   { id: 'api-security', label: 'APIs', icon: 'fas fa-plug' },
   { id: 'threats', label: 'Threats', icon: 'fas fa-bolt' },
   { id: 'components', label: 'Components', icon: 'fas fa-cubes' },
-  { id: 'threat-policies', label: 'Threat Policies', icon: 'fas fa-shield-halved' },
-  { id: 'workflows', label: 'Workflows', icon: 'fas fa-diagram-project' },
-  { id: 'onboarding', label: 'Onboarding', icon: 'fas fa-plug-circle-plus' },
 ];
 
 const Sidebar: React.FC = () => {
