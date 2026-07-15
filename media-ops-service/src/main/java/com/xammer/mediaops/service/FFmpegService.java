@@ -45,6 +45,10 @@ public class FFmpegService {
     @Value("${mediaops.hls.base-url:http://localhost:8084/media}")
     private String hlsBaseUrl;
 
+    // x264/x265 presets a job may select via encodingSpeed. Whitelist — the value
+    // lands on the ffmpeg command line, so never pass it through unvalidated.
+    private static final Set<String> ALLOWED_PRESETS = Set.of("fast", "veryfast", "superfast", "ultrafast");
+
     // Live FFmpeg processes by job id, so running jobs can be paused/stopped.
     private final Map<Long, Process> activeProcesses = new ConcurrentHashMap<>();
     // Jobs whose process was killed by an explicit user stop — lets processJobAsync
@@ -539,6 +543,19 @@ public class FFmpegService {
      * Defaults to libx264 for most formats, but WEBM requires VP8/VP9/AV1 —
      * any H.264/H.265 selection is overridden to VP9 for WebM compatibility.
      */
+    /**
+     * Resolves the encoder preset for a job from its user-selected encoding speed.
+     * Falls back to the balanced default (veryfast) for missing/invalid values.
+     */
+    private String presetFor(TranscodeJob job) {
+        String speed = job.getEncodingSpeed();
+        if (speed != null) {
+            speed = speed.trim().toLowerCase();
+            if (ALLOWED_PRESETS.contains(speed)) return speed;
+        }
+        return "veryfast";
+    }
+
     private void applyVideoCodec(List<String> cmd, TranscodeJob job) {
         String codec = job.getCodec();
         boolean isWebM = job.getOutputFormat() == OutputFormat.WEBM;
@@ -558,7 +575,8 @@ public class FFmpegService {
             case "H265":
             case "HEVC":
                 // yuv420p + tag hvc1 so the output is decodable by Apple/QuickTime and most players
-                cmd.addAll(Arrays.asList("-c:v", "libx265", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"));
+                cmd.addAll(Arrays.asList("-c:v", "libx265", "-preset", presetFor(job),
+                        "-pix_fmt", "yuv420p", "-tag:v", "hvc1"));
                 break;
             case "AV1":
                 cmd.addAll(Arrays.asList("-c:v", "libaom-av1"));
@@ -572,7 +590,7 @@ public class FFmpegService {
                 // -pix_fmt yuv420p + High profile = the universally-decodable baseline.
                 // Without yuv420p, sources in yuv444p/10-bit produce files many players
                 // (QuickTime, Safari, hardware decoders) show as black or audio-only.
-                cmd.addAll(Arrays.asList("-c:v", "libx264", "-preset", "fast",
+                cmd.addAll(Arrays.asList("-c:v", "libx264", "-preset", presetFor(job),
                         "-pix_fmt", "yuv420p", "-profile:v", "high"));
                 break;
         }
@@ -1054,9 +1072,9 @@ public class FFmpegService {
         cmd.addAll(Arrays.asList(
                 // yuv420p + High profile on every variant so the HLS stream is decodable
                 // by Safari/iOS and all standards-compliant players, regardless of source.
-                // veryfast: without an explicit preset x264 defaults to medium, which is
-                // 3-4x slower — prohibitive when encoding three renditions of long videos.
-                "-preset", "veryfast",
+                // Explicit preset: without one x264 defaults to medium, which is 3-4x
+                // slower — prohibitive when encoding three renditions of long videos.
+                "-preset", presetFor(job),
                 "-map", "[v1out]", "-c:v:0", "libx264", "-profile:v:0", "high", "-pix_fmt:v:0", "yuv420p", "-b:v:0", "4500k",
                 "-map", "[v2out]", "-c:v:1", "libx264", "-profile:v:1", "high", "-pix_fmt:v:1", "yuv420p", "-b:v:1", "2500k",
                 "-map", "[v3out]", "-c:v:2", "libx264", "-profile:v:2", "high", "-pix_fmt:v:2", "yuv420p", "-b:v:2", "1000k"
@@ -1099,8 +1117,8 @@ public class FFmpegService {
         cmd.addAll(Arrays.asList("-filter_complex", buildAdaptiveFilterComplex(job, hasWatermarkImage, hasWatermarkText)));
         cmd.addAll(Arrays.asList(
                 // yuv420p + High profile on every variant for maximum player compatibility.
-                // veryfast preset: see buildAdaptiveHls — x264's default medium is 3-4x slower.
-                "-preset", "veryfast",
+                // Explicit preset: see buildAdaptiveHls — x264's default medium is 3-4x slower.
+                "-preset", presetFor(job),
                 "-map", "[v1out]", "-c:v:0", "libx264", "-profile:v:0", "high", "-pix_fmt:v:0", "yuv420p", "-b:v:0", "4500k",
                 "-map", "[v2out]", "-c:v:1", "libx264", "-profile:v:1", "high", "-pix_fmt:v:1", "yuv420p", "-b:v:1", "2500k",
                 "-map", "[v3out]", "-c:v:2", "libx264", "-profile:v:2", "high", "-pix_fmt:v:2", "yuv420p", "-b:v:2", "1000k"

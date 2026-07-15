@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class TranscodeJobService {
@@ -74,6 +75,15 @@ public class TranscodeJobService {
 
         // Map advanced fields from request
         job.setCodec(req.getCodec());
+
+        // Encoding speed: whitelist-validated (the value ends up on the ffmpeg
+        // command line). Anything unrecognized falls back to the veryfast default.
+        if (req.getEncodingSpeed() != null) {
+            String speed = req.getEncodingSpeed().trim().toLowerCase();
+            if (Set.of("fast", "veryfast", "superfast", "ultrafast").contains(speed)) {
+                job.setEncodingSpeed(speed);
+            }
+        }
 
         if (req.getPriority() != null && !req.getPriority().isEmpty()) {
             try {

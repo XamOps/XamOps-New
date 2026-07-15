@@ -428,6 +428,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
   const [outputFmts, setOutputFmts] = useState<string[]>(['HLS']);
   const [resolutions, setResolutions] = useState<string[]>(['1080p']);
   const [bitrate, setBitrate] = useState('');
+  const [encodingSpeed, setEncodingSpeed] = useState('veryfast');
   const [priorityFormat, setPriorityFormat] = useState<string | null>(null);
   const [generateAdaptiveBundle, setGenerateAdaptiveBundle] = useState(false);
   const [s3PickerOpen, setS3PickerOpen] = useState(false);
@@ -504,7 +505,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
 
   const formState: import('../components/mediaops/SimpleMode').SimpleModeFormState = {
     sourceMode, sourceUrl, localFile, uploadProgress,
-    outputFormats: outputFmts, resolutions, bitrate,
+    outputFormats: outputFmts, resolutions, bitrate, encodingSpeed,
     enableAdaptive: enableHLS, generateAdaptiveBundle, priorityFormat, s3PickedFile,
   };
 
@@ -516,6 +517,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
     if (updates.outputFormats !== undefined) setOutputFmts(updates.outputFormats);
     if (updates.resolutions !== undefined) setResolutions(updates.resolutions);
     if (updates.bitrate !== undefined) setBitrate(updates.bitrate);
+    if (updates.encodingSpeed !== undefined) setEncodingSpeed(updates.encodingSpeed);
     if (updates.enableAdaptive !== undefined) setEnableHLS(updates.enableAdaptive);
     if (updates.generateAdaptiveBundle !== undefined) setGenerateAdaptiveBundle(updates.generateAdaptiveBundle);
     if ('priorityFormat' in updates) setPriorityFormat(updates.priorityFormat ?? null);
@@ -555,6 +557,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
           enableAdaptive: enableHLS && (fmt === 'HLS' || fmt === 'DASH'),
         };
         if (bitrate.trim()) req.bitrate = bitrate.trim();
+        req.encodingSpeed = encodingSpeed;
         if (jobPriority !== 'NORMAL') req.priority = jobPriority;
 
         if (advancedState) {
@@ -628,6 +631,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
             enableAdaptive: true,
           };
           if (bitrate.trim()) bundleReq.bitrate = bitrate.trim();
+          bundleReq.encodingSpeed = encodingSpeed;
           await onCreateJob(bundleReq);
         }
       }
@@ -645,7 +649,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
     } finally {
       setSubmitLoading(false);
     }
-  }, [canSubmit, sourceMode, sourceUrl, localFile, outputFmts, resolutions, enableHLS, generateAdaptiveBundle, priorityFormat, bitrate, onCreateJob, onUploadFile]);
+  }, [canSubmit, sourceMode, sourceUrl, localFile, outputFmts, resolutions, enableHLS, generateAdaptiveBundle, priorityFormat, bitrate, encodingSpeed, onCreateJob, onUploadFile]);
 
   const handleCancel = useCallback(() => {
     setShowForm(false);
@@ -653,6 +657,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
     setSourceUrl('');
     setLocalFile(null);
     setBitrate('');
+    setEncodingSpeed('veryfast');
     setSourceMode('url');
     setUploadProgress('idle');
     setS3PickedFile(null);

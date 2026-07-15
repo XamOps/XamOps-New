@@ -94,6 +94,11 @@ public class TranscodeJob {
     @Column(length = 20)
     private String codec;
 
+    // Encoding speed = x264 preset (fast | veryfast | superfast | ultrafast).
+    // Faster presets reduce quality at the same bitrate; veryfast is the balanced default.
+    @Column(name = "encoding_speed", length = 20)
+    private String encodingSpeed = "veryfast";
+
     // Job priority
     @Enumerated(EnumType.STRING)
     @Column(length = 10)

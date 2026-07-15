@@ -13,6 +13,9 @@ public class TranscodeJobRequest {
     private Integer fps;
     private boolean enableAdaptive = false;
 
+    // Encoding speed = x264 preset: fast | veryfast (default) | superfast | ultrafast
+    private String encodingSpeed;
+
     // Preset reference
     private Long presetId;
 

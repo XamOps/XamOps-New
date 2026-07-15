@@ -67,6 +67,9 @@ export interface CreateJobRequest {
   resolution: string;
   bitrate?: string;
   enableAdaptive: boolean;
+  // x264 preset: fast | veryfast (default) | superfast | ultrafast.
+  // Faster = lower quality at the same bitrate.
+  encodingSpeed?: string;
   // Advanced fields
   presetId?: number;
   codec?: string | null;

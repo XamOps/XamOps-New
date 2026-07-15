@@ -11,11 +11,34 @@ export interface SimpleModeFormState {
   outputFormats: string[];
   resolutions: string[];
   bitrate: string;
+  // x264 preset (fast | veryfast | superfast | ultrafast) — faster trades quality for speed
+  encodingSpeed: string;
   enableAdaptive: boolean;
   generateAdaptiveBundle: boolean;
   priorityFormat: string | null;
   s3PickedFile?: S3PickedFile | null;
 }
+
+// Encoding speed choices, from most careful to fastest. `impact` spells out what
+// the user gives up — shown under the dropdown so the trade-off is never hidden.
+const SPEED_OPTIONS: { value: string; label: string; time: string; impact: string; warn: boolean }[] = [
+  {
+    value: 'fast', label: 'Best quality', time: '≈2× slower than Balanced', warn: false,
+    impact: 'Maximum detail retention at the target bitrate. Pick this for final, published content when encode time doesn’t matter.',
+  },
+  {
+    value: 'veryfast', label: 'Balanced', time: 'recommended default', warn: false,
+    impact: 'Near-best quality — the difference from Best is rarely visible without a side-by-side comparison. Good for almost everything.',
+  },
+  {
+    value: 'superfast', label: 'Fast', time: '≈30–40% faster than Balanced', warn: true,
+    impact: 'Slightly reduces quality: fine textures and fast-motion scenes (sports, grass, confetti, camera pans) look a bit softer or noisier. Screen recordings, slides and talking-head videos are mostly unaffected.',
+  },
+  {
+    value: 'ultrafast', label: 'Fastest (draft)', time: '≈2× faster than Balanced', warn: true,
+    impact: 'Noticeably lowers quality: blocky fast motion, banding in color gradients, softer detail overall. Use only for quick previews and drafts — not for content viewers will keep.',
+  },
+];
 
 interface SimpleModeProps {
   formState: SimpleModeFormState;
@@ -58,7 +81,7 @@ function formatBytes(bytes: number): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function SimpleMode({ formState, onFormChange, onSubmit, onCancel, canSubmit, submitLoading, submitError, hideActions, onBrowseS3 }: SimpleModeProps) {
-  const { sourceMode, sourceUrl, localFile, uploadProgress, outputFormats, resolutions, bitrate, enableAdaptive, generateAdaptiveBundle, s3PickedFile, priorityFormat } = formState;
+  const { sourceMode, sourceUrl, localFile, uploadProgress, outputFormats, resolutions, bitrate, encodingSpeed, enableAdaptive, generateAdaptiveBundle, s3PickedFile, priorityFormat } = formState;
 
   const hasAdaptiveFormat = outputFormats.some(f => f === 'HLS' || f === 'DASH');
   // adaptiveActive = the adaptive toggle is meaningfully on (HLS/DASH selected AND toggle enabled)
@@ -226,6 +249,34 @@ export function SimpleMode({ formState, onFormChange, onSubmit, onCancel, canSub
         <input value={bitrate} onChange={e => onFormChange({ bitrate: e.target.value })}
           placeholder="e.g. 5000k or 8M"
           className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none placeholder-[rgba(0,0,0,0.3)]" />
+      </div>
+
+      {/* Encoding speed — quality/speed trade-off, impact spelled out below */}
+      <div>
+        <label className="block text-[11px] font-semibold text-[rgba(0,0,0,0.5)] mb-1.5 uppercase tracking-wide">Encoding speed</label>
+        <select value={encodingSpeed} onChange={e => onFormChange({ encodingSpeed: e.target.value })}
+          className="w-full px-3 py-2.5 border border-[rgba(0,0,0,0.12)] rounded-xl text-[13px] bg-white focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 outline-none">
+          {SPEED_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label} — {o.time}</option>
+          ))}
+        </select>
+        {(() => {
+          const sel = SPEED_OPTIONS.find(o => o.value === encodingSpeed) ?? SPEED_OPTIONS[1];
+          return (
+            <div className={`mt-2 flex items-start gap-2 px-3 py-2 rounded-lg border text-[11px] leading-relaxed ${
+              sel.warn
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                : 'bg-[rgba(0,0,0,0.03)] border-[rgba(0,0,0,0.07)] text-[rgba(0,0,0,0.55)]'
+            }`}>
+              <Icon icon={sel.warn ? 'mdi:alert-outline' : 'mdi:information-outline'}
+                className={`text-sm mt-0.5 flex-shrink-0 ${sel.warn ? 'text-amber-500' : 'text-[rgba(0,0,0,0.35)]'}`} />
+              <span>
+                {sel.warn && <strong>Affects quality. </strong>}
+                {sel.impact}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Adaptive bitrate toggle (only relevant for HLS/DASH) */}
