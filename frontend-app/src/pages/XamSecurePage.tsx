@@ -13,15 +13,15 @@ export type XamSecureTab =
   | 'inventory' | 'api-security' | 'components' | 'threat-policies' | 'workflows' | 'compliance' | 'onboarding';
 
 export const XAMSECURE_TABS: { id: XamSecureTab; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'overview', label: 'Home' },
   { id: 'issues', label: 'Issues' },
   { id: 'inventory', label: 'Inventory' },
   { id: 'attack-surface', label: 'Attack Surface' },
   { id: 'vulnerabilities', label: 'Vulnerabilities' },
   { id: 'posture', label: 'Configurations' },
-  { id: 'api-security', label: 'API Security' },
-  { id: 'components', label: 'Components' },
+  { id: 'api-security', label: 'APIs' },
   { id: 'threats', label: 'Threats' },
+  { id: 'components', label: 'Components' },
   { id: 'threat-policies', label: 'Threat Policies' },
   { id: 'workflows', label: 'Workflows' },
   { id: 'onboarding', label: 'Onboarding' },
