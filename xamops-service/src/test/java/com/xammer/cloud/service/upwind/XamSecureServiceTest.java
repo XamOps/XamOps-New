@@ -58,7 +58,7 @@ class XamSecureServiceTest {
         com.fasterxml.jackson.databind.JsonNode ep = new com.fasterxml.jackson.databind.ObjectMapper()
             .readTree("{\"id\":\"rt-1\",\"method\":\"GET\",\"uri\":\"/version\",\"resource_id\":\"ep-1\"}");
         when(apiClient.isConfigured()).thenReturn(true);
-        when(apiClient.fetchApiSecurityEndpoints("111", 20)).thenReturn(List.of(ep));
+        when(apiClient.fetchApiSecurityEndpoints(anyString(), anyInt())).thenReturn(List.of(ep));
 
         var rows = service.getApiSecurity(1L, null);
         assertEquals(1, rows.size());
