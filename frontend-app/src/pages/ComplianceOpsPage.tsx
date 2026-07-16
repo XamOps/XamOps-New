@@ -102,7 +102,7 @@ const FRAMEWORK_CONFIG: Record<string, { displayName: string; icon: string; colo
   'IRDAI':              { displayName: 'IRDAI',               icon: 'mdi:shield-half-full',        color: 'text-green-700',   bgColor: 'bg-green-50',   borderColor: 'border-green-200'   },
 };
 
-const DEFAULT_FW_CONFIG = { displayName: 'Other', icon: 'mdi:file-document-outline', color: 'text-gray-600', bgColor: 'bg-gray-50', borderColor: 'border-gray-200' };
+const DEFAULT_FW_CONFIG = { displayName: 'Other', icon: 'mdi:shield-check-outline', color: 'text-gray-600', bgColor: 'bg-gray-50', borderColor: 'border-gray-200' };
 
 // Framework logos — matches Pump's actual brand logo style with proper colors
 const LOGO_OVERRIDE: Record<string, { text: string; textColor: string; bg: string }> = {
@@ -431,22 +431,25 @@ const ComplianceOpsPage: React.FC = () => {
     const map = new Map<string, {
       passControls: Set<string>;
       failControls: Map<string, { severity: string }>;
+      resourcePass: number; resourceFail: number;
       c: number; h: number; m: number; l: number;
     }>();
 
     findings.forEach(f => {
       if (!f.complianceFramework) return;
       const key = getFrameworkKey(f.complianceFramework);
-      if (!map.has(key)) map.set(key, { passControls: new Set(), failControls: new Map(), c: 0, h: 0, m: 0, l: 0 });
+      if (!map.has(key)) map.set(key, { passControls: new Set(), failControls: new Map(), resourcePass: 0, resourceFail: 0, c: 0, h: 0, m: 0, l: 0 });
       const fw = map.get(key)!;
       const ck = f.controlId || f.description?.substring(0, 60) || 'x';
 
       if (f.status === 'FAIL') {
+        fw.resourceFail++;
         fw.passControls.delete(ck); // a control that ever fails is NOT passing
         if (!fw.failControls.has(ck)) fw.failControls.set(ck, { severity: f.severity || 'LOW' });
         const sev = (f.severity || '').toUpperCase();
         if (sev === 'CRITICAL') fw.c++; else if (sev === 'HIGH') fw.h++; else if (sev === 'MEDIUM') fw.m++; else fw.l++;
       } else {
+        fw.resourcePass++;
         // Only add to pass set if this control has never failed
         if (!fw.failControls.has(ck)) fw.passControls.add(ck);
       }
@@ -457,7 +460,9 @@ const ComplianceOpsPage: React.FC = () => {
       const failed = d.failControls.size;
       const passed = d.passControls.size;
       const total = failed + passed;
-      const score = total > 0 ? Math.round((passed / total) * 100) : 0;
+      // Resource-weighted: % of individual resource checks passing, not % of controls with zero exceptions.
+      const resourceTotal = d.resourcePass + d.resourceFail;
+      const score = resourceTotal > 0 ? Math.round((d.resourcePass / resourceTotal) * 100) : 0;
       return { name: key, displayName: cfg.displayName, icon: cfg.icon, color: cfg.color, bgColor: cfg.bgColor, borderColor: cfg.borderColor, totalControls: total, passedControls: passed, failedControls: failed, score, criticalFindings: d.c, highFindings: d.h, mediumFindings: d.m, lowFindings: d.l };
     }).sort((a, b) => b.failedControls - a.failedControls);
   }, [findings]);
@@ -784,7 +789,7 @@ const ComplianceOpsPage: React.FC = () => {
           </div>
           <div ref={scrollRef} className="flex overflow-x-auto py-5" style={{ scrollBehavior: 'smooth', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             {visibleFrameworks.map((fw) => {
-              const isPassing = fw.score >= 70;
+              const isPassing = fw.score >= 95;
               const logoPath = FRAMEWORK_LOGO_PATH[fw.name];
               const logoOv = LOGO_OVERRIDE[fw.name];
               return (
@@ -811,7 +816,7 @@ const ComplianceOpsPage: React.FC = () => {
           <div className="flex items-start gap-2 px-5 py-2.5 border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
             <Icon icon="mdi:information-outline" width={13} className="text-[rgba(0,0,0,0.35)] shrink-0 mt-[1px]" />
             <p className="text-[11px] leading-snug text-[rgba(0,0,0,0.45)]">
-              Scores reflect automated cloud-configuration checks mapped to each framework and are a coverage indicator, not a certification. Formal compliance (e.g. SOC 2) requires an independent auditor's attestation. Scoring is strict: a control counts as failed if even one resource fails it, so these percentages will read lower than tools that average pass rates across resources (e.g. XamSecure).
+              Scores reflect the percentage of individual resource checks passing for each framework and are a coverage indicator, not a certification. Formal compliance (e.g. SOC 2) requires an independent auditor's attestation.
             </p>
           </div>
         </div>
