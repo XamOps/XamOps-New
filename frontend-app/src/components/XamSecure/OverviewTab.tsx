@@ -59,8 +59,12 @@ const BarChart: React.FC<{ data: { label: string; value: number }[] }> = ({ data
         <div key={d.label} className="flex-1 flex flex-col items-center gap-1">
           <div className="w-full flex items-end justify-center" style={{ height: '84px' }}>
             <div
-              className="w-full max-w-[24px] bg-gray-800 rounded-t"
-              style={{ height: `${Math.round((d.value / max) * 84)}px`, minHeight: d.value > 0 ? 4 : 0 }}
+              className="w-full max-w-[24px] rounded-t"
+              style={{
+                height: `${Math.round((d.value / max) * 84)}px`,
+                minHeight: d.value > 0 ? 4 : 0,
+                backgroundColor: SEV_COLOR.OTHER,
+              }}
               title={`${d.label}: ${d.value}`}
             />
           </div>
