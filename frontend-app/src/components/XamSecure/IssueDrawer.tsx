@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '@iconify/react';
 import type { IssueDetail } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
@@ -21,7 +22,7 @@ const fmt = (iso: string | null): string =>
  * first-seen / last-evaluation, and the affected-resources table. Read-only.
  */
 const IssueDrawer: React.FC<Props> = ({ title, detail, isLoading, onClose }) => {
-  return (
+  return createPortal((
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-black/30" />
       <div
@@ -139,7 +140,7 @@ const IssueDrawer: React.FC<Props> = ({ title, detail, isLoading, onClose }) => 
         </div>
       </div>
     </div>
-  );
+  ), document.body);
 };
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
