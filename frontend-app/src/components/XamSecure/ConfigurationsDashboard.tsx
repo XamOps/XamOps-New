@@ -110,9 +110,9 @@ const ConfigurationsDashboard: React.FC<Props> = ({ data, isLoading }) => {
               Top configuration findings ({data.topFindings.length})
             </p>
           </div>
-          <div className="overflow-x-auto">
+          <div className="max-h-[420px] overflow-auto">
             <table className="w-full text-xs">
-              <thead>
+              <thead className="sticky top-0 bg-white z-10">
                 <tr className="text-left text-[10px] uppercase text-gray-400 border-b border-gray-100">
                   <th className="px-5 py-2">Finding</th>
                   <th className="px-5 py-2">Severity</th>
@@ -140,7 +140,7 @@ const ConfigurationsDashboard: React.FC<Props> = ({ data, isLoading }) => {
           <div className="px-5 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Compliance score per framework</p>
           </div>
-          <div className="max-h-[360px] overflow-y-auto divide-y divide-gray-50">
+          <div className="max-h-[420px] overflow-y-auto divide-y divide-gray-50">
             {data.frameworkScores.map((fw) => (
               <div key={fw.framework} className="flex items-center gap-3 px-5 py-2.5">
                 {hasFrameworkLogo(fw.framework) && <FrameworkLogo framework={fw.framework} size={18} />}
