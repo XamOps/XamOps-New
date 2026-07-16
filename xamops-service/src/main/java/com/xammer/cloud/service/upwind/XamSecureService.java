@@ -336,9 +336,9 @@ public class XamSecureService {
         if (ids.isEmpty()) return Page.empty();
         Pageable pageable = PageRequest.of(page, Math.min(size, 200));
         if (severity != null && !severity.isEmpty()) {
-            return detectionRepo.findByCloudAccountIdInAndSeverityOrderByLastSeenTimeDesc(ids, severity, pageable);
+            return detectionRepo.findRealByCloudAccountIdInAndSeverity(ids, severity, pageable);
         }
-        return detectionRepo.findByCloudAccountIdInOrderByLastSeenTimeDesc(ids, pageable);
+        return detectionRepo.findRealByCloudAccountIdIn(ids, pageable);
     }
 
     public Page<UpwindVulnerabilityFinding> getVulnerabilities(Long clientId, String accountId,
