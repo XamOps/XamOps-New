@@ -11,7 +11,13 @@ const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: '2-digit', year: 'numeric' }) : '—';
 
 const ComplianceTab: React.FC<Props> = ({ data, isLoading }) => {
-  const frameworks = data ?? [];
+  // Hide frameworks that were never scanned against this account (e.g. Azure/GCP/OCI/K8s
+  // frameworks on an AWS-only account). Those show a hollow "0% / No failing controls"
+  // that reads as broken. Keep anything actually evaluated: has a scan time, has failing
+  // controls, or carries a real (>0) compliance score.
+  const frameworks = (data ?? [])
+    .filter((f) => f.lastScanTime || f.failCount > 0 || (f.score != null && f.score > 0))
+    .sort((a, b) => (a.score ?? 0) - (b.score ?? 0) || b.failCount - a.failCount);
   if (isLoading && frameworks.length === 0) {
     return <div className="text-center py-16 text-sm text-gray-400">Loading compliance frameworks...</div>;
   }
