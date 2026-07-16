@@ -64,6 +64,10 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [isLoading, setIsLoading] = useState(false);
   const pollRef = useRef<number | null>(null);
   const threatPageRef = useRef(0);
+  // Tabs already loaded this session (keyed by tab + account). Revisiting a loaded tab
+  // serves the in-memory data instantly instead of refetching and flashing a spinner —
+  // this is what made live-fetch tabs (APIs/Components) "reload every time you click".
+  const loadedRef = useRef<Set<string>>(new Set());
 
   const acct = selectedAccountId ? `accountId=${encodeURIComponent(selectedAccountId)}&` : '';
 
@@ -283,7 +287,11 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   // Load the active tab's data; Threats tab also polls every 60s.
   useEffect(() => {
     let cancelled = false;
+    const tabKey = `${activeTab}:${selectedAccountId ?? 'all'}`;
     const run = async () => {
+      // Threats polls on its own; every other tab, once loaded for this account, serves
+      // in-memory data on revisit (no refetch, no loading flash). Refresh forces a reload.
+      if (activeTab !== 'threats' && loadedRef.current.has(tabKey)) return;
       setIsLoading(true);
       try {
         if (activeTab === 'issues') await loadIssues();
@@ -307,6 +315,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
         else if (activeTab === 'threat-policies') await loadThreatPolicies();
         else if (activeTab === 'workflows') await loadWorkflows();
         else if (activeTab === 'onboarding') await loadOnboarding();
+        loadedRef.current.add(tabKey);
       } catch (err) {
         console.error('[XamSecure] load failed:', err);
       } finally {
