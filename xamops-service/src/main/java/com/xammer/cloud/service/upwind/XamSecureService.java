@@ -196,7 +196,7 @@ public class XamSecureService {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (String id : ids) {
             try {
-                for (JsonNode ep : apiClient.fetchApiSecurityEndpoints(id, 20)) {
+                for (JsonNode ep : apiClient.fetchApiSecurityEndpoints(id, 12)) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", ep.path("id").asText(null));
                     m.put("method", ep.path("method").asText(null));
@@ -206,6 +206,14 @@ public class XamSecureService {
                     m.put("lastSeenTime", ep.path("last_seen_time").asText(null));
                     m.put("internetExposed", ep.path("risk_overview").path("internet_exposure")
                             .path("ingress").has("last_seen_time"));
+                    // Authentication state from Upwind's risk overview (AUTHENTICATED / UNAUTHENTICATED
+                    // / absent when not analysed). Only an explicit UNAUTHENTICATED counts as unauthenticated.
+                    String authState = ep.path("risk_overview").path("authentication").path("state").asText(null);
+                    m.put("authState", authState);
+                    m.put("authenticated", "AUTHENTICATED".equalsIgnoreCase(authState));
+                    List<String> domains = new ArrayList<>();
+                    ep.path("domains").forEach(d -> domains.add(d.asText()));
+                    m.put("domains", domains);
                     m.put("cloudAccountId", id);
                     rows.add(m);
                 }

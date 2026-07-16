@@ -179,11 +179,13 @@ public class UpwindApiClient {
         return items;
     }
 
-    /** v1 API-security endpoints, tenant-filtered by cloud-account-id query param, Link paging. */
+    /** v1 API-security endpoints, tenant-filtered by cloud-account-id query param, Link paging.
+     *  per-page=1000 keeps the full-endpoint fetch (thousands of endpoints) to a handful of
+     *  round-trips so the APIs dashboard counts are complete without dozens of requests. */
     public List<JsonNode> fetchApiSecurityEndpoints(String cloudAccountId, int maxPages) {
         java.util.List<JsonNode> items = new java.util.ArrayList<>();
         String url = apiBaseUrl + "/v1/organizations/" + orgId
-                + "/apisecurity-endpoints?cloud-account-id=" + cloudAccountId + "&per-page=100";
+                + "/apisecurity-endpoints?cloud-account-id=" + cloudAccountId + "&per-page=1000";
         int pages = 0;
         while (url != null && pages < maxPages) {
             HttpHeaders headers = authHeaders();

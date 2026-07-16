@@ -3,7 +3,7 @@ import { Icon } from '@iconify/react';
 import type {
   PageResp, InventoryAsset, InventoryCategory, NetworkTopology,
 } from '../../types/xamsecure';
-import FindingDrawer from './FindingDrawer';
+import InventoryAssetDrawer from './InventoryAssetDrawer';
 
 interface Props {
   data: PageResp<InventoryAsset> | null;
@@ -151,8 +151,7 @@ const InventoryTab: React.FC<Props> = ({ data, categories, network, isLoading, o
       )}
 
       {selected && (
-        <FindingDrawer title={selected.name ?? 'Asset'} rawPayload={selected.rawPayload}
-                       onClose={() => setSelected(null)} />
+        <InventoryAssetDrawer asset={selected} onClose={() => setSelected(null)} />
       )}
     </div>
   );

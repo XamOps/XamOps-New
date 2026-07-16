@@ -161,6 +161,9 @@ export interface ApiEndpoint {
   firstSeenTime: string | null;
   lastSeenTime: string | null;
   internetExposed: boolean;
+  authState: string | null;
+  authenticated: boolean;
+  domains: string[];
   cloudAccountId: string | null;
 }
 
