@@ -39,7 +39,9 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
     }
     const methods = Object.entries(byMethod).sort((a, b) => b[1] - a[1]);
     const domains = Object.entries(byDomain).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    return { total: all.length, exposed, authed, unauth, methods, domains };
+    // Endpoints Upwind hasn't classified an auth state for (not observed enough traffic).
+    const unclassified = Math.max(0, all.length - authed - unauth);
+    return { total: all.length, exposed, authed, unauth, unclassified, methods, domains };
   }, [all]);
 
   const { page, setPage, pageItems: rows, totalPages, total } = usePaged(all, 50);
@@ -53,11 +55,13 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
   return (
     <div className="space-y-4">
       {/* Funnel stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Stat icon="mdi:api" label="Endpoints" value={stats.total} accent="text-gray-900" />
         <Stat icon="mdi:earth" label="Internet exposed" value={stats.exposed} accent="text-red-600" />
         <Stat icon="mdi:lock-check" label="Authenticated" value={stats.authed} accent="text-emerald-600" />
         <Stat icon="mdi:lock-open-alert" label="Unauthenticated" value={stats.unauth} accent="text-orange-600" />
+        <Stat icon="mdi:help-circle-outline" label="Unclassified" value={stats.unclassified} accent="text-gray-500"
+              hint="Upwind hasn't observed enough traffic to classify auth state" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -163,8 +167,9 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
   );
 };
 
-const Stat: React.FC<{ icon: string; label: string; value: number; accent: string }> = ({ icon, label, value, accent }) => (
-  <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+const Stat: React.FC<{ icon: string; label: string; value: number; accent: string; hint?: string }> =
+  ({ icon, label, value, accent, hint }) => (
+  <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5" title={hint}>
     <div className="flex items-center gap-2 mb-1">
       <Icon icon={icon} width={16} className="text-gray-400" />
       <p className="text-xs text-gray-500">{label}</p>

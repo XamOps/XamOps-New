@@ -14,7 +14,7 @@ const THREAT_POLL_MS = 60 * 1000;      // runtime feed
 
 // Bump this version whenever a cached response's shape changes, so stale
 // localStorage entries miss and refetch instead of masking new fields.
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 
 export function xamSecureCacheKey(section: string, accountId: string | null): string {
   return `xamsecure_${CACHE_VERSION}_${section}_${accountId ?? 'all'}`;
