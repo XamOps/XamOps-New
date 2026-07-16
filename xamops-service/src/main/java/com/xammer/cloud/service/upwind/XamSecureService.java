@@ -91,7 +91,7 @@ public class XamSecureService {
         } catch (Exception e) {
             log.warn("[Upwind] threat-policies fetch failed: {}", e.getMessage());
         }
-        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
     }
 
@@ -125,7 +125,7 @@ public class XamSecureService {
         } catch (Exception e) {
             log.warn("[Upwind] workflows fetch failed: {}", e.getMessage());
         }
-        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
     }
 
@@ -179,7 +179,9 @@ public class XamSecureService {
         rows.sort(Comparator
                 .comparingInt((Map<String, Object> m) -> -((Integer) m.getOrDefault("totalVulns", 0)))
                 .thenComparingInt(m -> -((Integer) m.getOrDefault("inUse", 0))));
-        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        // Never cache an empty result — a transient fetch failure or a cold start before creds
+        // resolve would otherwise poison the cache and keep the Components tab empty for the TTL.
+        if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
     }
 
@@ -211,7 +213,7 @@ public class XamSecureService {
                 log.warn("[Upwind] apisec fetch failed for account {}: {}", id, e.getMessage());
             }
         }
-        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
     }
 
