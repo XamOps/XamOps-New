@@ -339,29 +339,35 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       loadNetworkTopology, loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents,
       loadThreatPolicies, loadWorkflows, loadOnboarding]);
 
-  const refresh = useCallback(() => {
-    if (activeTab === 'issues') return loadIssues('', true);
-    if (activeTab === 'attack-surface') return loadAttackSurface(true);
-    if (activeTab === 'overview') {
-      return Promise.all([loadSummary(true), loadIssues('', true), loadThreats(), loadStories(true), loadVulnDashboard(true)]);
+  const refresh = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      if (activeTab === 'issues') await loadIssues('', true);
+      else if (activeTab === 'attack-surface') await loadAttackSurface(true);
+      else if (activeTab === 'overview') {
+        await Promise.all([loadSummary(true), loadIssues('', true), loadThreats(), loadStories(true), loadVulnDashboard(true)]);
+      }
+      else if (activeTab === 'threats') await Promise.all([loadThreats(), loadThreatPolicies(true)]);
+      else if (activeTab === 'vulnerabilities') {
+        await Promise.all([loadVulnDashboard(true), loadVulnByCve()]);
+      }
+      else if (activeTab === 'posture') {
+        await Promise.all([loadConfigDashboard(true), loadPosture(0, '', true), loadCompliance(true)]);
+      }
+      else if (activeTab === 'inventory') {
+        await Promise.all([loadInventory(0, '', true), loadInventoryCategories(true), loadNetworkTopology(true)]);
+      }
+      else if (activeTab === 'compliance') await loadCompliance(true);
+      else if (activeTab === 'api-security') await loadApiSecurity(true);
+      else if (activeTab === 'components') await loadComponents(true);
+      else if (activeTab === 'threat-policies') await loadThreatPolicies(true);
+      else if (activeTab === 'workflows') await loadWorkflows(true);
+      else if (activeTab === 'onboarding') await loadOnboarding();
+    } catch (err) {
+      console.error('[XamSecure] refresh failed:', err);
+    } finally {
+      setIsLoading(false);
     }
-    if (activeTab === 'threats') return Promise.all([loadThreats(), loadThreatPolicies(true)]);
-    if (activeTab === 'vulnerabilities') {
-      return Promise.all([loadVulnDashboard(true), loadVulnByCve()]);
-    }
-    if (activeTab === 'posture') {
-      return Promise.all([loadConfigDashboard(true), loadPosture(0, '', true), loadCompliance(true)]);
-    }
-    if (activeTab === 'inventory') {
-      return Promise.all([loadInventory(0, '', true), loadInventoryCategories(true), loadNetworkTopology(true)]);
-    }
-    if (activeTab === 'compliance') return loadCompliance(true);
-    if (activeTab === 'api-security') return loadApiSecurity(true);
-    if (activeTab === 'components') return loadComponents(true);
-    if (activeTab === 'threat-policies') return loadThreatPolicies(true);
-    if (activeTab === 'workflows') return loadWorkflows(true);
-    if (activeTab === 'onboarding') return loadOnboarding();
-    return Promise.resolve();
   }, [activeTab, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories, loadVulnerabilities,
       loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories, loadNetworkTopology,
       loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents, loadThreatPolicies,
