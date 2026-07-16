@@ -6,6 +6,7 @@ import type {
   ThreatPolicy, Workflow,
   IssueSummary, IssueDetail, ThreatStoriesSummary, InventoryCategory, NetworkTopology,
   AttackSurfaceSummary, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
+  ConfigurationsDashboard,
 } from '../types/xamsecure';
 
 const CACHE_DURATION = 30 * 60 * 1000; // 30 min for scan-based tabs
@@ -53,6 +54,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [inventoryCategories, setInventoryCategories] = useState<InventoryCategory[] | null>(null);
   const [networkTopology, setNetworkTopology] = useState<NetworkTopology | null>(null);
   const [compliance, setCompliance] = useState<ComplianceFramework[] | null>(null);
+  const [configDashboard, setConfigDashboard] = useState<ConfigurationsDashboard | null>(null);
   const [apiSecurity, setApiSecurity] = useState<ApiEndpoint[] | null>(null);
   const [components, setComponents] = useState<SbomComponent[] | null>(null);
   const [threatPolicies, setThreatPolicies] = useState<ThreatPolicy[] | null>(null);
@@ -213,6 +215,17 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     saveCache(key, data);
   }, [acct, selectedAccountId]);
 
+  const loadConfigDashboard = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('config_dashboard', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<ConfigurationsDashboard>(key);
+      if (cached) { setConfigDashboard(cached); return; }
+    }
+    const data = await apiClient.get<ConfigurationsDashboard>(`/api/xamsecure/configurations/dashboard?${acct}`);
+    setConfigDashboard(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
   const loadApiSecurity = useCallback(async (force = false) => {
     const key = xamSecureCacheKey('apisec', selectedAccountId);
     if (!force) {
@@ -282,7 +295,9 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
         else if (activeTab === 'vulnerabilities') {
           await Promise.all([loadVulnDashboard(), loadVulnByCve()]);
         }
-        else if (activeTab === 'posture') await Promise.all([loadPosture(), loadCompliance()]);
+        else if (activeTab === 'posture') {
+          await Promise.all([loadConfigDashboard(), loadPosture(), loadCompliance()]);
+        }
         else if (activeTab === 'inventory') {
           await Promise.all([loadInventory(), loadInventoryCategories(), loadNetworkTopology()]);
         }
@@ -312,8 +327,8 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     };
   }, [activeTab, selectedAccountId, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories,
       loadVulnerabilities, loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
-      loadNetworkTopology, loadCompliance, loadApiSecurity, loadComponents, loadThreatPolicies,
-      loadWorkflows, loadOnboarding]);
+      loadNetworkTopology, loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents,
+      loadThreatPolicies, loadWorkflows, loadOnboarding]);
 
   const refresh = useCallback(() => {
     if (activeTab === 'issues') return loadIssues('', true);
@@ -325,7 +340,9 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     if (activeTab === 'vulnerabilities') {
       return Promise.all([loadVulnDashboard(true), loadVulnByCve()]);
     }
-    if (activeTab === 'posture') return Promise.all([loadPosture(0, '', true), loadCompliance(true)]);
+    if (activeTab === 'posture') {
+      return Promise.all([loadConfigDashboard(true), loadPosture(0, '', true), loadCompliance(true)]);
+    }
     if (activeTab === 'inventory') {
       return Promise.all([loadInventory(0, '', true), loadInventoryCategories(true), loadNetworkTopology(true)]);
     }
@@ -338,11 +355,12 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     return Promise.resolve();
   }, [activeTab, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories, loadVulnerabilities,
       loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories, loadNetworkTopology,
-      loadCompliance, loadApiSecurity, loadComponents, loadThreatPolicies, loadWorkflows, loadOnboarding]);
+      loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents, loadThreatPolicies,
+      loadWorkflows, loadOnboarding]);
 
   return {
     summary, issues, attackSurface, threats, vulnerabilities, vulnDashboard, vulnByCve, posture, inventory,
-    inventoryCategories, networkTopology, compliance, onboarding, apiSecurity, components,
+    inventoryCategories, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories,
     isLoading, refresh,
     loadIssues, loadIssueDetail, loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,

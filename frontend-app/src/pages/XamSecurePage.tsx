@@ -41,7 +41,7 @@ const XamSecurePage: React.FC = () => {
 
   const {
     summary, issues, attackSurface, threats, vulnDashboard, vulnByCve, posture, inventory,
-    inventoryCategories, networkTopology, compliance, onboarding, apiSecurity, components,
+    inventoryCategories, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories,
     isLoading, refresh, loadIssueDetail, loadThreats, loadVulnByCve, loadCveFindings, loadPosture, loadInventory,
     archiveThreat,
@@ -70,8 +70,8 @@ const XamSecurePage: React.FC = () => {
                               onCvePage={(p) => loadVulnByCve(p)} loadCveFindings={loadCveFindings} />
         )}
         {activeTab === 'posture' && (
-          <ConfigurationsTab posture={posture} compliance={compliance} isLoading={isLoading}
-                             onPage={(p) => loadPosture(p)} />
+          <ConfigurationsTab dashboard={configDashboard} posture={posture} compliance={compliance}
+                             isLoading={isLoading} onPage={(p) => loadPosture(p)} />
         )}
         {activeTab === 'inventory' && (
           <InventoryTab data={inventory} categories={inventoryCategories} network={networkTopology}
