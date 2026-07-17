@@ -1,0 +1,3 @@
+## 2026-07-17 - Select Input Labeling & Icon-only Button Accessibility
+**Learning:** Associated labels (via HTML `for` / `htmlFor` and control `id` attributes) are vital for screen-reader users to understand selection forms like tenant selectors. Also, horizontal command-center panels must ensure icon-only buttons (such as notifications) are accompanied by tooltips or clear `aria-label` tags to guarantee standard accessibility patterns.
+**Action:** Always link select labels with unique IDs generated dynamically via React's native `useId` hook, and wrap icon-only header actions inside an accessible `TooltipWrapper` or apply an explicit `aria-label` attribute.
