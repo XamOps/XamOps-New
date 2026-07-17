@@ -60,7 +60,7 @@ class UpwindApiClientPhase2Test {
         ResponseEntity<String> p1 = new ResponseEntity<>("[{\"id\":\"e1\"}]", h1, HttpStatus.PARTIAL_CONTENT);
         ResponseEntity<String> p2 = ResponseEntity.ok("[{\"id\":\"e2\"}]");
         when(restTemplate.exchange(eq(URI.create(
-                "https://api.example/v1/organizations/org_test/apisecurity-endpoints?cloud-account-id=111&per-page=100")),
+                "https://api.example/v1/organizations/org_test/apisecurity-endpoints?cloud-account-id=111&per-page=1000")),
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class))).thenReturn(p1);
         when(restTemplate.exchange(eq(URI.create(
                 "https://api.example/v1/organizations/org_test/apisecurity-endpoints?cloud-account-id=111&page-token=t2")),
