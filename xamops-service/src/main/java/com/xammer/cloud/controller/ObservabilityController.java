@@ -137,6 +137,24 @@ public class ObservabilityController {
     }
 
     /**
+     * POST /api/observability/logs/hosts
+     * Body: { stream, startTime, endTime, providerAccountId? }
+     * Returns the distinct host names sending logs — powers the host dropdown.
+     */
+    @PostMapping("/logs/hosts")
+    public ResponseEntity<?> listLogHosts(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestBody Map<String, Object> params) {
+        try {
+            return ResponseEntity.ok(Map.of(
+                    "hosts", openObserveService.listLogHosts(userDetails.getClientId(), params)));
+        } catch (Exception e) {
+            logger.error("listLogHosts failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
      * POST /api/observability/logs/histogram
      * Body: { stream, startTime, endTime, providerAccountId? }
      */
@@ -149,6 +167,56 @@ public class ObservabilityController {
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             logger.error("getLogHistogram failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // ── Traces ────────────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/observability/traces/search
+     * Body: { stream?, keyword?, service?, minDurationMs?, errorsOnly?, startTime, endTime, size?, providerAccountId? }
+     */
+    @PostMapping("/traces/search")
+    public ResponseEntity<?> searchTraces(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestBody Map<String, Object> params) {
+        try {
+            return ResponseEntity.ok(openObserveService.searchTraces(userDetails.getClientId(), params));
+        } catch (Exception e) {
+            logger.error("searchTraces failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/observability/traces/stats
+     * Body: { stream?, keyword?, service?, minDurationMs?, errorsOnly?, startTime, endTime, interval?, providerAccountId? }
+     */
+    @PostMapping("/traces/stats")
+    public ResponseEntity<?> getTraceStats(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestBody Map<String, Object> params) {
+        try {
+            return ResponseEntity.ok(openObserveService.getTraceStats(userDetails.getClientId(), params));
+        } catch (Exception e) {
+            logger.error("getTraceStats failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/observability/traces/spans
+     * Body: { traceId, stream?, startTime?, endTime?, providerAccountId? }
+     */
+    @PostMapping("/traces/spans")
+    public ResponseEntity<?> getTraceSpans(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestBody Map<String, Object> params) {
+        try {
+            return ResponseEntity.ok(openObserveService.getTraceSpans(userDetails.getClientId(), params));
+        } catch (Exception e) {
+            logger.error("getTraceSpans failed: {}", e.getMessage());
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
     }

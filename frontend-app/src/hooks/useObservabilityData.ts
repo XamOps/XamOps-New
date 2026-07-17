@@ -93,6 +93,59 @@ export interface ConnectedInstance {
   lastSeenMs: number;
 }
 
+// A trace's root span plus per-trace rollups computed by the backend.
+export interface TraceSummary {
+  trace_id: string;
+  operation_name?: string;
+  service_name?: string;
+  duration?: number;        // µs
+  start_time?: number;      // ns
+  span_status?: string;     // UNSET | OK | ERROR
+  status_message?: string;
+  http_status_code?: string;
+  http_method?: string;
+  span_count?: number;
+  error_count?: number;
+  service_count?: number;
+  [key: string]: unknown;
+}
+
+export interface TraceSpan {
+  trace_id: string;
+  span_id: string;
+  reference_parent_span_id?: string;
+  operation_name?: string;
+  service_name?: string;
+  duration?: number;        // µs
+  start_time?: number;      // ns
+  end_time?: number;        // ns
+  span_status?: string;
+  span_kind?: string;       // "1" internal · "2" server · "3" client
+  status_message?: string;
+  _timestamp?: number;
+  [key: string]: unknown;
+}
+
+export interface TraceSearchParams {
+  stream?: string;
+  keyword?: string;
+  service?: string;
+  host?: string;
+  minDurationMs?: number;
+  errorsOnly?: boolean;
+  startTime: number;        // ms
+  endTime: number;          // ms
+  size?: number;
+}
+
+export interface TraceStats {
+  summary: { n?: number; errors?: number; avg_us?: number; p50?: number; p95?: number; p99?: number };
+  histogram: { key: string; total: number; errors: number }[];
+  operations: { operation_name: string; service_name: string; n: number; avg_us: number; p95: number; errors: number }[];
+  services: { service_name: string; n: number }[];
+  hosts?: { service_host_name: string; n: number }[];
+}
+
 export interface OverviewStats {
   orgId: string;
   accountName?: string;
@@ -225,6 +278,19 @@ export const useObservabilityData = () => {
     }
   }, [activeAccountId]);
 
+  // Distinct hosts sending logs to a stream — powers the Host/Source dropdown.
+  const fetchLogHosts = useCallback(async (stream: string, startTime: number, endTime: number): Promise<string[]> => {
+    try {
+      const data = await apiClient.post('/api/observability/logs/hosts', {
+        stream, startTime, endTime,
+        providerAccountId: activeAccountId ?? undefined,
+      });
+      return Array.isArray(data?.hosts) ? data.hosts.map((h: unknown) => String(h)) : [];
+    } catch {
+      return [];
+    }
+  }, [activeAccountId]);
+
   // `match` adds a full-text condition (e.g. "error") — those calls return buckets
   // without touching the shared histogram state, so overlays don't clobber the total.
   const fetchHistogram = useCallback(async (stream: string, startTime: number, endTime: number, interval?: string, match?: string) => {
@@ -277,6 +343,49 @@ export const useObservabilityData = () => {
       setMetricsLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAccountId]);
+
+  // ── Traces ───────────────────────────────────────────────────────────────────
+
+  const searchTraces = useCallback(async (params: TraceSearchParams): Promise<TraceSummary[]> => {
+    try {
+      const data = await apiClient.post('/api/observability/traces/search', {
+        ...params,
+        size: params.size ?? 100,
+        providerAccountId: activeAccountId ?? undefined,
+      });
+      return (data?.traces as TraceSummary[]) || [];
+    } catch {
+      return [];
+    }
+  }, [activeAccountId]);
+
+  const fetchTraceStats = useCallback(async (
+    params: Omit<TraceSearchParams, 'size'> & { interval?: string }
+  ): Promise<TraceStats | null> => {
+    try {
+      const data = await apiClient.post('/api/observability/traces/stats', {
+        ...params,
+        providerAccountId: activeAccountId ?? undefined,
+      });
+      return data as TraceStats;
+    } catch {
+      return null;
+    }
+  }, [activeAccountId]);
+
+  const fetchTraceSpans = useCallback(async (
+    traceId: string, startTime: number, endTime: number, stream = 'default'
+  ): Promise<TraceSpan[]> => {
+    try {
+      const data = await apiClient.post('/api/observability/traces/spans', {
+        traceId, startTime, endTime, stream,
+        providerAccountId: activeAccountId ?? undefined,
+      });
+      return (data?.spans as TraceSpan[]) || [];
+    } catch {
+      return [];
+    }
   }, [activeAccountId]);
 
   // ── Cluster discovery ─────────────────────────────────────────────────────────
@@ -425,7 +534,11 @@ export const useObservabilityData = () => {
     fetchOverview,
     fetchStreams,
     searchLogs,
+    fetchLogHosts,
     fetchHistogram,
+    searchTraces,
+    fetchTraceStats,
+    fetchTraceSpans,
     queryMetrics,
     fetchSetupConfig,
     fetchClusters,

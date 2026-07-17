@@ -360,9 +360,13 @@ public class OpenObserveService {
                 // streams that lack the column.
                 conditions.add("match_all('" + level.toLowerCase().replace("'", "''") + "')");
             }
-            // Source filter: matches host.name (EC2 hostname) or service.name or namespace
+            // Source filter: match the host directly on the host_name column.
+            // We must NOT use match_all() here: host_name is a resource attribute, not a
+            // full-text-indexed body field, so match_all('ip-10-30-21-26') never matches it
+            // (it returns 0 even for valid hosts). LIKE on host_name filters correctly.
             if (sourceFilter != null && !sourceFilter.isBlank()) {
-                conditions.add("match_all('" + sourceFilter.replace("'", "''") + "')");
+                String sf = sourceFilter.replace("'", "''");
+                conditions.add("host_name LIKE '%" + sf + "%'");
             }
             if (!conditions.isEmpty()) {
                 sql.append(" WHERE ").append(String.join(" AND ", conditions));
@@ -441,6 +445,54 @@ public class OpenObserveService {
         }
     }
 
+    // ── Host List (for the log explorer host dropdown) ─────────────────────────
+
+    /**
+     * Returns the distinct host names sending logs to a stream, newest-volume first.
+     * Powers the Host/Source dropdown so users can pick a host instead of typing it.
+     */
+    @SuppressWarnings("unchecked")
+    public List<String> listLogHosts(Long clientId, Map<String, Object> params) {
+        String providerAccountId = (String) params.getOrDefault("providerAccountId", null);
+        String orgId = getEffectiveOrgId(clientId, providerAccountId);
+        String stream = (String) params.getOrDefault("stream", "default");
+        long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
+        long startTime = toLong(params.getOrDefault("startTime", endTime - 24 * 3600_000L));
+
+        String sql = "SELECT host_name, COUNT(*) AS num FROM \"" + stream + "\""
+                + " WHERE host_name IS NOT NULL GROUP BY host_name ORDER BY num DESC";
+        Map<String, Object> query = Map.of(
+                "sql", sql,
+                "start_time", startTime * 1000,
+                "end_time", endTime * 1000,
+                "size", 200
+        );
+        HttpHeaders headers = buildAdminHeaders();
+        try {
+            ResponseEntity<Map> resp = restTemplate.postForEntity(
+                    o2Url + "/api/" + orgId + "/_search?type=logs",
+                    new HttpEntity<>(Map.of("query", query), headers),
+                    Map.class
+            );
+            List<String> hosts = new ArrayList<>();
+            if (resp.getBody() != null && resp.getBody().get("hits") instanceof List) {
+                for (Object h : (List<Object>) resp.getBody().get("hits")) {
+                    if (h instanceof Map) {
+                        Object hn = ((Map<String, Object>) h).get("host_name");
+                        if (hn != null && !String.valueOf(hn).isBlank()) {
+                            hosts.add(String.valueOf(hn));
+                        }
+                    }
+                }
+            }
+            return hosts;
+        } catch (Exception e) {
+            // Stream may lack a host_name column (e.g. K8s-only streams) — degrade gracefully.
+            logger.warn("listLogHosts failed for client {} stream {}: {}", clientId, stream, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
     // ── Streams List ──────────────────────────────────────────────────────────
 
     /** Returns only logs-type streams — used by the log explorer stream selector. */
@@ -504,6 +556,211 @@ public class OpenObserveService {
         } catch (Exception e) {
             logger.error("O2 metrics query failed for client {}: {}", clientId, e.getMessage());
             return Map.of("status", "error", "error", e.getMessage());
+        }
+    }
+
+    // ── Traces ────────────────────────────────────────────────────────────────
+
+    /** Escapes a value for interpolation into a single-quoted SQL string literal. */
+    private static String sqlEscape(String v) {
+        return v.replace("'", "''");
+    }
+
+    /** Runs a SQL query against the org's trace streams and returns the hits. */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> o2TraceQuery(String orgId, String sql, long startMs, long endMs, int size) {
+        Map<String, Object> query = Map.of(
+                "sql", sql,
+                "start_time", startMs * 1000, // O2 expects microseconds
+                "end_time", endMs * 1000,
+                "size", size
+        );
+        HttpHeaders headers = buildAdminHeaders();
+        ResponseEntity<Map> resp = restTemplate.postForEntity(
+                o2Url + "/api/" + orgId + "/_search?type=traces",
+                new HttpEntity<>(Map.of("query", query), headers),
+                Map.class
+        );
+        if (resp.getBody() != null && resp.getBody().get("hits") instanceof List) {
+            return (List<Map<String, Object>>) resp.getBody().get("hits");
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Builds the WHERE conditions shared by trace search + stats.
+     * Root spans have no parent reference — one row per trace.
+     */
+    private List<String> traceConditions(Map<String, Object> params, boolean rootsOnly) {
+        List<String> conditions = new ArrayList<>();
+        if (rootsOnly) conditions.add("reference_parent_span_id IS NULL");
+        String keyword = (String) params.getOrDefault("keyword", null);
+        if (keyword != null && !keyword.isBlank()) {
+            conditions.add("operation_name LIKE '%" + sqlEscape(keyword.trim()) + "%'");
+        }
+        String service = (String) params.getOrDefault("service", null);
+        if (service != null && !service.isBlank()) {
+            conditions.add("service_name = '" + sqlEscape(service) + "'");
+        }
+        // Host filter — spans carry the originating EC2 as service_host_name.
+        String host = (String) params.getOrDefault("host", null);
+        if (host != null && !host.isBlank()) {
+            conditions.add("service_host_name LIKE '%" + sqlEscape(host) + "%'");
+        }
+        long minDurationMs = toLong(params.getOrDefault("minDurationMs", 0));
+        if (minDurationMs > 0) {
+            conditions.add("duration >= " + (minDurationMs * 1000)); // duration is stored in µs
+        }
+        if (Boolean.TRUE.equals(params.get("errorsOnly"))) {
+            conditions.add("span_status = 'ERROR'");
+        }
+        return conditions;
+    }
+
+    /**
+     * POST body: { stream?, keyword?, service?, minDurationMs?, errorsOnly?,
+     *              startTime, endTime, size?, providerAccountId? }
+     * Returns the newest root spans (one per trace) enriched with per-trace
+     * rollups (span count, error count, service count).
+     */
+    public Map<String, Object> searchTraces(Long clientId, Map<String, Object> params) {
+        String orgId = getEffectiveOrgId(clientId, (String) params.getOrDefault("providerAccountId", null));
+        String stream = (String) params.getOrDefault("stream", "default");
+        long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
+        long startTime = toLong(params.getOrDefault("startTime", endTime - 3600_000L));
+        int size = (int) params.getOrDefault("size", 100);
+
+        List<String> conditions = traceConditions(params, true);
+        // NOTE: select only columns guaranteed to exist across trace sources. eBPF
+        // (Beyla) span streams do NOT have http_status_code / http_method columns, and
+        // OpenObserve fails the whole query on any unknown column — which previously made
+        // the traces list come up empty even though data existed. HTTP status is conveyed
+        // via span_status (OK/ERROR) instead.
+        String sql = "SELECT trace_id, operation_name, service_name, duration, start_time,"
+                + " span_status, status_message"
+                + " FROM \"" + stream + "\" WHERE " + String.join(" AND ", conditions)
+                + " ORDER BY start_time DESC LIMIT " + size;
+        try {
+            List<Map<String, Object>> roots = o2TraceQuery(orgId, sql, startTime, endTime, size);
+
+            // Second pass: per-trace rollups for the traces on this page.
+            if (!roots.isEmpty()) {
+                List<String> ids = new ArrayList<>();
+                for (Map<String, Object> r : roots) {
+                    Object id = r.get("trace_id");
+                    if (id != null) ids.add("'" + sqlEscape(String.valueOf(id)) + "'");
+                }
+                String rollupSql = "SELECT trace_id, count(*) AS span_count,"
+                        + " sum(CASE WHEN span_status = 'ERROR' THEN 1 ELSE 0 END) AS error_count,"
+                        + " count(distinct service_name) AS service_count"
+                        + " FROM \"" + stream + "\" WHERE trace_id IN (" + String.join(",", ids) + ")"
+                        + " GROUP BY trace_id";
+                Map<String, Map<String, Object>> byId = new HashMap<>();
+                for (Map<String, Object> h : o2TraceQuery(orgId, rollupSql, startTime, endTime, size)) {
+                    byId.put(String.valueOf(h.get("trace_id")), h);
+                }
+                for (Map<String, Object> r : roots) {
+                    Map<String, Object> roll = byId.get(String.valueOf(r.get("trace_id")));
+                    if (roll != null) {
+                        r.put("span_count", roll.get("span_count"));
+                        r.put("error_count", roll.get("error_count"));
+                        r.put("service_count", roll.get("service_count"));
+                    }
+                }
+            }
+            return Map.of("traces", roots, "total", roots.size());
+        } catch (Exception e) {
+            logger.error("O2 trace search failed for client {}: {}", clientId, e.getMessage());
+            return Map.of("traces", Collections.emptyList(), "total", 0, "error", e.getMessage());
+        }
+    }
+
+    /**
+     * POST body: { stream?, keyword?, service?, minDurationMs?, errorsOnly?,
+     *              startTime, endTime, interval?, providerAccountId? }
+     * Returns summary (count / error / latency percentiles), a volume histogram,
+     * the top operations, and the service list for the filter dropdown.
+     */
+    public Map<String, Object> getTraceStats(Long clientId, Map<String, Object> params) {
+        String orgId = getEffectiveOrgId(clientId, (String) params.getOrDefault("providerAccountId", null));
+        String stream = (String) params.getOrDefault("stream", "default");
+        long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
+        long startTime = toLong(params.getOrDefault("startTime", endTime - 3600_000L));
+
+        // Whitelisted pattern only — the value is interpolated into SQL.
+        String interval = (String) params.getOrDefault("interval", "5 minute");
+        if (interval == null || !interval.matches("\\d{1,3} (second|minute|hour|day)s?")) {
+            interval = "5 minute";
+        }
+
+        String where = String.join(" AND ", traceConditions(params, true));
+        Map<String, Object> out = new LinkedHashMap<>();
+        try {
+            String summarySql = "SELECT count(*) AS n,"
+                    + " sum(CASE WHEN span_status = 'ERROR' THEN 1 ELSE 0 END) AS errors,"
+                    + " avg(duration) AS avg_us,"
+                    + " approx_percentile_cont(duration, 0.50) AS p50,"
+                    + " approx_percentile_cont(duration, 0.95) AS p95,"
+                    + " approx_percentile_cont(duration, 0.99) AS p99"
+                    + " FROM \"" + stream + "\" WHERE " + where;
+            List<Map<String, Object>> summary = o2TraceQuery(orgId, summarySql, startTime, endTime, 1);
+            out.put("summary", summary.isEmpty() ? Map.of("n", 0) : summary.get(0));
+
+            String histSql = "SELECT histogram(_timestamp, '" + interval + "') AS key, count(*) AS total,"
+                    + " sum(CASE WHEN span_status = 'ERROR' THEN 1 ELSE 0 END) AS errors"
+                    + " FROM \"" + stream + "\" WHERE " + where + " GROUP BY key ORDER BY key";
+            out.put("histogram", o2TraceQuery(orgId, histSql, startTime, endTime, 288));
+
+            String opsSql = "SELECT operation_name, service_name, count(*) AS n, avg(duration) AS avg_us,"
+                    + " approx_percentile_cont(duration, 0.95) AS p95,"
+                    + " sum(CASE WHEN span_status = 'ERROR' THEN 1 ELSE 0 END) AS errors"
+                    + " FROM \"" + stream + "\" WHERE " + where
+                    + " GROUP BY operation_name, service_name ORDER BY n DESC";
+            out.put("operations", o2TraceQuery(orgId, opsSql, startTime, endTime, 10));
+
+            // Service dropdown source — all spans, unfiltered, so the list is stable.
+            String svcSql = "SELECT service_name, count(*) AS n FROM \"" + stream + "\""
+                    + " GROUP BY service_name ORDER BY n DESC";
+            out.put("services", o2TraceQuery(orgId, svcSql, startTime, endTime, 100));
+
+            // Host dropdown source — the originating EC2 of each span. Lets users
+            // filter traces down to a single host when several report to one org.
+            String hostSql = "SELECT service_host_name, count(*) AS n FROM \"" + stream + "\""
+                    + " WHERE service_host_name IS NOT NULL"
+                    + " GROUP BY service_host_name ORDER BY n DESC";
+            out.put("hosts", o2TraceQuery(orgId, hostSql, startTime, endTime, 100));
+            return out;
+        } catch (Exception e) {
+            logger.error("O2 trace stats failed for client {}: {}", clientId, e.getMessage());
+            out.put("summary", Map.of("n", 0));
+            out.put("histogram", Collections.emptyList());
+            out.put("operations", Collections.emptyList());
+            out.put("services", Collections.emptyList());
+            out.put("hosts", Collections.emptyList());
+            out.put("error", e.getMessage());
+            return out;
+        }
+    }
+
+    /**
+     * POST body: { traceId, stream?, startTime?, endTime?, providerAccountId? }
+     * Returns every span of one trace, oldest first — powers the waterfall.
+     */
+    public Map<String, Object> getTraceSpans(Long clientId, Map<String, Object> params) {
+        String orgId = getEffectiveOrgId(clientId, (String) params.getOrDefault("providerAccountId", null));
+        String stream = (String) params.getOrDefault("stream", "default");
+        String traceId = (String) params.getOrDefault("traceId", "");
+        if (traceId.isBlank()) return Map.of("spans", Collections.emptyList(), "error", "traceId is required");
+        long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
+        long startTime = toLong(params.getOrDefault("startTime", endTime - 24 * 3600_000L));
+
+        String sql = "SELECT * FROM \"" + stream + "\" WHERE trace_id = '" + sqlEscape(traceId) + "'"
+                + " ORDER BY start_time ASC LIMIT 2000";
+        try {
+            return Map.of("spans", o2TraceQuery(orgId, sql, startTime, endTime, 2000));
+        } catch (Exception e) {
+            logger.error("O2 trace spans failed for client {} trace {}: {}", clientId, traceId, e.getMessage());
+            return Map.of("spans", Collections.emptyList(), "error", e.getMessage());
         }
     }
 
@@ -774,17 +1031,25 @@ public class OpenObserveService {
                 "# XamOps Observability — EC2 / Linux VM Setup  (production-grade)\n" +
                 "# Collects: structured logs (journald + nginx + app + docker) +\n" +
                 "#           full host metrics (CPU / mem / disk / net / process / paging) +\n" +
-                "#           application traces via OTLP receiver\n" +
+                "#           application traces — Grafana Beyla (eBPF, zero-code) + OTLP receiver\n" +
                 "# ════════════════════════════════════════════════════════════════════════════\n\n" +
                 "# ── Step 1: Install OTel Collector Contrib ───────────────────────────────────\n" +
+                "# Auto-detect CPU architecture — x86_64 (amd64) vs Graviton/ARM (arm64).\n" +
+                "OTEL_VER=0.103.0\n" +
+                "case \"$(uname -m)\" in\n" +
+                "  x86_64)        OTEL_ARCH=amd64 ;;\n" +
+                "  aarch64|arm64) OTEL_ARCH=arm64 ;;\n" +
+                "  *)             OTEL_ARCH=amd64 ;;\n" +
+                "esac\n" +
+                "OTEL_BASE=https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VER}\n" +
                 "if command -v rpm &>/dev/null; then\n" +
                 "  # Amazon Linux 2023 / RHEL / CentOS\n" +
-                "  curl -sLO https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.103.0/otelcol-contrib_0.103.0_linux_amd64.rpm\n" +
-                "  sudo rpm -ivh otelcol-contrib_0.103.0_linux_amd64.rpm\n" +
+                "  curl -sLO \"${OTEL_BASE}/otelcol-contrib_${OTEL_VER}_linux_${OTEL_ARCH}.rpm\"\n" +
+                "  sudo rpm -Uvh --force \"otelcol-contrib_${OTEL_VER}_linux_${OTEL_ARCH}.rpm\"\n" +
                 "else\n" +
                 "  # Ubuntu / Debian\n" +
-                "  curl -sLO https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.103.0/otelcol-contrib_0.103.0_linux_amd64.deb\n" +
-                "  sudo dpkg -i otelcol-contrib_0.103.0_linux_amd64.deb\n" +
+                "  curl -sLO \"${OTEL_BASE}/otelcol-contrib_${OTEL_VER}_linux_${OTEL_ARCH}.deb\"\n" +
+                "  sudo dpkg -i \"otelcol-contrib_${OTEL_VER}_linux_${OTEL_ARCH}.deb\"\n" +
                 "fi\n\n" +
                 "# ── Step 2: Add otelcol-contrib to systemd-journal group (for journald access) ─\n" +
                 "sudo usermod -aG systemd-journal otelcol-contrib 2>/dev/null || true\n\n" +
@@ -794,8 +1059,11 @@ public class OpenObserveService {
                 "receivers:\n" +
                 "  # ── Journald receiver — works on AL2023 / RHEL9 / Ubuntu (systemd) ──────────\n" +
                 "  # Replaces filelog/system and filelog/auth which need /var/log/messages (AL2 only)\n" +
+                "  # No 'directory:' — let journalctl read the DEFAULT journal (persistent\n" +
+                "  # /var/log/journal when present, else runtime /run/log/journal). Pinning to\n" +
+                "  # /run/log/journal misses logs on hosts with persistent journald storage.\n" +
                 "  journald:\n" +
-                "    directory: /run/log/journal\n" +
+                "    start_at: end\n" +
                 "    operators:\n" +
                 "      - type: severity_parser\n" +
                 "        parse_from: body.PRIORITY\n" +
@@ -804,7 +1072,12 @@ public class OpenObserveService {
                 "          error: [\"1\", \"2\", \"3\"]\n" +
                 "          warn: \"4\"\n" +
                 "          info: [\"5\", \"6\"]\n" +
-                "          debug: \"7\"\n\n" +
+                "          debug: \"7\"\n" +
+                "      # Journald puts the log text in body.MESSAGE (a map field). Move it to\n" +
+                "      # body so OpenObserve stores + full-text indexes the actual message.\n" +
+                "      - type: move\n" +
+                "        from: body.MESSAGE\n" +
+                "        to: body\n\n" +
                 "  # Nginx access + error logs with structured field extraction\n" +
                 "  filelog/nginx:\n" +
                 "    include:\n" +
@@ -933,6 +1206,16 @@ public class OpenObserveService {
                 "          - '.*GET /livez.*'\n" +
                 "          - '.*ELB-HealthChecker.*'\n" +
                 "          - '.*kube-probe.*'\n\n" +
+                "  # Drop trace-span noise: NTP time-sync (port 123) and EC2 metadata (IMDS)\n" +
+                "  # connections. Beyla captures these but they aren't real application calls —\n" +
+                "  # dropping them keeps the traces list clean and the error rate honest.\n" +
+                "  filter/tracenoise:\n" +
+                "    error_mode: ignore\n" +
+                "    traces:\n" +
+                "      span:\n" +
+                "        - 'attributes[\"server.port\"] == 123'\n" +
+                "        - 'attributes[\"server.address\"] == \"169.254.169.254\"'\n" +
+                "        - 'attributes[\"server.address\"] == \"169.254.169.123\"'\n\n" +
                 "  # Small timeout keeps latency low; caps individual payload size\n" +
                 "  batch:\n" +
                 "    timeout: 5s\n" +
@@ -973,7 +1256,7 @@ public class OpenObserveService {
                 "      exporters: [otlphttp]\n" +
                 "    traces:\n" +
                 "      receivers: [otlp]\n" +
-                "      processors: [memory_limiter, resourcedetection, resource, batch]\n" +
+                "      processors: [memory_limiter, resourcedetection, resource, filter/tracenoise, batch]\n" +
                 "      exporters: [otlphttp]\n" +
                 "EOF\n\n" +
                 "# ── Step 4: Grant log file read access ──────────────────────────────────────\n" +
@@ -1004,9 +1287,60 @@ public class OpenObserveService {
                 "sudo systemctl enable otelcol-contrib\n" +
                 "sudo systemctl restart otelcol-contrib\n" +
                 "sudo systemctl status otelcol-contrib\n\n" +
+                "# ── Step 7: Application traces — Grafana Beyla (eBPF, zero-code) ─────────────\n" +
+                "# Beyla auto-instruments HTTP / gRPC / SQL / Redis calls of every process on\n" +
+                "# this host WITHOUT any app changes, and ships spans to the local collector\n" +
+                "# (:4318) which forwards them to OpenObserve. This is what makes the Traces\n" +
+                "# tab populate — the collector alone only *receives* traces, it can't create them.\n" +
+                "# Requires a modern kernel (>= 5.8; AL2023 / Ubuntu 22.04+ are fine).\n" +
+                "BEYLA_VER=v3.28.0\n" +
+                "case \"$(uname -m)\" in\n" +
+                "  x86_64)        BEYLA_ARCH=amd64 ;;\n" +
+                "  aarch64|arm64) BEYLA_ARCH=arm64 ;;\n" +
+                "  *)             BEYLA_ARCH=amd64 ;;\n" +
+                "esac\n" +
+                "curl -sSL -o /tmp/beyla.tar.gz \\\n" +
+                "  \"https://github.com/grafana/beyla/releases/download/${BEYLA_VER}/beyla-linux-${BEYLA_ARCH}-${BEYLA_VER}.tar.gz\"\n" +
+                "sudo rm -rf /tmp/beyla-extract && sudo mkdir -p /tmp/beyla-extract\n" +
+                "sudo tar -xzf /tmp/beyla.tar.gz -C /tmp/beyla-extract\n" +
+                "sudo cp \"$(find /tmp/beyla-extract -type f -name beyla | head -1)\" /usr/local/bin/beyla\n" +
+                "sudo chmod +x /usr/local/bin/beyla\n\n" +
+                "# Beyla config: instrument every service listening on any TCP port, export OTLP\n" +
+                "# to the local collector. host.name / EC2 metadata are added by the collector.\n" +
+                "sudo mkdir -p /etc/beyla\n" +
+                "sudo tee /etc/beyla/beyla.env > /dev/null << 'EOF'\n" +
+                "BEYLA_OPEN_PORT=1-65535\n" +
+                "OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318\n" +
+                "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf\n" +
+                "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf\n" +
+                // Distributed tracing: propagate the W3C traceparent at network level so an
+                // inbound request and the DB/HTTP calls it triggers stitch into ONE trace
+                // (full waterfall) instead of fragmented single spans.
+                "BEYLA_BPF_CONTEXT_PROPAGATION=all\n" +
+                "EOF\n\n" +
+                "sudo tee /etc/systemd/system/beyla.service > /dev/null << 'EOF'\n" +
+                "[Unit]\n" +
+                "Description=Grafana Beyla — eBPF auto-instrumentation (traces)\n" +
+                "After=otelcol-contrib.service\n" +
+                "Wants=otelcol-contrib.service\n\n" +
+                "[Service]\n" +
+                "EnvironmentFile=/etc/beyla/beyla.env\n" +
+                "ExecStart=/usr/local/bin/beyla\n" +
+                "Restart=on-failure\n" +
+                "RestartSec=10\n" +
+                "User=root\n\n" +
+                "[Install]\n" +
+                "WantedBy=multi-user.target\n" +
+                "EOF\n" +
+                "sudo systemctl daemon-reload\n" +
+                "sudo systemctl enable beyla\n" +
+                "sudo systemctl restart beyla\n" +
+                "sudo systemctl status beyla --no-pager | head -5\n\n" +
                 "# ── Verify data is flowing ───────────────────────────────────────────────────\n" +
                 "# Stream collector logs\n" +
                 "sudo journalctl -u otelcol-contrib -f\n\n" +
+                "# Beyla logs (should show 'instrumenting process' as your apps take traffic)\n" +
+                "sudo journalctl -u beyla -f\n\n" +
                 "# Health check (should return {\\\"status\\\":\\\"Server available\\\"})\n" +
                 "curl -s http://127.0.0.1:13133/\n\n" +
                 "# View agent self-metrics (queue depth, drop rate, etc.)\n" +
@@ -1048,8 +1382,11 @@ public class OpenObserveService {
                 "sudo tee /etc/otelcol-contrib/config.yaml > /dev/null << 'EOF'\n" +
                 "receivers:\n" +
                 "  # ── Journald receiver — works on AL2023 / RHEL9 / Ubuntu (systemd) ──────────\n" +
+                "  # No 'directory:' — read the DEFAULT journal (persistent /var/log/journal\n" +
+                "  # when present, else runtime). Pinning to /run/log/journal misses logs on\n" +
+                "  # hosts with persistent journald storage.\n" +
                 "  journald:\n" +
-                "    directory: /run/log/journal\n" +
+                "    start_at: end\n" +
                 "    operators:\n" +
                 "      - type: severity_parser\n" +
                 "        parse_from: body.PRIORITY\n" +
@@ -1058,7 +1395,12 @@ public class OpenObserveService {
                 "          error: [\"1\", \"2\", \"3\"]\n" +
                 "          warn: \"4\"\n" +
                 "          info: [\"5\", \"6\"]\n" +
-                "          debug: \"7\"\n\n" +
+                "          debug: \"7\"\n" +
+                "      # Journald puts the log text in body.MESSAGE (a map field). Move it to\n" +
+                "      # body so OpenObserve stores + full-text indexes the actual message.\n" +
+                "      - type: move\n" +
+                "        from: body.MESSAGE\n" +
+                "        to: body\n\n" +
                 "  filelog/nginx:\n" +
                 "    include:\n" +
                 "      - /var/log/nginx/access.log\n" +
@@ -1178,6 +1520,15 @@ public class OpenObserveService {
                 "          - '.*GET /livez.*'\n" +
                 "          - '.*GoogleHC.*'\n" +
                 "          - '.*kube-probe.*'\n\n" +
+                "  # Drop trace-span noise: NTP time-sync (port 123) and GCE metadata server\n" +
+                "  # connections. Beyla captures these but they aren't real application calls.\n" +
+                "  filter/tracenoise:\n" +
+                "    error_mode: ignore\n" +
+                "    traces:\n" +
+                "      span:\n" +
+                "        - 'attributes[\"server.port\"] == 123'\n" +
+                "        - 'attributes[\"server.address\"] == \"169.254.169.254\"'\n" +
+                "        - 'attributes[\"server.address\"] == \"metadata.google.internal\"'\n\n" +
                 "  batch:\n" +
                 "    timeout: 5s\n" +
                 "    send_batch_size: 512\n" +
@@ -1217,7 +1568,7 @@ public class OpenObserveService {
                 "      exporters: [otlphttp]\n" +
                 "    traces:\n" +
                 "      receivers: [otlp]\n" +
-                "      processors: [memory_limiter, resourcedetection, resource, batch]\n" +
+                "      processors: [memory_limiter, resourcedetection, resource, filter/tracenoise, batch]\n" +
                 "      exporters: [otlphttp]\n" +
                 "EOF\n\n" +
                 "# ── Step 4: Grant log file read access ──────────────────────────────────────\n" +

@@ -21,7 +21,6 @@ import { MetricCard } from '../components/Dashboard/MetricCard';
 import { ProviderCard } from '../components/Dashboard/ProviderCard';
 import { CostChart } from '../components/Dashboard/CostChart';
 import { ProviderDonutChart } from '../components/Dashboard/ProviderDonutChart';
-import { TicketStatusDonutChart } from '../components/Dashboard/TicketStatusDonutChart';
 import { AccountBreakdownModal } from '../components/Dashboard/AccountBreakdownModal';
 import { useUnifiedDashboard } from '../hooks/useUnifiedDashboard';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -502,11 +501,6 @@ export const UnifiedDashboard: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <CostChart awsData={awsData} gcpData={gcpData} azureData={azureData} />
             <ProviderDonutChart awsData={awsData} gcpData={gcpData} azureData={azureData} />
-          </div>
-
-          {/* Support Tickets Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <TicketStatusDonutChart />
           </div>
 
           {/* Provider Cards Row */}

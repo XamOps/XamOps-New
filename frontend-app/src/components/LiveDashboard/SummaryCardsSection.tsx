@@ -221,6 +221,30 @@ const computeRightsizingSummary = (raw: RightsizingRec[]): RightsizingSummary =>
   return { total: raw.length, totalSavings, byInstance };
 };
 
+// Tickets → /api/{xamops,billops}/tickets/category/{Technical, Account and Billing}
+interface RawTicket { id: number; status?: string; category?: string; accountId?: string }
+interface TicketSummary { open: number; closed: number; total: number; technical: number; accountBilling: number }
+
+const computeTicketSummary = (raw: RawTicket[], accountId: string | null): TicketSummary => {
+  // Deduplicate by id (a ticket may be returned by more than one endpoint)
+  const seen = new Set<number>();
+  let tickets = raw.filter(t => {
+    if (t == null || t.id == null || seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
+  // Scope to the selected account when present — mirrors TicketsPage
+  if (accountId) {
+    tickets = tickets.filter(t => t.accountId && t.accountId === accountId);
+  }
+  let open = 0, closed = 0, technical = 0, accountBilling = 0;
+  for (const t of tickets) {
+    if ((t.status || '').toUpperCase() === 'CLOSED') closed++; else open++;
+    if ((t.category || '').toLowerCase().includes('billing')) accountBilling++; else technical++;
+  }
+  return { open, closed, total: tickets.length, technical, accountBilling };
+};
+
 // ══════════════════════════════════════════════════════════════════════════════
 // 1 ── ALERTS card  (real: /api/xamops/cloudguard/alerts)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -377,6 +401,27 @@ const LambdaCard: React.FC<{ wasteSummary: WasteSummary | null; loading: boolean
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
+// 6 ── TICKETS card  (real: /api/{xamops,billops}/tickets/category/{...})
+// ══════════════════════════════════════════════════════════════════════════════
+const TicketsCard: React.FC<{ summary: TicketSummary | null; loading: boolean }> = ({ summary, loading }) => {
+  const segs: DonutSeg[] = [
+    { label: 'Open',   value: summary?.open   || 0, color: '#059669' },
+    { label: 'Closed', value: summary?.closed || 0, color: '#94a3b8' },
+  ];
+  const subtitle = loading
+    ? 'Loading…'
+    : summary
+      ? `${summary.technical} technical · ${summary.accountBilling} billing`
+      : 'No ticket data';
+
+  return (
+    <CardShell accentColor="#0d9488" icon="mdi:ticket-outline" title="Support Tickets" subtitle={subtitle} link="/tickets">
+      <MiniDonut segs={segs} sub="tickets" isLoading={loading && !summary} />
+    </CardShell>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Section — fetches data and distributes to cards
 // ══════════════════════════════════════════════════════════════════════════════
 const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, isLoading, provider = 'AWS' }) => {
@@ -385,9 +430,11 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
   const [alertSummary,      setAlertSummary]      = useState<AlertSummary | null>(null);
   const [wasteSummary,      setWasteSummary]      = useState<WasteSummary | null>(null);
   const [rightsizeSummary,  setRightsizeSummary]  = useState<RightsizingSummary | null>(null);
+  const [ticketSummary,     setTicketSummary]     = useState<TicketSummary | null>(null);
   const [alertLoading,      setAlertLoading]      = useState(false);
   const [wasteLoading,      setWasteLoading]      = useState(false);
   const [rightsizeLoading,  setRightsizeLoading]  = useState(false);
+  const [ticketLoading,     setTicketLoading]     = useState(false);
 
   useEffect(() => {
     if (!accountId) return;
@@ -426,21 +473,47 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
       .finally(() => setRightsizeLoading(false));
   }, [accountId, apiBase]);
 
+  // Tickets — cross-service (xamops + billops) and cross-category. Not
+  // provider-specific, so fetch regardless of provider and scope by accountId.
+  useEffect(() => {
+    const categories = ['Technical', 'Account and Billing'];
+    const services = ['xamops', 'billops'];
+    const urls = services.flatMap(svc =>
+      categories.map(cat => `/api/${svc}/tickets/category/${encodeURIComponent(cat)}`)
+    );
+
+    setTicketLoading(true);
+    Promise.all(
+      urls.map(u =>
+        fetch(u, { credentials: 'include' })
+          .then(r => (r.ok ? r.json() : []))
+          .then((data: any) => (Array.isArray(data) ? data : []))
+          .catch(() => [])
+      )
+    )
+      .then((lists: RawTicket[][]) => {
+        setTicketSummary(computeTicketSummary(lists.flat(), accountId));
+      })
+      .catch(() => setTicketSummary({ open: 0, closed: 0, total: 0, technical: 0, accountBilling: 0 }))
+      .finally(() => setTicketLoading(false));
+  }, [accountId]);
+
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        {[1, 2, 3, 4, 5].map(i => <CardSkeleton key={i} />)}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {[1, 2, 3, 4, 5, 6].map(i => <CardSkeleton key={i} />)}
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       <AlertsCard     summary={alertSummary}     loading={alertLoading} provider={provider} />
       <SecurityCard   accountId={accountId} apiBase={apiBase} />
       <WasteCard      summary={wasteSummary}      loading={wasteLoading} provider={provider} />
       <RightsizingCard summary={rightsizeSummary} loading={rightsizeLoading} provider={provider} />
       <LambdaCard     wasteSummary={wasteSummary} loading={wasteLoading} provider={provider} />
+      <TicketsCard    summary={ticketSummary}     loading={ticketLoading} />
     </div>
   );
 };

@@ -4,6 +4,7 @@ import { useTopbar } from '../contexts/TopbarContext';
 import { useObservabilityData, ObservabilityConfig, OverviewStats, EksCluster, ConnectedInstance, ObservabilityAlert, AlertDestination } from '../hooks/useObservabilityData';
 import LogsExplorer from '../components/Observability/LogsExplorer';
 import MetricsDashboard from '../components/Observability/MetricsDashboard';
+import TracesExplorer from '../components/Observability/TracesExplorer';
 import { Icon } from '@iconify/react';
 
 // ── Tab types ─────────────────────────────────────────────────────────────────
@@ -702,24 +703,6 @@ function AlertsTab() {
   );
 }
 
-// ── Traces Tab (placeholder) ──────────────────────────────────────────────────
-
-function TracesTab() {
-  return (
-    <div className="rounded-xl border border-dashed border-[rgba(0,0,0,0.15)] p-16 flex flex-col items-center gap-3 text-[rgba(0,0,0,0.4)]">
-      <Icon icon="mdi:graph-outline" width={40} className="opacity-40" />
-      <p className="text-[15px] font-semibold text-black">Distributed Tracing</p>
-      <p className="text-[13px] text-center max-w-sm text-[rgba(0,0,0,0.45)]">
-        Instrument your services with OpenTelemetry SDK and deploy the OTel Collector
-        to start seeing request traces across your infrastructure.
-      </p>
-      <span className="text-[11px] px-3 py-1 rounded-full bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)] font-medium">
-        Coming soon
-      </span>
-    </div>
-  );
-}
-
 // ── Reusable code block with copy button ─────────────────────────────────────
 
 function CodeBlock({ code, label }: { code: string; label?: string }) {
@@ -1362,7 +1345,7 @@ const ObservabilityPage: React.FC = () => {
             <MetricsDashboard />
           )}
           {activeTab === 'traces' && (
-            <TracesTab />
+            <TracesExplorer />
           )}
           {activeTab === 'alerts' && (
             <AlertsTab />

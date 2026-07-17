@@ -494,7 +494,10 @@ interface LogsExplorerProps {
 }
 
 const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
-  const { logs, logTotal, histogram, logsLoading, searchLogs, fetchHistogram } = useObservabilityData();
+  const { logs, logTotal, histogram, logsLoading, searchLogs, fetchLogHosts, fetchHistogram } = useObservabilityData();
+
+  // Hosts sending logs to the selected stream — populates the Host/Source dropdown.
+  const [hostOptions, setHostOptions] = useState<string[]>([]);
 
   // One-time URL hydration so filtered views survive refresh and can be shared.
   const [urlInit] = useState(parseUrlState);
@@ -564,6 +567,18 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
   }, [customRange]);
 
   const now = useCallback(() => Date.now(), []);
+
+  // Load the list of hosts sending logs to the selected stream, so the Host/Source
+  // filter is a dropdown of real hosts (auto-updates as new EC2s start shipping).
+  useEffect(() => {
+    const end = customRange ? customRange.end : Date.now();
+    const start = customRange ? customRange.start : end - timeRange.ms;
+    let cancelled = false;
+    fetchLogHosts(selectedStream, start, end).then(hosts => {
+      if (!cancelled) setHostOptions(hosts);
+    });
+    return () => { cancelled = true; };
+  }, [selectedStream, timeRange, customRange, fetchLogHosts]);
 
   // Reflect the active filters in the URL (replace, not push) so any view can be
   // shared by copying the address, and refresh doesn't reset the page.
@@ -904,15 +919,24 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
                 </button>
               </>
             )}
-            <div className="flex flex-col gap-1 min-w-[160px]">
+            <div className="flex flex-col gap-1 min-w-[180px]">
               <label className="obs-label">Host / Source</label>
-              <input
-                type="text"
+              <select
                 value={sourceFilter}
-                onChange={e => setSourceFilter(e.target.value)}
-                placeholder="e.g. ip-172-31-0-224"
+                onChange={e => { setSourceFilter(e.target.value); setSearchNonce(n => n + 1); }}
                 className={`${inputCls} w-full`}
-              />
+                title="Filter logs to a single host"
+              >
+                <option value="">All hosts</option>
+                {/* Keep the active filter selectable even if it isn't in the host list
+                    (e.g. set from the URL or a row-click on a namespace/service). */}
+                {sourceFilter && !hostOptions.includes(sourceFilter) && (
+                  <option value={sourceFilter}>{sourceFilter}</option>
+                )}
+                {hostOptions.map(h => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
             </div>
             <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
               <label className="obs-label">Search</label>
