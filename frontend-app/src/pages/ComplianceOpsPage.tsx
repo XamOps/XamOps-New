@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import {
@@ -1101,7 +1102,7 @@ const ComplianceOpsPage: React.FC = () => {
       </motion.div>
 
       {/* ── Manage Frameworks Modal — Pump card-grid style ── */}
-      {showManageModal && (
+      {showManageModal && createPortal((
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.38)' }}>
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 10 }}
@@ -1214,9 +1215,10 @@ const ComplianceOpsPage: React.FC = () => {
             </div>
           </motion.div>
         </div>
-      )}
+      ), document.body)}
 
       {/* ── Check Detail Drawer ── */}
+      {createPortal((
       <AnimatePresence>
         {selectedCheck && (() => {
           const sev = SEVERITY_STYLE[selectedCheck.severity] || SEVERITY_STYLE.LOW;
@@ -1346,6 +1348,7 @@ const ComplianceOpsPage: React.FC = () => {
           );
         })()}
       </AnimatePresence>
+      ), document.body)}
     </main>
   );
 };
