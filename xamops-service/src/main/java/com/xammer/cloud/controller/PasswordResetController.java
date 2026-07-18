@@ -10,11 +10,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Random;
+import java.security.SecureRandom;
 
 @RestController
 @RequestMapping("/api/auth")
 public class PasswordResetController {
+
+    private static final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
     private UserRepository userRepository;
@@ -37,7 +39,7 @@ public class PasswordResetController {
                     .orElseThrow(() -> new RuntimeException("No account found with that email address."));
 
             // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            String otp = String.format("%06d", secureRandom.nextInt(999999));
 
             // Save OTP to Redis keyed by email (expires in 5 minutes)
             redisCacheService.saveOtp(email, otp);
