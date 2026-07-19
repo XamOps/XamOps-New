@@ -5,14 +5,18 @@ import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.EksAutoscalingService;
+import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * EksAutoscalingController
@@ -39,14 +43,28 @@ public class EksAutoscalingController {
 
     private final EksAutoscalingService autoscalingService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
+    private final CloudAccountRepository cloudAccountRepository;
 
     public EksAutoscalingController(EksAutoscalingService autoscalingService,
-                                    KubernetesClusterConfigRepository clusterConfigRepository) {
+                                    KubernetesClusterConfigRepository clusterConfigRepository,
+                                    CloudAccountRepository cloudAccountRepository) {
         this.autoscalingService = autoscalingService;
         this.clusterConfigRepository = clusterConfigRepository;
+        this.cloudAccountRepository = cloudAccountRepository;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    private void validateAccountOwnership(Long cloudAccountId) {
+        if (SecurityUtils.isSuperAdmin()) {
+            return;
+        }
+        String awsAccountIdPadded = String.format("%012d", cloudAccountId);
+        if (cloudAccountRepository.findByAwsAccountIdAndClientId(
+                awsAccountIdPadded, SecurityUtils.getPrincipal().getClientId()).isEmpty()) {
+            throw new AccessDeniedException("You do not have permission to access this cloud account.");
+        }
+    }
 
     private static Map<String, Object> ok(String message) {
         return Map.of("success", true, "message", message);
@@ -78,6 +96,7 @@ public class EksAutoscalingController {
 
         try {
             Long cloudAccountId = Long.parseLong(accountId);
+            validateAccountOwnership(cloudAccountId);
             AutoscalerDashboardDto dto =
                     autoscalingService.getDashboard(clusterName, cloudAccountId, region);
 
@@ -88,6 +107,8 @@ public class EksAutoscalingController {
 
         } catch (NumberFormatException e) {
             return ResponseEntity.badRequest().body(err("accountId must be a number"));
+        } catch (AccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error getting autoscaling dashboard for cluster {}: {}", clusterName, e.getMessage());
             return ResponseEntity.internalServerError().body(err(e.getMessage()));
