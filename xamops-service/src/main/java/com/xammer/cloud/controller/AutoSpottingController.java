@@ -2,11 +2,15 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.autospotting.*;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.AutoSpottingService;
+import com.xammer.cloud.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -16,11 +20,39 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/autospotting")
 @RequiredArgsConstructor
+@PreAuthorize("isAuthenticated()")
 public class AutoSpottingController {
 
     private static final Logger log = LoggerFactory.getLogger(AutoSpottingController.class);
 
     private final AutoSpottingService autoSpottingService;
+    private final CloudAccountRepository cloudAccountRepository;
+
+    private void validateAccountOwnership(Long accountId) {
+        if (SecurityUtils.isSuperAdmin()) return;
+        Long clientId = SecurityUtils.getPrincipal().getClientId();
+        if (clientId == null) {
+            throw new AccessDeniedException("Access denied: Client ID is missing");
+        }
+        String idStr = String.valueOf(accountId);
+        boolean owned = cloudAccountRepository.findByAwsAccountIdAndClientId(idStr, clientId).isPresent();
+        if (!owned) {
+            String paddedId = String.format("%012d", accountId);
+            if (!paddedId.equals(idStr)) {
+                owned = cloudAccountRepository.findByAwsAccountIdAndClientId(paddedId, clientId).isPresent();
+            }
+        }
+        if (!owned) {
+            throw new AccessDeniedException("Access denied: You do not own this cloud account");
+        }
+    }
+
+    @ModelAttribute
+    public void validateAccount(@PathVariable(value = "accountId", required = false) Long accountId) {
+        if (accountId != null) {
+            validateAccountOwnership(accountId);
+        }
+    }
 
     // ================= ACCOUNT REGISTRATION =================
 
@@ -513,6 +545,7 @@ public class AutoSpottingController {
      * GET /api/autospotting/health
      */
     @GetMapping("/health")
+    @PreAuthorize("permitAll()")
     public ResponseEntity<Map<String, Object>> healthCheck() {
         log.debug("AutoSpottingController.healthCheck called");
         return ResponseEntity.ok(Map.of(
