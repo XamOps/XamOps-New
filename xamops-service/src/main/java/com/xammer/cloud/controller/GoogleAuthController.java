@@ -280,6 +280,7 @@ public class GoogleAuthController {
                 .claim("email", identity.getEmail())
                 .claim("name", identity.getName())
                 .claim("picture", identity.getPicture())
+                .claim("provider", "google")
                 .claim("purpose", SIGNUP_PURPOSE)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + SIGNUP_TOKEN_TTL_MS))

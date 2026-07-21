@@ -43,6 +43,11 @@ public class User {
     @Column(name = "google_sub", unique = true, nullable = true)
     private String googleSub;
 
+    // Microsoft (Entra ID) permanent unique subject identifier (OpenID "sub").
+    // Null for LOCAL/GOOGLE users. Added by ddl-auto=update like google_sub.
+    @Column(name = "microsoft_sub", unique = true, nullable = true)
+    private String microsoftSub;
+
     // --- ✅ MODIFIED THIS LINE ---
     @Column(nullable = false)
     private String role; // e.g., "USER", "ADMIN", "BILLOPS", "XAMOPS"

@@ -51,10 +51,13 @@ public class GcpSecurityService {
     private static final String REDIS_CONTAINER_PREFIX  = "gcp:container-scanning:";
     private static final int    REDIS_TTL_MINUTES       = 1440; // Gap D: 24h aligned with staleness threshold
 
+    // NOTE: These must match Prowler's GCP compliance identifiers exactly.
+    // Prowler rejects the ENTIRE --compliance argument if any single name is
+    // invalid (argparse exit code 2), which aborts the whole scan. GCP does not
+    // offer the AWS-style pci_3.2.1 / iso27001_2013 / gdpr / nist_csf names.
     private static final String[] GCP_PROWLER_FRAMEWORKS = {
-            "cis_2.0_gcp", "soc2_gcp", "pci_3.2.1_gcp",
-            "iso27001_2013_gcp", "mitre_attack_gcp",
-            "hipaa_gcp", "gdpr_gcp", "nist_csf_1.1_gcp"
+            "cis_2.0_gcp", "soc2_gcp", "pci_4.0_gcp",
+            "iso27001_2022_gcp", "mitre_attack_gcp", "hipaa_gcp"
     };
 
     public GcpSecurityService(GcpClientProvider gcpClientProvider,

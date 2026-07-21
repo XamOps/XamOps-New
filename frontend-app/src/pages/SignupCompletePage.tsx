@@ -7,7 +7,7 @@ interface CompleteResponse {
 }
 
 /** Decodes a JWT payload (no verification — display only) to pre-fill the form. */
-function decodeToken(token: string): { email?: string; name?: string } {
+function decodeToken(token: string): { email?: string; name?: string; provider?: string } {
   try {
     const payload = token.split('.')[1];
     const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
@@ -32,9 +32,14 @@ const SignupCompletePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Route to the provider-specific complete-signup endpoint. Defaults to Google
+  // for tokens minted before the `provider` claim existed (backward-compatible).
+  const provider = claims.provider === 'microsoft' ? 'microsoft' : 'google';
+  const providerLabel = provider === 'microsoft' ? 'Microsoft' : 'Google';
+
   useEffect(() => {
-    if (!token) setError('Your signup session is missing. Please sign in with Google again.');
-  }, [token]);
+    if (!token) setError(`Your signup session is missing. Please sign in with ${providerLabel} again.`);
+  }, [token, providerLabel]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -45,7 +50,7 @@ const SignupCompletePage: React.FC = () => {
     }
     setIsLoading(true);
     try {
-      const response = await fetch('/api/auth/google/complete-signup', {
+      const response = await fetch(`/api/auth/${provider}/complete-signup`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -107,7 +112,7 @@ const SignupCompletePage: React.FC = () => {
                 <label className={labelClass}>Email Address</label>
                 <div className="relative">
                   <input type="email" value={claims.email} readOnly disabled className={`${inputClass} pr-9 opacity-80 cursor-not-allowed`} />
-                  <i className="fas fa-circle-check text-green-500 text-xs absolute right-3 top-1/2 -translate-y-1/2" title="Verified by Google" />
+                  <i className="fas fa-circle-check text-green-500 text-xs absolute right-3 top-1/2 -translate-y-1/2" title={`Verified by ${providerLabel}`} />
                 </div>
               </div>
             )}

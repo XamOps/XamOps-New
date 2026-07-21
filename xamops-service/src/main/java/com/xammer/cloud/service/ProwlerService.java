@@ -451,14 +451,16 @@ public class ProwlerService {
         command.add(executable);
         command.add("azure");
         command.add("--no-banner");
+        // Service-principal auth: Prowler reads the client id/secret/tenant from
+        // AZURE_* env vars (set below), NOT from --client-id/--client-secret flags
+        // (those are unrecognized and abort the scan with exit code 2).
+        // Do NOT pass --tenant-id here: that flag is reserved for --browser-auth
+        // mode and, when combined with --sp-env-auth, makes Prowler think we want
+        // browser auth and fail with AzureTenantIDNoBrowserAuthError. The tenant
+        // is supplied purely via the AZURE_TENANT_ID env var below.
+        command.add("--sp-env-auth");
         command.add("--subscription-ids");
         command.add(account.getAzureSubscriptionId());
-        command.add("--tenant-id");
-        command.add(account.getAzureTenantId());
-        command.add("--client-id");
-        command.add(account.getAzureClientId());
-        command.add("--client-secret");
-        command.add(account.getAzureClientSecret());
 
         if (complianceFrameworks != null && complianceFrameworks.length > 0) {
             command.add("--compliance");
@@ -472,7 +474,12 @@ public class ProwlerService {
         command.add("--output-directory");
         command.add(outputDir);
 
-        return executeProwlerCommand(command, new HashMap<>(), outputDir, filenameBase);
+        Map<String, String> env = new HashMap<>();
+        env.put("AZURE_CLIENT_ID", account.getAzureClientId());
+        env.put("AZURE_CLIENT_SECRET", account.getAzureClientSecret());
+        env.put("AZURE_TENANT_ID", account.getAzureTenantId());
+
+        return executeProwlerCommand(command, env, outputDir, filenameBase);
     }
 
     // -------------------------------------------------------------------------

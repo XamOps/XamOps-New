@@ -272,8 +272,26 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
             <span>Sign in with Google</span>
           </button>
 
+          {/* Sign in with Microsoft */}
+          <button
+            type="button"
+            className="microsoft-signin-btn"
+            onClick={() => {
+              // Full-page navigation to the backend, which redirects to Microsoft.
+              window.location.href = '/api/auth/microsoft/login';
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path fill="#F25022" d="M0 0h8.5v8.5H0z" />
+              <path fill="#7FBA00" d="M9.5 0H18v8.5H9.5z" />
+              <path fill="#00A4EF" d="M0 9.5h8.5V18H0z" />
+              <path fill="#FFB900" d="M9.5 9.5H18V18H9.5z" />
+            </svg>
+            <span>Sign in with Microsoft</span>
+          </button>
+
           <p className="signup-hint">
-            New to XamOps? Signing in with Google starts a free 14-day trial.
+            New to XamOps? Signing in with Google or Microsoft starts a free 14-day trial.
           </p>
         </form>
       )}
