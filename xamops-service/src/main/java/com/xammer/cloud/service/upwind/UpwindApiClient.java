@@ -59,6 +59,23 @@ public class UpwindApiClient {
         this.restTemplate = restTemplate;
     }
 
+    /**
+     * Startup diagnostic — surfaces whether Upwind creds resolved at runtime. This is the
+     * fastest way to diagnose the "no data on UAT" class of issue: the live-fetch tabs
+     * (Components/SBOM, APIs, Threat Policies, Workflows) short-circuit to empty when
+     * {@link #isConfigured()} is false, even though the DB-backed tabs still show synced data.
+     */
+    @javax.annotation.PostConstruct
+    void logConfigState() {
+        log.info("[Upwind] client init — configured={} orgId={} apiBaseUrl={}",
+                isConfigured(), (orgId == null || orgId.isEmpty() ? "<unset>" : orgId), apiBaseUrl);
+        if (!isConfigured()) {
+            log.warn("[Upwind] client-id/secret are EMPTY at runtime — live-fetch tabs "
+                    + "(Components, APIs, Threat Policies, Workflows) will return no data. "
+                    + "Check UPWIND_CLIENT_ID/UPWIND_CLIENT_SECRET env or application.properties defaults.");
+        }
+    }
+
     public boolean isConfigured() {
         return clientId != null && !clientId.isEmpty()
                 && clientSecret != null && !clientSecret.isEmpty();
@@ -162,11 +179,13 @@ public class UpwindApiClient {
         return items;
     }
 
-    /** v1 API-security endpoints, tenant-filtered by cloud-account-id query param, Link paging. */
+    /** v1 API-security endpoints, tenant-filtered by cloud-account-id query param, Link paging.
+     *  per-page=1000 keeps the full-endpoint fetch (thousands of endpoints) to a handful of
+     *  round-trips so the APIs dashboard counts are complete without dozens of requests. */
     public List<JsonNode> fetchApiSecurityEndpoints(String cloudAccountId, int maxPages) {
         java.util.List<JsonNode> items = new java.util.ArrayList<>();
         String url = apiBaseUrl + "/v1/organizations/" + orgId
-                + "/apisecurity-endpoints?cloud-account-id=" + cloudAccountId + "&per-page=100";
+                + "/apisecurity-endpoints?cloud-account-id=" + cloudAccountId + "&per-page=1000";
         int pages = 0;
         while (url != null && pages < maxPages) {
             HttpHeaders headers = authHeaders();

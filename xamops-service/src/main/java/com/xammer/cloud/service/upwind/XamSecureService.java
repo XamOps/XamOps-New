@@ -91,7 +91,7 @@ public class XamSecureService {
         } catch (Exception e) {
             log.warn("[Upwind] threat-policies fetch failed: {}", e.getMessage());
         }
-        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
     }
 
@@ -125,7 +125,7 @@ public class XamSecureService {
         } catch (Exception e) {
             log.warn("[Upwind] workflows fetch failed: {}", e.getMessage());
         }
-        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
     }
 
@@ -179,7 +179,9 @@ public class XamSecureService {
         rows.sort(Comparator
                 .comparingInt((Map<String, Object> m) -> -((Integer) m.getOrDefault("totalVulns", 0)))
                 .thenComparingInt(m -> -((Integer) m.getOrDefault("inUse", 0))));
-        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        // Never cache an empty result — a transient fetch failure or a cold start before creds
+        // resolve would otherwise poison the cache and keep the Components tab empty for the TTL.
+        if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
     }
 
@@ -194,7 +196,7 @@ public class XamSecureService {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (String id : ids) {
             try {
-                for (JsonNode ep : apiClient.fetchApiSecurityEndpoints(id, 20)) {
+                for (JsonNode ep : apiClient.fetchApiSecurityEndpoints(id, 12)) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", ep.path("id").asText(null));
                     m.put("method", ep.path("method").asText(null));
@@ -204,6 +206,14 @@ public class XamSecureService {
                     m.put("lastSeenTime", ep.path("last_seen_time").asText(null));
                     m.put("internetExposed", ep.path("risk_overview").path("internet_exposure")
                             .path("ingress").has("last_seen_time"));
+                    // Authentication state from Upwind's risk overview (AUTHENTICATED / UNAUTHENTICATED
+                    // / absent when not analysed). Only an explicit UNAUTHENTICATED counts as unauthenticated.
+                    String authState = ep.path("risk_overview").path("authentication").path("state").asText(null);
+                    m.put("authState", authState);
+                    m.put("authenticated", "AUTHENTICATED".equalsIgnoreCase(authState));
+                    List<String> domains = new ArrayList<>();
+                    ep.path("domains").forEach(d -> domains.add(d.asText()));
+                    m.put("domains", domains);
                     m.put("cloudAccountId", id);
                     rows.add(m);
                 }
@@ -211,7 +221,7 @@ public class XamSecureService {
                 log.warn("[Upwind] apisec fetch failed for account {}: {}", id, e.getMessage());
             }
         }
-        redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
+        if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
     }
 
@@ -334,9 +344,9 @@ public class XamSecureService {
         if (ids.isEmpty()) return Page.empty();
         Pageable pageable = PageRequest.of(page, Math.min(size, 200));
         if (severity != null && !severity.isEmpty()) {
-            return detectionRepo.findByCloudAccountIdInAndSeverityOrderByLastSeenTimeDesc(ids, severity, pageable);
+            return detectionRepo.findRealByCloudAccountIdInAndSeverity(ids, severity, pageable);
         }
-        return detectionRepo.findByCloudAccountIdInOrderByLastSeenTimeDesc(ids, pageable);
+        return detectionRepo.findRealByCloudAccountIdIn(ids, pageable);
     }
 
     public Page<UpwindVulnerabilityFinding> getVulnerabilities(Long clientId, String accountId,
@@ -1177,6 +1187,92 @@ public class XamSecureService {
 
         redisCacheService.put(cacheKey, result, APISEC_CACHE_MINUTES);
         return result;
+    }
+
+    /**
+     * Configurations "Dashboard" sub-view (Upwind parity). Every metric is derived from
+     * real synced posture findings and real per-framework compliance scores — nothing is
+     * fabricated. We deliberately OMIT Upwind panels we have no data source for:
+     * per-finding "impact %" and remediation-difficulty (not exposed by the API) and the
+     * resolved-findings-over-time count (no resolution history is retained).
+     */
+    public Map<String, Object> getConfigurationsDashboard(Long clientId, String accountId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        Map<String, Integer> emptySev = new LinkedHashMap<>();
+        for (String s : List.of("CRITICAL", "HIGH", "MEDIUM", "LOW")) emptySev.put(s, 0);
+        out.put("severityCounts", emptySev);
+        out.put("totalFindings", 0);
+        out.put("newLast7Days", 0);
+        out.put("topFindings", List.of());
+        out.put("findingsOverTime", List.of());
+        out.put("frameworkScores", List.of());
+        out.put("avgComplianceScore", null);
+        out.put("frameworkCount", 0);
+
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty()) return out;
+
+        // Failing findings collapsed to one row per check (distinct-resource counts).
+        List<Map<String, Object>> issues = getIssues(clientId, accountId, null);
+
+        // Severity summary + "new in last 7 days" + cumulative-over-time buckets.
+        Map<String, Integer> sev = new LinkedHashMap<>();
+        for (String s : List.of("CRITICAL", "HIGH", "MEDIUM", "LOW")) sev.put(s, 0);
+        Instant weekAgo = Instant.now().minus(java.time.Duration.ofDays(7));
+        int newCount = 0;
+
+        java.time.LocalDate todayUtc = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        java.util.List<java.time.LocalDate> trendDays = new ArrayList<>();
+        for (int i = 6; i >= 0; i--) trendDays.add(todayUtc.minusDays(i));
+        long[] newHigh = new long[7], newOther = new long[7];
+
+        for (Map<String, Object> is : issues) {
+            String s = String.valueOf(is.getOrDefault("severity", "LOW")).toUpperCase();
+            sev.merge(sev.containsKey(s) ? s : "LOW", 1, Integer::sum);
+            Object fsObj = is.get("firstSeen");
+            Instant first = (fsObj instanceof Instant) ? (Instant) fsObj : null;
+            if (first != null && first.isAfter(weekAgo)) newCount++;
+            int idx = trendIndex(first, trendDays);
+            if (idx >= 0) {
+                String bucket = sevBucket(s);
+                if ("CRITICAL".equals(bucket) || "HIGH".equals(bucket)) newHigh[idx]++;
+                else newOther[idx]++;
+            }
+        }
+        out.put("severityCounts", sev);
+        out.put("totalFindings", issues.size());
+        out.put("newLast7Days", newCount);
+
+        // Top findings — issues are already sorted by severity, then affected-resource count.
+        out.put("topFindings", issues.stream().limit(20).collect(Collectors.toList()));
+
+        // Findings over time — cumulative-as-of-day (High vs Other), last 7 days.
+        List<Map<String, Object>> overTime = new ArrayList<>();
+        long cHigh = 0, cOther = 0;
+        for (int i = 0; i < 7; i++) {
+            cHigh += newHigh[i]; cOther += newOther[i];
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("date", trendDays.get(i).toString().substring(5)); // MM-DD
+            m.put("HIGH", cHigh);
+            m.put("OTHER", cOther);
+            overTime.add(m);
+        }
+        out.put("findingsOverTime", overTime);
+
+        // Per-framework compliance scores (real). Only frameworks Upwind actually scanned
+        // against our assets (lastScanTime present) so unscanned 0%/N-A frameworks don't
+        // pollute the panel or drag the average. Sorted worst-first, like Upwind highlights.
+        List<Map<String, Object>> compliance = getCompliance(clientId, accountId);
+        List<Map<String, Object>> fwScores = compliance.stream()
+                .filter(m -> m.get("score") instanceof Integer && m.get("lastScanTime") != null)
+                .sorted(Comparator.comparingInt(m -> (Integer) m.get("score")))
+                .collect(Collectors.toList());
+        out.put("frameworkScores", fwScores);
+        out.put("frameworkCount", fwScores.size());
+        java.util.OptionalDouble avg = fwScores.stream().mapToInt(m -> (Integer) m.get("score")).average();
+        out.put("avgComplianceScore", avg.isPresent() ? (int) Math.round(avg.getAsDouble()) : null);
+
+        return out;
     }
 
     /** Asset counts per category for the Inventory catalog rail (tenant-filtered). */

@@ -59,8 +59,12 @@ const BarChart: React.FC<{ data: { label: string; value: number }[] }> = ({ data
         <div key={d.label} className="flex-1 flex flex-col items-center gap-1">
           <div className="w-full flex items-end justify-center" style={{ height: '84px' }}>
             <div
-              className="w-full max-w-[24px] bg-gray-800 rounded-t"
-              style={{ height: `${Math.round((d.value / max) * 84)}px`, minHeight: d.value > 0 ? 4 : 0 }}
+              className="w-full max-w-[24px] rounded-t"
+              style={{
+                height: `${Math.round((d.value / max) * 84)}px`,
+                minHeight: d.value > 0 ? 4 : 0,
+                backgroundColor: SEV_COLOR.OTHER,
+              }}
               title={`${d.label}: ${d.value}`}
             />
           </div>
@@ -94,14 +98,20 @@ const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, vulnD
     () => (threats?.content ?? []).reduce((a, t) => a + (t.occurrenceCount ?? 1), 0),
     [threats]);
 
+  // Cumulative findings as-of each day (last 7 days): a finding counts toward every
+  // day on/after the day it was first seen, so the standing backlog is reflected each
+  // day instead of leaving the chart empty when few findings are new in the window.
+  // Matches the Configurations dashboard and the vulnerability "by severity" trend.
   const findingsOverTime = useMemo(() => {
-    const buckets = Object.fromEntries(days.map((d) => [d.key, 0])) as Record<string, number>;
-    (issues ?? []).forEach((i) => {
-      if (!i.firstSeen) return;
-      const key = new Date(i.firstSeen).toISOString().slice(0, 10);
-      if (key in buckets) buckets[key] += 1;
+    return days.map((d) => {
+      let count = 0;
+      (issues ?? []).forEach((i) => {
+        if (!i.firstSeen) { count += 1; return; } // unknown first-seen → pre-existing baseline
+        const key = new Date(i.firstSeen).toISOString().slice(0, 10);
+        if (key <= d.key) count += 1;
+      });
+      return { label: d.label, value: count };
     });
-    return days.map((d) => ({ label: d.label, value: buckets[d.key] }));
   }, [issues, days]);
 
   const threatFeed = useMemo(() => (threats?.content ?? []).slice(0, 3), [threats]);
@@ -200,7 +210,7 @@ const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, vulnD
       {/* Row 3 — Findings over time · New issues · Threat feed */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Panel title="Findings over time">
-          <p className="text-[10px] text-gray-400 mb-2">New issues first seen · last 7 days</p>
+          <p className="text-[10px] text-gray-400 mb-2">Cumulative open issues · last 7 days</p>
           <BarChart data={findingsOverTime} />
         </Panel>
 

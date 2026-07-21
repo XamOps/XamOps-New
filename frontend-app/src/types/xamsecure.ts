@@ -161,6 +161,9 @@ export interface ApiEndpoint {
   firstSeenTime: string | null;
   lastSeenTime: string | null;
   internetExposed: boolean;
+  authState: string | null;
+  authenticated: boolean;
+  domains: string[];
   cloudAccountId: string | null;
 }
 
@@ -211,6 +214,19 @@ export interface ComplianceFramework {
   status?: string | null;
   lastScanTime?: string | null;
   score?: number | null;
+}
+
+/** Configurations "Dashboard" sub-view — all derived from real synced posture findings
+ *  and real per-framework compliance scores. */
+export interface ConfigurationsDashboard {
+  severityCounts: Record<string, number>;
+  totalFindings: number;
+  newLast7Days: number;
+  topFindings: IssueSummary[];
+  findingsOverTime: Array<Record<string, number | string>>;
+  frameworkScores: ComplianceFramework[];
+  avgComplianceScore: number | null;
+  frameworkCount: number;
 }
 
 /** One row in the Issues view — a posture check collapsed across all affected resources. */

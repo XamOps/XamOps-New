@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { PageResp, PostureFinding } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
-import FindingDrawer from './FindingDrawer';
+import PostureFindingDrawer from './PostureFindingDrawer';
 
 interface Props {
   data: PageResp<PostureFinding> | null;
@@ -70,8 +70,7 @@ const PostureTab: React.FC<Props> = ({ data, isLoading, onPage }) => {
         </div>
       )}
       {selected && (
-        <FindingDrawer title={selected.title ?? 'Posture finding'} rawPayload={selected.rawPayload}
-                       onClose={() => setSelected(null)} />
+        <PostureFindingDrawer finding={selected} onClose={() => setSelected(null)} />
       )}
     </div>
   );

@@ -20,7 +20,21 @@ public interface UpwindThreatDetectionRepository extends JpaRepository<UpwindThr
     Page<UpwindThreatDetection> findByCloudAccountIdInAndSeverityOrderByLastSeenTimeDesc(
             List<String> accountIds, String severity, Pageable pageable);
 
+    // Upwind emits a synthetic "smoke" detection (upwind_id = 'uwnd-smoke') to health-check the
+    // detection pipeline. It has no resource/timestamps/tactic and isn't a real threat, so it is
+    // excluded from the Threats table and Overview counts.
+    @Query("SELECT d FROM UpwindThreatDetection d WHERE d.cloudAccountId IN :accountIds " +
+           "AND d.upwindId <> 'uwnd-smoke' ORDER BY d.lastSeenTime DESC")
+    Page<UpwindThreatDetection> findRealByCloudAccountIdIn(
+            @Param("accountIds") List<String> accountIds, Pageable pageable);
+
+    @Query("SELECT d FROM UpwindThreatDetection d WHERE d.cloudAccountId IN :accountIds " +
+           "AND d.severity = :severity AND d.upwindId <> 'uwnd-smoke' ORDER BY d.lastSeenTime DESC")
+    Page<UpwindThreatDetection> findRealByCloudAccountIdInAndSeverity(
+            @Param("accountIds") List<String> accountIds, @Param("severity") String severity, Pageable pageable);
+
     @Query("SELECT d.severity, COUNT(d) FROM UpwindThreatDetection d " +
-           "WHERE d.cloudAccountId IN :accountIds AND d.status = 'OPEN' GROUP BY d.severity")
+           "WHERE d.cloudAccountId IN :accountIds AND d.status = 'OPEN' " +
+           "AND d.upwindId <> 'uwnd-smoke' GROUP BY d.severity")
     List<Object[]> countOpenBySeverity(@Param("accountIds") List<String> accountIds);
 }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '@iconify/react';
 
 interface Props {
@@ -17,7 +18,7 @@ const FindingDrawer: React.FC<Props> = ({ title, rawPayload, onClose, actions })
   } catch {
     pretty = rawPayload ?? '';
   }
-  return (
+  return createPortal((
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-black/30" />
       <div
@@ -40,7 +41,7 @@ const FindingDrawer: React.FC<Props> = ({ title, rawPayload, onClose, actions })
         )}
       </div>
     </div>
-  );
+  ), document.body);
 };
 
 export default FindingDrawer;
