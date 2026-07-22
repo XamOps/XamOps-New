@@ -60,4 +60,14 @@ public class TranscodeJobRequest {
 
     // Encryption
     private boolean encryptionEnabled;
+
+    // Optional: id of a connected customer S3 bucket (user_s3_configs) to store the
+    // transcoded output in. When null, output goes to XamOps storage as before.
+    private Long outputS3ConfigId;
+
+    // Optional: store output in a bucket of the customer's connected AWS account
+    // (the account selected in the sidebar), written via that account's IAM role.
+    // outputAccountId is the AWS account number; outputBucket is the chosen bucket.
+    private String outputAccountId;
+    private String outputBucket;
 }

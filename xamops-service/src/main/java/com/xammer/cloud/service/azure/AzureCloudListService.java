@@ -36,6 +36,110 @@ public class AzureCloudListService {
     private static final String CACHE_KEY_PREFIX = "azure-cloudlist-";
     private static final String DB_CACHE_KEY_PREFIX = "AZURE_CLOUDLIST::";
 
+    // ARM types already collected by dedicated fetch methods above — skipped by the
+    // generic catch-all scan to avoid duplicate entries.
+    private static final java.util.Set<String> HANDLED_TYPES = java.util.Set.of(
+            "microsoft.compute/virtualmachines",
+            "microsoft.compute/virtualmachinescalesets",
+            "microsoft.compute/availabilitysets",
+            "microsoft.compute/disks",
+            "microsoft.compute/snapshots",
+            "microsoft.storage/storageaccounts",
+            "microsoft.web/sites",
+            "microsoft.containerservice/managedclusters",
+            "microsoft.containerregistry/registries",
+            "microsoft.containerinstance/containergroups",
+            "microsoft.sql/servers",
+            "microsoft.network/virtualnetworks",
+            "microsoft.network/loadbalancers",
+            "microsoft.network/publicipaddresses",
+            "microsoft.network/networksecuritygroups",
+            "microsoft.network/networkinterfaces",
+            "microsoft.network/applicationgateways",
+            "microsoft.network/virtualnetworkgateways",
+            "microsoft.network/expressroutecircuits",
+            "microsoft.network/dnszones",
+            "microsoft.network/trafficmanagerprofiles",
+            "microsoft.cdn/profiles",
+            "microsoft.documentdb/databaseaccounts",
+            "microsoft.cache/redis",
+            "microsoft.servicebus/namespaces",
+            "microsoft.eventhub/namespaces",
+            "microsoft.search/searchservices",
+            "microsoft.keyvault/vaults"
+    );
+
+    // Noisy / auto-generated resource types we do not want to surface as their own group.
+    private static final java.util.Set<String> SKIP_TYPES = java.util.Set.of(
+            "microsoft.alertsmanagement/smartdetectoralertrules",
+            "microsoft.insights/webtests",
+            "microsoft.insights/metricalerts",
+            "microsoft.insights/activitylogalerts",
+            "microsoft.insights/scheduledqueryrules",
+            "microsoft.insights/autoscalesettings",
+            "microsoft.insights/datacollectionrules",
+            "microsoft.insights/datacollectionendpoints",
+            "microsoft.portal/dashboards",
+            "microsoft.operationsmanagement/solutions",
+            "microsoft.network/networkwatchers",
+            "microsoft.compute/sshpublickeys",
+            "microsoft.compute/restorepointcollections",
+            "microsoft.resources/deploymentscripts",
+            "microsoft.security/automations"
+    );
+
+    // Curated friendly display names for common ARM types that lack a dedicated fetcher.
+    private static final java.util.Map<String, String> FRIENDLY_TYPE_NAMES = java.util.Map.ofEntries(
+            java.util.Map.entry("microsoft.dbformysql/servers", "MySQL Servers"),
+            java.util.Map.entry("microsoft.dbformysql/flexibleservers", "MySQL Flexible Servers"),
+            java.util.Map.entry("microsoft.dbforpostgresql/servers", "PostgreSQL Servers"),
+            java.util.Map.entry("microsoft.dbforpostgresql/flexibleservers", "PostgreSQL Flexible Servers"),
+            java.util.Map.entry("microsoft.dbformariadb/servers", "MariaDB Servers"),
+            java.util.Map.entry("microsoft.batch/batchaccounts", "Batch Accounts"),
+            java.util.Map.entry("microsoft.app/containerapps", "Container Apps"),
+            java.util.Map.entry("microsoft.app/managedenvironments", "Container App Environments"),
+            java.util.Map.entry("microsoft.logic/workflows", "Logic Apps"),
+            java.util.Map.entry("microsoft.apimanagement/service", "API Management"),
+            java.util.Map.entry("microsoft.datafactory/factories", "Data Factories"),
+            java.util.Map.entry("microsoft.synapse/workspaces", "Synapse Workspaces"),
+            java.util.Map.entry("microsoft.databricks/workspaces", "Databricks Workspaces"),
+            java.util.Map.entry("microsoft.streamanalytics/streamingjobs", "Stream Analytics Jobs"),
+            java.util.Map.entry("microsoft.kusto/clusters", "Data Explorer Clusters"),
+            java.util.Map.entry("microsoft.eventgrid/topics", "Event Grid Topics"),
+            java.util.Map.entry("microsoft.eventgrid/systemtopics", "Event Grid System Topics"),
+            java.util.Map.entry("microsoft.eventgrid/domains", "Event Grid Domains"),
+            java.util.Map.entry("microsoft.cognitiveservices/accounts", "Cognitive Services"),
+            java.util.Map.entry("microsoft.machinelearningservices/workspaces", "Machine Learning Workspaces"),
+            java.util.Map.entry("microsoft.network/azurefirewalls", "Azure Firewalls"),
+            java.util.Map.entry("microsoft.network/bastionhosts", "Bastion Hosts"),
+            java.util.Map.entry("microsoft.network/frontdoors", "Front Doors"),
+            java.util.Map.entry("microsoft.cdn/afdprofiles", "Front Door / CDN Profiles"),
+            java.util.Map.entry("microsoft.network/natgateways", "NAT Gateways"),
+            java.util.Map.entry("microsoft.network/privateendpoints", "Private Endpoints"),
+            java.util.Map.entry("microsoft.network/privatednszones", "Private DNS Zones"),
+            java.util.Map.entry("microsoft.network/routetables", "Route Tables"),
+            java.util.Map.entry("microsoft.network/localnetworkgateways", "Local Network Gateways"),
+            java.util.Map.entry("microsoft.network/applicationsecuritygroups", "Application Security Groups"),
+            java.util.Map.entry("microsoft.network/frontdoorwebapplicationfirewallpolicies", "WAF Policies"),
+            java.util.Map.entry("microsoft.recoveryservices/vaults", "Recovery Services Vaults"),
+            java.util.Map.entry("microsoft.automation/automationaccounts", "Automation Accounts"),
+            java.util.Map.entry("microsoft.operationalinsights/workspaces", "Log Analytics Workspaces"),
+            java.util.Map.entry("microsoft.insights/components", "Application Insights"),
+            java.util.Map.entry("microsoft.insights/actiongroups", "Action Groups"),
+            java.util.Map.entry("microsoft.sqlvirtualmachine/sqlvirtualmachines", "SQL Virtual Machines"),
+            java.util.Map.entry("microsoft.devices/iothubs", "IoT Hubs"),
+            java.util.Map.entry("microsoft.signalrservice/signalr", "SignalR"),
+            java.util.Map.entry("microsoft.notificationhubs/namespaces", "Notification Hubs"),
+            java.util.Map.entry("microsoft.web/serverfarms", "App Service Plans"),
+            java.util.Map.entry("microsoft.web/staticsites", "Static Web Apps"),
+            java.util.Map.entry("microsoft.servicefabric/clusters", "Service Fabric Clusters"),
+            java.util.Map.entry("microsoft.appconfiguration/configurationstores", "App Configuration"),
+            java.util.Map.entry("microsoft.managedidentity/userassignedidentities", "Managed Identities"),
+            java.util.Map.entry("microsoft.compute/galleries", "Image Galleries"),
+            java.util.Map.entry("microsoft.compute/images", "VM Images"),
+            java.util.Map.entry("microsoft.netapp/netappaccounts", "NetApp Accounts")
+    );
+
     private final AzureClientProvider clientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final RedisCacheService redisCache;
@@ -147,7 +251,8 @@ public class AzureCloudListService {
                 CompletableFuture.runAsync(() -> fetchTrafficManagerProfiles(azure, accountId, allResources), executor),
                 CompletableFuture.runAsync(() -> fetchFunctionApps(azure, accountId, allResources), executor),
                 CompletableFuture.runAsync(() -> fetchCdnProfiles(azure, accountId, allResources), executor),
-                // MySQL, PostgreSQL, Batch share one generic-resources scan to avoid 3 full subscription sweeps
+                // Catch-all scan: captures every remaining resource type (MySQL, PostgreSQL, Batch,
+                // Container Apps, Logic Apps, Data Factory, etc.) so nothing is silently dropped.
                 CompletableFuture.runAsync(() -> fetchGenericResources(azure, accountId, allResources), executor),
             };
 
@@ -1103,40 +1208,74 @@ public class AzureCloudListService {
     }
 
     /**
-     * Single generic-resources scan that picks up MySQL, PostgreSQL, and Batch in one pass.
-     * Avoids 3 separate full-subscription sweeps.
+     * Single generic-resources scan that captures every resource in the subscription that is
+     * not already collected by a dedicated fetch method above. This guarantees the CloudList is
+     * complete — any Azure resource type (Container Apps, Logic Apps, Data Factory, Cognitive
+     * Services, Firewalls, etc.) is surfaced instead of being silently dropped.
+     *
+     * Types handled by dedicated fetchers ({@link #HANDLED_TYPES}) and noisy/auto-generated
+     * types ({@link #SKIP_TYPES}) are skipped to avoid duplicates and UI clutter. Well-known
+     * types get a curated display name ({@link #FRIENDLY_TYPE_NAMES}); anything else is derived
+     * from its ARM type string.
      */
     private void fetchGenericResources(AzureResourceManager azure, String accountId, List<ResourceDto> allResources) {
         try {
-            log.debug("Fetching generic resources (MySQL/PostgreSQL/Batch) for account {}", accountId);
+            log.debug("Fetching generic/catch-all resources for account {}", accountId);
+            int[] added = {0};
             azure.genericResources().list().forEach(res -> {
                 try {
                     if (res.type() == null) return;
                     String type = res.type().toLowerCase();
-                    if (type.equals("microsoft.dbformysql/servers")) {
-                        ResourceDto dto = new ResourceDto();
-                        dto.setId(res.id()); dto.setName(res.name());
-                        dto.setType("MySQL Servers"); dto.setRegion(res.regionName()); dto.setState("Active");
-                        allResources.add(dto);
-                    } else if (type.equals("microsoft.dbforpostgresql/servers")) {
-                        ResourceDto dto = new ResourceDto();
-                        dto.setId(res.id()); dto.setName(res.name());
-                        dto.setType("PostgreSQL Servers"); dto.setRegion(res.regionName()); dto.setState("Active");
-                        allResources.add(dto);
-                    } else if (type.equals("microsoft.batch/batchaccounts")) {
-                        ResourceDto dto = new ResourceDto();
-                        dto.setId(res.id()); dto.setName(res.name());
-                        dto.setType("Batch Accounts"); dto.setRegion(res.regionName()); dto.setState("Active");
-                        allResources.add(dto);
-                    }
+
+                    // Already collected by a dedicated fetch method — skip to avoid duplicates.
+                    if (HANDLED_TYPES.contains(type)) return;
+                    // Auto-generated / noisy types we don't want as their own group.
+                    if (SKIP_TYPES.contains(type)) return;
+                    // Child resources (provider/type/childType) are represented by their parent.
+                    if (type.chars().filter(c -> c == '/').count() > 1) return;
+
+                    String friendly = FRIENDLY_TYPE_NAMES.getOrDefault(type, friendlyAzureType(res.type()));
+                    ResourceDto dto = new ResourceDto();
+                    dto.setId(res.id());
+                    dto.setName(res.name());
+                    dto.setType(friendly);
+                    dto.setRegion(res.regionName() != null ? res.regionName() : "Global");
+                    dto.setState("Active");
+                    allResources.add(dto);
+                    added[0]++;
                 } catch (Exception e) {
                     log.warn("Failed to process generic resource {}: {}", res.name(), e.getMessage());
                 }
             });
-            log.debug("Generic resources scan complete for account {}", accountId);
+            log.debug("Catch-all scan added {} additional resources for account {}", added[0], accountId);
         } catch (Exception e) {
             log.error("Failed to scan generic resources: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Derives a human-readable service name from an ARM resource type string.
+     * e.g. "Microsoft.App/containerApps" -> "Container Apps".
+     */
+    private String friendlyAzureType(String armType) {
+        if (armType == null || armType.isBlank()) return "Other Resources";
+        String resourcePart = armType;
+        int slash = armType.indexOf('/');
+        if (slash >= 0 && slash < armType.length() - 1) {
+            resourcePart = armType.substring(slash + 1);
+        }
+        // Split camelCase boundaries: "containerApps" -> "container Apps"
+        String spaced = resourcePart.replaceAll("([a-z0-9])([A-Z])", "$1 $2");
+        String[] words = spaced.split("[\\s_/]+");
+        StringBuilder sb = new StringBuilder();
+        for (String w : words) {
+            if (w.isEmpty()) continue;
+            sb.append(Character.toUpperCase(w.charAt(0)));
+            if (w.length() > 1) sb.append(w.substring(1));
+            sb.append(' ');
+        }
+        String result = sb.toString().trim();
+        return result.isEmpty() ? "Other Resources" : result;
     }
 
     private void fetchCdnProfiles(AzureResourceManager azure, String accountId, List<ResourceDto> allResources) {

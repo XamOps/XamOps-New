@@ -4,7 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { useMediaOpsData, formatBytes, type MediaOpsOverview, type CreateJobRequest, type CreateStreamRequest, type ApiStorageFile } from '../hooks/useMediaOpsData';
+import { useAccounts } from '../contexts/AccountContext';
+import { useMediaOpsData, formatBytes, fetchUserS3Configs, type MediaOpsOverview, type CreateJobRequest, type CreateStreamRequest, type ApiStorageFile, type UserS3ConfigDto } from '../hooks/useMediaOpsData';
 import { SimpleMode } from '../components/mediaops/SimpleMode';
 import { AdvancedMode, type AdvancedModeState } from '../components/mediaops/AdvancedMode';
 import { useMediaOpsNotifications } from '../hooks/useMediaOpsNotifications';
@@ -436,6 +437,20 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
   const [s3PickerOpen, setS3PickerOpen] = useState(false);
   const [s3PickedFile, setS3PickedFile] = useState<import('../components/mediaops/S3PickerModal').S3PickedFile | null>(null);
   const [enableHLS, setEnableHLS] = useState(true);
+  // Output destination, encoded as a single dropdown value:
+  //   ''            → XamOps storage (default)
+  //   'cfg:<id>'    → a key-based connected bucket (user_s3_configs)
+  //   'acct:<name>' → a bucket in the sidebar-selected AWS account
+  const { awsAccounts, selectedAccountIds } = useAccounts();
+  const outputAccount = awsAccounts.find(a => selectedAccountIds.includes(a.id) && a.status === 'CONNECTED')
+    ?? awsAccounts.find(a => a.status === 'CONNECTED')
+    ?? null;
+  const outputAccountId = outputAccount?.id ?? null;
+  const [outputDest, setOutputDest] = useState<string>('');
+  const [outputConfigs, setOutputConfigs] = useState<UserS3ConfigDto[]>([]);
+  const [accountBuckets, setAccountBuckets] = useState<string[]>([]);
+  const [accountBucketsLoading, setAccountBucketsLoading] = useState(false);
+  const [accountBucketsError, setAccountBucketsError] = useState<string | null>(null);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -463,6 +478,34 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
     setTranscodeMode(mode);
     try { localStorage.setItem('transcode-mode', mode); } catch {}
   }, []);
+
+  // Load output destinations when the form opens: the key-based connected buckets
+  // AND all S3 buckets of the sidebar-selected AWS account (via its IAM role).
+  // Default stays XamOps storage.
+  useEffect(() => {
+    if (!showForm) return;
+    let cancelled = false;
+    fetchUserS3Configs()
+      .then(configs => { if (!cancelled) setOutputConfigs(configs); })
+      .catch(() => { if (!cancelled) setOutputConfigs([]); });
+    return () => { cancelled = true; };
+  }, [showForm]);
+
+  useEffect(() => {
+    if (!showForm || !outputAccountId) { setAccountBuckets([]); return; }
+    let cancelled = false;
+    setAccountBucketsLoading(true);
+    setAccountBucketsError(null);
+    fetch(`/api/s3-browser/buckets?accountId=${encodeURIComponent(outputAccountId)}`, { credentials: 'include' })
+      .then(async res => {
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Failed to load buckets (${res.status})`);
+        return res.json() as Promise<Array<{ name: string }>>;
+      })
+      .then(list => { if (!cancelled) setAccountBuckets(list.map(b => b.name)); })
+      .catch(e => { if (!cancelled) { setAccountBuckets([]); setAccountBucketsError(e.message); } })
+      .finally(() => { if (!cancelled) setAccountBucketsLoading(false); });
+    return () => { cancelled = true; };
+  }, [showForm, outputAccountId]);
 
   // Paused jobs stay visible under the Processing filter — they're still active work.
   const filtered = filterStatus === 'all'
@@ -552,6 +595,16 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
         watermarkImagePath = uploadedWatermark.filePath;
       }
 
+      // Map the encoded output-destination selection onto the request.
+      const applyOutputDest = (req: CreateJobRequest) => {
+        if (outputDest.startsWith('cfg:')) {
+          req.outputS3ConfigId = Number(outputDest.slice(4));
+        } else if (outputDest.startsWith('acct:') && outputAccountId) {
+          req.outputAccountId = outputAccountId;
+          req.outputBucket = outputDest.slice(5);
+        }
+      };
+
       const buildRequest = (fmt: string, res: string, jobPriority: 'HIGH' | 'NORMAL' | 'LOW'): CreateJobRequest => {
         const req: CreateJobRequest = {
           sourceUrl: finalSourceUrl,
@@ -562,6 +615,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
         if (bitrate.trim()) req.bitrate = bitrate.trim();
         req.encodingSpeed = encodingSpeed;
         if (jobPriority !== 'NORMAL') req.priority = jobPriority;
+        applyOutputDest(req);
 
         if (advancedState) {
           if (advancedState.presetId) req.presetId = advancedState.presetId;
@@ -635,6 +689,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
           };
           if (bitrate.trim()) bundleReq.bitrate = bitrate.trim();
           bundleReq.encodingSpeed = encodingSpeed;
+          applyOutputDest(bundleReq);
           await onCreateJob(bundleReq);
         }
       }
@@ -652,7 +707,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
     } finally {
       setSubmitLoading(false);
     }
-  }, [canSubmit, sourceMode, sourceUrl, localFile, outputFmts, resolutions, enableHLS, generateAdaptiveBundle, priorityFormat, bitrate, encodingSpeed, onCreateJob, onUploadFile]);
+  }, [canSubmit, sourceMode, sourceUrl, localFile, outputFmts, resolutions, enableHLS, generateAdaptiveBundle, priorityFormat, bitrate, encodingSpeed, outputDest, outputAccountId, onCreateJob, onUploadFile]);
 
   const handleCancel = useCallback(() => {
     setShowForm(false);
@@ -799,6 +854,54 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
 
             {/* Body */}
             <div className="p-5">
+              {/* Output destination — where the transcoded files are stored */}
+              <div className="mb-5 rounded-xl border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.015)] p-3.5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Icon icon="mdi:cloud-upload-outline" className="text-[15px] text-[rgba(0,0,0,0.55)]" />
+                  <span className="text-[12px] font-bold text-[rgba(0,0,0,0.72)]">Store output in</span>
+                </div>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <div className="relative flex-1 min-w-[220px]">
+                    <select
+                      value={outputDest}
+                      onChange={e => setOutputDest(e.target.value)}
+                      className="w-full appearance-none rounded-lg border border-[rgba(0,0,0,0.12)] bg-white pl-3 pr-9 py-2 text-[12.5px] font-medium text-[rgba(0,0,0,0.82)] outline-none focus:border-[rgba(0,0,0,0.4)] transition-colors">
+                      <option value="">XamOps storage (default)</option>
+                      {outputAccount && (
+                        <optgroup label={`${outputAccount.name} (${outputAccount.id})`}>
+                          {accountBucketsLoading && <option disabled>Loading buckets…</option>}
+                          {!accountBucketsLoading && accountBuckets.length === 0 && (
+                            <option disabled>{accountBucketsError ? 'Could not load buckets' : 'No buckets found'}</option>
+                          )}
+                          {accountBuckets.map(b => (
+                            <option key={`acct:${b}`} value={`acct:${b}`}>{b}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {outputConfigs.length > 0 && (
+                        <optgroup label="Connected buckets (access keys)">
+                          {outputConfigs.map(c => (
+                            <option key={`cfg:${c.id}`} value={`cfg:${c.id}`}>
+                              {c.nickname} — {c.bucketName} ({c.region})
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                    <Icon icon="mdi:chevron-down" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[16px] text-[rgba(0,0,0,0.4)]" />
+                  </div>
+                </div>
+                <p className="mt-2 text-[11px] leading-snug text-[rgba(0,0,0,0.42)]">
+                  {outputDest.startsWith('acct:')
+                    ? `Transcoded files are written to this bucket in account ${outputAccount?.id} using its connected role. The bucket stays private — playback & download stream securely through XamOps.`
+                    : outputDest.startsWith('cfg:')
+                      ? 'Transcoded files are uploaded to your connected bucket. The bucket stays private — playback and download stream securely through XamOps.'
+                      : outputAccount
+                        ? `Files are stored in XamOps storage. Pick a bucket from ${outputAccount.name} to keep output in your own AWS account.`
+                        : 'Files are stored in XamOps storage. Select an AWS account in the sidebar to store output in your own account.'}
+                </p>
+              </div>
+
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div key={transcodeMode}
                   initial={{ opacity: 0, x: transcodeMode === 'simple' ? -10 : 10 }}

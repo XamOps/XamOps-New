@@ -82,11 +82,20 @@ public class TranscodeJobDto {
         dto.outputSizeBytes = j.getOutputSizeBytes();
         dto.durationSeconds = j.getDurationSeconds();
         dto.outputPath = j.getOutputPath();
-        if (j.getOutputPath() != null || j.getOutputUrl() != null) {
-            // S3 URL takes priority; fall back to local /media/ path
-            String base = j.getOutputUrl() != null
-                    ? j.getOutputUrl()
-                    : "/media/jobs/" + j.getId();
+        if (j.getOutputPath() != null || j.getOutputUrl() != null || j.getOutputBucketPrefix() != null) {
+            // Output stored in the customer's own (private) bucket → serve every file
+            // through the backend playback proxy. Otherwise: our public S3 URL if set,
+            // else the local /media/ file server.
+            String base;
+            boolean customerBucket = j.getOutputBucketPrefix() != null
+                    && (j.getOutputS3ConfigId() != null || j.getOutputAccountId() != null);
+            if (customerBucket) {
+                base = "/api/media-ops/jobs/" + j.getId() + "/play";
+            } else if (j.getOutputUrl() != null) {
+                base = j.getOutputUrl();
+            } else {
+                base = "/media/jobs/" + j.getId();
+            }
             if (j.getOutputFormat() == TranscodeJob.OutputFormat.HLS) {
                 dto.hlsUrl = base + (j.isEnableAdaptive() ? "/master.m3u8" : "/index.m3u8");
             } else if (j.getOutputFormat() == TranscodeJob.OutputFormat.DASH) {

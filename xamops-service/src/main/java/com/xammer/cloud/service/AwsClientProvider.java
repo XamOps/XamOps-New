@@ -73,6 +73,13 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.wafv2.Wafv2Client;
 import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
+import software.amazon.awssdk.services.redshift.RedshiftClient;
+import software.amazon.awssdk.services.docdb.DocDbClient;
+import software.amazon.awssdk.services.neptune.NeptuneClient;
+import software.amazon.awssdk.services.memorydb.MemoryDbClient;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.opensearch.OpenSearchClient;
+import software.amazon.awssdk.services.kafka.KafkaClient;
 
 @Service
 public class AwsClientProvider {
@@ -526,5 +533,33 @@ public class AwsClientProvider {
                 .credentialsProvider(getCredentialsProvider(account))
                 .region(Region.of(region))
                 .build();
+    }
+
+    public RedshiftClient getRedshiftClient(CloudAccount account, String region) {
+        return getClient(RedshiftClient.class, RedshiftClient.builder(), account, region);
+    }
+
+    public DocDbClient getDocDbClient(CloudAccount account, String region) {
+        return getClient(DocDbClient.class, DocDbClient.builder(), account, region);
+    }
+
+    public NeptuneClient getNeptuneClient(CloudAccount account, String region) {
+        return getClient(NeptuneClient.class, NeptuneClient.builder(), account, region);
+    }
+
+    public MemoryDbClient getMemoryDbClient(CloudAccount account, String region) {
+        return getClient(MemoryDbClient.class, MemoryDbClient.builder(), account, region);
+    }
+
+    public SecretsManagerClient getSecretsManagerClient(CloudAccount account, String region) {
+        return getClient(SecretsManagerClient.class, SecretsManagerClient.builder(), account, region);
+    }
+
+    public OpenSearchClient getOpenSearchClient(CloudAccount account, String region) {
+        return getClient(OpenSearchClient.class, OpenSearchClient.builder(), account, region);
+    }
+
+    public KafkaClient getKafkaClient(CloudAccount account, String region) {
+        return getClient(KafkaClient.class, KafkaClient.builder(), account, region);
     }
 }

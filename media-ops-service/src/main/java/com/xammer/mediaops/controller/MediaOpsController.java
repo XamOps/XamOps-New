@@ -11,7 +11,9 @@ import com.xammer.mediaops.service.MediaStreamService;
 import com.xammer.mediaops.service.PresetService;
 import com.xammer.mediaops.service.PriorityQueueService;
 import com.xammer.mediaops.service.SchedulerService;
+import com.xammer.mediaops.service.AccountS3Service;
 import com.xammer.mediaops.service.TranscodeJobService;
+import com.xammer.mediaops.service.UserS3Service;
 import com.xammer.mediaops.validation.TranscodeJobValidator;
 import com.xammer.mediaops.validation.ValidationException;
 import org.springframework.http.ResponseEntity;
@@ -20,13 +22,17 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -42,6 +48,8 @@ public class MediaOpsController {
     private final SchedulerService schedulerService;
     private final PresetService presetService;
     private final TranscodeJobValidator transcodeJobValidator;
+    private final UserS3Service userS3Service;
+    private final AccountS3Service accountS3Service;
 
     public MediaOpsController(TranscodeJobService jobService,
                               MediaStreamService streamService,
@@ -50,7 +58,9 @@ public class MediaOpsController {
                               PriorityQueueService priorityQueueService,
                               SchedulerService schedulerService,
                               PresetService presetService,
-                              TranscodeJobValidator transcodeJobValidator) {
+                              TranscodeJobValidator transcodeJobValidator,
+                              UserS3Service userS3Service,
+                              AccountS3Service accountS3Service) {
         this.jobService = jobService;
         this.streamService = streamService;
         this.storageService = storageService;
@@ -59,6 +69,8 @@ public class MediaOpsController {
         this.schedulerService = schedulerService;
         this.presetService = presetService;
         this.transcodeJobValidator = transcodeJobValidator;
+        this.userS3Service = userS3Service;
+        this.accountS3Service = accountS3Service;
     }
 
     // ─── Overview ──────────────────────────────────────────────────────────────
@@ -117,6 +129,36 @@ public class MediaOpsController {
                     "error", e.getErrorCode(),
                     "message", e.getMessage()
             ));
+        }
+
+        // Step 2b: If a customer S3 output destination was chosen, confirm it belongs
+        // to this client and is writable — fail fast with a clear message rather than
+        // letting the job break at upload time after transcoding.
+        if (req.getOutputS3ConfigId() != null) {
+            try {
+                userS3Service.verifyWritable(req.getOutputS3ConfigId(), clientId);
+            } catch (NoSuchElementException e) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "error", "output-bucket-not-found",
+                        "message", "Selected S3 output destination was not found."));
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "error", "output-bucket-not-writable",
+                        "message", e.getMessage()));
+            }
+        } else if (req.getOutputAccountId() != null && !req.getOutputAccountId().isBlank()
+                && req.getOutputBucket() != null && !req.getOutputBucket().isBlank()) {
+            try {
+                accountS3Service.verifyWritable(req.getOutputAccountId(), clientId, req.getOutputBucket());
+            } catch (NoSuchElementException e) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "error", "output-account-not-found",
+                        "message", "Selected AWS account is not connected for this workspace."));
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "error", "output-bucket-not-writable",
+                        "message", e.getMessage()));
+            }
         }
 
         // Step 3: Create the job (maps all advanced fields)
@@ -178,6 +220,42 @@ public class MediaOpsController {
         response.setHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
         jobService.writeJobArchive(job, response.getOutputStream());
         response.flushBuffer();
+    }
+
+    /**
+     * Playback proxy for jobs whose output is stored in a customer's own (private)
+     * S3 bucket. Streams each requested file — HLS/DASH manifest, media segments,
+     * a progressive MP4/WebM, thumbnails — through the backend with Range support,
+     * so every output format plays without the customer bucket ever being public.
+     * The wildcard path after {@code /play/} is the file's path relative to the
+     * job's output prefix (e.g. {@code index.m3u8}, {@code segment0.ts}).
+     */
+    @GetMapping("/jobs/{id}/play/**")
+    public void playOutput(@PathVariable Long id, HttpServletRequest request,
+                           HttpServletResponse response, HttpSession session) throws IOException {
+        Long clientId = resolveClientId(session);
+        if (clientId == null) { response.setStatus(HttpServletResponse.SC_UNAUTHORIZED); return; }
+
+        Optional<TranscodeJob> opt = jobService.getJob(id, clientId);
+        if (opt.isEmpty()) { response.setStatus(HttpServletResponse.SC_NOT_FOUND); return; }
+
+        // Everything after "/jobs/{id}/play/" is the object path relative to the prefix.
+        String marker = "/jobs/" + id + "/play/";
+        String uri = request.getRequestURI();
+        int idx = uri.indexOf(marker);
+        String relative = idx >= 0 ? uri.substring(idx + marker.length()) : "";
+        relative = URLDecoder.decode(relative, StandardCharsets.UTF_8);
+        // Reject path traversal and absolute paths.
+        if (relative.isBlank() || relative.contains("..") || relative.startsWith("/")) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+
+        try {
+            jobService.streamOutputObject(opt.get(), relative, request.getHeader("Range"), response);
+        } catch (NoSuchElementException e) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        }
     }
 
     @PostMapping("/jobs/{id}/retry")

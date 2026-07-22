@@ -547,6 +547,64 @@ public class GcpDataService {
         return dto;
     }
 
+    private GcpResourceDto mapDiskToDto(com.google.cloud.compute.v1.Disk disk) {
+        GcpResourceDto dto = new GcpResourceDto();
+        dto.setId(String.valueOf(disk.getId()));
+        dto.setName(disk.getName());
+        dto.setType("Persistent Disk");
+        // Zonal disks have getZone(); regional disks have getRegion(). One is set.
+        String scopeUrl = !disk.getZone().isEmpty() ? disk.getZone() : disk.getRegion();
+        dto.setLocation(scopeUrl.isEmpty() ? "unknown" : scopeUrl.substring(scopeUrl.lastIndexOf('/') + 1));
+        dto.setStatus(disk.getStatus());
+        return dto;
+    }
+
+    private GcpResourceDto mapSnapshotToDto(com.google.cloud.compute.v1.Snapshot snapshot) {
+        GcpResourceDto dto = new GcpResourceDto();
+        dto.setId(String.valueOf(snapshot.getId()));
+        dto.setName(snapshot.getName());
+        dto.setType("Disk Snapshot");
+        dto.setLocation("global");
+        dto.setStatus(snapshot.getStatus());
+        return dto;
+    }
+
+    private GcpResourceDto mapImageToDto(com.google.cloud.compute.v1.Image image) {
+        GcpResourceDto dto = new GcpResourceDto();
+        dto.setId(String.valueOf(image.getId()));
+        dto.setName(image.getName());
+        dto.setType("Compute Image");
+        dto.setLocation("global");
+        dto.setStatus(image.getStatus());
+        return dto;
+    }
+
+    private GcpResourceDto mapCloudRunServiceToDto(com.google.cloud.run.v2.Service service) {
+        GcpResourceDto dto = new GcpResourceDto();
+        // name: projects/{p}/locations/{loc}/services/{svc}
+        String[] nameParts = service.getName().split("/");
+        dto.setId(service.getName());
+        dto.setName(nameParts[nameParts.length - 1]);
+        dto.setType("Cloud Run");
+        dto.setLocation(nameParts.length >= 4 ? nameParts[3] : "unknown");
+        dto.setStatus(service.getTerminalCondition().getState().name());
+        return dto;
+    }
+
+    private GcpResourceDto mapRedisInstanceToDto(com.google.cloud.redis.v1.Instance instance) {
+        GcpResourceDto dto = new GcpResourceDto();
+        // name: projects/{p}/locations/{loc}/instances/{id}
+        String[] nameParts = instance.getName().split("/");
+        dto.setId(instance.getName());
+        dto.setName(instance.getDisplayName() != null && !instance.getDisplayName().isEmpty()
+                ? instance.getDisplayName()
+                : nameParts[nameParts.length - 1]);
+        dto.setType("Memorystore Redis");
+        dto.setLocation(nameParts.length >= 4 ? nameParts[3] : instance.getLocationId());
+        dto.setStatus(instance.getState().name());
+        return dto;
+    }
+
     // --- ADDED MISSING MAPPER METHODS ---
     private GcpResourceDto mapApiGatewayToDto(Api api) {
         GcpResourceDto dto = new GcpResourceDto();
@@ -621,6 +679,11 @@ public class GcpDataService {
 
         List<CompletableFuture<List<GcpResourceDto>>> futures = List.of(
                 CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getPersistentDisks(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getDiskSnapshots(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getComputeImages(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getCloudRunServices(gcpProjectId, forceRefresh), backgroundTaskExecutor),
+                CompletableFuture.supplyAsync(() -> getMemorystoreRedis(gcpProjectId, forceRefresh), backgroundTaskExecutor),
                 CompletableFuture.supplyAsync(() -> getStorageBuckets(gcpProjectId, forceRefresh), backgroundTaskExecutor),
                 CompletableFuture.supplyAsync(() -> getGkeClusters(gcpProjectId, forceRefresh), backgroundTaskExecutor),
                 CompletableFuture.supplyAsync(() -> getCloudSqlInstances(gcpProjectId, forceRefresh), backgroundTaskExecutor),
@@ -1377,6 +1440,97 @@ public class GcpDataService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Error fetching Cloud Armor policies for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+
+    private List<GcpResourceDto> getPersistentDisks(String gcpProjectId, boolean forceRefresh) {
+        log.info("Fetching Persistent Disks for project: {}", gcpProjectId);
+        Optional<com.google.cloud.compute.v1.DisksClient> clientOpt = gcpClientProvider.getDisksClient(gcpProjectId);
+        if (clientOpt.isEmpty())
+            return List.of();
+        try (com.google.cloud.compute.v1.DisksClient client = clientOpt.get()) {
+            return StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
+                    .flatMap(entry -> entry.getValue().getDisksList().stream())
+                    .map(this::mapDiskToDto)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching Persistent Disks for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+
+    private List<GcpResourceDto> getDiskSnapshots(String gcpProjectId, boolean forceRefresh) {
+        log.info("Fetching Disk Snapshots for project: {}", gcpProjectId);
+        Optional<com.google.cloud.compute.v1.SnapshotsClient> clientOpt = gcpClientProvider
+                .getSnapshotsClient(gcpProjectId);
+        if (clientOpt.isEmpty())
+            return List.of();
+        try (com.google.cloud.compute.v1.SnapshotsClient client = clientOpt.get()) {
+            return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
+                    .map(this::mapSnapshotToDto)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching Disk Snapshots for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+
+    private List<GcpResourceDto> getComputeImages(String gcpProjectId, boolean forceRefresh) {
+        log.info("Fetching Compute Images for project: {}", gcpProjectId);
+        Optional<com.google.cloud.compute.v1.ImagesClient> clientOpt = gcpClientProvider.getImagesClient(gcpProjectId);
+        if (clientOpt.isEmpty())
+            return List.of();
+        // images.list scoped to a project returns only that project's custom images.
+        try (com.google.cloud.compute.v1.ImagesClient client = clientOpt.get()) {
+            return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
+                    .map(this::mapImageToDto)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching Compute Images for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+
+    private List<GcpResourceDto> getCloudRunServices(String gcpProjectId, boolean forceRefresh) {
+        log.info("Fetching Cloud Run services for project: {}", gcpProjectId);
+        Optional<com.google.cloud.run.v2.ServicesClient> clientOpt = gcpClientProvider
+                .getCloudRunServicesClient(gcpProjectId);
+        if (clientOpt.isEmpty())
+            return List.of();
+        // Cloud Run's ListServices does not accept a "-" location wildcard, so iterate regions.
+        try (com.google.cloud.run.v2.ServicesClient client = clientOpt.get()) {
+            return getAllKnownRegions().stream()
+                    .flatMap(region -> {
+                        try {
+                            String parent = "projects/" + gcpProjectId + "/locations/" + region;
+                            return StreamSupport.stream(client.listServices(parent).iterateAll().spliterator(), false)
+                                    .map(this::mapCloudRunServiceToDto);
+                        } catch (Exception e) {
+                            log.warn("Could not fetch Cloud Run services for region {}: {}", region, e.getMessage());
+                            return Stream.empty();
+                        }
+                    })
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching Cloud Run services for project: {}", gcpProjectId, e);
+            return List.of();
+        }
+    }
+
+    private List<GcpResourceDto> getMemorystoreRedis(String gcpProjectId, boolean forceRefresh) {
+        log.info("Fetching Memorystore Redis instances for project: {}", gcpProjectId);
+        Optional<com.google.cloud.redis.v1.CloudRedisClient> clientOpt = gcpClientProvider
+                .getCloudRedisClient(gcpProjectId);
+        if (clientOpt.isEmpty())
+            return List.of();
+        try (com.google.cloud.redis.v1.CloudRedisClient client = clientOpt.get()) {
+            String parent = "projects/" + gcpProjectId + "/locations/-";
+            return StreamSupport.stream(client.listInstances(parent).iterateAll().spliterator(), false)
+                    .map(this::mapRedisInstanceToDto)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Error fetching Memorystore Redis instances for project: {}", gcpProjectId, e);
             return List.of();
         }
     }

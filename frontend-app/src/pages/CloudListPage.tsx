@@ -607,7 +607,11 @@ const CloudListPage: React.FC = () => {
       'Organization Account': 'organizations.png',
       'Control Tower Control': 'controltower.png',
       'Elastic Beanstalk Environment': 'elasticbeanstalk.png',
-      'API Gateway': 'api-gateway.png'
+      'API Gateway': 'api-gateway.png',
+      // Tier 1 additions — only map types whose icon file exists in /public/icons;
+      // the rest intentionally fall back to default-icon.png below.
+      'WAF': 'waf.png',
+      'RDS Cluster (Aurora)': 'rds-instance.png'
     };
     return iconMap[serviceType] || 'default-icon.png';
   };

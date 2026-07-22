@@ -90,6 +90,13 @@ import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.ssm.model.DescribeInstanceInformationRequest;
 import software.amazon.awssdk.services.wafv2.Wafv2Client;
 import software.amazon.awssdk.services.wafv2.model.ListWebAcLsRequest;
+import software.amazon.awssdk.services.redshift.RedshiftClient;
+import software.amazon.awssdk.services.docdb.DocDbClient;
+import software.amazon.awssdk.services.neptune.NeptuneClient;
+import software.amazon.awssdk.services.memorydb.MemoryDbClient;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.opensearch.OpenSearchClient;
+import software.amazon.awssdk.services.kafka.KafkaClient;
 
 import java.io.IOException;
 import java.net.URL;
@@ -511,7 +518,17 @@ public class CloudListService {
                     fetchCodePipelinesForCloudlist(account, activeRegions),
                     fetchKinesisStreamsForCloudlist(account, activeRegions),
                     fetchEventBridgeBusesForCloudlist(account, activeRegions),
-                    fetchDataZoneDomainsForCloudlist(account, activeRegions)));
+                    fetchDataZoneDomainsForCloudlist(account, activeRegions),
+                    fetchEcsClustersForCloudlist(account, activeRegions),
+                    fetchWafWebAclsForCloudlist(account, activeRegions),
+                    fetchAuroraClustersForCloudlist(account, activeRegions),
+                    fetchRedshiftClustersForCloudlist(account, activeRegions),
+                    fetchDocumentDbClustersForCloudlist(account, activeRegions),
+                    fetchNeptuneClustersForCloudlist(account, activeRegions),
+                    fetchMemoryDbClustersForCloudlist(account, activeRegions),
+                    fetchSecretsManagerForCloudlist(account, activeRegions),
+                    fetchOpenSearchDomainsForCloudlist(account, activeRegions),
+                    fetchMskClustersForCloudlist(account, activeRegions)));
 
             List<CompletableFuture<List<ResourceDto>>> safeResourceFutures = resourceFutures.stream()
                     .map(future -> future.exceptionally(ex -> {
@@ -1629,6 +1646,132 @@ public class CloudListService {
                 return Collections.emptyList();
             }
         }, "DataZone Domains");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchEcsClustersForCloudlist(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            EcsClient ecs = awsClientProvider.getEcsClient(account, regionId);
+            List<String> clusterArns = ecs.listClusters().clusterArns();
+            if (clusterArns.isEmpty()) {
+                return Collections.<ResourceDto>emptyList();
+            }
+            return ecs.describeClusters(b -> b.clusters(clusterArns)).clusters().stream()
+                    .map(c -> new ResourceDto(c.clusterArn(), c.clusterName(), "ECS Cluster",
+                            getRegionFromArn(c.clusterArn()), c.status(), null,
+                            Map.of("Running Tasks", String.valueOf(c.runningTasksCount()),
+                                    "Active Services", String.valueOf(c.activeServicesCount()),
+                                    "Container Instances", String.valueOf(c.registeredContainerInstancesCount()))))
+                    .collect(Collectors.toList());
+        }, "ECS Clusters");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchAuroraClustersForCloudlist(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            RdsClient rds = awsClientProvider.getRdsClient(account, regionId);
+            return rds.describeDBClusters().dbClusters().stream()
+                    .map(c -> new ResourceDto(c.dbClusterIdentifier(), c.dbClusterIdentifier(), "RDS Cluster (Aurora)",
+                            regionId, c.status(), c.clusterCreateTime(),
+                            Map.of("Engine", c.engine() + " " + (c.engineVersion() != null ? c.engineVersion() : ""),
+                                    "Members", String.valueOf(c.dbClusterMembers().size()),
+                                    "Multi-AZ", String.valueOf(c.multiAZ()))))
+                    .collect(Collectors.toList());
+        }, "RDS Clusters (Aurora)");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchRedshiftClustersForCloudlist(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            RedshiftClient redshift = awsClientProvider.getRedshiftClient(account, regionId);
+            return redshift.describeClusters().clusters().stream()
+                    .map(c -> new ResourceDto(c.clusterIdentifier(), c.clusterIdentifier(), "Redshift Cluster",
+                            c.availabilityZone() != null ? c.availabilityZone().replaceAll(".$", "") : regionId,
+                            c.clusterStatus(), c.clusterCreateTime(),
+                            Map.of("Node Type", c.nodeType() != null ? c.nodeType() : "N/A",
+                                    "Nodes", String.valueOf(c.numberOfNodes()),
+                                    "DB Name", c.dbName() != null ? c.dbName() : "N/A")))
+                    .collect(Collectors.toList());
+        }, "Redshift Clusters");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchDocumentDbClustersForCloudlist(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            DocDbClient docdb = awsClientProvider.getDocDbClient(account, regionId);
+            return docdb.describeDBClusters().dbClusters().stream()
+                    .filter(c -> c.engine() != null && c.engine().contains("docdb"))
+                    .map(c -> new ResourceDto(c.dbClusterIdentifier(), c.dbClusterIdentifier(), "DocumentDB Cluster",
+                            regionId, c.status(), c.clusterCreateTime(),
+                            Map.of("Engine", c.engine() + " " + (c.engineVersion() != null ? c.engineVersion() : ""),
+                                    "Members", String.valueOf(c.dbClusterMembers().size()))))
+                    .collect(Collectors.toList());
+        }, "DocumentDB Clusters");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchNeptuneClustersForCloudlist(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            NeptuneClient neptune = awsClientProvider.getNeptuneClient(account, regionId);
+            return neptune.describeDBClusters().dbClusters().stream()
+                    .filter(c -> c.engine() != null && c.engine().contains("neptune"))
+                    .map(c -> new ResourceDto(c.dbClusterIdentifier(), c.dbClusterIdentifier(), "Neptune Cluster",
+                            regionId, c.status(), c.clusterCreateTime(),
+                            Map.of("Engine", c.engine() + " " + (c.engineVersion() != null ? c.engineVersion() : ""),
+                                    "Members", String.valueOf(c.dbClusterMembers().size()))))
+                    .collect(Collectors.toList());
+        }, "Neptune Clusters");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchMemoryDbClustersForCloudlist(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            MemoryDbClient memorydb = awsClientProvider.getMemoryDbClient(account, regionId);
+            return memorydb.describeClusters(b -> {}).clusters().stream()
+                    .map(c -> new ResourceDto(c.arn() != null ? c.arn() : c.name(), c.name(), "MemoryDB Cluster",
+                            regionId, c.status(), null,
+                            Map.of("Node Type", c.nodeType() != null ? c.nodeType() : "N/A",
+                                    "Shards", String.valueOf(c.numberOfShards()))))
+                    .collect(Collectors.toList());
+        }, "MemoryDB Clusters");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchSecretsManagerForCloudlist(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            SecretsManagerClient sm = awsClientProvider.getSecretsManagerClient(account, regionId);
+            return sm.listSecrets().secretList().stream()
+                    .map(s -> new ResourceDto(s.arn(), s.name(), "Secrets Manager Secret",
+                            getRegionFromArn(s.arn()), "Active", s.createdDate(),
+                            Map.of("Last Changed",
+                                    s.lastChangedDate() != null ? s.lastChangedDate().toString() : "N/A")))
+                    .collect(Collectors.toList());
+        }, "Secrets Manager Secrets");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchOpenSearchDomainsForCloudlist(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            OpenSearchClient os = awsClientProvider.getOpenSearchClient(account, regionId);
+            return os.listDomainNames(b -> {}).domainNames().stream()
+                    .map(d -> new ResourceDto(d.domainName(), d.domainName(), "OpenSearch Domain",
+                            regionId, "Active", null,
+                            Map.of("Engine Type",
+                                    d.engineTypeAsString() != null ? d.engineTypeAsString() : "OpenSearch")))
+                    .collect(Collectors.toList());
+        }, "OpenSearch Domains");
+    }
+
+    private CompletableFuture<List<ResourceDto>> fetchMskClustersForCloudlist(CloudAccount account,
+            List<DashboardData.RegionStatus> activeRegions) {
+        return fetchAllRegionalResources(account, activeRegions, regionId -> {
+            KafkaClient kafka = awsClientProvider.getKafkaClient(account, regionId);
+            return kafka.listClustersV2(b -> {}).clusterInfoList().stream()
+                    .map(c -> new ResourceDto(c.clusterArn(), c.clusterName(), "MSK Cluster",
+                            getRegionFromArn(c.clusterArn()), c.stateAsString(), c.creationTime(),
+                            Map.of("Type", c.clusterTypeAsString() != null ? c.clusterTypeAsString() : "N/A")))
+                    .collect(Collectors.toList());
+        }, "MSK Clusters");
     }
 
     /**

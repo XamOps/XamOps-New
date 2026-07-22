@@ -30,6 +30,8 @@ public class TranscodeJobService {
     private final MediaStorageFileRepository fileRepo;
     private final FFmpegService ffmpegService;
     private final S3StorageService s3Storage;
+    private final UserS3Service userS3Service;
+    private final AccountS3Service accountS3Service;
     private final SimpMessagingTemplate messaging;
     private final NotificationService notificationService;
 
@@ -37,12 +39,16 @@ public class TranscodeJobService {
                                MediaStorageFileRepository fileRepo,
                                FFmpegService ffmpegService,
                                S3StorageService s3Storage,
+                               UserS3Service userS3Service,
+                               AccountS3Service accountS3Service,
                                SimpMessagingTemplate messaging,
                                NotificationService notificationService) {
         this.jobRepo = jobRepo;
         this.fileRepo = fileRepo;
         this.ffmpegService = ffmpegService;
         this.s3Storage = s3Storage;
+        this.userS3Service = userS3Service;
+        this.accountS3Service = accountS3Service;
         this.messaging = messaging;
         this.notificationService = notificationService;
     }
@@ -127,6 +133,17 @@ public class TranscodeJobService {
         job.setCustomFfmpegParams(req.getCustomFfmpegParams());
         job.setEncryptionEnabled(req.isEncryptionEnabled());
 
+        // Optional customer-owned S3 output destination (validated in the controller).
+        // Either a key-based connection (outputS3ConfigId) or a bucket in the
+        // customer's connected AWS account (outputAccountId + outputBucket).
+        job.setOutputS3ConfigId(req.getOutputS3ConfigId());
+        if (req.getOutputS3ConfigId() == null
+                && req.getOutputAccountId() != null && !req.getOutputAccountId().isBlank()
+                && req.getOutputBucket() != null && !req.getOutputBucket().isBlank()) {
+            job.setOutputAccountId(req.getOutputAccountId());
+            job.setOutputBucket(req.getOutputBucket());
+        }
+
         job.setStatus(TranscodeJob.JobStatus.QUEUED);
         return jobRepo.save(job);
     }
@@ -173,7 +190,36 @@ public class TranscodeJobService {
                 }
             }
 
-            if (s3Storage.isEnabled() && job.getOutputPath() != null) {
+            if (job.getOutputS3ConfigId() != null && job.getOutputPath() != null) {
+                // Customer chose a key-based connected bucket. Upload there
+                // (bucket stays private; playback/download go through the backend proxy).
+                try {
+                    String prefix = UserS3Service.outputPrefixForJob(job.getId());
+                    userS3Service.uploadDirectory(job.getOutputS3ConfigId(), job.getClientId(),
+                            Paths.get(job.getOutputPath()), prefix);
+                    job.setOutputBucketPrefix(prefix);
+                    log.info("[MediaOps] Job {} output stored in customer bucket (config {}) under {}",
+                            job.getId(), job.getOutputS3ConfigId(), prefix);
+                } catch (Exception e) {
+                    log.error("[MediaOps] Customer-bucket upload failed for job {}: {}", job.getId(), e.getMessage());
+                    job.setErrorMessage("Output upload to your S3 bucket failed: " + e.getMessage());
+                }
+            } else if (job.getOutputAccountId() != null && job.getOutputBucket() != null && job.getOutputPath() != null) {
+                // Customer chose a bucket in their connected AWS account. Upload via the
+                // account's assumed IAM role; bucket stays private (proxy playback/download).
+                try {
+                    String prefix = AccountS3Service.outputPrefixForJob(job.getId());
+                    String region = accountS3Service.uploadDirectory(job.getOutputAccountId(), job.getClientId(),
+                            job.getOutputBucket(), Paths.get(job.getOutputPath()), prefix);
+                    job.setOutputBucketPrefix(prefix);
+                    job.setOutputRegion(region);
+                    log.info("[MediaOps] Job {} output stored in account {} bucket {} under {}",
+                            job.getId(), job.getOutputAccountId(), job.getOutputBucket(), prefix);
+                } catch (Exception e) {
+                    log.error("[MediaOps] Account-bucket upload failed for job {}: {}", job.getId(), e.getMessage());
+                    job.setErrorMessage("Output upload to your account bucket failed: " + e.getMessage());
+                }
+            } else if (s3Storage.isEnabled() && job.getOutputPath() != null) {
                 try {
                     String s3Url = s3Storage.uploadJobOutput(job.getId(), Paths.get(job.getOutputPath()));
                     log.info("[MediaOps] Job {} backed up to S3: {}", job.getId(), s3Url);
@@ -231,7 +277,32 @@ public class TranscodeJobService {
                 } catch (java.io.IOException ignored) { }
             }
         }
+        // Output stored in a customer bucket is downloadable via the proxy/archive.
+        if (job.getOutputBucketPrefix() != null
+                && (job.getOutputS3ConfigId() != null || job.getOutputAccountId() != null)) return true;
         return !s3Storage.listJobKeys(job.getId()).isEmpty();
+    }
+
+    /**
+     * Stream one output file of a customer-bucket job (by its path relative to the
+     * job's output prefix) to the HTTP response, with Range support. Backs the
+     * {@code GET /jobs/{id}/play/**} playback proxy.
+     */
+    public void streamOutputObject(TranscodeJob job, String relativePath, String rangeHeader,
+                                   javax.servlet.http.HttpServletResponse response) throws java.io.IOException {
+        if (job.getOutputBucketPrefix() == null) {
+            response.setStatus(javax.servlet.http.HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+        String key = job.getOutputBucketPrefix() + "/" + relativePath;
+        if (job.getOutputS3ConfigId() != null) {
+            userS3Service.streamObject(job.getOutputS3ConfigId(), job.getClientId(), key, rangeHeader, response);
+        } else if (job.getOutputAccountId() != null && job.getOutputBucket() != null) {
+            accountS3Service.streamObject(job.getOutputAccountId(), job.getClientId(), job.getOutputBucket(),
+                    job.getOutputRegion(), key, rangeHeader, response);
+        } else {
+            response.setStatus(javax.servlet.http.HttpServletResponse.SC_NOT_FOUND);
+        }
     }
 
     /**
@@ -261,7 +332,24 @@ public class TranscodeJobService {
                 }
             }
 
-            // Fall back to S3 when nothing was found locally.
+            // Fall back to the customer bucket when the output lives there and no
+            // local copies remain (e.g. after cleanup on a production host).
+            if (!wroteAnything && job.getOutputBucketPrefix() != null) {
+                try {
+                    if (job.getOutputS3ConfigId() != null) {
+                        wroteAnything = userS3Service.writeObjectsUnderPrefix(
+                                job.getOutputS3ConfigId(), job.getClientId(), job.getOutputBucketPrefix(), zip);
+                    } else if (job.getOutputAccountId() != null && job.getOutputBucket() != null) {
+                        wroteAnything = accountS3Service.writeObjectsUnderPrefix(
+                                job.getOutputAccountId(), job.getClientId(), job.getOutputBucket(),
+                                job.getOutputRegion(), job.getOutputBucketPrefix(), zip);
+                    }
+                } catch (Exception e) {
+                    log.warn("[MediaOps] Archive from customer bucket failed for job {}: {}", job.getId(), e.getMessage());
+                }
+            }
+
+            // Fall back to XamOps S3 when nothing was found locally.
             if (!wroteAnything && s3Storage.isEnabled()) {
                 String prefix = s3Storage.jobKeyPrefix(job.getId());
                 for (String key : s3Storage.listJobKeys(job.getId())) {
@@ -295,6 +383,8 @@ public class TranscodeJobService {
             job.setStartedAt(null);
             job.setCompletedAt(null);
             job.setOutputPath(null);
+            job.setOutputBucketPrefix(null);
+            job.setOutputRegion(null);
             job.setAwsEquivalentCost(null);
             return jobRepo.save(job);
         });

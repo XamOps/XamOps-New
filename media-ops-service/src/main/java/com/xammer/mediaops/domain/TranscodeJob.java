@@ -68,6 +68,29 @@ public class TranscodeJob {
     @Column(name = "output_url", columnDefinition = "TEXT")
     private String outputUrl;
 
+    // Optional customer-owned S3 destination. When set, the transcoded output is
+    // uploaded to the referenced user_s3_configs bucket instead of XamOps storage,
+    // and playback/download is served through the backend proxy (bucket stays private).
+    @Column(name = "output_s3_config_id")
+    private Long outputS3ConfigId;
+
+    // Key prefix (no trailing slash) under which this job's files live in the
+    // customer bucket, e.g. "xamops-mediaops/jobs/42".
+    @Column(name = "output_bucket_prefix", columnDefinition = "TEXT")
+    private String outputBucketPrefix;
+
+    // Alternative customer destination: a bucket in the customer's connected AWS
+    // account (the account selected in the sidebar), written via that account's
+    // onboarding IAM role. Mutually exclusive with outputS3ConfigId.
+    @Column(name = "output_account_id", length = 64)
+    private String outputAccountId;
+
+    @Column(name = "output_bucket", length = 255)
+    private String outputBucket;
+
+    @Column(name = "output_region", length = 64)
+    private String outputRegion;
+
     @Column(name = "ffmpeg_command", columnDefinition = "TEXT")
     private String ffmpegCommand;
 

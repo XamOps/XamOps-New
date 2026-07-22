@@ -95,6 +95,13 @@ export interface CreateJobRequest {
   customFfmpegParams?: string;
   scheduledAt?: string | null;
   encryptionEnabled?: boolean;
+  // Optional: id of a connected customer S3 bucket (user_s3_configs) to store the
+  // transcoded output in. When omitted, output goes to XamOps storage.
+  outputS3ConfigId?: number;
+  // Optional: store output in a bucket of the customer's connected AWS account
+  // (the sidebar-selected account), written via that account's IAM role.
+  outputAccountId?: string;
+  outputBucket?: string;
 }
 
 export interface CreateStreamRequest {

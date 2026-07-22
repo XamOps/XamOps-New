@@ -213,17 +213,32 @@ const AzureCloudList: React.FC = () => {
     let filtered = data;
 
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       filtered = filtered
-        .map((group) => ({
-          ...group,
-          resources: group.resources.filter(
-            (resource) =>
-              resource.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              resource.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              resource.region.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              resource.state.toLowerCase().includes(searchTerm.toLowerCase())
-          ),
-        }))
+        .map((group) => {
+          // If the search matches the service/group name (e.g. "firewall",
+          // "container apps"), keep the whole group with all its resources.
+          if (group.serviceType.toLowerCase().includes(term)) {
+            return group;
+          }
+          // Otherwise, filter resources within the group by their fields.
+          return {
+            ...group,
+            resources: group.resources.filter(
+              (resource) =>
+                resource.name.toLowerCase().includes(term) ||
+                resource.id.toLowerCase().includes(term) ||
+                resource.region.toLowerCase().includes(term) ||
+                resource.state.toLowerCase().includes(term) ||
+                (resource.type ? resource.type.toLowerCase().includes(term) : false) ||
+                (resource.details
+                  ? Object.values(resource.details).some((v) =>
+                      String(v).toLowerCase().includes(term)
+                    )
+                  : false)
+            ),
+          };
+        })
         .filter((group) => group.resources.length > 0);
     }
 
@@ -281,7 +296,8 @@ const AzureCloudList: React.FC = () => {
   ), []);
 
   const renderServiceGroup = useCallback((group: AzureServiceGroup) => {
-    const isExpanded = expandedGroups.has(group.serviceType);
+    // While searching, force groups open so matches are always visible.
+    const isExpanded = searchTerm ? true : expandedGroups.has(group.serviceType);
     const iconPath = getAzureServiceIcon(group.serviceType);
 
     return (
@@ -316,7 +332,7 @@ const AzureCloudList: React.FC = () => {
 
         <div
           className={`resources-container transition-all duration-400 overflow-hidden ${isExpanded ? 'expanded' : ''}`}
-          style={{ maxHeight: isExpanded ? '2000px' : '0' }}
+          style={{ maxHeight: isExpanded ? 'none' : '0' }}
         >
           <div className="bg-gray-50/50 dark:bg-gray-800/50 border-t dark:border-gray-700">
             {group.resources.map((resource) => renderResourceRow(resource))}

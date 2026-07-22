@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
@@ -18,10 +20,16 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @Service
 public class UserS3Service {
@@ -152,7 +160,183 @@ public class UserS3Service {
         }
     }
 
+    // ─── Output storage (transcoded files → customer bucket) ────────────────────
+
+    /**
+     * Verify the connected bucket is writable with the stored credentials by
+     * writing and immediately deleting a tiny marker object. Throws
+     * IllegalArgumentException with a human-readable message when the bucket
+     * cannot be written (missing s3:PutObject, wrong bucket, expired keys, …),
+     * so job submission can fail fast with a clear error instead of a job that
+     * only breaks at the very end after transcoding.
+     */
+    public void verifyWritable(Long configId, Long clientId) {
+        UserS3Config config = requireConfig(configId, clientId);
+        S3Client client = buildClient(config.getBucketName(), config.getRegion(),
+                config.getAccessKey(), config.getSecretKey(), config.getEndpointUrl());
+        String testKey = OUTPUT_ROOT + "/.xamops-write-check-" + UUID.randomUUID();
+        try {
+            client.putObject(PutObjectRequest.builder().bucket(config.getBucketName()).key(testKey).build(),
+                    RequestBody.fromString("xamops"));
+            client.deleteObject(DeleteObjectRequest.builder().bucket(config.getBucketName()).key(testKey).build());
+        } catch (S3Exception e) {
+            throw new IllegalArgumentException("Cannot write to bucket '" + config.getBucketName()
+                    + "': " + e.awsErrorDetails().errorMessage());
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Cannot write to bucket '" + config.getBucketName()
+                    + "': " + e.getMessage());
+        } finally {
+            client.close();
+        }
+    }
+
+    /**
+     * Upload every regular file under {@code localDir} to the customer bucket
+     * beneath {@code keyPrefix}, preserving the relative directory layout (so an
+     * HLS manifest and its segments keep their filenames and relative links).
+     */
+    public void uploadDirectory(Long configId, Long clientId, Path localDir, String keyPrefix) throws IOException {
+        UserS3Config config = requireConfig(configId, clientId);
+        S3Client client = buildClient(config.getBucketName(), config.getRegion(),
+                config.getAccessKey(), config.getSecretKey(), config.getEndpointUrl());
+        try (java.util.stream.Stream<Path> walk = Files.walk(localDir)) {
+            walk.filter(Files::isRegularFile).forEach(file -> {
+                String relative = localDir.relativize(file).toString().replace('\\', '/');
+                String key = keyPrefix + "/" + relative;
+                client.putObject(PutObjectRequest.builder()
+                                .bucket(config.getBucketName())
+                                .key(key)
+                                .contentType(contentTypeFor(relative))
+                                .build(),
+                        RequestBody.fromFile(file));
+                log.debug("[UserS3] Uploaded s3://{}/{}", config.getBucketName(), key);
+            });
+        } finally {
+            client.close();
+        }
+    }
+
+    /**
+     * Stream a single output object from the customer bucket to an HTTP response,
+     * honouring a {@code Range} request header so seeking and progressive playback
+     * work. This is what makes ALL output formats — including HLS/DASH whose
+     * manifests reference many relative segment files — playable while the
+     * customer bucket stays private: the player fetches every file through this
+     * same proxy path and never needs public access or per-segment presigning.
+     */
+    public void streamObject(Long configId, Long clientId, String key, String rangeHeader,
+                             HttpServletResponse response) throws IOException {
+        UserS3Config config = requireConfig(configId, clientId);
+        S3Client client = buildClient(config.getBucketName(), config.getRegion(),
+                config.getAccessKey(), config.getSecretKey(), config.getEndpointUrl());
+        try {
+            GetObjectRequest.Builder reqBuilder = GetObjectRequest.builder()
+                    .bucket(config.getBucketName()).key(key);
+            if (rangeHeader != null && !rangeHeader.isBlank()) {
+                reqBuilder.range(rangeHeader);
+            }
+            ResponseInputStream<GetObjectResponse> in = client.getObject(reqBuilder.build());
+            GetObjectResponse meta = in.response();
+
+            response.setContentType(contentTypeFor(key));
+            response.setHeader("Accept-Ranges", "bytes");
+            if (meta.contentLength() != null) {
+                response.setHeader("Content-Length", String.valueOf(meta.contentLength()));
+            }
+            if (rangeHeader != null && !rangeHeader.isBlank() && meta.contentRange() != null) {
+                response.setStatus(HttpServletResponse.SC_PARTIAL_CONTENT); // 206
+                response.setHeader("Content-Range", meta.contentRange());
+            } else {
+                response.setStatus(HttpServletResponse.SC_OK);
+            }
+            try (in) {
+                in.transferTo(response.getOutputStream());
+            }
+        } catch (NoSuchKeyException e) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        } finally {
+            client.close();
+        }
+    }
+
+    /**
+     * Write every object under {@code keyPrefix} into a ZIP stream, with entry
+     * names relative to the prefix. Returns whether any object was written — used
+     * to build the download archive for jobs whose output lives in a customer
+     * bucket (and whose local copies may have been cleaned up).
+     */
+    public boolean writeObjectsUnderPrefix(Long configId, Long clientId, String keyPrefix,
+                                           ZipOutputStream zip) throws IOException {
+        UserS3Config config = requireConfig(configId, clientId);
+        S3Client client = buildClient(config.getBucketName(), config.getRegion(),
+                config.getAccessKey(), config.getSecretKey(), config.getEndpointUrl());
+        boolean wrote = false;
+        String normalizedPrefix = keyPrefix.endsWith("/") ? keyPrefix : keyPrefix + "/";
+        try {
+            String continuationToken = null;
+            do {
+                ListObjectsV2Request.Builder rb = ListObjectsV2Request.builder()
+                        .bucket(config.getBucketName()).prefix(normalizedPrefix).maxKeys(1000);
+                if (continuationToken != null) rb.continuationToken(continuationToken);
+                ListObjectsV2Response resp = client.listObjectsV2(rb.build());
+                for (S3Object obj : resp.contents()) {
+                    if (obj.key().endsWith("/")) continue;
+                    String entryName = obj.key().substring(normalizedPrefix.length());
+                    if (entryName.isEmpty()) continue;
+                    zip.putNextEntry(new ZipEntry(entryName));
+                    try (ResponseInputStream<GetObjectResponse> in = client.getObject(
+                            GetObjectRequest.builder().bucket(config.getBucketName()).key(obj.key()).build())) {
+                        in.transferTo(zip);
+                    }
+                    zip.closeEntry();
+                    wrote = true;
+                }
+                continuationToken = Boolean.TRUE.equals(resp.isTruncated()) ? resp.nextContinuationToken() : null;
+            } while (continuationToken != null);
+        } finally {
+            client.close();
+        }
+        return wrote;
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    /** Root prefix under which all XamOps transcode output is written in a customer bucket. */
+    public static final String OUTPUT_ROOT = "xamops-mediaops";
+
+    /** Key prefix (no trailing slash) for a specific job's output in a customer bucket. */
+    public static String outputPrefixForJob(long jobId) {
+        return OUTPUT_ROOT + "/jobs/" + jobId;
+    }
+
+    private UserS3Config requireConfig(Long configId, Long clientId) {
+        return configRepo.findByIdAndClientId(configId, clientId)
+                .orElseThrow(() -> new NoSuchElementException("S3 config not found"));
+    }
+
+    private static final Map<String, String> CONTENT_TYPES = Map.ofEntries(
+            Map.entry(".m3u8", "application/vnd.apple.mpegurl"),
+            Map.entry(".ts",   "video/mp2t"),
+            Map.entry(".mpd",  "application/dash+xml"),
+            Map.entry(".m4s",  "video/mp4"),
+            Map.entry(".mp4",  "video/mp4"),
+            Map.entry(".mov",  "video/quicktime"),
+            Map.entry(".webm", "video/webm"),
+            Map.entry(".mkv",  "video/x-matroska"),
+            Map.entry(".mp3",  "audio/mpeg"),
+            Map.entry(".aac",  "audio/aac"),
+            Map.entry(".flac", "audio/flac"),
+            Map.entry(".ogg",  "audio/ogg"),
+            Map.entry(".vtt",  "text/vtt"),
+            Map.entry(".jpg",  "image/jpeg"),
+            Map.entry(".jpeg", "image/jpeg"),
+            Map.entry(".png",  "image/png"),
+            Map.entry(".key",  "application/octet-stream")
+    );
+
+    private static String contentTypeFor(String filename) {
+        return CONTENT_TYPES.getOrDefault(extension(filename), "application/octet-stream");
+    }
 
     private S3Client buildClient(String bucket, String region, String accessKey, String secretKey, String endpointUrl) {
         S3ClientBuilder builder = S3Client.builder().region(Region.of(region));

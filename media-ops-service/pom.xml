@@ -103,6 +103,12 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
         </dependency>
+        <!-- STS — assume the customer's onboarding IAM role to store output in their
+             own account bucket (same cross-account role used by the rest of XamOps). -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sts</artifactId>
+        </dependency>
 
         <!-- Test -->
         <dependency>

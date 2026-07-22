@@ -46,6 +46,8 @@ import com.google.cloud.pubsub.v1.SubscriptionAdminSettings;
 import com.google.cloud.pubsub.v1.TopicAdminSettings;
 import com.google.cloud.recommender.v1.RecommenderClient;
 import com.google.cloud.recommender.v1.RecommenderSettings;
+import com.google.cloud.redis.v1.CloudRedisClient;
+import com.google.cloud.redis.v1.CloudRedisSettings;
 import com.google.cloud.resourcemanager.v3.ProjectsClient;
 import com.google.cloud.resourcemanager.v3.ProjectsSettings;
 import com.google.cloud.scheduler.v1.CloudSchedulerSettings;
@@ -722,6 +724,36 @@ public class GcpClientProvider {
                 return ImagesClient.create(settings);
             } catch (IOException e) {
                 log.error("Failed to create ImagesClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    // Cloud Run (v2). Fully-qualified to avoid clash with appengine.v1.ServicesClient.
+    public Optional<com.google.cloud.run.v2.ServicesClient> getCloudRunServicesClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                com.google.cloud.run.v2.ServicesSettings settings = com.google.cloud.run.v2.ServicesSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return com.google.cloud.run.v2.ServicesClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create Cloud Run ServicesClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    // Memorystore for Redis.
+    public Optional<CloudRedisClient> getCloudRedisClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                CloudRedisSettings settings = CloudRedisSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return CloudRedisClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create CloudRedisClient for project ID: {}", gcpProjectId, e);
                 return null;
             }
         });

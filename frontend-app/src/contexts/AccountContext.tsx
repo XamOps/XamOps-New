@@ -49,6 +49,57 @@ interface AccountContextValue {
 
 const AccountContext = createContext<AccountContextValue | undefined>(undefined);
 
+/**
+ * Provider-specific page equivalents.
+ *
+ * Each row groups the "same" logical page across AWS / GCP / Azure. This lets us
+ * keep the user on the equivalent page when they switch the active cloud provider
+ * from the account selector (e.g. /azure-cloudlist -> /cloudlist when switching to
+ * an AWS account). Some pages have no equivalent for a given provider (e.g. there
+ * is no Azure Cloud Map) — in that case we fall back to the provider dashboard.
+ */
+type ProviderRoutes = Partial<Record<CloudProvider, string>>;
+
+const PROVIDER_PAGE_MAP: ProviderRoutes[] = [
+  { AWS: '/dashboard', GCP: '/gcp-dashboard', Azure: '/azure-dashboard' },
+  { AWS: '/cloudlist', GCP: '/gcp-cloudlist', Azure: '/azure-cloudlist' },
+  { AWS: '/finops', GCP: '/gcp-finops', Azure: '/azure-finops' },
+  { AWS: '/cost', GCP: '/gcp-cost', Azure: '/azure-cost' },
+  { AWS: '/waste', GCP: '/gcp-waste', Azure: '/azure-waste' },
+  { AWS: '/rightsizing', GCP: '/gcp-rightsizing', Azure: '/azure-rightsizing' },
+  { AWS: '/reservation', GCP: '/gcp-reservations', Azure: '/azure-reservations' },
+  { AWS: '/ebs-rightsizing', GCP: '/gcp-disk-rightsizing', Azure: '/azure-disk-rightsizing' },
+  { AWS: '/cloudk8s', GCP: '/gcp-cloudk8s', Azure: '/azure-cloudk8s' },
+  { AWS: '/xamsecure', GCP: '/gcp-security', Azure: '/azure-security' },
+  { AWS: '/performance', GCP: '/gcp-performance', Azure: '/azure-performance' },
+  { AWS: '/alerts', GCP: '/gcp-alerts', Azure: '/azure-alerts' },
+  { AWS: '/cloudmap', GCP: '/gcp-cloudmap' },
+  { AWS: '/dataops', GCP: '/gcp-dataops', Azure: '/azure-dataops' },
+  { AWS: '/cloudsitter', GCP: '/gcp-cloudsitter', Azure: '/azure-cloudsitter' },
+  { AWS: '/spot-automation', GCP: '/gcp-autospotting', Azure: '/azure-autospotting' },
+];
+
+const providerDashboard = (provider: CloudProvider): string => {
+  if (provider === 'GCP') return '/gcp-dashboard';
+  if (provider === 'Azure') return '/azure-dashboard';
+  return '/dashboard';
+};
+
+/**
+ * Given the current path and a target provider, return the equivalent page for
+ * that provider. Returns null when the current page is not provider-specific
+ * (e.g. /account-manager, /tickets), so the caller can keep its default behavior.
+ * Falls back to the provider dashboard when the page has no variant for the
+ * target provider.
+ */
+const mapPageToProvider = (currentPath: string, provider: CloudProvider): string | null => {
+  const group = PROVIDER_PAGE_MAP.find(
+    row => row.AWS === currentPath || row.GCP === currentPath || row.Azure === currentPath
+  );
+  if (!group) return null;
+  return group[provider] ?? providerDashboard(provider);
+};
+
 export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -375,16 +426,29 @@ export const AccountProvider: React.FC<{ children: ReactNode }> = ({ children })
     } else if (isBillOpsOnly) {
       targetPage = '/billops-dashboard';
     } else {
-      if (provider === 'GCP') targetPage = '/gcp-dashboard';
-      if (provider === 'Azure') targetPage = '/azure-dashboard';
+      // Default landing page is the selected provider's dashboard.
+      targetPage = providerDashboard(provider);
 
-      // If on a specialized page, stay there
-      if (location.pathname.includes('billing') || location.pathname.includes('finops') || location.pathname.includes('cloudlist')) {
+      // If the user is currently on a provider-specific page, keep them on the
+      // equivalent page for the newly selected provider. This makes switching
+      // cloud/account from ANY page redirect to the matching page for that cloud
+      // (e.g. /azure-cloudlist -> /cloudlist when switching to an AWS account).
+      const mappedPage = mapPageToProvider(location.pathname, provider);
+      if (mappedPage) {
+        targetPage = mappedPage;
+      } else if (location.pathname.includes('billing') || location.pathname.includes('finops')) {
+        // Generic billing/finops pages without a provider variant: stay put.
         targetPage = location.pathname;
       }
     }
 
     const urlParams = new URL(globalThis.location.href).searchParams;
+
+    // Clear provider-specific identifiers so stale params from the previous
+    // provider don't leak into the new provider's page when switching clouds.
+    urlParams.delete('accountId');
+    urlParams.delete('projectId');
+    urlParams.delete('subscriptionId');
     urlParams.set('accountIds', tempSelectedAccounts.join(','));
 
     if (account && tempSelectedAccounts.length === 1) {
