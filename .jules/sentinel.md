@@ -1,0 +1,4 @@
+## 2026-07-22 - [Credential Externalization & User Enumeration Hardening]
+**Vulnerability:** Hardcoded database and third-party credential values in `application.properties`, predictable OTP generation using `new Random()` in `LoginOtpController` and `PasswordResetController` (CWE-330), and raw error detailing/user enumeration in password reset flow (CWE-209).
+**Learning:** Hardcoded configuration defaults expose authentication layers to predictable attacks if left un-externalized. Furthermore, returning specific "user not found" messages during reset flow leaks user presence, facilitating reconnaissance attacks.
+**Prevention:** Support environment variable override syntax `${ENV_VAR:default}` for all system credentials, mandate cryptographically secure RNG `java.security.SecureRandom` for OTP generation, and mask raw exception messages/user existence checks with generic messages.
