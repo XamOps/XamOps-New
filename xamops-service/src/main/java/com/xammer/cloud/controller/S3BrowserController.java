@@ -7,6 +7,7 @@ import com.xammer.cloud.service.AwsClientProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import software.amazon.awssdk.regions.Region;
@@ -25,6 +26,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/s3-browser")
+@PreAuthorize("isAuthenticated()")
 public class S3BrowserController {
 
     private static final Logger log = LoggerFactory.getLogger(S3BrowserController.class);
