@@ -106,3 +106,34 @@ export const fetchSoc2Vendors = (): Promise<Soc2Vendor[]> => apiClient.get('/api
 export const fetchSoc2Risks = (): Promise<Soc2Risk[]> => apiClient.get('/api/soc2/risks');
 export const fetchSoc2CloudTests = (): Promise<Soc2CloudTest[]> => apiClient.get('/api/soc2/cloud-tests');
 export const fetchSoc2Integrations = (): Promise<Soc2Integration[]> => apiClient.get('/api/soc2/integrations');
+
+// --- Write actions ---
+
+export interface CreateVendorRequest {
+  name: string;
+  description: string;
+  category: string;
+  status: string;
+}
+
+export interface CreateRiskRequest {
+  title: string;
+  description: string;
+  category: string;
+  department?: string;
+}
+
+export const publishSoc2Policy = (policyId: string): Promise<Soc2Policy> =>
+  apiClient.post(`/api/soc2/policies/${policyId}/publish`);
+
+export const updateSoc2TaskStatus = (taskId: string, status: string): Promise<Soc2Task> =>
+  apiClient.fetchJson(`/api/soc2/tasks/${taskId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+
+export const createSoc2Vendor = (request: CreateVendorRequest): Promise<Soc2Vendor> =>
+  apiClient.post('/api/soc2/vendors', request);
+
+export const createSoc2Risk = (request: CreateRiskRequest): Promise<Soc2Risk> =>
+  apiClient.post('/api/soc2/risks', request);

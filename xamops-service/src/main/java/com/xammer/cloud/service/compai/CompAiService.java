@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.xammer.cloud.dto.compai.CloudTestDto;
 import com.xammer.cloud.dto.compai.ControlSummaryDto;
+import com.xammer.cloud.dto.compai.CreateRiskRequestDto;
+import com.xammer.cloud.dto.compai.CreateVendorRequestDto;
 import com.xammer.cloud.dto.compai.IntegrationDto;
 import com.xammer.cloud.dto.compai.OverviewDto;
 import com.xammer.cloud.dto.compai.PersonDto;
@@ -366,6 +368,74 @@ public class CompAiService {
         dto.setCloudFindingsTotal(getCloudTests().size());
         dto.setIntegrationsConnected((int) getIntegrations().stream().filter(IntegrationDto::isConnected).count());
         dto.setTrustCenterUrl(trustCenterUrl);
+        return dto;
+    }
+
+    // ---------------------------------------------------------------------
+    // Write actions. Each evicts the Redis cache key(s) it affects so the
+    // next read reflects the change immediately, rather than waiting out
+    // the 10-minute TTL.
+    // ---------------------------------------------------------------------
+
+    /**
+     * Publishes a policy's current draft version. comp.ai's endpoint
+     * (POST /policies/:id/versions/publish) publishes the latest draft
+     * content when no versionId is given.
+     */
+    public PolicyDto publishPolicy(String policyId) {
+        if (!apiClient.isConfigured()) {
+            throw new IllegalStateException("comp.ai is not configured (compai.api-key missing)");
+        }
+        apiClient.postJson("/policies/" + policyId + "/versions/publish", java.util.Map.of());
+        redisCacheService.evict("compai:policies");
+        redisCacheService.evict("compai:controls"); // control status is derived from policy status
+        return getPolicies().stream().filter(p -> policyId.equals(p.getId())).findFirst().orElse(null);
+    }
+
+    /** Updates a task's status. status must be one of comp.ai's TaskStatus values
+     *  (todo|in_progress|in_review|done|not_relevant|failed) — comp.ai rejects
+     *  anything else with a 400, surfaced as-is. */
+    public TaskDto updateTaskStatus(String taskId, String status) {
+        if (!apiClient.isConfigured()) {
+            throw new IllegalStateException("comp.ai is not configured (compai.api-key missing)");
+        }
+        apiClient.patchJson("/tasks/" + taskId, java.util.Map.of("status", status));
+        redisCacheService.evict("compai:tasks");
+        redisCacheService.evict("compai:controls"); // control status is derived from task status too
+        return getTasks().stream().filter(t -> taskId.equals(t.getId())).findFirst().orElse(null);
+    }
+
+    /** Creates a vendor. See {@link CreateVendorRequestDto} for accepted category/status values. */
+    public VendorDto createVendor(CreateVendorRequestDto request) {
+        if (!apiClient.isConfigured()) {
+            throw new IllegalStateException("comp.ai is not configured (compai.api-key missing)");
+        }
+        JsonNode created = apiClient.postJson("/vendors", request);
+        redisCacheService.evict("compai:vendors");
+        VendorDto dto = new VendorDto();
+        dto.setId(created.path("id").asText(null));
+        dto.setName(created.path("name").asText(request.getName()));
+        dto.setCategory(created.path("category").asText(request.getCategory()));
+        dto.setStatus(created.path("status").asText(request.getStatus()));
+        dto.setDescription(created.path("description").asText(request.getDescription()));
+        return dto;
+    }
+
+    /** Creates a risk. See {@link CreateRiskRequestDto} for accepted category/department values. */
+    public RiskDto createRisk(CreateRiskRequestDto request) {
+        if (!apiClient.isConfigured()) {
+            throw new IllegalStateException("comp.ai is not configured (compai.api-key missing)");
+        }
+        JsonNode created = apiClient.postJson("/risks", request);
+        redisCacheService.evict("compai:risks");
+        RiskDto dto = new RiskDto();
+        dto.setId(created.path("id").asText(null));
+        dto.setTitle(created.path("title").asText(request.getTitle()));
+        dto.setDescription(created.path("description").asText(request.getDescription()));
+        dto.setCategory(created.path("category").asText(request.getCategory()));
+        dto.setStatus(created.path("status").asText(null));
+        dto.setSeverity(null);
+        dto.setOwner(null);
         return dto;
     }
 }

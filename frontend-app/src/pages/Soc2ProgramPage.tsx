@@ -1,8 +1,12 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../hooks/useSoc2ProgramData';
+import {
+  publishSoc2Policy, updateSoc2TaskStatus, createSoc2Vendor, createSoc2Risk,
+  CreateVendorRequest, CreateRiskRequest,
+} from '../api/soc2Api';
 import type { Soc2ControlStatus } from '../api/soc2Api';
 
 const TABS = [
@@ -22,6 +26,12 @@ const CONTROL_STATUS_LABEL: Record<Soc2ControlStatus, string> = {
   IN_PROGRESS: 'In Progress',
   NOT_STARTED: 'Not Started',
 };
+
+const TASK_STATUS_OPTIONS = ['todo', 'in_progress', 'in_review', 'done', 'not_relevant', 'failed'];
+const VENDOR_CATEGORY_OPTIONS = ['cloud', 'infrastructure', 'software_as_a_service', 'finance', 'marketing', 'sales', 'hr', 'other'];
+const VENDOR_STATUS_OPTIONS = ['not_assessed', 'in_progress', 'assessed'];
+const RISK_CATEGORY_OPTIONS = ['customer', 'fraud', 'governance', 'operations', 'other', 'people', 'regulatory', 'reporting', 'resilience', 'technology', 'vendor_management'];
+const DEPARTMENT_OPTIONS = ['none', 'admin', 'gov', 'hr', 'it', 'itsm', 'qms'];
 
 // Monochrome status pill — filled-dark = done, mid-grey = in progress, light outline = not started.
 const controlStatusClass = (status: Soc2ControlStatus): string => {
@@ -56,11 +66,27 @@ const Th: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <th className="p-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">{children}</th>
 );
 
+const ActionButton: React.FC<{ onClick: () => void; disabled?: boolean; children: React.ReactNode }> = ({ onClick, disabled, children }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    className="px-2.5 py-1 text-[11px] font-medium rounded-md bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+  >
+    {children}
+  </button>
+);
+
 const Soc2ProgramPage: React.FC = () => {
   const { tab = 'overview' } = useParams<{ tab: string }>();
   const navigate = useNavigate();
   const { setTitle, setActions, clearActions } = useTopbar();
-  const { overview, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, isLoading, error } = useSoc2ProgramData();
+  const { overview, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, isLoading, error, refetch } = useSoc2ProgramData();
+
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [vendorModalOpen, setVendorModalOpen] = useState(false);
+  const [riskModalOpen, setRiskModalOpen] = useState(false);
 
   const trustCenterUrl = overview?.trustCenterUrl;
 
@@ -77,6 +103,44 @@ const Soc2ProgramPage: React.FC = () => {
     );
     return () => { clearActions(); setTitle(null); };
   }, [setTitle, setActions, clearActions, trustCenterUrl]);
+
+  const handlePublish = async (policyId: string) => {
+    setActionError(null);
+    setPublishingId(policyId);
+    try {
+      await publishSoc2Policy(policyId);
+      await refetch();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to publish policy');
+    } finally {
+      setPublishingId(null);
+    }
+  };
+
+  const handleTaskStatusChange = async (taskId: string, status: string) => {
+    setActionError(null);
+    setUpdatingTaskId(taskId);
+    try {
+      await updateSoc2TaskStatus(taskId, status);
+      await refetch();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to update task');
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  };
+
+  const handleCreateVendor = async (payload: CreateVendorRequest) => {
+    await createSoc2Vendor(payload);
+    await refetch();
+    setVendorModalOpen(false);
+  };
+
+  const handleCreateRisk = async (payload: CreateRiskRequest) => {
+    await createSoc2Risk(payload);
+    await refetch();
+    setRiskModalOpen(false);
+  };
 
   if (isLoading) {
     return <div className="p-6 text-gray-500 text-sm">Loading SOC 2 program…</div>;
@@ -101,6 +165,12 @@ const Soc2ProgramPage: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {actionError && (
+        <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">
+          {actionError}
+        </div>
+      )}
 
       {tab === 'overview' && overview && (
         <div className="space-y-6">
@@ -150,17 +220,27 @@ const Soc2ProgramPage: React.FC = () => {
       {tab === 'policies' && (
         <TableWrap>
           <thead className="bg-gray-50 border-b border-gray-200">
-            <tr><Th>Policy</Th><Th>Status</Th><Th>Description</Th></tr>
+            <tr><Th>Policy</Th><Th>Status</Th><Th>Description</Th><Th>Action</Th></tr>
           </thead>
           <tbody>
-            {policies.map((p) => (
-              <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50/60">
-                <td className="p-3 text-[13px] text-gray-900 font-medium">{p.name}</td>
-                <td className="p-3"><StatusPill text={(p.status || '').replace(/_/g, ' ')} tone={policyTone(p.status)} /></td>
-                <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{p.description || '—'}</td>
-              </tr>
-            ))}
-            {policies.length === 0 && <EmptyRow cols={3} text="No policies." />}
+            {policies.map((p) => {
+              const isPublished = (p.status || '').toLowerCase() === 'published';
+              return (
+                <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50/60">
+                  <td className="p-3 text-[13px] text-gray-900 font-medium">{p.name}</td>
+                  <td className="p-3"><StatusPill text={(p.status || '').replace(/_/g, ' ')} tone={policyTone(p.status)} /></td>
+                  <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{p.description || '—'}</td>
+                  <td className="p-3">
+                    {!isPublished && (
+                      <ActionButton onClick={() => handlePublish(p.id)} disabled={publishingId === p.id}>
+                        {publishingId === p.id ? 'Publishing…' : 'Publish'}
+                      </ActionButton>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {policies.length === 0 && <EmptyRow cols={4} text="No policies." />}
           </tbody>
         </TableWrap>
       )}
@@ -175,7 +255,18 @@ const Soc2ProgramPage: React.FC = () => {
               <tr key={t.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                 <td className="p-3 text-[13px] text-gray-900 font-medium">{t.title}</td>
                 <td className="p-3 text-[12px] text-gray-500">{t.controlName || '—'}</td>
-                <td className="p-3"><StatusPill text={(t.status || '').replace(/_/g, ' ')} tone={(t.status || '').toLowerCase() === 'done' ? 'dark' : (t.status || '').toLowerCase() === 'in_progress' ? 'mid' : 'light'} /></td>
+                <td className="p-3">
+                  <select
+                    value={t.status || 'todo'}
+                    disabled={updatingTaskId === t.id}
+                    onChange={(e) => handleTaskStatusChange(t.id, e.target.value)}
+                    className="text-[11px] font-medium rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 disabled:opacity-40 capitalize"
+                  >
+                    {TASK_STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s} className="capitalize">{s.replace(/_/g, ' ')}</option>
+                    ))}
+                  </select>
+                </td>
               </tr>
             ))}
             {tasks.length === 0 && <EmptyRow cols={3} text="No tasks." />}
@@ -204,45 +295,65 @@ const Soc2ProgramPage: React.FC = () => {
       )}
 
       {tab === 'vendors' && (
-        <TableWrap>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr><Th>Vendor</Th><Th>Category</Th><Th>Status</Th><Th>Description</Th></tr>
-          </thead>
-          <tbody>
-            {vendors.map((v) => (
-              <tr key={v.id} className="border-t border-gray-100 hover:bg-gray-50/60">
-                <td className="p-3 text-[13px] text-gray-900 font-medium">{v.name}</td>
-                <td className="p-3 text-[12px] text-gray-500">{v.category || '—'}</td>
-                <td className="p-3"><StatusPill text={(v.status || '').replace(/_/g, ' ')} tone="mid" /></td>
-                <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{v.description || '—'}</td>
-              </tr>
-            ))}
-            {vendors.length === 0 && <EmptyRow cols={4} text="No vendors tracked yet." />}
-          </tbody>
-        </TableWrap>
+        <div className="space-y-3">
+          <div className="flex justify-end">
+            <button
+              onClick={() => setVendorModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-[#1a1a1a] text-white rounded-lg text-[12px] font-medium hover:bg-black transition-colors"
+            >
+              <Icon icon="mdi:plus" width={14} /> Add Vendor
+            </button>
+          </div>
+          <TableWrap>
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr><Th>Vendor</Th><Th>Category</Th><Th>Status</Th><Th>Description</Th></tr>
+            </thead>
+            <tbody>
+              {vendors.map((v) => (
+                <tr key={v.id} className="border-t border-gray-100 hover:bg-gray-50/60">
+                  <td className="p-3 text-[13px] text-gray-900 font-medium">{v.name}</td>
+                  <td className="p-3 text-[12px] text-gray-500">{v.category || '—'}</td>
+                  <td className="p-3"><StatusPill text={(v.status || '').replace(/_/g, ' ')} tone="mid" /></td>
+                  <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{v.description || '—'}</td>
+                </tr>
+              ))}
+              {vendors.length === 0 && <EmptyRow cols={4} text="No vendors tracked yet." />}
+            </tbody>
+          </TableWrap>
+        </div>
       )}
 
       {tab === 'risks' && (
-        <TableWrap>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr><Th>Risk</Th><Th>Category</Th><Th>Severity</Th><Th>Status</Th><Th>Owner</Th></tr>
-          </thead>
-          <tbody>
-            {risks.map((r) => (
-              <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50/60">
-                <td className="p-3">
-                  <div className="text-[13px] text-gray-900 font-medium">{r.title || '—'}</div>
-                  {r.description && <div className="text-[11px] text-gray-400 truncate max-w-md">{r.description}</div>}
-                </td>
-                <td className="p-3 text-[12px] text-gray-500">{r.category || '—'}</td>
-                <td className="p-3"><StatusPill text={r.severity || '—'} tone={(r.severity || '').toLowerCase() === 'high' || (r.severity || '').toLowerCase() === 'critical' ? 'dark' : 'mid'} /></td>
-                <td className="p-3"><StatusPill text={(r.status || '').replace(/_/g, ' ')} tone="mid" /></td>
-                <td className="p-3 text-[12px] text-gray-500">{r.owner || '—'}</td>
-              </tr>
-            ))}
-            {risks.length === 0 && <EmptyRow cols={5} text="No risks in the register yet." />}
-          </tbody>
-        </TableWrap>
+        <div className="space-y-3">
+          <div className="flex justify-end">
+            <button
+              onClick={() => setRiskModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-[#1a1a1a] text-white rounded-lg text-[12px] font-medium hover:bg-black transition-colors"
+            >
+              <Icon icon="mdi:plus" width={14} /> Add Risk
+            </button>
+          </div>
+          <TableWrap>
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr><Th>Risk</Th><Th>Category</Th><Th>Severity</Th><Th>Status</Th><Th>Owner</Th></tr>
+            </thead>
+            <tbody>
+              {risks.map((r) => (
+                <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50/60">
+                  <td className="p-3">
+                    <div className="text-[13px] text-gray-900 font-medium">{r.title || '—'}</div>
+                    {r.description && <div className="text-[11px] text-gray-400 truncate max-w-md">{r.description}</div>}
+                  </td>
+                  <td className="p-3 text-[12px] text-gray-500">{r.category || '—'}</td>
+                  <td className="p-3"><StatusPill text={r.severity || '—'} tone={(r.severity || '').toLowerCase() === 'high' || (r.severity || '').toLowerCase() === 'critical' ? 'dark' : 'mid'} /></td>
+                  <td className="p-3"><StatusPill text={(r.status || '').replace(/_/g, ' ')} tone="mid" /></td>
+                  <td className="p-3 text-[12px] text-gray-500">{r.owner || '—'}</td>
+                </tr>
+              ))}
+              {risks.length === 0 && <EmptyRow cols={5} text="No risks in the register yet." />}
+            </tbody>
+          </TableWrap>
+        </div>
       )}
 
       {tab === 'integrations' && (
@@ -286,7 +397,129 @@ const Soc2ProgramPage: React.FC = () => {
           </tbody>
         </TableWrap>
       )}
+
+      {vendorModalOpen && (
+        <VendorModal onClose={() => setVendorModalOpen(false)} onSubmit={handleCreateVendor} />
+      )}
+      {riskModalOpen && (
+        <RiskModal onClose={() => setRiskModalOpen(false)} onSubmit={handleCreateRisk} />
+      )}
     </div>
+  );
+};
+
+const ModalShell: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.38)' }}>
+    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <h3 className="text-[15px] font-semibold text-gray-900">{title}</h3>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+          <Icon icon="mdi:close" width={18} />
+        </button>
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  </div>
+);
+
+const FormField: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="mb-3">
+    <label className="block text-[11px] font-medium text-gray-500 mb-1">{label}</label>
+    {children}
+  </div>
+);
+
+const inputCls = "w-full text-[13px] border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400";
+
+const VendorModal: React.FC<{ onClose: () => void; onSubmit: (payload: CreateVendorRequest) => Promise<void> }> = ({ onClose, onSubmit }) => {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState(VENDOR_CATEGORY_OPTIONS[0]);
+  const [status, setStatus] = useState(VENDOR_STATUS_OPTIONS[0]);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!name.trim() || !description.trim()) {
+      setErr('Name and description are required.');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSubmit({ name: name.trim(), description: description.trim(), category, status });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to create vendor');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ModalShell title="Add Vendor" onClose={onClose}>
+      {err && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">{err}</div>}
+      <FormField label="Name"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. AWS" /></FormField>
+      <FormField label="Description"><textarea className={inputCls} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this vendor provide?" /></FormField>
+      <FormField label="Category">
+        <select className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)}>
+          {VENDOR_CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Status">
+        <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value)}>
+          {VENDOR_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+        </select>
+      </FormField>
+      <div className="flex justify-end gap-2 mt-4">
+        <button onClick={onClose} className="px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+        <ActionButton onClick={submit} disabled={submitting}>{submitting ? 'Adding…' : 'Add Vendor'}</ActionButton>
+      </div>
+    </ModalShell>
+  );
+};
+
+const RiskModal: React.FC<{ onClose: () => void; onSubmit: (payload: CreateRiskRequest) => Promise<void> }> = ({ onClose, onSubmit }) => {
+  const [title, setTitleVal] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState(RISK_CATEGORY_OPTIONS[0]);
+  const [department, setDepartment] = useState(DEPARTMENT_OPTIONS[0]);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!title.trim() || !description.trim()) {
+      setErr('Title and description are required.');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSubmit({ title: title.trim(), description: description.trim(), category, department });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to create risk');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ModalShell title="Add Risk" onClose={onClose}>
+      {err && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">{err}</div>}
+      <FormField label="Title"><input className={inputCls} value={title} onChange={(e) => setTitleVal(e.target.value)} placeholder="e.g. Offboarding gap" /></FormField>
+      <FormField label="Description"><textarea className={inputCls} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe the risk" /></FormField>
+      <FormField label="Category">
+        <select className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)}>
+          {RISK_CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Department">
+        <select className={inputCls} value={department} onChange={(e) => setDepartment(e.target.value)}>
+          {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </FormField>
+      <div className="flex justify-end gap-2 mt-4">
+        <button onClick={onClose} className="px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+        <ActionButton onClick={submit} disabled={submitting}>{submitting ? 'Adding…' : 'Add Risk'}</ActionButton>
+      </div>
+    </ModalShell>
   );
 };
 

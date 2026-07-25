@@ -102,4 +102,62 @@ class CompAiServiceTest {
         assertEquals(1, o.getPeopleTotal());
         assertEquals(0, o.getVendorsTotal());
     }
+
+    @Test
+    void publishPolicy_callsPublishEndpointAndEvictsCaches() throws Exception {
+        when(apiClient.postJson("/policies/pol_1/versions/publish", java.util.Map.of()))
+                .thenReturn(mapper.readTree("{\"id\":\"pol_1\",\"status\":\"published\"}"));
+        // getPolicies() re-fetch after publish
+        when(apiClient.getJson("/policies?perPage=100")).thenReturn(fixture("policies-list.json"));
+
+        var result = service.publishPolicy("pol_1");
+
+        org.mockito.Mockito.verify(apiClient).postJson("/policies/pol_1/versions/publish", java.util.Map.of());
+        org.mockito.Mockito.verify(redis).evict("compai:policies");
+        org.mockito.Mockito.verify(redis).evict("compai:controls");
+        assertNotNull(result);
+        assertEquals("pol_1", result.getId());
+    }
+
+    @Test
+    void updateTaskStatus_callsPatchEndpointAndEvictsCaches() throws Exception {
+        when(apiClient.patchJson("/tasks/tsk_1", java.util.Map.of("status", "done")))
+                .thenReturn(mapper.readTree("{\"id\":\"tsk_1\",\"status\":\"done\"}"));
+        when(apiClient.getJson("/controls?perPage=100")).thenReturn(fixture("controls-list.json"));
+
+        var result = service.updateTaskStatus("tsk_1", "done");
+
+        org.mockito.Mockito.verify(apiClient).patchJson("/tasks/tsk_1", java.util.Map.of("status", "done"));
+        org.mockito.Mockito.verify(redis).evict("compai:tasks");
+        org.mockito.Mockito.verify(redis).evict("compai:controls");
+        assertNotNull(result);
+    }
+
+    @Test
+    void createVendor_postsPayloadAndEvictsCache() throws Exception {
+        com.xammer.cloud.dto.compai.CreateVendorRequestDto request =
+                new com.xammer.cloud.dto.compai.CreateVendorRequestDto("AWS", "Cloud host", "cloud", "assessed");
+        when(apiClient.postJson(org.mockito.ArgumentMatchers.eq("/vendors"), org.mockito.ArgumentMatchers.eq(request)))
+                .thenReturn(mapper.readTree("{\"id\":\"ven_1\",\"name\":\"AWS\",\"category\":\"cloud\",\"status\":\"assessed\",\"description\":\"Cloud host\"}"));
+
+        var result = service.createVendor(request);
+
+        org.mockito.Mockito.verify(redis).evict("compai:vendors");
+        assertEquals("ven_1", result.getId());
+        assertEquals("AWS", result.getName());
+    }
+
+    @Test
+    void createRisk_postsPayloadAndEvictsCache() throws Exception {
+        com.xammer.cloud.dto.compai.CreateRiskRequestDto request =
+                new com.xammer.cloud.dto.compai.CreateRiskRequestDto("Offboarding gap", "desc", "people", "hr");
+        when(apiClient.postJson(org.mockito.ArgumentMatchers.eq("/risks"), org.mockito.ArgumentMatchers.eq(request)))
+                .thenReturn(mapper.readTree("{\"id\":\"risk_1\",\"title\":\"Offboarding gap\",\"description\":\"desc\",\"category\":\"people\"}"));
+
+        var result = service.createRisk(request);
+
+        org.mockito.Mockito.verify(redis).evict("compai:risks");
+        assertEquals("risk_1", result.getId());
+        assertEquals("Offboarding gap", result.getTitle());
+    }
 }

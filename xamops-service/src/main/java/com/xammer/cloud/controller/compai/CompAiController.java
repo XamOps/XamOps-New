@@ -1,11 +1,19 @@
 package com.xammer.cloud.controller.compai;
 
+import com.xammer.cloud.dto.compai.CreateRiskRequestDto;
+import com.xammer.cloud.dto.compai.CreateVendorRequestDto;
 import com.xammer.cloud.service.compai.CompAiService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
 
 /**
  * SOC2 Program endpoints. Backed by a self-hosted comp.ai instance via
@@ -14,9 +22,11 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><b>SCOPE — single-org demo, NOT multi-tenant.</b> These endpoints serve one
  * shared comp.ai organization (fictional demo data) to every authenticated XamOps
  * user, gated only by {@code .anyRequest().authenticated()} — the same model as
- * ComplianceOps / XamSecure. Before this is used with real comp.ai data or across
- * tenants, the following are REQUIRED (see the automated security review + the
- * self-hosting runbook):
+ * ComplianceOps / XamSecure. The publish/update/create endpoints below MUTATE
+ * that shared demo org for every authenticated user (no per-user ownership
+ * check) — acceptable for the single fictional-org demo, not for production.
+ * Before this is used with real comp.ai data or across tenants, the following
+ * are REQUIRED (see the automated security review + the self-hosting runbook):
  * <ul>
  *   <li>Resolve the comp.ai API key / base URL <i>per tenant</i> (from the
  *       authenticated principal / CloudAccount) instead of the JVM-wide
@@ -78,5 +88,25 @@ public class CompAiController {
     @GetMapping("/integrations")
     public ResponseEntity<?> integrations() {
         return ResponseEntity.ok(compAiService.getIntegrations());
+    }
+
+    @PostMapping("/policies/{id}/publish")
+    public ResponseEntity<?> publishPolicy(@PathVariable String id) {
+        return ResponseEntity.ok(compAiService.publishPolicy(id));
+    }
+
+    @PatchMapping("/tasks/{id}")
+    public ResponseEntity<?> updateTaskStatus(@PathVariable String id, @RequestBody Map<String, String> body) {
+        return ResponseEntity.ok(compAiService.updateTaskStatus(id, body.get("status")));
+    }
+
+    @PostMapping("/vendors")
+    public ResponseEntity<?> createVendor(@RequestBody CreateVendorRequestDto request) {
+        return ResponseEntity.ok(compAiService.createVendor(request));
+    }
+
+    @PostMapping("/risks")
+    public ResponseEntity<?> createRisk(@RequestBody CreateRiskRequestDto request) {
+        return ResponseEntity.ok(compAiService.createRisk(request));
     }
 }

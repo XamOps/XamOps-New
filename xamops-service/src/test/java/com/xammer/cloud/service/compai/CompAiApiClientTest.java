@@ -54,4 +54,61 @@ class CompAiApiClientTest {
                     return "test-key".equals(headers.getFirst("X-API-Key"));
                 }), eq(String.class));
     }
+
+    @Test
+    void postJson_sendsSerializedBodyAndParsesResponse() {
+        RestTemplate restTemplate = mock(RestTemplate.class);
+        CompAiApiClient client = new CompAiApiClient(new ObjectMapper(), restTemplate);
+        client.setApiKey("test-key");
+        client.setApiBaseUrl("https://compai-api.example.com/v1");
+
+        when(restTemplate.exchange(
+                eq(java.net.URI.create("https://compai-api.example.com/v1/policies/pol_1/versions/publish")),
+                eq(HttpMethod.POST),
+                any(),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"id\":\"pol_1\",\"status\":\"published\"}"));
+
+        JsonNode result = client.postJson("/policies/pol_1/versions/publish", java.util.Map.of());
+
+        assertEquals("published", result.path("status").asText());
+        verify(restTemplate).exchange(any(java.net.URI.class), eq(HttpMethod.POST),
+                argThat(entity -> "{}".equals(entity.getBody())), eq(String.class));
+    }
+
+    @Test
+    void patchJson_sendsSerializedBodyAndParsesResponse() {
+        RestTemplate restTemplate = mock(RestTemplate.class);
+        CompAiApiClient client = new CompAiApiClient(new ObjectMapper(), restTemplate);
+        client.setApiKey("test-key");
+        client.setApiBaseUrl("https://compai-api.example.com/v1");
+
+        when(restTemplate.exchange(
+                eq(java.net.URI.create("https://compai-api.example.com/v1/tasks/tsk_1")),
+                eq(HttpMethod.PATCH),
+                any(),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"id\":\"tsk_1\",\"status\":\"done\"}"));
+
+        JsonNode result = client.patchJson("/tasks/tsk_1", java.util.Map.of("status", "done"));
+
+        assertEquals("done", result.path("status").asText());
+        verify(restTemplate).exchange(any(java.net.URI.class), eq(HttpMethod.PATCH),
+                argThat(entity -> String.valueOf(entity.getBody()).contains("\"status\":\"done\"")), eq(String.class));
+    }
+
+    @Test
+    void postJson_returnsEmptyObjectWhenResponseBodyIsBlank() {
+        RestTemplate restTemplate = mock(RestTemplate.class);
+        CompAiApiClient client = new CompAiApiClient(new ObjectMapper(), restTemplate);
+        client.setApiKey("test-key");
+        client.setApiBaseUrl("https://compai-api.example.com/v1");
+
+        when(restTemplate.exchange(any(java.net.URI.class), eq(HttpMethod.POST), any(), eq(String.class)))
+                .thenReturn(ResponseEntity.ok(""));
+
+        JsonNode result = client.postJson("/vendors", java.util.Map.of("name", "AWS"));
+        assertTrue(result.isObject());
+        assertEquals(0, result.size());
+    }
 }

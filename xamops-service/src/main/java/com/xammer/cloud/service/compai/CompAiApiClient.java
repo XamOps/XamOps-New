@@ -55,13 +55,42 @@ public class CompAiApiClient {
 
     /** GETs {@code apiBaseUrl + path}, parses the body as JSON. path must start with '/'. */
     public JsonNode getJson(String path) {
+        return exchangeJson(HttpMethod.GET, path, null);
+    }
+
+    /** POSTs {@code body} (serialized as JSON, or {} if null) to {@code apiBaseUrl + path}. */
+    public JsonNode postJson(String path, Object body) {
+        return exchangeJson(HttpMethod.POST, path, body);
+    }
+
+    /** PATCHes {@code body} (serialized as JSON) to {@code apiBaseUrl + path}. */
+    public JsonNode patchJson(String path, Object body) {
+        return exchangeJson(HttpMethod.PATCH, path, body);
+    }
+
+    private JsonNode exchangeJson(HttpMethod method, String path, Object body) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-API-Key", apiKey);
         headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
+        HttpEntity<?> entity;
+        if (method == HttpMethod.GET) {
+            entity = new HttpEntity<>(headers);
+        } else {
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            try {
+                String json = objectMapper.writeValueAsString(body != null ? body : java.util.Map.of());
+                entity = new HttpEntity<>(json, headers);
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to serialize request body for " + path, e);
+            }
+        }
         ResponseEntity<String> resp = restTemplate.exchange(
-                URI.create(apiBaseUrl + path), HttpMethod.GET, new HttpEntity<>(headers), String.class);
+                URI.create(apiBaseUrl + path), method, entity, String.class);
         try {
-            return objectMapper.readTree(resp.getBody());
+            String responseBody = resp.getBody();
+            return (responseBody == null || responseBody.isEmpty())
+                    ? objectMapper.createObjectNode()
+                    : objectMapper.readTree(responseBody);
         } catch (Exception e) {
             throw new IllegalStateException("comp.ai response was not valid JSON for " + path, e);
         }
