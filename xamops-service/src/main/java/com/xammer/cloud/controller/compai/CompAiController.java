@@ -10,6 +10,23 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * SOC2 Program endpoints. Backed by a self-hosted comp.ai instance via
  * {@link CompAiService}; the frontend "SOC2 Program" page consumes these.
+ *
+ * <p><b>SCOPE — single-org demo, NOT multi-tenant.</b> These endpoints serve one
+ * shared comp.ai organization (fictional demo data) to every authenticated XamOps
+ * user, gated only by {@code .anyRequest().authenticated()} — the same model as
+ * ComplianceOps / XamSecure. Before this is used with real comp.ai data or across
+ * tenants, the following are REQUIRED (see the automated security review + the
+ * self-hosting runbook):
+ * <ul>
+ *   <li>Resolve the comp.ai API key / base URL <i>per tenant</i> (from the
+ *       authenticated principal / CloudAccount) instead of the JVM-wide
+ *       {@code ${compai.api-key}}, and tenant-scope access.</li>
+ *   <li>Namespace the Redis cache keys by tenant (e.g. {@code compai:controls:<tenantId>})
+ *       in {@link CompAiService} so one tenant's data can't be served to another.</li>
+ *   <li>Front comp.ai with TLS and use {@code https://} — the key is currently sent
+ *       in cleartext over HTTP (acceptable only for the throwaway demo instance);
+ *       rotate the demo key afterward.</li>
+ * </ul>
  */
 @RestController
 @RequestMapping("/api/soc2")
