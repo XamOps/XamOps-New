@@ -1,0 +1,59 @@
+{
+  "data": [
+    {
+      "id": "ctl_passing",
+      "name": "Acceptable Use",
+      "description": "Establish an Acceptable Use Policy for Information and Assets",
+      "organizationId": "org_demo",
+      "policies": [
+        { "status": "published", "id": "pol_1", "name": "Acceptable Use & Workstation Security" }
+      ],
+      "tasks": [
+        { "id": "tsk_1", "title": "Separation of Environments", "status": "done" }
+      ],
+      "requirementsMapped": [
+        {
+          "requirement": { "name": "The entity maintains confidential information.", "identifier": "C1.1" },
+          "frameworkInstance": { "framework": { "name": "SOC 2", "version": "1" } }
+        }
+      ]
+    },
+    {
+      "id": "ctl_notstarted",
+      "name": "Logical Access Controls",
+      "description": "Restrict logical access to authorized users",
+      "organizationId": "org_demo",
+      "policies": [
+        { "status": "draft", "id": "pol_2", "name": "Access Control Policy" }
+      ],
+      "tasks": [
+        { "id": "tsk_2", "title": "Enforce MFA", "status": "todo" }
+      ],
+      "requirementsMapped": [
+        {
+          "requirement": { "name": "Logical access security software is implemented.", "identifier": "CC6.1" },
+          "frameworkInstance": { "framework": { "name": "SOC 2", "version": "1" } }
+        }
+      ]
+    },
+    {
+      "id": "ctl_inprogress",
+      "name": "Incident Response",
+      "description": "Maintain an incident response plan",
+      "organizationId": "org_demo",
+      "policies": [
+        { "status": "needs_review", "id": "pol_3", "name": "Incident Response Policy" }
+      ],
+      "tasks": [
+        { "id": "tsk_3", "title": "Test IR plan", "status": "in_progress" }
+      ],
+      "requirementsMapped": [
+        {
+          "requirement": { "name": "The entity responds to identified security incidents.", "identifier": "CC7.4" },
+          "frameworkInstance": { "framework": { "name": "SOC 2", "version": "1" } }
+        }
+      ]
+    }
+  ],
+  "pageCount": 1
+}

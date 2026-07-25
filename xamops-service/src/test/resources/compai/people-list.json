@@ -1,0 +1,14 @@
+{
+  "data": [
+    {
+      "id": "mem_1",
+      "role": "owner",
+      "department": "engineering",
+      "jobTitle": "CTO",
+      "isActive": true,
+      "deactivated": false,
+      "user": { "email": "aditya@xammer.com", "name": "Aditya Mehta" }
+    }
+  ],
+  "count": 1
+}

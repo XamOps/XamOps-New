@@ -1,0 +1,6 @@
+{
+  "data": [
+    { "id": "pol_1", "name": "Acceptable Use & Workstation Security", "description": "Rules for acceptable use.", "status": "published" },
+    { "id": "pol_2", "name": "Access Control Policy", "description": "Access control rules.", "status": "draft" }
+  ]
+}
