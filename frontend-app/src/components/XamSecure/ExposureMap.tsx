@@ -84,7 +84,7 @@ const ExposureMap: React.FC<Props> = ({ data }) => {
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 460 }}>
           {/* edges */}
           <line x1={cx} y1={cy} x2={cx} y2={60} stroke="#cbd5e1" strokeWidth={1.5} />
-          {nodes.map((n, i) => {
+          {nodes.map((_n, i) => {
             const ang = (-90 + (360 / (peripheral + 1)) * (i + 1)) * (Math.PI / 180);
             const x = cx + R * Math.cos(ang);
             const y = cy + R * Math.sin(ang);

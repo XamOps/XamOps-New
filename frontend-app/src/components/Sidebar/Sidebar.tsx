@@ -30,6 +30,18 @@ const XAMSECURE_SUBTABS: { id: string; label: string; icon: string }[] = [
   { id: 'components', label: 'Components', icon: 'fas fa-cubes' },
 ];
 
+const SOC2_SUBTABS: { id: string; label: string; icon: string }[] = [
+  { id: 'overview', label: 'Overview', icon: 'fas fa-gauge' },
+  { id: 'controls', label: 'Controls', icon: 'fas fa-list-check' },
+  { id: 'policies', label: 'Policies', icon: 'fas fa-file-lines' },
+  { id: 'evidence-tasks', label: 'Evidence & Tasks', icon: 'fas fa-clipboard-check' },
+  { id: 'personnel', label: 'Personnel', icon: 'fas fa-users' },
+  { id: 'vendors', label: 'Vendors', icon: 'fas fa-building' },
+  { id: 'risks', label: 'Risks', icon: 'fas fa-triangle-exclamation' },
+  { id: 'integrations', label: 'Integrations', icon: 'fas fa-plug' },
+  { id: 'cloud-tests', label: 'Cloud Tests', icon: 'fas fa-cloud' },
+];
+
 const Sidebar: React.FC = () => {
   const { hasAnyRole } = useAuth();
   const { selectedAccountDisplay, accounts, selectedAccountIds } = useAccounts();
@@ -113,7 +125,7 @@ const Sidebar: React.FC = () => {
     const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/aiops', '/dataops', '/gcp-dataops', '/azure-dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
-    const secopsRoutes = ['/xamsecure', '/security', '/gcp-security', '/azure-security', '/complianceops',
+    const secopsRoutes = ['/xamsecure', '/security', '/gcp-security', '/azure-security', '/complianceops', '/soc2-program',
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
     const observabilityRoutes = ['/observability', '/grafana-dashboard'];
@@ -384,7 +396,28 @@ const Sidebar: React.FC = () => {
                   </>
                 )}
                 {isXamTabAllowed('secops-compliance') && <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />}
-                {isXamTabAllowed('secops-performance') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />}
+                {isXamTabAllowed('secops-compliance') && (
+                  <>
+                    <NavItem href="/soc2-program/overview" icon="fas fa-clipboard-check" label="SOC2 Program" isActive={isActive('/soc2-program')} />
+                    {location.pathname.startsWith('/soc2-program') && (
+                      <div className={clsx(
+                        'ml-3 pl-3 border-l space-y-0.5',
+                        theme === 'dark' ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)]'
+                      )}>
+                        {SOC2_SUBTABS.map((s) => (
+                          <NavItem
+                            key={s.id}
+                            href={`/soc2-program/${s.id}`}
+                            icon={s.icon}
+                            label={s.label}
+                            isActive={location.pathname === `/soc2-program/${s.id}`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+                {isXamTabAllowed('secops-performance') &&<NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />}
                 {isXamTabAllowed('secops-alerts') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />}
               </NavSection>
               )}

@@ -136,6 +136,7 @@ const SreInvestigationDetailPage = lazy(() => import('./pages/SreInvestigationDe
 const SreSetupPage = lazy(() => import('./pages/SreSetupPage'));
 const MediaOpsPage = lazy(() => import('./pages/MediaOpsPage'));
 const ComplianceOpsPage = lazy(() => import('./pages/ComplianceOpsPage'));
+const Soc2ProgramPage = lazy(() => import('./pages/Soc2ProgramPage'));
 const CalculatorPage = lazy(() => import('./pages/CalculatorPage'));
 
 // BillOps — User
@@ -594,6 +595,8 @@ const AppContent: React.FC = () => {
                             <Route path="/user-management" element={<UserManagementPage />} />
                             <Route path="/my-profile" element={<MyProfilePage />} />
                             <Route path="/complianceops" element={<ComplianceOpsPage />} />
+                            <Route path="/soc2-program" element={<Navigate to="/soc2-program/overview" replace />} />
+                            <Route path="/soc2-program/:tab" element={<Soc2ProgramPage />} />
                             <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
                             <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />
                             <Route path="/azure-autospotting" element={<AzureSpotAutomationPage />} />
