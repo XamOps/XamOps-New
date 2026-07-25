@@ -68,6 +68,11 @@ public class CompAiApiClient {
         return exchangeJson(HttpMethod.PATCH, path, body);
     }
 
+    /** DELETEs {@code apiBaseUrl + path}. */
+    public JsonNode deleteJson(String path) {
+        return exchangeJson(HttpMethod.DELETE, path, null);
+    }
+
     private JsonNode exchangeJson(HttpMethod method, String path, Object body) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-API-Key", apiKey);

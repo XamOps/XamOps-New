@@ -11,9 +11,19 @@ vi.mock('../api/soc2Api', async () => {
   return {
     ...actual,
     publishSoc2Policy: vi.fn(),
-    updateSoc2TaskStatus: vi.fn(),
+    setSoc2PolicyArchived: vi.fn(),
+    updateSoc2Task: vi.fn(),
+    createSoc2Task: vi.fn(),
     createSoc2Vendor: vi.fn(),
+    updateSoc2Vendor: vi.fn(),
+    deleteSoc2Vendor: vi.fn(),
     createSoc2Risk: vi.fn(),
+    updateSoc2Risk: vi.fn(),
+    deleteSoc2Risk: vi.fn(),
+    deleteSoc2Control: vi.fn(),
+    inviteSoc2Member: vi.fn(),
+    updateSoc2Person: vi.fn(),
+    deleteSoc2Person: vi.fn(),
   };
 });
 vi.mock('../contexts/TopbarContext', () => ({
@@ -59,8 +69,8 @@ describe('Soc2ProgramPage write actions', () => {
     expect(screen.queryByText('Publish')).not.toBeInTheDocument();
   });
 
-  it('changing the task status dropdown calls updateSoc2TaskStatus and refetches', async () => {
-    vi.mocked(soc2Api.updateSoc2TaskStatus).mockResolvedValue({} as any);
+  it('changing the task status dropdown calls updateSoc2Task and refetches', async () => {
+    vi.mocked(soc2Api.updateSoc2Task).mockResolvedValue({} as any);
     const { refetch } = renderTab('evidence-tasks', {
       tasks: [{ id: 'tsk_1', title: 'Enforce MFA', controlName: 'Access Rights', status: 'todo' }],
     });
@@ -68,7 +78,7 @@ describe('Soc2ProgramPage write actions', () => {
     const select = screen.getByRole('combobox');
     fireEvent.change(select, { target: { value: 'done' } });
 
-    await waitFor(() => expect(soc2Api.updateSoc2TaskStatus).toHaveBeenCalledWith('tsk_1', 'done'));
+    await waitFor(() => expect(soc2Api.updateSoc2Task).toHaveBeenCalledWith('tsk_1', { status: 'done' }));
     await waitFor(() => expect(refetch).toHaveBeenCalled());
   });
 

@@ -111,4 +111,26 @@ class CompAiApiClientTest {
         assertTrue(result.isObject());
         assertEquals(0, result.size());
     }
+
+    @Test
+    void deleteJson_sendsDeleteMethodWithApiKeyHeader() {
+        RestTemplate restTemplate = mock(RestTemplate.class);
+        CompAiApiClient client = new CompAiApiClient(new ObjectMapper(), restTemplate);
+        client.setApiKey("test-key");
+        client.setApiBaseUrl("https://compai-api.example.com/v1");
+
+        when(restTemplate.exchange(
+                eq(java.net.URI.create("https://compai-api.example.com/v1/vendors/ven_1")),
+                eq(HttpMethod.DELETE), any(), eq(String.class)))
+                .thenReturn(ResponseEntity.ok(""));
+
+        JsonNode result = client.deleteJson("/vendors/ven_1");
+
+        assertTrue(result.isObject());
+        verify(restTemplate).exchange(any(java.net.URI.class), eq(HttpMethod.DELETE),
+                argThat(entity -> {
+                    HttpHeaders headers = (HttpHeaders) entity.getHeaders();
+                    return "test-key".equals(headers.getFirst("X-API-Key"));
+                }), eq(String.class));
+    }
 }

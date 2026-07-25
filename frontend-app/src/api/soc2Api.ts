@@ -132,6 +132,13 @@ export interface CreateVendorRequest {
   status: string;
 }
 
+export interface UpdateVendorRequest {
+  name?: string;
+  description?: string;
+  category?: string;
+  status?: string;
+}
+
 export interface CreateRiskRequest {
   title: string;
   description: string;
@@ -139,17 +146,80 @@ export interface CreateRiskRequest {
   department?: string;
 }
 
+export interface UpdateRiskRequest {
+  title?: string;
+  description?: string;
+  category?: string;
+  department?: string;
+}
+
+export interface UpdateTaskRequest {
+  title?: string;
+  description?: string;
+  assigneeId?: string;
+  status?: string;
+}
+
+export interface CreateTaskRequest {
+  title: string;
+  description: string;
+  assigneeId?: string;
+  department?: string;
+  controlIds?: string[];
+}
+
+export interface UpdatePersonRequest {
+  role?: string;
+  department?: string;
+  isActive?: boolean;
+}
+
+export interface InviteMemberRequest {
+  email: string;
+  role: string;
+}
+
+const patch = <T>(url: string, body: unknown): Promise<T> =>
+  apiClient.fetchJson(url, { method: 'PATCH', body: JSON.stringify(body) });
+
 export const publishSoc2Policy = (policyId: string): Promise<Soc2Policy> =>
   apiClient.post(`/api/soc2/policies/${policyId}/publish`);
 
-export const updateSoc2TaskStatus = (taskId: string, status: string): Promise<Soc2Task> =>
-  apiClient.fetchJson(`/api/soc2/tasks/${taskId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
-  });
+export const setSoc2PolicyArchived = (policyId: string, archived: boolean): Promise<Soc2Policy> =>
+  patch(`/api/soc2/policies/${policyId}/archive`, { archived });
+
+export const updateSoc2Task = (taskId: string, request: UpdateTaskRequest): Promise<Soc2Task> =>
+  patch(`/api/soc2/tasks/${taskId}`, request);
+
+export const createSoc2Task = (request: CreateTaskRequest): Promise<Soc2Task> =>
+  apiClient.post('/api/soc2/tasks', request);
 
 export const createSoc2Vendor = (request: CreateVendorRequest): Promise<Soc2Vendor> =>
   apiClient.post('/api/soc2/vendors', request);
 
+export const updateSoc2Vendor = (vendorId: string, request: UpdateVendorRequest): Promise<Soc2Vendor> =>
+  patch(`/api/soc2/vendors/${vendorId}`, request);
+
+export const deleteSoc2Vendor = (vendorId: string): Promise<void> =>
+  apiClient.delete(`/api/soc2/vendors/${vendorId}`);
+
 export const createSoc2Risk = (request: CreateRiskRequest): Promise<Soc2Risk> =>
   apiClient.post('/api/soc2/risks', request);
+
+export const updateSoc2Risk = (riskId: string, request: UpdateRiskRequest): Promise<Soc2Risk> =>
+  patch(`/api/soc2/risks/${riskId}`, request);
+
+export const deleteSoc2Risk = (riskId: string): Promise<void> =>
+  apiClient.delete(`/api/soc2/risks/${riskId}`);
+
+export const deleteSoc2Control = (controlId: string): Promise<void> =>
+  apiClient.delete(`/api/soc2/controls/${controlId}`);
+
+export const inviteSoc2Member = (request: InviteMemberRequest): Promise<void> =>
+  apiClient.post('/api/soc2/personnel/invite', request);
+
+export const updateSoc2Person = (memberId: string, request: UpdatePersonRequest): Promise<Soc2Person> =>
+  patch(`/api/soc2/personnel/${memberId}`, request);
+
+export const deleteSoc2Person = (memberId: string): Promise<void> =>
+  apiClient.delete(`/api/soc2/personnel/${memberId}`);

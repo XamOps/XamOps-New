@@ -4,12 +4,18 @@ import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../hooks/useSoc2ProgramData';
 import {
-  publishSoc2Policy, updateSoc2TaskStatus, createSoc2Vendor, createSoc2Risk,
-  CreateVendorRequest, CreateRiskRequest,
+  publishSoc2Policy, setSoc2PolicyArchived,
+  updateSoc2Task, createSoc2Task,
+  createSoc2Vendor, updateSoc2Vendor, deleteSoc2Vendor,
+  createSoc2Risk, updateSoc2Risk, deleteSoc2Risk,
+  deleteSoc2Control,
+  inviteSoc2Member, updateSoc2Person, deleteSoc2Person,
 } from '../api/soc2Api';
 import type {
   Soc2ControlStatus, Soc2Control, Soc2Policy, Soc2Task, Soc2Person,
   Soc2Vendor, Soc2Risk, Soc2Integration, Soc2CloudTest,
+  CreateVendorRequest, UpdateVendorRequest, CreateRiskRequest, UpdateRiskRequest,
+  UpdateTaskRequest, CreateTaskRequest, UpdatePersonRequest, InviteMemberRequest,
 } from '../api/soc2Api';
 
 type SelectedRow =
@@ -46,6 +52,7 @@ const VENDOR_CATEGORY_OPTIONS = ['cloud', 'infrastructure', 'software_as_a_servi
 const VENDOR_STATUS_OPTIONS = ['not_assessed', 'in_progress', 'assessed'];
 const RISK_CATEGORY_OPTIONS = ['customer', 'fraud', 'governance', 'operations', 'other', 'people', 'regulatory', 'reporting', 'resilience', 'technology', 'vendor_management'];
 const DEPARTMENT_OPTIONS = ['none', 'admin', 'gov', 'hr', 'it', 'itsm', 'qms'];
+const MEMBER_ROLE_OPTIONS = ['admin', 'employee', 'auditor'];
 
 // Monochrome status pill — filled-dark = done, mid-grey = in progress, light outline = not started.
 const controlStatusClass = (status: Soc2ControlStatus): string => {
@@ -90,6 +97,26 @@ const ActionButton: React.FC<{ onClick: (e: React.MouseEvent) => void; disabled?
   </button>
 );
 
+const SecondaryButton: React.FC<{ onClick: (e: React.MouseEvent) => void; disabled?: boolean; children: React.ReactNode }> = ({ onClick, disabled, children }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    className="px-2.5 py-1 text-[11px] font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+  >
+    {children}
+  </button>
+);
+
+const DangerButton: React.FC<{ onClick: (e: React.MouseEvent) => void; disabled?: boolean; children: React.ReactNode }> = ({ onClick, disabled, children }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    className="px-2.5 py-1 text-[11px] font-medium rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+  >
+    {children}
+  </button>
+);
+
 const Soc2ProgramPage: React.FC = () => {
   const { tab = 'overview' } = useParams<{ tab: string }>();
   const navigate = useNavigate();
@@ -101,6 +128,8 @@ const Soc2ProgramPage: React.FC = () => {
   const [actionError, setActionError] = useState<string | null>(null);
   const [vendorModalOpen, setVendorModalOpen] = useState(false);
   const [riskModalOpen, setRiskModalOpen] = useState(false);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [selected, setSelected] = useState<SelectedRow>(null);
 
   const trustCenterUrl = overview?.trustCenterUrl;
@@ -132,16 +161,45 @@ const Soc2ProgramPage: React.FC = () => {
     }
   };
 
+  const handleArchivePolicy = async (policyId: string, archived: boolean) => {
+    setActionError(null);
+    try {
+      await setSoc2PolicyArchived(policyId, archived);
+      await refetch();
+      setSelected(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to update policy');
+    }
+  };
+
   const handleTaskStatusChange = async (taskId: string, status: string) => {
     setActionError(null);
     setUpdatingTaskId(taskId);
     try {
-      await updateSoc2TaskStatus(taskId, status);
+      await updateSoc2Task(taskId, { status });
       await refetch();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Failed to update task');
     } finally {
       setUpdatingTaskId(null);
+    }
+  };
+
+  const handleSaveTask = async (taskId: string, payload: UpdateTaskRequest) => {
+    await updateSoc2Task(taskId, payload);
+    await refetch();
+    setSelected(null);
+  };
+
+  const handleDeleteControl = async (controlId: string) => {
+    if (!window.confirm('Delete this control? This cannot be undone.')) return;
+    setActionError(null);
+    try {
+      await deleteSoc2Control(controlId);
+      await refetch();
+      setSelected(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to delete control');
     }
   };
 
@@ -151,10 +209,76 @@ const Soc2ProgramPage: React.FC = () => {
     setVendorModalOpen(false);
   };
 
+  const handleSaveVendor = async (vendorId: string, payload: UpdateVendorRequest) => {
+    await updateSoc2Vendor(vendorId, payload);
+    await refetch();
+    setSelected(null);
+  };
+
+  const handleDeleteVendor = async (vendorId: string) => {
+    if (!window.confirm('Delete this vendor? This cannot be undone.')) return;
+    setActionError(null);
+    try {
+      await deleteSoc2Vendor(vendorId);
+      await refetch();
+      setSelected(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to delete vendor');
+    }
+  };
+
   const handleCreateRisk = async (payload: CreateRiskRequest) => {
     await createSoc2Risk(payload);
     await refetch();
     setRiskModalOpen(false);
+  };
+
+  const handleSaveRisk = async (riskId: string, payload: UpdateRiskRequest) => {
+    await updateSoc2Risk(riskId, payload);
+    await refetch();
+    setSelected(null);
+  };
+
+  const handleDeleteRisk = async (riskId: string) => {
+    if (!window.confirm('Delete this risk? This cannot be undone.')) return;
+    setActionError(null);
+    try {
+      await deleteSoc2Risk(riskId);
+      await refetch();
+      setSelected(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to delete risk');
+    }
+  };
+
+  const handleCreateTask = async (payload: CreateTaskRequest) => {
+    await createSoc2Task(payload);
+    await refetch();
+    setTaskModalOpen(false);
+  };
+
+  const handleInviteMember = async (payload: InviteMemberRequest) => {
+    await inviteSoc2Member(payload);
+    await refetch();
+    setInviteModalOpen(false);
+  };
+
+  const handleSavePerson = async (memberId: string, payload: UpdatePersonRequest) => {
+    await updateSoc2Person(memberId, payload);
+    await refetch();
+    setSelected(null);
+  };
+
+  const handleDeletePerson = async (memberId: string) => {
+    if (!window.confirm('Remove this person from the organization? This cannot be undone.')) return;
+    setActionError(null);
+    try {
+      await deleteSoc2Person(memberId);
+      await refetch();
+      setSelected(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to remove person');
+    }
   };
 
   if (isLoading) {
@@ -263,55 +387,75 @@ const Soc2ProgramPage: React.FC = () => {
       )}
 
       {tab === 'evidence-tasks' && (
-        <TableWrap>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr><Th>Task</Th><Th>Control</Th><Th>Status</Th></tr>
-          </thead>
-          <tbody>
-            {tasks.map((t) => (
-              <tr key={t.id} onClick={() => setSelected({ type: 'task', data: t })}
-                  className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
-                <td className="p-3 text-[13px] text-gray-900 font-medium">{t.title}</td>
-                <td className="p-3 text-[12px] text-gray-500">{t.controlName || '—'}</td>
-                <td className="p-3">
-                  <select
-                    value={t.status || 'todo'}
-                    disabled={updatingTaskId === t.id}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => handleTaskStatusChange(t.id, e.target.value)}
-                    className="text-[11px] font-medium rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 disabled:opacity-40 capitalize"
-                  >
-                    {TASK_STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s} className="capitalize">{s.replace(/_/g, ' ')}</option>
-                    ))}
-                  </select>
-                </td>
-              </tr>
-            ))}
-            {tasks.length === 0 && <EmptyRow cols={3} text="No tasks." />}
-          </tbody>
-        </TableWrap>
+        <div className="space-y-3">
+          <div className="flex justify-end">
+            <button
+              onClick={() => setTaskModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-[#1a1a1a] text-white rounded-lg text-[12px] font-medium hover:bg-black transition-colors"
+            >
+              <Icon icon="mdi:plus" width={14} /> New Task
+            </button>
+          </div>
+          <TableWrap>
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr><Th>Task</Th><Th>Control</Th><Th>Status</Th></tr>
+            </thead>
+            <tbody>
+              {tasks.map((t) => (
+                <tr key={t.id} onClick={() => setSelected({ type: 'task', data: t })}
+                    className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
+                  <td className="p-3 text-[13px] text-gray-900 font-medium">{t.title}</td>
+                  <td className="p-3 text-[12px] text-gray-500">{t.controlName || '—'}</td>
+                  <td className="p-3">
+                    <select
+                      value={t.status || 'todo'}
+                      disabled={updatingTaskId === t.id}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => handleTaskStatusChange(t.id, e.target.value)}
+                      className="text-[11px] font-medium rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 disabled:opacity-40 capitalize"
+                    >
+                      {TASK_STATUS_OPTIONS.map((s) => (
+                        <option key={s} value={s} className="capitalize">{s.replace(/_/g, ' ')}</option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+              {tasks.length === 0 && <EmptyRow cols={3} text="No tasks." />}
+            </tbody>
+          </TableWrap>
+        </div>
       )}
 
       {tab === 'personnel' && (
-        <TableWrap>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr><Th>Name</Th><Th>Email</Th><Th>Role</Th><Th>Department</Th><Th>Status</Th></tr>
-          </thead>
-          <tbody>
-            {personnel.map((p) => (
-              <tr key={p.id} onClick={() => setSelected({ type: 'person', data: p })}
-                  className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
-                <td className="p-3 text-[13px] text-gray-900 font-medium">{p.name}</td>
-                <td className="p-3 text-[12px] text-gray-500">{p.email}</td>
-                <td className="p-3 text-[12px] text-gray-500 capitalize">{p.role}</td>
-                <td className="p-3 text-[12px] text-gray-500 capitalize">{p.department || '—'}</td>
-                <td className="p-3"><StatusPill text={p.active ? 'Active' : 'Inactive'} tone={p.active ? 'dark' : 'light'} /></td>
-              </tr>
-            ))}
-            {personnel.length === 0 && <EmptyRow cols={5} text="No personnel." />}
-          </tbody>
-        </TableWrap>
+        <div className="space-y-3">
+          <div className="flex justify-end">
+            <button
+              onClick={() => setInviteModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-[#1a1a1a] text-white rounded-lg text-[12px] font-medium hover:bg-black transition-colors"
+            >
+              <Icon icon="mdi:plus" width={14} /> Invite Member
+            </button>
+          </div>
+          <TableWrap>
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr><Th>Name</Th><Th>Email</Th><Th>Role</Th><Th>Department</Th><Th>Status</Th></tr>
+            </thead>
+            <tbody>
+              {personnel.map((p) => (
+                <tr key={p.id} onClick={() => setSelected({ type: 'person', data: p })}
+                    className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
+                  <td className="p-3 text-[13px] text-gray-900 font-medium">{p.name}</td>
+                  <td className="p-3 text-[12px] text-gray-500">{p.email}</td>
+                  <td className="p-3 text-[12px] text-gray-500 capitalize">{p.role}</td>
+                  <td className="p-3 text-[12px] text-gray-500 capitalize">{p.department || '—'}</td>
+                  <td className="p-3"><StatusPill text={p.active ? 'Active' : 'Inactive'} tone={p.active ? 'dark' : 'light'} /></td>
+                </tr>
+              ))}
+              {personnel.length === 0 && <EmptyRow cols={5} text="No personnel." />}
+            </tbody>
+          </TableWrap>
+        </div>
       )}
 
       {tab === 'vendors' && (
@@ -428,14 +572,30 @@ const Soc2ProgramPage: React.FC = () => {
       {riskModalOpen && (
         <RiskModal onClose={() => setRiskModalOpen(false)} onSubmit={handleCreateRisk} />
       )}
+      {taskModalOpen && (
+        <TaskModal onClose={() => setTaskModalOpen(false)} onSubmit={handleCreateTask} personnel={personnel} controls={controls} />
+      )}
+      {inviteModalOpen && (
+        <InviteModal onClose={() => setInviteModalOpen(false)} onSubmit={handleInviteMember} />
+      )}
       {selected && (
         <DetailDrawer
           selected={selected}
           onClose={() => setSelected(null)}
           onPublishPolicy={handlePublish}
-          onTaskStatusChange={handleTaskStatusChange}
           publishingId={publishingId}
+          onArchivePolicy={handleArchivePolicy}
+          onTaskStatusChange={handleTaskStatusChange}
           updatingTaskId={updatingTaskId}
+          onSaveTask={handleSaveTask}
+          onDeleteControl={handleDeleteControl}
+          onSaveVendor={handleSaveVendor}
+          onDeleteVendor={handleDeleteVendor}
+          onSaveRisk={handleSaveRisk}
+          onDeleteRisk={handleDeleteRisk}
+          onSavePerson={handleSavePerson}
+          onDeletePerson={handleDeletePerson}
+          personnel={personnel}
         />
       )}
     </div>
@@ -557,6 +717,97 @@ const RiskModal: React.FC<{ onClose: () => void; onSubmit: (payload: CreateRiskR
   );
 };
 
+const TaskModal: React.FC<{ onClose: () => void; onSubmit: (payload: CreateTaskRequest) => Promise<void>; personnel: Soc2Person[]; controls: Soc2Control[] }> = ({ onClose, onSubmit, personnel, controls }) => {
+  const [title, setTitleVal] = useState('');
+  const [description, setDescription] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [controlId, setControlId] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!title.trim() || !description.trim()) {
+      setErr('Title and description are required.');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSubmit({
+        title: title.trim(),
+        description: description.trim(),
+        assigneeId: assigneeId || undefined,
+        controlIds: controlId ? [controlId] : undefined,
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to create task');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ModalShell title="New Task" onClose={onClose}>
+      {err && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">{err}</div>}
+      <FormField label="Title"><input className={inputCls} value={title} onChange={(e) => setTitleVal(e.target.value)} placeholder="e.g. Review access logs" /></FormField>
+      <FormField label="Description"><textarea className={inputCls} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe the task" /></FormField>
+      <FormField label="Assignee (optional)">
+        <select className={inputCls} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+          <option value="">Unassigned</option>
+          {personnel.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Link to control (optional)">
+        <select className={inputCls} value={controlId} onChange={(e) => setControlId(e.target.value)}>
+          <option value="">None</option>
+          {controls.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </FormField>
+      <div className="flex justify-end gap-2 mt-4">
+        <button onClick={onClose} className="px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+        <ActionButton onClick={submit} disabled={submitting}>{submitting ? 'Creating…' : 'Create Task'}</ActionButton>
+      </div>
+    </ModalShell>
+  );
+};
+
+const InviteModal: React.FC<{ onClose: () => void; onSubmit: (payload: InviteMemberRequest) => Promise<void> }> = ({ onClose, onSubmit }) => {
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState(MEMBER_ROLE_OPTIONS[1]);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!email.trim()) {
+      setErr('Email is required.');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSubmit({ email: email.trim(), role });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to send invite');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ModalShell title="Invite Member" onClose={onClose}>
+      {err && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">{err}</div>}
+      <FormField label="Email"><input type="email" className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@company.com" /></FormField>
+      <FormField label="Role">
+        <select className={inputCls} value={role} onChange={(e) => setRole(e.target.value)}>
+          {MEMBER_ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+      </FormField>
+      <div className="flex justify-end gap-2 mt-4">
+        <button onClick={onClose} className="px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+        <ActionButton onClick={submit} disabled={submitting}>{submitting ? 'Sending…' : 'Send Invite'}</ActionButton>
+      </div>
+    </ModalShell>
+  );
+};
+
 const DrawerShell: React.FC<{ title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }> = ({ title, subtitle, onClose, children }) => (
   <div className="fixed inset-0 z-50">
     <div className="fixed inset-0 bg-black/30" onClick={onClose} />
@@ -586,22 +837,45 @@ interface DetailDrawerProps {
   selected: Exclude<SelectedRow, null>;
   onClose: () => void;
   onPublishPolicy: (policyId: string) => void;
-  onTaskStatusChange: (taskId: string, status: string) => void;
   publishingId: string | null;
+  onArchivePolicy: (policyId: string, archived: boolean) => Promise<void>;
+  onTaskStatusChange: (taskId: string, status: string) => void;
   updatingTaskId: string | null;
+  onSaveTask: (taskId: string, payload: UpdateTaskRequest) => Promise<void>;
+  onDeleteControl: (controlId: string) => Promise<void>;
+  onSaveVendor: (vendorId: string, payload: UpdateVendorRequest) => Promise<void>;
+  onDeleteVendor: (vendorId: string) => Promise<void>;
+  onSaveRisk: (riskId: string, payload: UpdateRiskRequest) => Promise<void>;
+  onDeleteRisk: (riskId: string) => Promise<void>;
+  onSavePerson: (memberId: string, payload: UpdatePersonRequest) => Promise<void>;
+  onDeletePerson: (memberId: string) => Promise<void>;
+  personnel: Soc2Person[];
 }
 
-const DetailDrawer: React.FC<DetailDrawerProps> = ({ selected, onClose, onPublishPolicy, onTaskStatusChange, publishingId, updatingTaskId }) => {
+const DetailDrawer: React.FC<DetailDrawerProps> = ({
+  selected, onClose, onPublishPolicy, publishingId, onArchivePolicy,
+  onTaskStatusChange, updatingTaskId, onSaveTask, onDeleteControl,
+  onSaveVendor, onDeleteVendor, onSaveRisk, onDeleteRisk,
+  onSavePerson, onDeletePerson, personnel,
+}) => {
   const { type, data } = selected;
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   if (type === 'control') {
     const c = data;
     return (
       <DrawerShell title={c.name} subtitle={c.category} onClose={onClose}>
         <DrawerSection label="Status">
-          <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${controlStatusClass(c.status)}`}>
-            {CONTROL_STATUS_LABEL[c.status]}
-          </span>
+          <div className="flex items-center justify-between">
+            <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${controlStatusClass(c.status)}`}>
+              {CONTROL_STATUS_LABEL[c.status]}
+            </span>
+            <DangerButton onClick={async () => { setBusy(true); await onDeleteControl(c.id); setBusy(false); }} disabled={busy}>
+              {busy ? 'Deleting…' : 'Delete Control'}
+            </DangerButton>
+          </div>
         </DrawerSection>
         {c.description && <DrawerSection label="Description"><p className="text-[13px] text-gray-700 whitespace-pre-line">{c.description}</p></DrawerSection>}
         <DrawerSection label={`Requirements (${c.requirements.length})`}>
@@ -644,16 +918,20 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({ selected, onClose, onPublis
   if (type === 'policy') {
     const p = data;
     const isPublished = (p.status || '').toLowerCase() === 'published';
+    const isArchived = (p.status || '').toLowerCase() === 'archived';
     return (
       <DrawerShell title={p.name} onClose={onClose}>
         <DrawerSection label="Status">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <StatusPill text={(p.status || '').replace(/_/g, ' ')} tone={policyTone(p.status)} />
             {!isPublished && (
               <ActionButton onClick={() => onPublishPolicy(p.id)} disabled={publishingId === p.id}>
                 {publishingId === p.id ? 'Publishing…' : 'Publish'}
               </ActionButton>
             )}
+            <SecondaryButton onClick={async () => { setBusy(true); await onArchivePolicy(p.id, !isArchived); setBusy(false); }} disabled={busy}>
+              {busy ? 'Saving…' : isArchived ? 'Unarchive' : 'Archive'}
+            </SecondaryButton>
           </div>
         </DrawerSection>
         {p.description && <DrawerSection label="Description"><p className="text-[13px] text-gray-700">{p.description}</p></DrawerSection>}
@@ -668,17 +946,32 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({ selected, onClose, onPublis
 
   if (type === 'task') {
     const t = data;
+    if (editing) {
+      return (
+        <DrawerShell title="Edit Task" onClose={onClose}>
+          <TaskEditForm
+            task={t}
+            personnel={personnel}
+            onCancel={() => setEditing(false)}
+            onSave={async (payload) => { await onSaveTask(t.id, payload); }}
+          />
+        </DrawerShell>
+      );
+    }
     return (
       <DrawerShell title={t.title} subtitle={t.controlName || undefined} onClose={onClose}>
         <DrawerSection label="Status">
-          <select
-            value={t.status || 'todo'}
-            disabled={updatingTaskId === t.id}
-            onChange={(e) => onTaskStatusChange(t.id, e.target.value)}
-            className="text-[12px] font-medium rounded-md border border-gray-300 bg-white px-3 py-1.5 text-gray-700 disabled:opacity-40 capitalize"
-          >
-            {TASK_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-          </select>
+          <div className="flex items-center justify-between">
+            <select
+              value={t.status || 'todo'}
+              disabled={updatingTaskId === t.id}
+              onChange={(e) => onTaskStatusChange(t.id, e.target.value)}
+              className="text-[12px] font-medium rounded-md border border-gray-300 bg-white px-3 py-1.5 text-gray-700 disabled:opacity-40 capitalize"
+            >
+              {TASK_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+            </select>
+            <SecondaryButton onClick={() => setEditing(true)}>Edit</SecondaryButton>
+          </div>
         </DrawerSection>
       </DrawerShell>
     );
@@ -686,21 +979,70 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({ selected, onClose, onPublis
 
   if (type === 'person') {
     const p = data;
+    if (editing) {
+      return (
+        <DrawerShell title="Edit Person" onClose={onClose}>
+          <PersonEditForm
+            person={p}
+            onCancel={() => setEditing(false)}
+            onSave={async (payload) => { await onSavePerson(p.id, payload); }}
+          />
+        </DrawerShell>
+      );
+    }
     return (
       <DrawerShell title={p.name} subtitle={p.email} onClose={onClose}>
+        {err && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">{err}</div>}
         <DrawerSection label="Role"><p className="text-[13px] text-gray-700 capitalize">{p.role}</p></DrawerSection>
         <DrawerSection label="Department"><p className="text-[13px] text-gray-700 capitalize">{p.department || '—'}</p></DrawerSection>
         {p.jobTitle && <DrawerSection label="Job Title"><p className="text-[13px] text-gray-700">{p.jobTitle}</p></DrawerSection>}
-        <DrawerSection label="Status"><StatusPill text={p.active ? 'Active' : 'Inactive'} tone={p.active ? 'dark' : 'light'} /></DrawerSection>
+        <DrawerSection label="Status">
+          <div className="flex items-center justify-between">
+            <StatusPill text={p.active ? 'Active' : 'Inactive'} tone={p.active ? 'dark' : 'light'} />
+            <div className="flex gap-2">
+              <SecondaryButton onClick={() => setEditing(true)}>Edit</SecondaryButton>
+              <SecondaryButton
+                onClick={async () => { setBusy(true); setErr(null); try { await onSavePerson(p.id, { isActive: !p.active }); } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to update status'); } finally { setBusy(false); } }}
+                disabled={busy}
+              >
+                {p.active ? 'Deactivate' : 'Reactivate'}
+              </SecondaryButton>
+              <DangerButton onClick={async () => { setBusy(true); await onDeletePerson(p.id); setBusy(false); }} disabled={busy}>
+                Remove
+              </DangerButton>
+            </div>
+          </div>
+        </DrawerSection>
       </DrawerShell>
     );
   }
 
   if (type === 'vendor') {
     const v = data;
+    if (editing) {
+      return (
+        <DrawerShell title="Edit Vendor" onClose={onClose}>
+          <VendorEditForm
+            vendor={v}
+            onCancel={() => setEditing(false)}
+            onSave={async (payload) => { await onSaveVendor(v.id, payload); }}
+          />
+        </DrawerShell>
+      );
+    }
     return (
       <DrawerShell title={v.name} subtitle={v.category || undefined} onClose={onClose}>
-        <DrawerSection label="Status"><StatusPill text={(v.status || '').replace(/_/g, ' ')} tone="mid" /></DrawerSection>
+        <DrawerSection label="Status">
+          <div className="flex items-center justify-between">
+            <StatusPill text={(v.status || '').replace(/_/g, ' ')} tone="mid" />
+            <div className="flex gap-2">
+              <SecondaryButton onClick={() => setEditing(true)}>Edit</SecondaryButton>
+              <DangerButton onClick={async () => { setBusy(true); await onDeleteVendor(v.id); setBusy(false); }} disabled={busy}>
+                {busy ? 'Deleting…' : 'Delete'}
+              </DangerButton>
+            </div>
+          </div>
+        </DrawerSection>
         {v.description && <DrawerSection label="Description"><p className="text-[13px] text-gray-700 whitespace-pre-line">{v.description}</p></DrawerSection>}
       </DrawerShell>
     );
@@ -708,12 +1050,33 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({ selected, onClose, onPublis
 
   if (type === 'risk') {
     const r = data;
+    if (editing) {
+      return (
+        <DrawerShell title="Edit Risk" onClose={onClose}>
+          <RiskEditForm
+            risk={r}
+            onCancel={() => setEditing(false)}
+            onSave={async (payload) => { await onSaveRisk(r.id, payload); }}
+          />
+        </DrawerShell>
+      );
+    }
     return (
       <DrawerShell title={r.title || 'Risk'} subtitle={r.category || undefined} onClose={onClose}>
         <DrawerSection label="Severity">
           <StatusPill text={r.severity || '—'} tone={(r.severity || '').toLowerCase() === 'high' || (r.severity || '').toLowerCase() === 'critical' ? 'dark' : 'mid'} />
         </DrawerSection>
-        <DrawerSection label="Status"><StatusPill text={(r.status || '').replace(/_/g, ' ')} tone="mid" /></DrawerSection>
+        <DrawerSection label="Status">
+          <div className="flex items-center justify-between">
+            <StatusPill text={(r.status || '').replace(/_/g, ' ')} tone="mid" />
+            <div className="flex gap-2">
+              <SecondaryButton onClick={() => setEditing(true)}>Edit</SecondaryButton>
+              <DangerButton onClick={async () => { setBusy(true); await onDeleteRisk(r.id); setBusy(false); }} disabled={busy}>
+                {busy ? 'Deleting…' : 'Delete'}
+              </DangerButton>
+            </div>
+          </div>
+        </DrawerSection>
         <DrawerSection label="Owner"><p className="text-[13px] text-gray-700">{r.owner || '—'}</p></DrawerSection>
         {r.description && <DrawerSection label="Description"><p className="text-[13px] text-gray-700 whitespace-pre-line">{r.description}</p></DrawerSection>}
       </DrawerShell>
@@ -741,6 +1104,165 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({ selected, onClose, onPublis
       <DrawerSection label="Status"><StatusPill text={(f.status || '').replace(/_/g, ' ')} tone="mid" /></DrawerSection>
       <DrawerSection label="Resource"><p className="text-[13px] text-gray-700 break-all">{f.resource || '—'}</p></DrawerSection>
     </DrawerShell>
+  );
+};
+
+const VendorEditForm: React.FC<{ vendor: Soc2Vendor; onCancel: () => void; onSave: (payload: UpdateVendorRequest) => Promise<void> }> = ({ vendor, onCancel, onSave }) => {
+  const [name, setName] = useState(vendor.name);
+  const [description, setDescription] = useState(vendor.description || '');
+  const [category, setCategory] = useState(vendor.category || VENDOR_CATEGORY_OPTIONS[0]);
+  const [status, setStatus] = useState(vendor.status || VENDOR_STATUS_OPTIONS[0]);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSave({ name: name.trim(), description: description.trim(), category, status });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to save vendor');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      {err && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">{err}</div>}
+      <FormField label="Name"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></FormField>
+      <FormField label="Description"><textarea className={inputCls} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} /></FormField>
+      <FormField label="Category">
+        <select className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)}>
+          {VENDOR_CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Status">
+        <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value)}>
+          {VENDOR_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+        </select>
+      </FormField>
+      <div className="flex justify-end gap-2 mt-4">
+        <button onClick={onCancel} className="px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+        <ActionButton onClick={submit} disabled={submitting}>{submitting ? 'Saving…' : 'Save'}</ActionButton>
+      </div>
+    </div>
+  );
+};
+
+const RiskEditForm: React.FC<{ risk: Soc2Risk; onCancel: () => void; onSave: (payload: UpdateRiskRequest) => Promise<void> }> = ({ risk, onCancel, onSave }) => {
+  const [title, setTitleVal] = useState(risk.title || '');
+  const [description, setDescription] = useState(risk.description || '');
+  const [category, setCategory] = useState(risk.category || RISK_CATEGORY_OPTIONS[0]);
+  const [department, setDepartment] = useState(DEPARTMENT_OPTIONS[0]);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSave({ title: title.trim(), description: description.trim(), category, department });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to save risk');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      {err && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">{err}</div>}
+      <FormField label="Title"><input className={inputCls} value={title} onChange={(e) => setTitleVal(e.target.value)} /></FormField>
+      <FormField label="Description"><textarea className={inputCls} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} /></FormField>
+      <FormField label="Category">
+        <select className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)}>
+          {RISK_CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Department">
+        <select className={inputCls} value={department} onChange={(e) => setDepartment(e.target.value)}>
+          {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </FormField>
+      <div className="flex justify-end gap-2 mt-4">
+        <button onClick={onCancel} className="px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+        <ActionButton onClick={submit} disabled={submitting}>{submitting ? 'Saving…' : 'Save'}</ActionButton>
+      </div>
+    </div>
+  );
+};
+
+const TaskEditForm: React.FC<{ task: Soc2Task; personnel: Soc2Person[]; onCancel: () => void; onSave: (payload: UpdateTaskRequest) => Promise<void> }> = ({ task, personnel, onCancel, onSave }) => {
+  const [title, setTitleVal] = useState(task.title);
+  const [description, setDescription] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSave({ title: title.trim(), description: description.trim() || undefined, assigneeId: assigneeId || undefined });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to save task');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      {err && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">{err}</div>}
+      <FormField label="Title"><input className={inputCls} value={title} onChange={(e) => setTitleVal(e.target.value)} /></FormField>
+      <FormField label="Description"><textarea className={inputCls} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="(optional)" /></FormField>
+      <FormField label="Assignee">
+        <select className={inputCls} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+          <option value="">Unassigned</option>
+          {personnel.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </FormField>
+      <div className="flex justify-end gap-2 mt-4">
+        <button onClick={onCancel} className="px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+        <ActionButton onClick={submit} disabled={submitting}>{submitting ? 'Saving…' : 'Save'}</ActionButton>
+      </div>
+    </div>
+  );
+};
+
+const PersonEditForm: React.FC<{ person: Soc2Person; onCancel: () => void; onSave: (payload: UpdatePersonRequest) => Promise<void> }> = ({ person, onCancel, onSave }) => {
+  const [role, setRole] = useState(person.role || MEMBER_ROLE_OPTIONS[1]);
+  const [department, setDepartment] = useState(person.department || DEPARTMENT_OPTIONS[0]);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onSave({ role, department });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to save person');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      {err && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">{err}</div>}
+      <FormField label="Role">
+        <select className={inputCls} value={role} onChange={(e) => setRole(e.target.value)}>
+          {MEMBER_ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Department">
+        <select className={inputCls} value={department} onChange={(e) => setDepartment(e.target.value)}>
+          {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </FormField>
+      <div className="flex justify-end gap-2 mt-4">
+        <button onClick={onCancel} className="px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+        <ActionButton onClick={submit} disabled={submitting}>{submitting ? 'Saving…' : 'Save'}</ActionButton>
+      </div>
+    </div>
   );
 };
 

@@ -1,10 +1,17 @@
 package com.xammer.cloud.controller.compai;
 
 import com.xammer.cloud.dto.compai.CreateRiskRequestDto;
+import com.xammer.cloud.dto.compai.CreateTaskRequestDto;
 import com.xammer.cloud.dto.compai.CreateVendorRequestDto;
+import com.xammer.cloud.dto.compai.InviteMemberRequestDto;
+import com.xammer.cloud.dto.compai.UpdatePersonRequestDto;
+import com.xammer.cloud.dto.compai.UpdateRiskRequestDto;
+import com.xammer.cloud.dto.compai.UpdateTaskRequestDto;
+import com.xammer.cloud.dto.compai.UpdateVendorRequestDto;
 import com.xammer.cloud.service.compai.CompAiService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,8 +19,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
 
 /**
  * SOC2 Program endpoints. Backed by a self-hosted comp.ai instance via
@@ -96,8 +101,13 @@ public class CompAiController {
     }
 
     @PatchMapping("/tasks/{id}")
-    public ResponseEntity<?> updateTaskStatus(@PathVariable String id, @RequestBody Map<String, String> body) {
-        return ResponseEntity.ok(compAiService.updateTaskStatus(id, body.get("status")));
+    public ResponseEntity<?> updateTask(@PathVariable String id, @RequestBody UpdateTaskRequestDto request) {
+        return ResponseEntity.ok(compAiService.updateTask(id, request));
+    }
+
+    @PostMapping("/tasks")
+    public ResponseEntity<?> createTask(@RequestBody CreateTaskRequestDto request) {
+        return ResponseEntity.ok(compAiService.createTask(request));
     }
 
     @PostMapping("/vendors")
@@ -105,8 +115,58 @@ public class CompAiController {
         return ResponseEntity.ok(compAiService.createVendor(request));
     }
 
+    @PatchMapping("/vendors/{id}")
+    public ResponseEntity<?> updateVendor(@PathVariable String id, @RequestBody UpdateVendorRequestDto request) {
+        return ResponseEntity.ok(compAiService.updateVendor(id, request));
+    }
+
+    @DeleteMapping("/vendors/{id}")
+    public ResponseEntity<?> deleteVendor(@PathVariable String id) {
+        compAiService.deleteVendor(id);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/risks")
     public ResponseEntity<?> createRisk(@RequestBody CreateRiskRequestDto request) {
         return ResponseEntity.ok(compAiService.createRisk(request));
+    }
+
+    @PatchMapping("/risks/{id}")
+    public ResponseEntity<?> updateRisk(@PathVariable String id, @RequestBody UpdateRiskRequestDto request) {
+        return ResponseEntity.ok(compAiService.updateRisk(id, request));
+    }
+
+    @DeleteMapping("/risks/{id}")
+    public ResponseEntity<?> deleteRisk(@PathVariable String id) {
+        compAiService.deleteRisk(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/controls/{id}")
+    public ResponseEntity<?> deleteControl(@PathVariable String id) {
+        compAiService.deleteControl(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/policies/{id}/archive")
+    public ResponseEntity<?> setPolicyArchived(@PathVariable String id, @RequestBody java.util.Map<String, Boolean> body) {
+        return ResponseEntity.ok(compAiService.setPolicyArchived(id, Boolean.TRUE.equals(body.get("archived"))));
+    }
+
+    @PostMapping("/personnel/invite")
+    public ResponseEntity<?> inviteMember(@RequestBody InviteMemberRequestDto request) {
+        compAiService.inviteMember(request);
+        return ResponseEntity.ok().build();
+    }
+
+    @PatchMapping("/personnel/{id}")
+    public ResponseEntity<?> updatePerson(@PathVariable String id, @RequestBody UpdatePersonRequestDto request) {
+        return ResponseEntity.ok(compAiService.updatePerson(id, request));
+    }
+
+    @DeleteMapping("/personnel/{id}")
+    public ResponseEntity<?> deletePerson(@PathVariable String id) {
+        compAiService.deletePerson(id);
+        return ResponseEntity.noContent().build();
     }
 }

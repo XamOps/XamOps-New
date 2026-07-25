@@ -7,13 +7,19 @@ import com.xammer.cloud.dto.compai.ControlPolicyRefDto;
 import com.xammer.cloud.dto.compai.ControlRequirementRefDto;
 import com.xammer.cloud.dto.compai.ControlSummaryDto;
 import com.xammer.cloud.dto.compai.CreateRiskRequestDto;
+import com.xammer.cloud.dto.compai.CreateTaskRequestDto;
 import com.xammer.cloud.dto.compai.CreateVendorRequestDto;
 import com.xammer.cloud.dto.compai.IntegrationDto;
+import com.xammer.cloud.dto.compai.InviteMemberRequestDto;
 import com.xammer.cloud.dto.compai.OverviewDto;
 import com.xammer.cloud.dto.compai.PersonDto;
 import com.xammer.cloud.dto.compai.PolicyDto;
 import com.xammer.cloud.dto.compai.RiskDto;
 import com.xammer.cloud.dto.compai.TaskDto;
+import com.xammer.cloud.dto.compai.UpdatePersonRequestDto;
+import com.xammer.cloud.dto.compai.UpdateRiskRequestDto;
+import com.xammer.cloud.dto.compai.UpdateTaskRequestDto;
+import com.xammer.cloud.dto.compai.UpdateVendorRequestDto;
 import com.xammer.cloud.dto.compai.VendorDto;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
@@ -456,19 +462,6 @@ public class CompAiService {
         return getPolicies().stream().filter(p -> policyId.equals(p.getId())).findFirst().orElse(null);
     }
 
-    /** Updates a task's status. status must be one of comp.ai's TaskStatus values
-     *  (todo|in_progress|in_review|done|not_relevant|failed) — comp.ai rejects
-     *  anything else with a 400, surfaced as-is. */
-    public TaskDto updateTaskStatus(String taskId, String status) {
-        if (!apiClient.isConfigured()) {
-            throw new IllegalStateException("comp.ai is not configured (compai.api-key missing)");
-        }
-        apiClient.patchJson("/tasks/" + taskId, java.util.Map.of("status", status));
-        redisCacheService.evict("compai:tasks");
-        redisCacheService.evict("compai:controls"); // control status is derived from task status too
-        return getTasks().stream().filter(t -> taskId.equals(t.getId())).findFirst().orElse(null);
-    }
-
     /** Creates a vendor. See {@link CreateVendorRequestDto} for accepted category/status values. */
     public VendorDto createVendor(CreateVendorRequestDto request) {
         if (!apiClient.isConfigured()) {
@@ -501,5 +494,118 @@ public class CompAiService {
         dto.setSeverity(null);
         dto.setOwner(null);
         return dto;
+    }
+
+    /** Edits a vendor. Unset fields in {@code request} are left unchanged (see {@link UpdateVendorRequestDto}). */
+    public VendorDto updateVendor(String vendorId, UpdateVendorRequestDto request) {
+        requireConfigured();
+        JsonNode updated = apiClient.patchJson("/vendors/" + vendorId, request);
+        redisCacheService.evict("compai:vendors");
+        VendorDto dto = new VendorDto();
+        dto.setId(updated.path("id").asText(vendorId));
+        dto.setName(updated.path("name").asText(null));
+        dto.setCategory(updated.path("category").asText(null));
+        dto.setStatus(updated.path("status").asText(null));
+        dto.setDescription(updated.path("description").asText(null));
+        return dto;
+    }
+
+    public void deleteVendor(String vendorId) {
+        requireConfigured();
+        apiClient.deleteJson("/vendors/" + vendorId);
+        redisCacheService.evict("compai:vendors");
+    }
+
+    /** Edits a risk. Unset fields in {@code request} are left unchanged (see {@link UpdateRiskRequestDto}). */
+    public RiskDto updateRisk(String riskId, UpdateRiskRequestDto request) {
+        requireConfigured();
+        JsonNode updated = apiClient.patchJson("/risks/" + riskId, request);
+        redisCacheService.evict("compai:risks");
+        RiskDto dto = new RiskDto();
+        dto.setId(updated.path("id").asText(riskId));
+        dto.setTitle(updated.path("title").asText(null));
+        dto.setDescription(updated.path("description").asText(null));
+        dto.setCategory(updated.path("category").asText(null));
+        dto.setStatus(updated.path("status").asText(null));
+        return dto;
+    }
+
+    public void deleteRisk(String riskId) {
+        requireConfigured();
+        apiClient.deleteJson("/risks/" + riskId);
+        redisCacheService.evict("compai:risks");
+    }
+
+    public void deleteControl(String controlId) {
+        requireConfigured();
+        apiClient.deleteJson("/controls/" + controlId);
+        redisCacheService.evict("compai:controls");
+        redisCacheService.evict("compai:tasks"); // tasks are aggregated from controls
+    }
+
+    /** Archives or unarchives a policy (comp.ai's PATCH /policies/:id accepts isArchived). */
+    public PolicyDto setPolicyArchived(String policyId, boolean archived) {
+        requireConfigured();
+        JsonNode updated = apiClient.patchJson("/policies/" + policyId, java.util.Map.of("isArchived", archived));
+        redisCacheService.evict("compai:policies");
+        redisCacheService.evict("compai:controls"); // control status is derived from policy status
+        PolicyDto dto = new PolicyDto();
+        dto.setId(updated.path("id").asText(policyId));
+        dto.setName(updated.path("name").asText(null));
+        dto.setDescription(updated.path("description").asText(null));
+        dto.setStatus(updated.path("status").asText(null));
+        return dto;
+    }
+
+    /** Creates a task, optionally linked to one or more controls. See {@link CreateTaskRequestDto}. */
+    public TaskDto createTask(CreateTaskRequestDto request) {
+        requireConfigured();
+        JsonNode created = apiClient.postJson("/tasks", request);
+        redisCacheService.evict("compai:tasks");
+        redisCacheService.evict("compai:controls");
+        TaskDto dto = new TaskDto();
+        dto.setId(created.path("id").asText(null));
+        dto.setTitle(created.path("title").asText(request.getTitle()));
+        dto.setStatus(created.path("status").asText("todo"));
+        return dto;
+    }
+
+    /** Edits a task's title/description/assignee/status. Unset fields are left unchanged (see {@link UpdateTaskRequestDto}). */
+    public TaskDto updateTask(String taskId, UpdateTaskRequestDto request) {
+        requireConfigured();
+        apiClient.patchJson("/tasks/" + taskId, request);
+        redisCacheService.evict("compai:tasks");
+        redisCacheService.evict("compai:controls"); // control status is derived from task status too
+        return getTasks().stream().filter(t -> taskId.equals(t.getId())).findFirst().orElse(null);
+    }
+
+    /** Invites a single new member by email with the given comp.ai built-in role (e.g. "admin", "employee"). */
+    public void inviteMember(InviteMemberRequestDto request) {
+        requireConfigured();
+        java.util.Map<String, Object> invite = new java.util.HashMap<>();
+        invite.put("email", request.getEmail());
+        invite.put("roles", java.util.List.of(request.getRole()));
+        apiClient.postJson("/people/invite", java.util.Map.of("invites", java.util.List.of(invite)));
+        redisCacheService.evict("compai:people");
+    }
+
+    /** Edits a person's role/department, or (de)activates them. See {@link UpdatePersonRequestDto}. */
+    public PersonDto updatePerson(String memberId, UpdatePersonRequestDto request) {
+        requireConfigured();
+        apiClient.patchJson("/people/" + memberId, request);
+        redisCacheService.evict("compai:people");
+        return getPersonnel().stream().filter(p -> memberId.equals(p.getId())).findFirst().orElse(null);
+    }
+
+    public void deletePerson(String memberId) {
+        requireConfigured();
+        apiClient.deleteJson("/people/" + memberId);
+        redisCacheService.evict("compai:people");
+    }
+
+    private void requireConfigured() {
+        if (!apiClient.isConfigured()) {
+            throw new IllegalStateException("comp.ai is not configured (compai.api-key missing)");
+        }
     }
 }

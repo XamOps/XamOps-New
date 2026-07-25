@@ -151,14 +151,16 @@ class CompAiServiceTest {
     }
 
     @Test
-    void updateTaskStatus_callsPatchEndpointAndEvictsCaches() throws Exception {
-        when(apiClient.patchJson("/tasks/tsk_1", java.util.Map.of("status", "done")))
+    void updateTask_statusOnly_callsPatchEndpointAndEvictsCaches() throws Exception {
+        com.xammer.cloud.dto.compai.UpdateTaskRequestDto request =
+                new com.xammer.cloud.dto.compai.UpdateTaskRequestDto(null, null, null, "done");
+        when(apiClient.patchJson("/tasks/tsk_1", request))
                 .thenReturn(mapper.readTree("{\"id\":\"tsk_1\",\"status\":\"done\"}"));
         when(apiClient.getJson("/controls?perPage=100")).thenReturn(fixture("controls-list.json"));
 
-        var result = service.updateTaskStatus("tsk_1", "done");
+        var result = service.updateTask("tsk_1", request);
 
-        org.mockito.Mockito.verify(apiClient).patchJson("/tasks/tsk_1", java.util.Map.of("status", "done"));
+        org.mockito.Mockito.verify(apiClient).patchJson("/tasks/tsk_1", request);
         org.mockito.Mockito.verify(redis).evict("compai:tasks");
         org.mockito.Mockito.verify(redis).evict("compai:controls");
         assertNotNull(result);
@@ -190,5 +192,119 @@ class CompAiServiceTest {
         org.mockito.Mockito.verify(redis).evict("compai:risks");
         assertEquals("risk_1", result.getId());
         assertEquals("Offboarding gap", result.getTitle());
+    }
+
+    @Test
+    void updateVendor_patchesPayloadAndEvictsCache() throws Exception {
+        com.xammer.cloud.dto.compai.UpdateVendorRequestDto request =
+                new com.xammer.cloud.dto.compai.UpdateVendorRequestDto("AWS", null, null, "in_progress");
+        when(apiClient.patchJson(org.mockito.ArgumentMatchers.eq("/vendors/ven_1"), org.mockito.ArgumentMatchers.eq(request)))
+                .thenReturn(mapper.readTree("{\"id\":\"ven_1\",\"name\":\"AWS\",\"status\":\"in_progress\"}"));
+
+        var result = service.updateVendor("ven_1", request);
+
+        org.mockito.Mockito.verify(redis).evict("compai:vendors");
+        assertEquals("in_progress", result.getStatus());
+    }
+
+    @Test
+    void deleteVendor_callsDeleteEndpointAndEvictsCache() {
+        service.deleteVendor("ven_1");
+
+        org.mockito.Mockito.verify(apiClient).deleteJson("/vendors/ven_1");
+        org.mockito.Mockito.verify(redis).evict("compai:vendors");
+    }
+
+    @Test
+    void updateRisk_patchesPayloadAndEvictsCache() throws Exception {
+        com.xammer.cloud.dto.compai.UpdateRiskRequestDto request =
+                new com.xammer.cloud.dto.compai.UpdateRiskRequestDto("Updated title", null, null, null);
+        when(apiClient.patchJson(org.mockito.ArgumentMatchers.eq("/risks/risk_1"), org.mockito.ArgumentMatchers.eq(request)))
+                .thenReturn(mapper.readTree("{\"id\":\"risk_1\",\"title\":\"Updated title\"}"));
+
+        var result = service.updateRisk("risk_1", request);
+
+        org.mockito.Mockito.verify(redis).evict("compai:risks");
+        assertEquals("Updated title", result.getTitle());
+    }
+
+    @Test
+    void deleteRisk_callsDeleteEndpointAndEvictsCache() {
+        service.deleteRisk("risk_1");
+
+        org.mockito.Mockito.verify(apiClient).deleteJson("/risks/risk_1");
+        org.mockito.Mockito.verify(redis).evict("compai:risks");
+    }
+
+    @Test
+    void deleteControl_callsDeleteEndpointAndEvictsControlAndTaskCaches() {
+        service.deleteControl("ctl_1");
+
+        org.mockito.Mockito.verify(apiClient).deleteJson("/controls/ctl_1");
+        org.mockito.Mockito.verify(redis).evict("compai:controls");
+        org.mockito.Mockito.verify(redis).evict("compai:tasks");
+    }
+
+    @Test
+    void setPolicyArchived_patchesIsArchivedAndEvictsCaches() throws Exception {
+        when(apiClient.patchJson("/policies/pol_1", java.util.Map.of("isArchived", true)))
+                .thenReturn(mapper.readTree("{\"id\":\"pol_1\",\"status\":\"draft\"}"));
+
+        var result = service.setPolicyArchived("pol_1", true);
+
+        org.mockito.Mockito.verify(redis).evict("compai:policies");
+        org.mockito.Mockito.verify(redis).evict("compai:controls");
+        assertEquals("pol_1", result.getId());
+    }
+
+    @Test
+    void createTask_postsPayloadAndEvictsCaches() throws Exception {
+        com.xammer.cloud.dto.compai.CreateTaskRequestDto request =
+                new com.xammer.cloud.dto.compai.CreateTaskRequestDto("Review logs", "desc", "mem_1", "it", java.util.List.of("ctl_1"));
+        when(apiClient.postJson(org.mockito.ArgumentMatchers.eq("/tasks"), org.mockito.ArgumentMatchers.eq(request)))
+                .thenReturn(mapper.readTree("{\"id\":\"tsk_9\",\"title\":\"Review logs\",\"status\":\"todo\"}"));
+
+        var result = service.createTask(request);
+
+        org.mockito.Mockito.verify(redis).evict("compai:tasks");
+        org.mockito.Mockito.verify(redis).evict("compai:controls");
+        assertEquals("tsk_9", result.getId());
+        assertEquals("Review logs", result.getTitle());
+    }
+
+    @Test
+    void inviteMember_postsInvitesArrayWrapperAndEvictsCache() {
+        com.xammer.cloud.dto.compai.InviteMemberRequestDto request =
+                new com.xammer.cloud.dto.compai.InviteMemberRequestDto("new@xammer.com", "employee");
+
+        service.inviteMember(request);
+
+        org.mockito.Mockito.verify(apiClient).postJson(
+                org.mockito.ArgumentMatchers.eq("/people/invite"),
+                org.mockito.ArgumentMatchers.eq(java.util.Map.of("invites", java.util.List.of(
+                        java.util.Map.of("email", "new@xammer.com", "roles", java.util.List.of("employee"))))));
+        org.mockito.Mockito.verify(redis).evict("compai:people");
+    }
+
+    @Test
+    void updatePerson_patchesPayloadAndEvictsCache() throws Exception {
+        com.xammer.cloud.dto.compai.UpdatePersonRequestDto request =
+                new com.xammer.cloud.dto.compai.UpdatePersonRequestDto("admin", null, null);
+        when(apiClient.patchJson(org.mockito.ArgumentMatchers.eq("/people/mem_1"), org.mockito.ArgumentMatchers.eq(request)))
+                .thenReturn(mapper.readTree("{}"));
+        when(apiClient.getJson("/people?perPage=100")).thenReturn(fixture("people-list.json"));
+
+        var result = service.updatePerson("mem_1", request);
+
+        org.mockito.Mockito.verify(redis).evict("compai:people");
+        assertNotNull(result);
+    }
+
+    @Test
+    void deletePerson_callsDeleteEndpointAndEvictsCache() {
+        service.deletePerson("mem_1");
+
+        org.mockito.Mockito.verify(apiClient).deleteJson("/people/mem_1");
+        org.mockito.Mockito.verify(redis).evict("compai:people");
     }
 }
