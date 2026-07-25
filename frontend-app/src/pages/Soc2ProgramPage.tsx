@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../hooks/useSoc2ProgramData';
@@ -29,18 +29,6 @@ type SelectedRow =
   | { type: 'integration'; data: Soc2Integration }
   | { type: 'cloudtest'; data: Soc2CloudTest }
   | null;
-
-const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'controls', label: 'Controls' },
-  { id: 'policies', label: 'Policies' },
-  { id: 'evidence-tasks', label: 'Evidence & Tasks' },
-  { id: 'personnel', label: 'Personnel' },
-  { id: 'vendors', label: 'Vendors' },
-  { id: 'risks', label: 'Risks' },
-  { id: 'integrations', label: 'Integrations' },
-  { id: 'cloud-tests', label: 'Cloud Tests' },
-] as const;
 
 const CONTROL_STATUS_LABEL: Record<Soc2ControlStatus, string> = {
   PASSING: 'Passing',
@@ -154,7 +142,6 @@ const DangerButton: React.FC<{ onClick: (e: React.MouseEvent) => void; disabled?
 
 const Soc2ProgramPage: React.FC = () => {
   const { tab = 'overview' } = useParams<{ tab: string }>();
-  const navigate = useNavigate();
   const { setTitle, setActions, clearActions } = useTopbar();
   const { overview, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, isLoading, error, refetch } = useSoc2ProgramData();
 
@@ -170,7 +157,7 @@ const Soc2ProgramPage: React.FC = () => {
   const trustCenterUrl = overview?.trustCenterUrl;
 
   useEffect(() => {
-    setTitle('SOC 2 Program');
+    setTitle('Program');
     setActions(
       trustCenterUrl ? (
         <a href={trustCenterUrl} target="_blank" rel="noopener noreferrer"
@@ -325,21 +312,6 @@ const Soc2ProgramPage: React.FC = () => {
 
   return (
     <div className="p-6">
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200 mb-6 overflow-x-auto">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => navigate(`/soc2-program/${t.id}`)}
-            className={`px-4 py-2.5 text-[13px] font-medium border-b-2 whitespace-nowrap transition-colors ${
-              tab === t.id ? 'border-[#1a1a1a] text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       {actionError && (
         <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">
           {actionError}

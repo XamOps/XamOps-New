@@ -398,7 +398,7 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('secops-compliance') && <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />}
                 {isXamTabAllowed('secops-compliance') && (
                   <>
-                    <NavItem href="/soc2-program/overview" icon="fas fa-clipboard-check" label="SOC2 Program" isActive={isActive('/soc2-program')} />
+                    <NavItem href="/soc2-program/overview" icon="fas fa-clipboard-check" label="Program" isActive={isActive('/soc2-program')} />
                     {location.pathname.startsWith('/soc2-program') && (
                       <div className={clsx(
                         'ml-3 pl-3 border-l space-y-0.5',
