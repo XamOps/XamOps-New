@@ -3,6 +3,8 @@ package com.xammer.cloud.service.compai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.xammer.cloud.dto.compai.CloudTestDto;
+import com.xammer.cloud.dto.compai.ControlPolicyRefDto;
+import com.xammer.cloud.dto.compai.ControlRequirementRefDto;
 import com.xammer.cloud.dto.compai.ControlSummaryDto;
 import com.xammer.cloud.dto.compai.CreateRiskRequestDto;
 import com.xammer.cloud.dto.compai.CreateVendorRequestDto;
@@ -71,26 +73,51 @@ public class CompAiService {
         ControlSummaryDto dto = new ControlSummaryDto();
         dto.setId(c.path("id").asText(null));
         dto.setName(c.path("name").asText(null));
+        dto.setDescription(c.path("description").asText(null));
 
-        // Category + requirement text from the first mapped requirement.
+        // Category + requirement text from the first mapped requirement; full list for the drawer.
         JsonNode reqs = c.path("requirementsMapped");
+        List<ControlRequirementRefDto> requirements = new ArrayList<>();
         if (reqs.isArray() && reqs.size() > 0) {
-            JsonNode req = reqs.get(0).path("requirement");
-            String identifier = req.path("identifier").asText(null);
+            JsonNode firstReq = reqs.get(0).path("requirement");
+            String identifier = firstReq.path("identifier").asText(null);
             dto.setCategory(categoryFromIdentifier(identifier));
-            dto.setRequirementName(req.path("name").asText(null));
+            dto.setRequirementName(firstReq.path("name").asText(null));
+            for (JsonNode r : reqs) {
+                JsonNode req = r.path("requirement");
+                requirements.add(new ControlRequirementRefDto(
+                        req.path("identifier").asText(null), req.path("name").asText(null)));
+            }
         }
+        dto.setRequirements(requirements);
 
-        // First linked policy.
+        // First linked policy; full list for the drawer.
         JsonNode policies = c.path("policies");
+        List<ControlPolicyRefDto> policyRefs = new ArrayList<>();
         if (policies.isArray() && policies.size() > 0) {
             dto.setPolicyName(policies.get(0).path("name").asText(null));
             dto.setPolicyStatus(policies.get(0).path("status").asText(null));
+            for (JsonNode p : policies) {
+                policyRefs.add(new ControlPolicyRefDto(
+                        p.path("id").asText(null), p.path("name").asText(null), p.path("status").asText(null)));
+            }
         }
+        dto.setPolicies(policyRefs);
 
-        JsonNode tasks = c.path("tasks");
-        dto.setTaskCount(tasks.isArray() ? tasks.size() : 0);
-        dto.setStatus(deriveControlStatus(policies, tasks));
+        JsonNode tasksNode = c.path("tasks");
+        dto.setTaskCount(tasksNode.isArray() ? tasksNode.size() : 0);
+        List<TaskDto> controlTasks = new ArrayList<>();
+        if (tasksNode.isArray()) {
+            String controlName = dto.getName();
+            for (JsonNode t : tasksNode) {
+                controlTasks.add(new TaskDto(
+                        t.path("id").asText(null), t.path("title").asText(null),
+                        controlName, t.path("status").asText(null)));
+            }
+        }
+        dto.setTasks(controlTasks);
+
+        dto.setStatus(deriveControlStatus(policies, tasksNode));
         return dto;
     }
 
@@ -142,6 +169,7 @@ public class CompAiService {
                 dto.setName(p.path("name").asText(null));
                 dto.setDescription(p.path("description").asText(null));
                 dto.setStatus(p.path("status").asText(null));
+                dto.setContent(extractPlainText(p.path("content")));
                 rows.add(dto);
             }
         } catch (Exception e) {
@@ -149,6 +177,42 @@ public class CompAiService {
         }
         if (!rows.isEmpty()) redisCacheService.put("compai:policies", rows, CACHE_MINUTES);
         return rows;
+    }
+
+    /**
+     * Extracts readable plain text from comp.ai's tiptap/prosemirror rich-text
+     * JSON (an array wrapping a single "doc" node, or the doc node directly).
+     * Not a full renderer — just enough for the read-only policy detail drawer.
+     */
+    private String extractPlainText(JsonNode contentField) {
+        if (contentField == null || contentField.isMissingNode() || contentField.isNull()) return null;
+        StringBuilder sb = new StringBuilder();
+        if (contentField.isArray()) {
+            for (JsonNode docNode : contentField) {
+                appendNodeText(docNode, sb);
+            }
+        } else {
+            appendNodeText(contentField, sb);
+        }
+        String text = sb.toString().trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    private void appendNodeText(JsonNode node, StringBuilder sb) {
+        if (node == null || node.isMissingNode()) return;
+        if (node.has("text")) {
+            sb.append(node.path("text").asText(""));
+        }
+        JsonNode children = node.path("content");
+        if (children.isArray()) {
+            for (JsonNode child : children) {
+                appendNodeText(child, sb);
+            }
+        }
+        String type = node.path("type").asText("");
+        if ("heading".equals(type) || "paragraph".equals(type)) {
+            sb.append("\n\n");
+        }
     }
 
     /** Tasks aggregated from the tasks embedded on each control. */

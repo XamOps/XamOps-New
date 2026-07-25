@@ -12,4 +12,5 @@ public class PolicyDto {
     private String name;
     private String description;
     private String status;   // comp.ai: "draft" | "published" | "needs_review" ...
+    private String content;  // plain text extracted from comp.ai's tiptap/prosemirror rich-text JSON
 }

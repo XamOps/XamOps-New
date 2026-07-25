@@ -86,3 +86,62 @@ describe('Soc2ProgramPage write actions', () => {
     await waitFor(() => expect(refetch).toHaveBeenCalled());
   });
 });
+
+describe('Soc2ProgramPage detail drawer', () => {
+  it('clicking a control row opens a drawer with its requirements, policies, and tasks', () => {
+    renderTab('controls', {
+      controls: [{
+        id: 'ctl_1', name: 'Access Rights', description: 'Restrict logical access.', category: 'CC6',
+        requirementName: 'CC6.1', status: 'IN_PROGRESS', policyName: 'Access Control Policy', policyStatus: 'draft',
+        taskCount: 1,
+        requirements: [{ identifier: 'CC6.1', name: 'Logical access security is implemented.' }],
+        policies: [{ id: 'pol_1', name: 'Access Control Policy', status: 'draft' }],
+        tasks: [{ id: 'tsk_1', title: 'Enforce MFA', controlName: 'Access Rights', status: 'todo' }],
+      }],
+    });
+
+    fireEvent.click(screen.getByText('Access Rights'));
+
+    expect(screen.getByText('Restrict logical access.')).toBeInTheDocument();
+    expect(screen.getByText(/Logical access security is implemented\./)).toBeInTheDocument();
+    expect(screen.getAllByText('Access Control Policy').length).toBeGreaterThan(0);
+    expect(screen.getByText('Enforce MFA')).toBeInTheDocument();
+  });
+
+  it('clicking a policy row opens a drawer showing the extracted document content', () => {
+    renderTab('policies', {
+      policies: [{ id: 'pol_2', name: 'Encryption Policy', description: 'desc', status: 'published', content: 'Purpose\n\nEncrypt all data at rest.' }],
+    });
+
+    fireEvent.click(screen.getByText('Encryption Policy'));
+
+    expect(screen.getByText(/Encrypt all data at rest\./)).toBeInTheDocument();
+  });
+
+  it('clicking a vendor row opens a drawer with its description', () => {
+    renderTab('vendors', {
+      vendors: [{ id: 'ven_1', name: 'AWS', category: 'cloud', status: 'assessed', description: 'Cloud infrastructure provider.' }],
+    });
+
+    // Before opening: only the table row shows the description.
+    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(1);
+
+    fireEvent.click(screen.getByText('AWS'));
+
+    // After opening: table row + drawer both show it.
+    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(2);
+  });
+
+  it('closing the drawer removes it from the document', () => {
+    renderTab('vendors', {
+      vendors: [{ id: 'ven_1', name: 'AWS', category: 'cloud', status: 'assessed', description: 'Cloud infrastructure provider.' }],
+    });
+
+    fireEvent.click(screen.getByText('AWS'));
+    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(2);
+
+    const closeButtons = screen.getAllByRole('button', { name: '' });
+    fireEvent.click(closeButtons[closeButtons.length - 1]); // the drawer's close (X) icon button
+    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(1);
+  });
+});

@@ -26,21 +26,14 @@ export interface Soc2Overview {
 
 export type Soc2ControlStatus = 'PASSING' | 'IN_PROGRESS' | 'NOT_STARTED';
 
-export interface Soc2Control {
-  id: string;
-  name: string;
-  category: string;
-  requirementName: string | null;
-  status: Soc2ControlStatus;
-  policyName: string | null;
-  policyStatus: string | null;
-  taskCount: number;
+export interface Soc2ControlRequirementRef {
+  identifier: string | null;
+  name: string | null;
 }
 
-export interface Soc2Policy {
+export interface Soc2ControlPolicyRef {
   id: string;
-  name: string;
-  description: string | null;
+  name: string | null;
   status: string | null;
 }
 
@@ -49,6 +42,29 @@ export interface Soc2Task {
   title: string;
   controlName: string | null;
   status: string | null;
+}
+
+export interface Soc2Control {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  requirementName: string | null;
+  status: Soc2ControlStatus;
+  policyName: string | null;
+  policyStatus: string | null;
+  taskCount: number;
+  requirements: Soc2ControlRequirementRef[];
+  policies: Soc2ControlPolicyRef[];
+  tasks: Soc2Task[];
+}
+
+export interface Soc2Policy {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string | null;
+  content: string | null;
 }
 
 export interface Soc2Person {

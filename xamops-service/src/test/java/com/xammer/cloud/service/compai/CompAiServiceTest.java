@@ -57,6 +57,15 @@ class CompAiServiceTest {
         assertEquals("PASSING", passing.getStatus());            // published policy
         assertEquals("Acceptable Use & Workstation Security", passing.getPolicyName());
         assertEquals(1, passing.getTaskCount());
+        assertEquals("Establish an Acceptable Use Policy for Information and Assets", passing.getDescription());
+        assertEquals(1, passing.getRequirements().size());
+        assertEquals("C1.1", passing.getRequirements().get(0).getIdentifier());
+        assertEquals(1, passing.getPolicies().size());
+        assertEquals("pol_1", passing.getPolicies().get(0).getId());
+        assertEquals("published", passing.getPolicies().get(0).getStatus());
+        assertEquals(1, passing.getTasks().size());
+        assertEquals("Separation of Environments", passing.getTasks().get(0).getTitle());
+        assertEquals("done", passing.getTasks().get(0).getStatus());
 
         assertEquals("CC6", controls.get(1).getCategory());      // "CC6.1" -> "CC6"
         assertEquals("NOT_STARTED", controls.get(1).getStatus()); // draft policy + todo task
@@ -69,6 +78,28 @@ class CompAiServiceTest {
         List<PolicyDto> policies = service.getPolicies();
         assertEquals(2, policies.size());
         assertEquals("published", policies.get(0).getStatus());
+    }
+
+    @Test
+    void getPolicies_extractsPlainTextFromTiptapContent() throws Exception {
+        when(apiClient.getJson("/policies?perPage=100")).thenReturn(mapper.readTree(
+                "{\"data\":[{\"id\":\"pol_9\",\"name\":\"Access Control Policy\",\"description\":\"d\",\"status\":\"draft\","
+                        + "\"content\":[{\"type\":\"doc\",\"content\":["
+                        + "{\"type\":\"heading\",\"content\":[{\"type\":\"text\",\"text\":\"Purpose\"}]},"
+                        + "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Restrict access to \"},"
+                        + "{\"type\":\"text\",\"text\":\"authorized users only.\"}]}"
+                        + "]}]}]}"));
+
+        PolicyDto policy = service.getPolicies().get(0);
+
+        assertEquals("Purpose", policy.getContent().split("\n\n")[0].trim());
+        assertTrue(policy.getContent().contains("Restrict access to authorized users only."));
+    }
+
+    @Test
+    void getPolicies_contentIsNullWhenNoContentField() {
+        PolicyDto policy = service.getPolicies().get(0); // fixture policies have no "content" field
+        assertNull(policy.getContent());
     }
 
     @Test
