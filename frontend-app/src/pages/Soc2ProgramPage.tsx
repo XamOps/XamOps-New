@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
@@ -54,25 +55,59 @@ const RISK_CATEGORY_OPTIONS = ['customer', 'fraud', 'governance', 'operations', 
 const DEPARTMENT_OPTIONS = ['none', 'admin', 'gov', 'hr', 'it', 'itsm', 'qms'];
 const MEMBER_ROLE_OPTIONS = ['admin', 'employee', 'auditor'];
 
-// Monochrome status pill — filled-dark = done, mid-grey = in progress, light outline = not started.
+type Tone = 'success' | 'warning' | 'danger' | 'neutral';
+
+const TONE_CLASSES: Record<Tone, string> = {
+  success: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+  warning: 'bg-amber-50 text-amber-700 border border-amber-200',
+  danger: 'bg-red-50 text-red-700 border border-red-200',
+  neutral: 'bg-gray-50 text-gray-500 border border-gray-200',
+};
+
 const controlStatusClass = (status: Soc2ControlStatus): string => {
-  if (status === 'PASSING') return 'bg-[#1a1a1a] text-white';
-  if (status === 'IN_PROGRESS') return 'bg-gray-200 text-gray-800';
-  return 'bg-white text-gray-500 border border-gray-300';
+  if (status === 'PASSING') return TONE_CLASSES.success;
+  if (status === 'IN_PROGRESS') return TONE_CLASSES.warning;
+  return TONE_CLASSES.neutral;
 };
 
-const StatusPill: React.FC<{ text: string; tone?: 'dark' | 'mid' | 'light' }> = ({ text, tone = 'light' }) => {
-  const cls = tone === 'dark' ? 'bg-[#1a1a1a] text-white'
-    : tone === 'mid' ? 'bg-gray-200 text-gray-800'
-    : 'bg-white text-gray-500 border border-gray-300';
-  return <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium capitalize ${cls}`}>{text || '—'}</span>;
-};
+const StatusPill: React.FC<{ text: string; tone?: Tone }> = ({ text, tone = 'neutral' }) => (
+  <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium capitalize ${TONE_CLASSES[tone]}`}>{text || '—'}</span>
+);
 
-const policyTone = (status: string | null): 'dark' | 'mid' | 'light' => {
+const policyTone = (status: string | null): Tone => {
   const s = (status || '').toLowerCase();
-  if (s === 'published') return 'dark';
-  if (s === 'needs_review' || s === 'in_review' || s === 'draft') return 'mid';
-  return 'light';
+  if (s === 'published') return 'success';
+  if (s === 'needs_review' || s === 'in_review' || s === 'draft') return 'warning';
+  return 'neutral';
+};
+
+const severityTone = (severity: string | null): Tone => {
+  const s = (severity || '').toLowerCase();
+  if (s === 'critical' || s === 'high') return 'danger';
+  if (s === 'medium') return 'warning';
+  if (s === 'low') return 'success';
+  return 'neutral';
+};
+
+const vendorStatusTone = (status: string | null): Tone => {
+  const s = (status || '').toLowerCase();
+  if (s === 'assessed') return 'success';
+  if (s === 'in_progress') return 'warning';
+  return 'neutral';
+};
+
+const riskStatusTone = (status: string | null): Tone => {
+  const s = (status || '').toLowerCase();
+  if (s.includes('mitigat') || s.includes('closed') || s.includes('resolved') || s.includes('accept')) return 'success';
+  if (s.includes('open') || s.includes('progress')) return 'warning';
+  return 'neutral';
+};
+
+const findingStatusTone = (status: string | null): Tone => {
+  const s = (status || '').toLowerCase();
+  if (s.includes('pass') || s.includes('resolved') || s.includes('closed')) return 'success';
+  if (s.includes('fail') || s.includes('open')) return 'danger';
+  return 'neutral';
 };
 
 const StatCard: React.FC<{ label: string; value: string | number; sub?: string }> = ({ label, value, sub }) => (
@@ -449,7 +484,7 @@ const Soc2ProgramPage: React.FC = () => {
                   <td className="p-3 text-[12px] text-gray-500">{p.email}</td>
                   <td className="p-3 text-[12px] text-gray-500 capitalize">{p.role}</td>
                   <td className="p-3 text-[12px] text-gray-500 capitalize">{p.department || '—'}</td>
-                  <td className="p-3"><StatusPill text={p.active ? 'Active' : 'Inactive'} tone={p.active ? 'dark' : 'light'} /></td>
+                  <td className="p-3"><StatusPill text={p.active ? 'Active' : 'Inactive'} tone={p.active ? 'success' : 'neutral'} /></td>
                 </tr>
               ))}
               {personnel.length === 0 && <EmptyRow cols={5} text="No personnel." />}
@@ -478,7 +513,7 @@ const Soc2ProgramPage: React.FC = () => {
                     className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
                   <td className="p-3 text-[13px] text-gray-900 font-medium">{v.name}</td>
                   <td className="p-3 text-[12px] text-gray-500">{v.category || '—'}</td>
-                  <td className="p-3"><StatusPill text={(v.status || '').replace(/_/g, ' ')} tone="mid" /></td>
+                  <td className="p-3"><StatusPill text={(v.status || '').replace(/_/g, ' ')} tone={vendorStatusTone(v.status)} /></td>
                   <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{v.description || '—'}</td>
                 </tr>
               ))}
@@ -511,8 +546,8 @@ const Soc2ProgramPage: React.FC = () => {
                     {r.description && <div className="text-[11px] text-gray-400 truncate max-w-md">{r.description}</div>}
                   </td>
                   <td className="p-3 text-[12px] text-gray-500">{r.category || '—'}</td>
-                  <td className="p-3"><StatusPill text={r.severity || '—'} tone={(r.severity || '').toLowerCase() === 'high' || (r.severity || '').toLowerCase() === 'critical' ? 'dark' : 'mid'} /></td>
-                  <td className="p-3"><StatusPill text={(r.status || '').replace(/_/g, ' ')} tone="mid" /></td>
+                  <td className="p-3"><StatusPill text={r.severity || '—'} tone={severityTone(r.severity)} /></td>
+                  <td className="p-3"><StatusPill text={(r.status || '').replace(/_/g, ' ')} tone={riskStatusTone(r.status)} /></td>
                   <td className="p-3 text-[12px] text-gray-500">{r.owner || '—'}</td>
                 </tr>
               ))}
@@ -537,7 +572,7 @@ const Soc2ProgramPage: React.FC = () => {
                 </td>
                 <td className="p-3 text-[12px] text-gray-500">{i.category || '—'}</td>
                 <td className="p-3 text-[12px] text-gray-500">{i.capabilities || '—'}</td>
-                <td className="p-3"><StatusPill text={i.connected ? 'Connected' : 'Available'} tone={i.connected ? 'dark' : 'light'} /></td>
+                <td className="p-3"><StatusPill text={i.connected ? 'Connected' : 'Available'} tone={i.connected ? 'success' : 'neutral'} /></td>
               </tr>
             ))}
             {integrations.length === 0 && <EmptyRow cols={4} text="No integrations available." />}
@@ -557,8 +592,8 @@ const Soc2ProgramPage: React.FC = () => {
                 <td className="p-3 text-[13px] text-gray-900 font-medium">{f.title || '—'}</td>
                 <td className="p-3 text-[12px] text-gray-500 uppercase">{f.provider || '—'}</td>
                 <td className="p-3 text-[12px] text-gray-500 truncate max-w-xs">{f.resource || '—'}</td>
-                <td className="p-3"><StatusPill text={f.severity || '—'} tone={(f.severity || '').toLowerCase() === 'high' || (f.severity || '').toLowerCase() === 'critical' ? 'dark' : 'mid'} /></td>
-                <td className="p-3"><StatusPill text={(f.status || '').replace(/_/g, ' ')} tone="mid" /></td>
+                <td className="p-3"><StatusPill text={f.severity || '—'} tone={severityTone(f.severity)} /></td>
+                <td className="p-3"><StatusPill text={(f.status || '').replace(/_/g, ' ')} tone={findingStatusTone(f.status)} /></td>
               </tr>
             ))}
             {cloudTests.length === 0 && <EmptyRow cols={5} text="No cloud test findings. Connect a cloud provider under Integrations to run checks." />}
@@ -602,7 +637,7 @@ const Soc2ProgramPage: React.FC = () => {
   );
 };
 
-const ModalShell: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => (
+const ModalShell: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => createPortal((
   <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.38)' }}>
     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
@@ -614,7 +649,7 @@ const ModalShell: React.FC<{ title: string; onClose: () => void; children: React
       <div className="p-5">{children}</div>
     </div>
   </div>
-);
+), document.body);
 
 const FormField: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="mb-3">
@@ -808,7 +843,7 @@ const InviteModal: React.FC<{ onClose: () => void; onSubmit: (payload: InviteMem
   );
 };
 
-const DrawerShell: React.FC<{ title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }> = ({ title, subtitle, onClose, children }) => (
+const DrawerShell: React.FC<{ title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }> = ({ title, subtitle, onClose, children }) => createPortal((
   <div className="fixed inset-0 z-50">
     <div className="fixed inset-0 bg-black/30" onClick={onClose} />
     <div className="fixed right-0 top-0 h-full w-full max-w-lg bg-white shadow-2xl flex flex-col">
@@ -824,7 +859,7 @@ const DrawerShell: React.FC<{ title: string; subtitle?: string; onClose: () => v
       <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
     </div>
   </div>
-);
+), document.body);
 
 const DrawerSection: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="mb-5">
@@ -998,7 +1033,7 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
         {p.jobTitle && <DrawerSection label="Job Title"><p className="text-[13px] text-gray-700">{p.jobTitle}</p></DrawerSection>}
         <DrawerSection label="Status">
           <div className="flex items-center justify-between">
-            <StatusPill text={p.active ? 'Active' : 'Inactive'} tone={p.active ? 'dark' : 'light'} />
+            <StatusPill text={p.active ? 'Active' : 'Inactive'} tone={p.active ? 'success' : 'neutral'} />
             <div className="flex gap-2">
               <SecondaryButton onClick={() => setEditing(true)}>Edit</SecondaryButton>
               <SecondaryButton
@@ -1034,7 +1069,7 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
       <DrawerShell title={v.name} subtitle={v.category || undefined} onClose={onClose}>
         <DrawerSection label="Status">
           <div className="flex items-center justify-between">
-            <StatusPill text={(v.status || '').replace(/_/g, ' ')} tone="mid" />
+            <StatusPill text={(v.status || '').replace(/_/g, ' ')} tone={vendorStatusTone(v.status)} />
             <div className="flex gap-2">
               <SecondaryButton onClick={() => setEditing(true)}>Edit</SecondaryButton>
               <DangerButton onClick={async () => { setBusy(true); await onDeleteVendor(v.id); setBusy(false); }} disabled={busy}>
@@ -1064,11 +1099,11 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
     return (
       <DrawerShell title={r.title || 'Risk'} subtitle={r.category || undefined} onClose={onClose}>
         <DrawerSection label="Severity">
-          <StatusPill text={r.severity || '—'} tone={(r.severity || '').toLowerCase() === 'high' || (r.severity || '').toLowerCase() === 'critical' ? 'dark' : 'mid'} />
+          <StatusPill text={r.severity || '—'} tone={severityTone(r.severity)} />
         </DrawerSection>
         <DrawerSection label="Status">
           <div className="flex items-center justify-between">
-            <StatusPill text={(r.status || '').replace(/_/g, ' ')} tone="mid" />
+            <StatusPill text={(r.status || '').replace(/_/g, ' ')} tone={riskStatusTone(r.status)} />
             <div className="flex gap-2">
               <SecondaryButton onClick={() => setEditing(true)}>Edit</SecondaryButton>
               <DangerButton onClick={async () => { setBusy(true); await onDeleteRisk(r.id); setBusy(false); }} disabled={busy}>
@@ -1087,7 +1122,7 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
     const i = data;
     return (
       <DrawerShell title={i.name} subtitle={i.category || undefined} onClose={onClose}>
-        <DrawerSection label="Status"><StatusPill text={i.connected ? 'Connected' : 'Available'} tone={i.connected ? 'dark' : 'light'} /></DrawerSection>
+        <DrawerSection label="Status"><StatusPill text={i.connected ? 'Connected' : 'Available'} tone={i.connected ? 'success' : 'neutral'} /></DrawerSection>
         {i.capabilities && <DrawerSection label="Capabilities"><p className="text-[13px] text-gray-700">{i.capabilities}</p></DrawerSection>}
         {i.description && <DrawerSection label="Description"><p className="text-[13px] text-gray-700 whitespace-pre-line">{i.description}</p></DrawerSection>}
       </DrawerShell>
@@ -1099,9 +1134,9 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
   return (
     <DrawerShell title={f.title || 'Finding'} subtitle={f.provider ? f.provider.toUpperCase() : undefined} onClose={onClose}>
       <DrawerSection label="Severity">
-        <StatusPill text={f.severity || '—'} tone={(f.severity || '').toLowerCase() === 'high' || (f.severity || '').toLowerCase() === 'critical' ? 'dark' : 'mid'} />
+        <StatusPill text={f.severity || '—'} tone={severityTone(f.severity)} />
       </DrawerSection>
-      <DrawerSection label="Status"><StatusPill text={(f.status || '').replace(/_/g, ' ')} tone="mid" /></DrawerSection>
+      <DrawerSection label="Status"><StatusPill text={(f.status || '').replace(/_/g, ' ')} tone={findingStatusTone(f.status)} /></DrawerSection>
       <DrawerSection label="Resource"><p className="text-[13px] text-gray-700 break-all">{f.resource || '—'}</p></DrawerSection>
     </DrawerShell>
   );
