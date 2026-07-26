@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../hooks/useSoc2ProgramData';
@@ -126,11 +126,72 @@ const Chip: React.FC<{ text: string }> = ({ text }) => (
   </span>
 );
 
-const StatCard: React.FC<{ label: string; value: string | number; sub?: string }> = ({ label, value, sub }) => (
-  <div className="border border-[rgba(0,0,0,0.10)] rounded-xl p-4 bg-white">
-    <div className="text-[12px] text-gray-500">{label}</div>
-    <div className="text-2xl font-semibold text-gray-900 mt-1">{value}</div>
-    {sub && <div className="text-[11px] text-gray-400 mt-0.5">{sub}</div>}
+const ICON_TONE_BG: Record<Tone, string> = {
+  success: 'bg-emerald-50 text-emerald-600',
+  warning: 'bg-amber-50 text-amber-600',
+  danger: 'bg-red-50 text-red-600',
+  neutral: 'bg-gray-100 text-gray-500',
+};
+
+const StatCard: React.FC<{ label: string; value: string | number; sub?: string; icon: string; tone?: Tone; to?: string }> =
+  ({ label, value, sub, icon, tone = 'neutral', to }) => {
+    const inner = (
+      <div className="border border-[rgba(0,0,0,0.10)] rounded-xl p-4 bg-white h-full flex items-start gap-3 transition-shadow hover:shadow-sm">
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${ICON_TONE_BG[tone]}`}>
+          <Icon icon={icon} width={18} />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[12px] text-gray-500">{label}</div>
+          <div className="text-2xl font-semibold text-gray-900 mt-0.5">{value}</div>
+          {sub && <div className="text-[11px] text-gray-400 mt-0.5">{sub}</div>}
+        </div>
+      </div>
+    );
+    return to ? <Link to={to} className="block h-full">{inner}</Link> : inner;
+  };
+
+const readinessColor = (percent: number): string =>
+  percent >= 80 ? '#059669' : percent >= 50 ? '#d97706' : '#dc2626';
+
+const ReadinessRing: React.FC<{ percent: number }> = ({ percent }) => {
+  const size = 128;
+  const stroke = 10;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (Math.max(0, Math.min(100, percent)) / 100) * circumference;
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} stroke="#e5e7eb" strokeWidth={stroke} fill="none" />
+        <circle
+          cx={size / 2} cy={size / 2} r={radius} stroke={readinessColor(percent)} strokeWidth={stroke} fill="none"
+          strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-2xl font-bold text-gray-900">{percent}%</span>
+        <span className="text-[10px] text-gray-400 uppercase tracking-wide">Ready</span>
+      </div>
+    </div>
+  );
+};
+
+const ControlsBreakdownBar: React.FC<{ passing: number; inProgress: number; notStarted: number }> = ({ passing, inProgress, notStarted }) => {
+  const total = passing + inProgress + notStarted || 1;
+  return (
+    <div className="w-full h-2.5 rounded-full overflow-hidden flex bg-gray-100">
+      {passing > 0 && <div style={{ width: `${(passing / total) * 100}%` }} className="bg-emerald-500" />}
+      {inProgress > 0 && <div style={{ width: `${(inProgress / total) * 100}%` }} className="bg-amber-400" />}
+      {notStarted > 0 && <div style={{ width: `${(notStarted / total) * 100}%` }} className="bg-gray-300" />}
+    </div>
+  );
+};
+
+const Legend: React.FC<{ color: string; label: string; value: number }> = ({ color, label, value }) => (
+  <div className="flex items-center gap-1.5 text-[12px] text-gray-600">
+    <span className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
+    {label} <span className="font-semibold text-gray-900">{value}</span>
   </div>
 );
 
@@ -337,18 +398,61 @@ const Soc2ProgramPage: React.FC = () => {
 
       {tab === 'overview' && overview && (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard label="Readiness" value={`${overview.readinessPercent}%`} sub={overview.frameworkName} />
-            <StatCard label="Controls passing" value={`${overview.controlsPassing}/${overview.controlsTotal}`} sub={`${overview.controlsInProgress} in progress`} />
-            <StatCard label="Policies published" value={`${overview.policiesPublished}/${overview.policiesTotal}`} />
-            <StatCard label="Open tasks" value={overview.tasksOpen} sub={`${overview.tasksTotal} total`} />
-            <StatCard label="Not started" value={overview.controlsNotStarted} sub="controls" />
-            <StatCard label="Personnel" value={overview.peopleTotal} />
-            <StatCard label="Vendors" value={overview.vendorsTotal} />
-            <StatCard label="Open risks" value={overview.risksTotal} />
-            <StatCard label="Cloud findings" value={overview.cloudFindingsTotal} />
-            <StatCard label="Integrations" value={overview.integrationsConnected} sub="connected" />
-            <StatCard label="Framework" value={overview.frameworkName} sub="Type I & II" />
+          <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-6 flex flex-col md:flex-row items-center md:items-stretch gap-6">
+            <div className="flex flex-col items-center justify-center shrink-0">
+              <ReadinessRing percent={overview.readinessPercent} />
+              <div className="text-center mt-2">
+                <div className="text-[11px] font-semibold text-gray-700">{overview.frameworkName}</div>
+                <div className="text-[11px] text-gray-400">Type I & II</div>
+              </div>
+            </div>
+            <div className="flex-1 flex flex-col justify-center gap-3 min-w-0 w-full">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-semibold text-gray-900">Controls</span>
+                <span className="text-[12px] text-gray-400">{overview.controlsTotal} total</span>
+              </div>
+              <ControlsBreakdownBar
+                passing={overview.controlsPassing}
+                inProgress={overview.controlsInProgress}
+                notStarted={overview.controlsNotStarted}
+              />
+              <div className="flex items-center gap-5 flex-wrap">
+                <Legend color="bg-emerald-500" label="Passing" value={overview.controlsPassing} />
+                <Legend color="bg-amber-400" label="In Progress" value={overview.controlsInProgress} />
+                <Legend color="bg-gray-300" label="Not Started" value={overview.controlsNotStarted} />
+              </div>
+              <Link to="/soc2-program/controls" className="text-[12px] font-medium text-gray-600 hover:text-gray-900 mt-1 inline-flex items-center gap-1 w-fit">
+                View all controls <Icon icon="mdi:arrow-right" width={14} />
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <StatCard
+              label="Policies" icon="mdi:file-document-outline" to="/soc2-program/policies"
+              tone={overview.policiesTotal > 0 && overview.policiesPublished === overview.policiesTotal ? 'success' : 'warning'}
+              value={`${overview.policiesPublished}/${overview.policiesTotal}`} sub="published"
+            />
+            <StatCard
+              label="Evidence & Tasks" icon="mdi:clipboard-check-outline" to="/soc2-program/evidence-tasks"
+              tone={overview.tasksOpen === 0 ? 'success' : 'warning'}
+              value={overview.tasksOpen} sub={`${overview.tasksTotal} total`}
+            />
+            <StatCard label="Personnel" icon="mdi:account-group-outline" to="/soc2-program/personnel" value={overview.peopleTotal} />
+            <StatCard label="Vendors" icon="mdi:domain" to="/soc2-program/vendors" value={overview.vendorsTotal} />
+            <StatCard
+              label="Open Risks" icon="mdi:alert-outline" to="/soc2-program/risks"
+              tone={overview.risksTotal === 0 ? 'success' : 'danger'} value={overview.risksTotal}
+            />
+            <StatCard
+              label="Cloud Findings" icon="mdi:cloud-alert-outline" to="/soc2-program/cloud-tests"
+              tone={overview.cloudFindingsTotal === 0 ? 'success' : 'danger'} value={overview.cloudFindingsTotal}
+            />
+            <StatCard
+              label="Integrations" icon="mdi:power-plug-outline" to="/soc2-program/integrations"
+              tone={overview.integrationsConnected > 0 ? 'success' : 'neutral'}
+              value={overview.integrationsConnected} sub="connected"
+            />
           </div>
         </div>
       )}

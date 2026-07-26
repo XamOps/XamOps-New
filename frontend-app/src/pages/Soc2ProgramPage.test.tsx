@@ -155,3 +155,32 @@ describe('Soc2ProgramPage detail drawer', () => {
     expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(1);
   });
 });
+
+describe('Soc2ProgramPage overview tab', () => {
+  const overview = {
+    frameworkName: 'SOC 2', readinessPercent: 80,
+    controlsTotal: 35, controlsPassing: 28, controlsInProgress: 5, controlsNotStarted: 2,
+    policiesTotal: 25, policiesPublished: 18,
+    tasksTotal: 76, tasksOpen: 30,
+    peopleTotal: 6, vendorsTotal: 6, risksTotal: 3, cloudFindingsTotal: 0, integrationsConnected: 1,
+  };
+
+  it('renders the readiness percentage and the controls breakdown legend', () => {
+    renderTab('overview', { overview });
+
+    expect(screen.getByText('80%')).toBeInTheDocument();
+    expect(screen.getByText('SOC 2')).toBeInTheDocument();
+    expect(screen.getByText('28')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+  });
+
+  it('links each KPI card to its corresponding sidebar tab', () => {
+    renderTab('overview', { overview });
+
+    expect(screen.getByText('Personnel').closest('a')).toHaveAttribute('href', '/soc2-program/personnel');
+    expect(screen.getByText('Vendors').closest('a')).toHaveAttribute('href', '/soc2-program/vendors');
+    expect(screen.getByText('Open Risks').closest('a')).toHaveAttribute('href', '/soc2-program/risks');
+    expect(screen.getByText('View all controls').closest('a')).toHaveAttribute('href', '/soc2-program/controls');
+  });
+});
