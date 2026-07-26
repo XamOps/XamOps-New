@@ -98,6 +98,34 @@ const findingStatusTone = (status: string | null): Tone => {
   return 'neutral';
 };
 
+// SOC 2 Trust Service Criteria series: CC (Security/Common Criteria, the majority)
+// stays neutral so it doesn't dominate; the optional criteria each get their own color.
+const CATEGORY_CLASSES: Record<string, string> = {
+  CC: 'bg-gray-50 text-gray-600 border border-gray-200',
+  A: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+  C: 'bg-amber-50 text-amber-700 border border-amber-200',
+  P: 'bg-orange-50 text-orange-700 border border-orange-200',
+  PI: 'bg-rose-50 text-rose-700 border border-rose-200',
+};
+
+const categorySeries = (category: string): string => {
+  if (category.startsWith('PI')) return 'PI';
+  const letters = category.match(/^[A-Za-z]+/)?.[0] ?? '';
+  return letters || category;
+};
+
+const CategoryBadge: React.FC<{ category: string }> = ({ category }) => (
+  <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${CATEGORY_CLASSES[categorySeries(category)] ?? CATEGORY_CLASSES.CC}`}>
+    {category}
+  </span>
+);
+
+const Chip: React.FC<{ text: string }> = ({ text }) => (
+  <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 capitalize">
+    {text}
+  </span>
+);
+
 const StatCard: React.FC<{ label: string; value: string | number; sub?: string }> = ({ label, value, sub }) => (
   <div className="border border-[rgba(0,0,0,0.10)] rounded-xl p-4 bg-white">
     <div className="text-[12px] text-gray-500">{label}</div>
@@ -338,7 +366,7 @@ const Soc2ProgramPage: React.FC = () => {
                   <div className="text-[13px] text-gray-900 font-medium">{c.name}</div>
                   {c.requirementName && <div className="text-[11px] text-gray-400 truncate max-w-md">{c.requirementName}</div>}
                 </td>
-                <td className="p-3 text-[12px] text-gray-500">{c.category}</td>
+                <td className="p-3"><CategoryBadge category={c.category} /></td>
                 <td className="p-3">
                   <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${controlStatusClass(c.status)}`}>
                     {CONTROL_STATUS_LABEL[c.status]}
@@ -473,7 +501,7 @@ const Soc2ProgramPage: React.FC = () => {
                 <tr key={v.id} onClick={() => setSelected({ type: 'vendor', data: v })}
                     className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
                   <td className="p-3 text-[13px] text-gray-900 font-medium">{v.name}</td>
-                  <td className="p-3 text-[12px] text-gray-500">{v.category || '—'}</td>
+                  <td className="p-3">{v.category ? <Chip text={v.category.replace(/_/g, ' ')} /> : <span className="text-[12px] text-gray-400">—</span>}</td>
                   <td className="p-3"><StatusPill text={(v.status || '').replace(/_/g, ' ')} tone={vendorStatusTone(v.status)} /></td>
                   <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{v.description || '—'}</td>
                 </tr>
@@ -506,7 +534,7 @@ const Soc2ProgramPage: React.FC = () => {
                     <div className="text-[13px] text-gray-900 font-medium">{r.title || '—'}</div>
                     {r.description && <div className="text-[11px] text-gray-400 truncate max-w-md">{r.description}</div>}
                   </td>
-                  <td className="p-3 text-[12px] text-gray-500">{r.category || '—'}</td>
+                  <td className="p-3">{r.category ? <Chip text={r.category.replace(/_/g, ' ')} /> : <span className="text-[12px] text-gray-400">—</span>}</td>
                   <td className="p-3"><StatusPill text={r.severity || '—'} tone={severityTone(r.severity)} /></td>
                   <td className="p-3"><StatusPill text={(r.status || '').replace(/_/g, ' ')} tone={riskStatusTone(r.status)} /></td>
                   <td className="p-3 text-[12px] text-gray-500">{r.owner || '—'}</td>
@@ -862,12 +890,15 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
   if (type === 'control') {
     const c = data;
     return (
-      <DrawerShell title={c.name} subtitle={c.category} onClose={onClose}>
+      <DrawerShell title={c.name} onClose={onClose}>
         <DrawerSection label="Status">
           <div className="flex items-center justify-between">
-            <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${controlStatusClass(c.status)}`}>
-              {CONTROL_STATUS_LABEL[c.status]}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${controlStatusClass(c.status)}`}>
+                {CONTROL_STATUS_LABEL[c.status]}
+              </span>
+              <CategoryBadge category={c.category} />
+            </div>
             <DangerButton onClick={async () => { setBusy(true); await onDeleteControl(c.id); setBusy(false); }} disabled={busy}>
               {busy ? 'Deleting…' : 'Delete Control'}
             </DangerButton>
