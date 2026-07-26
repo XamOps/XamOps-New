@@ -142,7 +142,7 @@ const DangerButton: React.FC<{ onClick: (e: React.MouseEvent) => void; disabled?
 
 const Soc2ProgramPage: React.FC = () => {
   const { tab = 'overview' } = useParams<{ tab: string }>();
-  const { setTitle, setActions, clearActions } = useTopbar();
+  const { setTitle, clearActions } = useTopbar();
   const { overview, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, isLoading, error, refetch } = useSoc2ProgramData();
 
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -154,21 +154,10 @@ const Soc2ProgramPage: React.FC = () => {
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [selected, setSelected] = useState<SelectedRow>(null);
 
-  const trustCenterUrl = overview?.trustCenterUrl;
-
   useEffect(() => {
     setTitle('Program');
-    setActions(
-      trustCenterUrl ? (
-        <a href={trustCenterUrl} target="_blank" rel="noopener noreferrer"
-           className="flex items-center gap-2 px-3.5 py-2 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg text-[12px] font-medium text-gray-800 hover:shadow-sm transition-all">
-          <Icon icon="mdi:shield-check-outline" width={14} /> View Trust Center
-          <Icon icon="mdi:open-in-new" width={12} />
-        </a>
-      ) : null
-    );
     return () => { clearActions(); setTitle(null); };
-  }, [setTitle, setActions, clearActions, trustCenterUrl]);
+  }, [setTitle, clearActions]);
 
   const handlePublish = async (policyId: string) => {
     setActionError(null);
