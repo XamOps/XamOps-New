@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { StatusDonut } from './soc2/soc2Ui';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../hooks/useSoc2ProgramData';
@@ -256,8 +257,9 @@ const DangerButton: React.FC<{ onClick: (e: React.MouseEvent) => void; disabled?
 
 const Soc2ProgramPage: React.FC = () => {
   const { tab = 'overview' } = useParams<{ tab: string }>();
+  const navigate = useNavigate();
   const { setTitle, clearActions } = useTopbar();
-  const { overview, frameworks, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, isLoading, error, refetch } = useSoc2ProgramData();
+  const { overview, frameworks, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, documents, isLoading, error, refetch } = useSoc2ProgramData();
 
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
@@ -267,6 +269,13 @@ const Soc2ProgramPage: React.FC = () => {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [selected, setSelected] = useState<SelectedRow>(null);
+  const [policyQuery, setPolicyQuery] = useState('');
+  const [policyStatusFilter, setPolicyStatusFilter] = useState('all');
+  const [policyDeptFilter, setPolicyDeptFilter] = useState('all');
+  const [evidenceView, setEvidenceView] = useState<'categories' | 'list'>('categories');
+  const [evidenceCategory, setEvidenceCategory] = useState<string | null>(null);
+  const [documentsTab, setDocumentsTab] = useState<'overview' | 'settings'>('overview');
+  const [notRelevantDocs, setNotRelevantDocs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setTitle('Program');
@@ -413,6 +422,41 @@ const Soc2ProgramPage: React.FC = () => {
     return <div className="p-6 text-sm text-red-600">Failed to load SOC 2 program data: {error.message}</div>;
   }
 
+  const policyDepartments = Array.from(new Set(policies.map((p) => p.department).filter(Boolean))) as string[];
+  const filteredPolicies = policies.filter((p) => {
+    const q = policyQuery.trim().toLowerCase();
+    if (q && !p.name.toLowerCase().includes(q)) return false;
+    if (policyStatusFilter !== 'all' && (p.status || '').toLowerCase() !== policyStatusFilter) return false;
+    if (policyDeptFilter !== 'all' && p.department !== policyDeptFilter) return false;
+    return true;
+  });
+  const policyStatusSegments = [
+    { label: 'Published', value: policies.filter((p) => (p.status || '').toLowerCase() === 'published').length, color: '#059669' },
+    { label: 'Draft', value: policies.filter((p) => (p.status || '').toLowerCase() === 'draft').length, color: '#d97706' },
+    { label: 'Needs Review', value: policies.filter((p) => ['needs_review', 'in_review'].includes((p.status || '').toLowerCase())).length, color: '#dc2626' },
+    { label: 'Archived', value: policies.filter((p) => (p.status || '').toLowerCase() === 'archived').length, color: '#9ca3af' },
+  ];
+
+  const isDone = (s: string | null) => ['done', 'completed'].includes((s || '').toLowerCase());
+  const evTotal = tasks.length;
+  const evDone = tasks.filter((t) => isDone(t.status)).length;
+  const evActive = tasks.filter((t) => (t.status || '').toLowerCase() === 'in_progress').length;
+  const evReview = tasks.filter((t) => (t.status || '').toLowerCase() === 'in_review').length;
+  const evPending = tasks.filter((t) => (t.status || '').toLowerCase() === 'todo').length;
+  const evProgress = evTotal ? Math.round((evDone * 100) / evTotal) : 0;
+  const evidenceCategories = (() => {
+    const map = new Map<string, typeof tasks>();
+    tasks.forEach((t) => {
+      const k = t.controlName || 'Uncategorized';
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(t);
+    });
+    return Array.from(map.entries())
+      .map(([name, ts]) => ({ name, tasks: ts, done: ts.filter((t) => isDone(t.status)).length, total: ts.length,
+        pct: ts.length ? Math.round((ts.filter((t) => isDone(t.status)).length * 100) / ts.length) : 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
   return (
     <div className="p-6">
       {actionError && (
@@ -543,73 +587,195 @@ const Soc2ProgramPage: React.FC = () => {
       )}
 
       {tab === 'policies' && (
-        <TableWrap>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr><Th>Policy</Th><Th>Status</Th><Th>Description</Th><Th>Action</Th></tr>
-          </thead>
-          <tbody>
-            {policies.map((p) => {
-              const isPublished = (p.status || '').toLowerCase() === 'published';
-              return (
-                <tr key={p.id} onClick={() => setSelected({ type: 'policy', data: p })}
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-5">
+              <div className="text-[13px] font-semibold text-gray-900 mb-3">Policy by Status</div>
+              <StatusDonut segments={policyStatusSegments} />
+            </div>
+            <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-5">
+              <div className="text-[13px] font-semibold text-gray-900 mb-3">Policies by Assignee</div>
+              <div className="flex flex-col items-center justify-center h-[120px] text-gray-400">
+                <Icon icon="mdi:account-off-outline" width={24} />
+                <p className="text-[12px] mt-1">No policies assigned to users</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Icon icon="mdi:magnify" width={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={policyQuery} onChange={(e) => setPolicyQuery(e.target.value)} placeholder="Search policies…"
+                className="w-full text-[13px] border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400"
+              />
+            </div>
+            <select value={policyStatusFilter} onChange={(e) => setPolicyStatusFilter(e.target.value)}
+              className="text-[13px] border border-gray-300 rounded-lg px-3 py-2 text-gray-700 capitalize">
+              <option value="all">All Statuses</option>
+              <option value="published">Published</option>
+              <option value="draft">Draft</option>
+              <option value="needs_review">Needs Review</option>
+              <option value="archived">Archived</option>
+            </select>
+            <select value={policyDeptFilter} onChange={(e) => setPolicyDeptFilter(e.target.value)}
+              className="text-[13px] border border-gray-300 rounded-lg px-3 py-2 text-gray-700 uppercase">
+              <option value="all">All Departments</option>
+              {policyDepartments.map((d) => <option key={d} value={d}>{d.toUpperCase()}</option>)}
+            </select>
+          </div>
+
+          <TableWrap>
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr><Th>Policy Name</Th><Th>Status</Th><Th>Department</Th><Th>Last Updated</Th></tr>
+            </thead>
+            <tbody>
+              {filteredPolicies.map((p) => (
+                <tr key={p.id} onClick={() => navigate(`/soc2-program/policies/${p.id}`)}
                     className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
                   <td className="p-3 text-[13px] text-gray-900 font-medium">{p.name}</td>
                   <td className="p-3"><StatusPill text={(p.status || '').replace(/_/g, ' ')} tone={policyTone(p.status)} /></td>
-                  <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{p.description || '—'}</td>
-                  <td className="p-3">
-                    {!isPublished && (
-                      <ActionButton onClick={(e) => { e.stopPropagation(); handlePublish(p.id); }} disabled={publishingId === p.id}>
-                        {publishingId === p.id ? 'Publishing…' : 'Publish'}
-                      </ActionButton>
-                    )}
-                  </td>
+                  <td className="p-3 text-[12px] text-gray-500">{p.department ? p.department.toUpperCase() : '—'}</td>
+                  <td className="p-3 text-[12px] text-gray-500">{fmtDate(p.updatedAt)}</td>
                 </tr>
-              );
-            })}
-            {policies.length === 0 && <EmptyRow cols={4} text="No policies." />}
-          </tbody>
-        </TableWrap>
+              ))}
+              {filteredPolicies.length === 0 && <EmptyRow cols={4} text="No policies match your filters." />}
+            </tbody>
+          </TableWrap>
+        </div>
       )}
 
       {tab === 'evidence-tasks' && (
-        <div className="space-y-3">
-          <div className="flex justify-end">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Evidence</h2>
             <button
               onClick={() => setTaskModalOpen(true)}
               className="flex items-center gap-2 px-3.5 py-2 bg-[#1a1a1a] text-white rounded-lg text-[12px] font-medium hover:bg-black transition-colors"
             >
-              <Icon icon="mdi:plus" width={14} /> New Task
+              <Icon icon="mdi:plus" width={14} /> Create Evidence
             </button>
           </div>
-          <TableWrap>
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr><Th>Task</Th><Th>Control</Th><Th>Owner</Th><Th>Status</Th></tr>
-            </thead>
-            <tbody>
-              {tasks.map((t) => (
-                <tr key={t.id} onClick={() => setSelected({ type: 'task', data: t })}
-                    className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
-                  <td className="p-3 text-[13px] text-gray-900 font-medium">{t.title}</td>
-                  <td className="p-3 text-[12px] text-gray-500">{t.controlName || '—'}</td>
-                  <td className="p-3"><OwnerBadge name={t.assigneeName} /></td>
-                  <td className="p-3">
-                    <select
-                      value={t.status || 'todo'}
-                      disabled={updatingTaskId === t.id}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => handleTaskStatusChange(t.id, e.target.value)}
-                      className="text-[11px] font-medium rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 disabled:opacity-40 capitalize"
-                    >
-                      {TASK_STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s} className="capitalize">{s.replace(/_/g, ' ')}</option>
-                      ))}
-                    </select>
-                  </td>
-                </tr>
+
+          {/* KPI strip */}
+          <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-4 flex items-center gap-8 flex-wrap">
+            <div className="min-w-[180px]">
+              <div className="flex items-center justify-between text-[12px] mb-1">
+                <span className="text-gray-500 font-medium">PROGRESS</span>
+                <span className="font-semibold text-gray-900">{evProgress}%</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${evProgress}%` }} />
+              </div>
+              <div className="text-[11px] text-gray-400 mt-1">{evDone}/{evTotal} complete</div>
+            </div>
+            {[
+              { label: 'DONE', value: evDone, color: 'text-emerald-600' },
+              { label: 'ACTIVE', value: evActive, color: 'text-amber-600' },
+              { label: 'IN REVIEW', value: evReview, color: 'text-blue-600' },
+              { label: 'PENDING', value: evPending, color: 'text-gray-500' },
+            ].map((k) => (
+              <div key={k.label} className="text-center">
+                <div className={`text-2xl font-semibold ${k.color}`}>{k.value}</div>
+                <div className="text-[11px] text-gray-400 uppercase tracking-wide">{k.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* view toggle */}
+          <div className="flex items-center justify-between">
+            {evidenceView === 'categories' && evidenceCategory ? (
+              <button onClick={() => setEvidenceCategory(null)}
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-gray-600 hover:text-gray-900">
+                <Icon icon="mdi:arrow-left" width={14} /> Back to categories
+              </button>
+            ) : <div />}
+            <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+              {(['categories', 'list'] as const).map((v) => (
+                <button key={v} onClick={() => { setEvidenceView(v); setEvidenceCategory(null); }}
+                  className={`px-3 py-1.5 text-[12px] font-medium ${evidenceView === v ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                  {v === 'list' ? 'List' : 'Categories'}
+                </button>
               ))}
-              {tasks.length === 0 && <EmptyRow cols={4} text="No tasks." />}
-            </tbody>
-          </TableWrap>
+            </div>
+          </div>
+
+          {evidenceView === 'categories' && !evidenceCategory && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {evidenceCategories.map((cat) => (
+                <button key={cat.name} onClick={() => setEvidenceCategory(cat.name)}
+                  className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-4 text-left hover:shadow-sm transition-shadow">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Icon icon="mdi:folder-outline" width={18} className="text-gray-400" />
+                    <span className="text-[13px] font-medium text-gray-900 truncate">{cat.name}</span>
+                    <span className="ml-auto text-[12px] font-semibold text-gray-700">{cat.pct}%</span>
+                  </div>
+                  <div className="text-[11px] text-gray-400 mb-2">{cat.total} task{cat.total !== 1 ? 's' : ''}</div>
+                  <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${cat.pct}%` }} />
+                  </div>
+                </button>
+              ))}
+              {evidenceCategories.length === 0 && (
+                <div className="col-span-full text-center text-[13px] text-gray-400 py-8">No evidence tasks.</div>
+              )}
+            </div>
+          )}
+
+          {evidenceView === 'categories' && evidenceCategory && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[15px] font-semibold text-gray-900">{evidenceCategory}</span>
+                {(() => { const c = evidenceCategories.find((x) => x.name === evidenceCategory);
+                  return c ? <span className="text-[12px] text-gray-400">{c.done}/{c.total} · {c.pct}% complete</span> : null; })()}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {evidenceCategories.find((x) => x.name === evidenceCategory)?.tasks.map((t) => (
+                  <button key={t.id} onClick={() => setSelected({ type: 'task', data: t })}
+                    className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-4 text-left hover:shadow-sm transition-shadow">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <span className="text-[13px] font-medium text-gray-900">{t.title}</span>
+                      <StatusPill text={(t.status || '').replace(/_/g, ' ')} tone={isDone(t.status) ? 'success' : (t.status || '').toLowerCase() === 'in_progress' ? 'warning' : 'neutral'} />
+                    </div>
+                    {t.description && <p className="text-[11px] text-gray-400 truncate mb-2">{t.description}</p>}
+                    <OwnerBadge name={t.assigneeName} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {evidenceView === 'list' && (
+            <TableWrap>
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr><Th>Task</Th><Th>Control</Th><Th>Owner</Th><Th>Status</Th></tr>
+              </thead>
+              <tbody>
+                {tasks.map((t) => (
+                  <tr key={t.id} onClick={() => setSelected({ type: 'task', data: t })}
+                      className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
+                    <td className="p-3 text-[13px] text-gray-900 font-medium">{t.title}</td>
+                    <td className="p-3 text-[12px] text-gray-500">{t.controlName || '—'}</td>
+                    <td className="p-3"><OwnerBadge name={t.assigneeName} /></td>
+                    <td className="p-3">
+                      <select
+                        value={t.status || 'todo'}
+                        disabled={updatingTaskId === t.id}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => handleTaskStatusChange(t.id, e.target.value)}
+                        className="text-[11px] font-medium rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 disabled:opacity-40 capitalize"
+                      >
+                        {TASK_STATUS_OPTIONS.map((s) => (
+                          <option key={s} value={s} className="capitalize">{s.replace(/_/g, ' ')}</option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+                {tasks.length === 0 && <EmptyRow cols={4} text="No tasks." />}
+              </tbody>
+            </TableWrap>
+          )}
         </div>
       )}
 
@@ -751,6 +917,85 @@ const Soc2ProgramPage: React.FC = () => {
             {cloudTests.length === 0 && <EmptyRow cols={5} text="No cloud test findings yet." />}
           </tbody>
         </TableWrap>
+      )}
+
+      {tab === 'documents' && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-5 border-b border-gray-200">
+            {(['overview', 'settings'] as const).map((t) => (
+              <button key={t} onClick={() => setDocumentsTab(t)}
+                className={`pb-2 -mb-px text-[13px] font-medium border-b-2 capitalize transition-colors ${
+                  documentsTab === t ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800'
+                }`}>
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {documentsTab === 'overview' && (
+            <div className="space-y-6">
+              {['Governance', 'Security', 'People'].map((cat) => {
+                const docs = documents.filter((d) => d.category === cat && !notRelevantDocs.has(d.id));
+                if (docs.length === 0) return null;
+                return (
+                  <div key={cat}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[13px] font-semibold text-gray-900">{cat}</span>
+                      <span className="text-[11px] text-gray-400">{docs.length}</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {docs.map((d) => (
+                        <div key={d.id} className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-4">
+                          <div className="text-[13px] font-medium text-gray-900 mb-1">{d.name}</div>
+                          {d.description && <p className="text-[12px] text-gray-500 mb-2">{d.description}</p>}
+                          <StatusPill
+                            text={(d.status || '').replace(/_/g, ' ')}
+                            tone={d.status === 'done' ? 'success' : d.status === 'todo' ? 'warning' : 'neutral'}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {documents.length === 0 && <EmptyRow cols={1} text="No documents." />}
+            </div>
+          )}
+
+          {documentsTab === 'settings' && (
+            <TableWrap>
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr><Th>Document</Th><Th>Category</Th><Th>Not Relevant</Th></tr>
+              </thead>
+              <tbody>
+                {documents.map((d) => {
+                  const nr = notRelevantDocs.has(d.id);
+                  return (
+                    <tr key={d.id} className="border-t border-gray-100">
+                      <td className="p-3 text-[13px] text-gray-900 font-medium">{d.name}</td>
+                      <td className="p-3 text-[12px] text-gray-500">{d.category}</td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => setNotRelevantDocs((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(d.id)) next.delete(d.id); else next.add(d.id);
+                            return next;
+                          })}
+                          className={`relative w-9 h-5 rounded-full transition-colors ${nr ? 'bg-gray-900' : 'bg-gray-200'}`}
+                          aria-pressed={nr}
+                          aria-label={`Mark ${d.name} not relevant`}
+                        >
+                          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${nr ? 'left-[18px]' : 'left-0.5'}`} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {documents.length === 0 && <EmptyRow cols={3} text="No documents." />}
+              </tbody>
+            </TableWrap>
+          )}
+        </div>
       )}
 
       {vendorModalOpen && (

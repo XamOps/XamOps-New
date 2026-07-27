@@ -39,6 +39,8 @@ const SOC2_SUBTABS: { id: string; label: string; icon: string; tooltip: string }
     tooltip: 'Security policy documents and their approval status — the written commitments behind each control.' },
   { id: 'evidence-tasks', label: 'Evidence & Tasks', icon: 'fas fa-clipboard-check',
     tooltip: 'Compliance tasks and the evidence collected for them, each with an owner and status.' },
+  { id: 'documents', label: 'Documents', icon: 'fas fa-folder-open',
+    tooltip: 'Required and optional evidence documents (policies, reports, diagrams) grouped by area, each tracked to completion.' },
   { id: 'personnel', label: 'Personnel', icon: 'fas fa-users',
     tooltip: 'People in scope for the audit — their roles, departments and access.' },
   { id: 'vendors', label: 'Vendors', icon: 'fas fa-building',

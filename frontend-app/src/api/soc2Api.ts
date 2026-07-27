@@ -90,6 +90,7 @@ export interface Soc2Policy {
   requiresSignature: boolean;
   reviewDate: string | null;
   lastPublishedAt: string | null;
+  updatedAt: string | null;
 }
 
 export interface Soc2Person {
@@ -142,6 +143,14 @@ export interface Soc2Integration {
   capabilities: string | null;
 }
 
+export interface Soc2Document {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;    // "Governance" | "Security" | "People"
+  status: string;      // "todo" | "optional" | "done" | "not_relevant"
+}
+
 export const fetchSoc2Overview = (): Promise<Soc2Overview> => apiClient.get('/api/soc2/overview');
 export const fetchSoc2Frameworks = (): Promise<Soc2Framework[]> => apiClient.get('/api/soc2/frameworks');
 export const fetchSoc2Controls = (): Promise<Soc2Control[]> => apiClient.get('/api/soc2/controls');
@@ -152,6 +161,7 @@ export const fetchSoc2Vendors = (): Promise<Soc2Vendor[]> => apiClient.get('/api
 export const fetchSoc2Risks = (): Promise<Soc2Risk[]> => apiClient.get('/api/soc2/risks');
 export const fetchSoc2CloudTests = (): Promise<Soc2CloudTest[]> => apiClient.get('/api/soc2/cloud-tests');
 export const fetchSoc2Integrations = (): Promise<Soc2Integration[]> => apiClient.get('/api/soc2/integrations');
+export const fetchSoc2Documents = (): Promise<Soc2Document[]> => apiClient.get('/api/soc2/documents');
 
 // --- Write actions ---
 

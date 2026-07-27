@@ -95,6 +95,11 @@ public class CompAiController {
         return ResponseEntity.ok(compAiService.getCloudTests());
     }
 
+    @GetMapping("/documents")
+    public ResponseEntity<?> documents() {
+        return ResponseEntity.ok(compAiService.getDocuments());
+    }
+
     @GetMapping("/integrations")
     public ResponseEntity<?> integrations() {
         return ResponseEntity.ok(compAiService.getIntegrations());

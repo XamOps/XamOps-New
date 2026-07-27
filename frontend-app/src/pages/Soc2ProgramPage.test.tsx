@@ -32,7 +32,7 @@ vi.mock('../contexts/TopbarContext', () => ({
 
 const baseData: Record<string, any> = {
   overview: null, frameworks: [], controls: [], policies: [], tasks: [], personnel: [], vendors: [],
-  risks: [], cloudTests: [], integrations: [],
+  risks: [], cloudTests: [], integrations: [], documents: [],
   isLoading: false, error: null, refetch: vi.fn(),
 };
 
@@ -43,6 +43,7 @@ function renderTab(tab: string, overrides: Record<string, any> = {}) {
     <MemoryRouter initialEntries={[`/soc2-program/${tab}`]}>
       <Routes>
         <Route path="/soc2-program/:tab" element={<Soc2ProgramPage />} />
+        <Route path="/soc2-program/policies/:policyId" element={<div>Policy Detail Route</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -50,23 +51,45 @@ function renderTab(tab: string, overrides: Record<string, any> = {}) {
 }
 
 describe('Soc2ProgramPage write actions', () => {
-  it('Publish button calls publishSoc2Policy and refetches for a draft policy', async () => {
-    vi.mocked(soc2Api.publishSoc2Policy).mockResolvedValue({} as any);
-    const { refetch } = renderTab('policies', {
-      policies: [{ id: 'pol_1', name: 'Access Control Policy', description: 'desc', status: 'draft' }],
+  it('clicking a policy row navigates to the policy detail page', () => {
+    renderTab('policies', {
+      policies: [{ id: 'pol_1', name: 'Access Control Policy', description: 'desc', status: 'draft', department: 'it', updatedAt: '2026-07-25T00:00:00Z' }],
     });
 
-    fireEvent.click(screen.getByText('Publish'));
-
-    await waitFor(() => expect(soc2Api.publishSoc2Policy).toHaveBeenCalledWith('pol_1'));
-    await waitFor(() => expect(refetch).toHaveBeenCalled());
+    fireEvent.click(screen.getByText('Access Control Policy'));
+    expect(screen.getByText('Policy Detail Route')).toBeInTheDocument();
   });
 
-  it('does not show a Publish button for an already-published policy', () => {
+  it('filters the policy list by status', () => {
     renderTab('policies', {
-      policies: [{ id: 'pol_2', name: 'Encryption Policy', description: 'desc', status: 'published' }],
+      policies: [
+        { id: 'pol_1', name: 'Access Control Policy', status: 'draft', department: 'it', updatedAt: null },
+        { id: 'pol_2', name: 'Encryption Policy', status: 'published', department: 'it', updatedAt: null },
+      ],
     });
-    expect(screen.queryByText('Publish')).not.toBeInTheDocument();
+
+    expect(screen.getByText('Encryption Policy')).toBeInTheDocument();
+    fireEvent.change(screen.getByDisplayValue('All Statuses'), { target: { value: 'draft' } });
+    expect(screen.queryByText('Encryption Policy')).not.toBeInTheDocument();
+    expect(screen.getByText('Access Control Policy')).toBeInTheDocument();
+  });
+
+  it('groups evidence into category cards and drills into a category', () => {
+    renderTab('evidence-tasks', {
+      tasks: [
+        { id: 'tsk_1', title: 'Enforce MFA', controlName: 'Access Rights', status: 'done', assigneeName: 'Priya Sharma' },
+        { id: 'tsk_2', title: 'Review access logs', controlName: 'Access Rights', status: 'todo', assigneeName: null },
+      ],
+    });
+
+    // Default categories view shows a category card with progress (1/2 done = 50%).
+    expect(screen.getByText('Access Rights')).toBeInTheDocument();
+    expect(screen.getAllByText('50%').length).toBeGreaterThan(0);
+
+    // Drilling in shows the individual task cards.
+    fireEvent.click(screen.getByText('Access Rights'));
+    expect(screen.getByText('Enforce MFA')).toBeInTheDocument();
+    expect(screen.getByText('Review access logs')).toBeInTheDocument();
   });
 
   it('changing the task status dropdown calls updateSoc2Task and refetches', async () => {
@@ -75,6 +98,7 @@ describe('Soc2ProgramPage write actions', () => {
       tasks: [{ id: 'tsk_1', title: 'Enforce MFA', controlName: 'Access Rights', status: 'todo' }],
     });
 
+    fireEvent.click(screen.getByText('List')); // switch from the default Categories view
     const select = screen.getByRole('combobox');
     fireEvent.change(select, { target: { value: 'done' } });
 
@@ -90,6 +114,7 @@ describe('Soc2ProgramPage write actions', () => {
       ],
     });
 
+    fireEvent.click(screen.getByText('List')); // switch from the default Categories view
     expect(screen.getByText('Priya Sharma')).toBeInTheDocument();
     expect(screen.getByText('Unassigned')).toBeInTheDocument();
   });
@@ -128,16 +153,6 @@ describe('Soc2ProgramPage detail drawer', () => {
     expect(screen.getByText(/Logical access security is implemented\./)).toBeInTheDocument();
     expect(screen.getAllByText('Access Control Policy').length).toBeGreaterThan(0);
     expect(screen.getByText('Enforce MFA')).toBeInTheDocument();
-  });
-
-  it('clicking a policy row opens a drawer showing the extracted document content', () => {
-    renderTab('policies', {
-      policies: [{ id: 'pol_2', name: 'Encryption Policy', description: 'desc', status: 'published', content: 'Purpose\n\nEncrypt all data at rest.' }],
-    });
-
-    fireEvent.click(screen.getByText('Encryption Policy'));
-
-    expect(screen.getByText(/Encrypt all data at rest\./)).toBeInTheDocument();
   });
 
   it('clicking a vendor row opens a drawer with its description', () => {

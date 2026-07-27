@@ -9,6 +9,7 @@ import com.xammer.cloud.dto.compai.ControlSummaryDto;
 import com.xammer.cloud.dto.compai.CreateRiskRequestDto;
 import com.xammer.cloud.dto.compai.CreateTaskRequestDto;
 import com.xammer.cloud.dto.compai.CreateVendorRequestDto;
+import com.xammer.cloud.dto.compai.DocumentDto;
 import com.xammer.cloud.dto.compai.FrameworkDto;
 import com.xammer.cloud.dto.compai.IntegrationDto;
 import com.xammer.cloud.dto.compai.InviteMemberRequestDto;
@@ -281,6 +282,7 @@ public class CompAiService {
                 dto.setRequiresSignature(p.path("isRequiredToSign").asBoolean(false));
                 dto.setReviewDate(emptyToNull(p.path("reviewDate").asText(null)));
                 dto.setLastPublishedAt(emptyToNull(p.path("lastPublishedAt").asText(null)));
+                dto.setUpdatedAt(emptyToNull(p.path("updatedAt").asText(null)));
                 rows.add(dto);
             }
         } catch (Exception e) {
@@ -589,6 +591,35 @@ public class CompAiService {
         if (raw > 9) return "high";
         if (raw > 4) return "medium";
         return "low";
+    }
+
+    /**
+     * Evidence documents. comp.ai's public API exposes no documents endpoint, so
+     * this is a fixed demo catalog (gated behind {@link #demoFallback}) mirroring
+     * comp.ai's own Documents module: Governance / Security / People categories,
+     * each item TODO or OPTIONAL.
+     */
+    public List<DocumentDto> getDocuments() {
+        if (!apiClient.isConfigured() || !demoFallback) return List.of();
+        return List.of(
+                new DocumentDto("doc_1", "Meeting Minutes",
+                        "Record board, IT leadership, or risk committee meeting minutes.", "Governance", "todo"),
+                new DocumentDto("doc_2", "Access Request",
+                        "Track and retain user access requests. Employees can request access to systems.", "Security", "optional"),
+                new DocumentDto("doc_3", "Whistleblower Report",
+                        "Submit a confidential whistleblower report.", "Security", "optional"),
+                new DocumentDto("doc_4", "Penetration Test",
+                        "Upload a third-party penetration test report.", "Security", "todo"),
+                new DocumentDto("doc_5", "RBAC Matrix",
+                        "Document role-based access by system, role, and approval.", "Security", "todo"),
+                new DocumentDto("doc_6", "Infrastructure Inventory",
+                        "Track infrastructure assets, ownership, and review dates.", "Security", "todo"),
+                new DocumentDto("doc_7", "Network Diagram",
+                        "Upload or link to a current network diagram.", "Security", "todo"),
+                new DocumentDto("doc_8", "Incident Response Tabletop Exercise",
+                        "Document a tabletop exercise validating the incident response plan.", "Security", "todo"),
+                new DocumentDto("doc_9", "Employee Performance Evaluation",
+                        "Retain periodic employee performance evaluations.", "People", "todo"));
     }
 
     /** comp.ai cloud-security findings ("Cloud Tests") — GET /v1/cloud-security/findings (may be empty). */

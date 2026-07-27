@@ -45,6 +45,12 @@ export const CategoryBadge: React.FC<{ category: string }> = ({ category }) => (
   </span>
 );
 
+export const fmtDate = (iso: string | null): string => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
 export interface Crumb { label: string; to?: string; }
 
 export const Breadcrumbs: React.FC<{ items: Crumb[] }> = ({ items }) => (
@@ -105,6 +111,44 @@ export const Tabs: React.FC<{ tabs: { id: string; label: string; count?: number 
       ))}
     </div>
   );
+
+export interface DonutSegment { label: string; value: number; color: string; }
+
+/** Donut chart with total in the center and a legend, matching comp.ai's "by status" panels. */
+export const StatusDonut: React.FC<{ segments: DonutSegment[]; total?: number }> = ({ segments, total }) => {
+  const sum = total ?? segments.reduce((a, s) => a + s.value, 0);
+  const size = 120, stroke = 14, radius = (size - stroke) / 2, circ = 2 * Math.PI * radius;
+  let offset = 0;
+  return (
+    <div className="flex items-center gap-5">
+      <div className="relative shrink-0" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90">
+          <circle cx={size / 2} cy={size / 2} r={radius} stroke="#f1f1f1" strokeWidth={stroke} fill="none" />
+          {sum > 0 && segments.filter((s) => s.value > 0).map((s, i) => {
+            const len = (s.value / sum) * circ;
+            const el = (
+              <circle key={i} cx={size / 2} cy={size / 2} r={radius} stroke={s.color} strokeWidth={stroke} fill="none"
+                strokeDasharray={`${len} ${circ - len}`} strokeDashoffset={-offset} />
+            );
+            offset += len;
+            return el;
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xl font-bold text-gray-900">{sum}</span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {segments.map((s) => (
+          <div key={s.label} className="flex items-center gap-2 text-[12px] text-gray-600">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+            {s.label} <span className="font-semibold text-gray-900 ml-auto pl-3">{s.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 export const SearchInput: React.FC<{ value: string; onChange: (v: string) => void; placeholder?: string }> =
   ({ value, onChange, placeholder }) => (

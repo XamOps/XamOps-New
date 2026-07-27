@@ -18,4 +18,5 @@ public class PolicyDto {
     private boolean requiresSignature; // whether employees must acknowledge/sign it
     private String reviewDate;         // next scheduled review (ISO date), if set
     private String lastPublishedAt;    // when the current version was published, if ever
+    private String updatedAt;          // last modification (ISO date) — "Last Updated" column
 }

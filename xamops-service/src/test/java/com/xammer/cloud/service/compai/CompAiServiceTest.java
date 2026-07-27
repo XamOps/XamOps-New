@@ -494,6 +494,18 @@ class CompAiServiceTest {
     }
 
     @Test
+    void getDocuments_returnsDemoCatalogWhenFallbackOn_elseEmpty() {
+        assertTrue(service.getDocuments().isEmpty()); // demoFallback defaults false in unit construction
+
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "demoFallback", true);
+        var docs = service.getDocuments();
+        assertFalse(docs.isEmpty());
+        assertTrue(docs.stream().anyMatch(d -> "Governance".equals(d.getCategory())));
+        assertTrue(docs.stream().anyMatch(d -> "Security".equals(d.getCategory())));
+        assertTrue(docs.stream().anyMatch(d -> "People".equals(d.getCategory())));
+    }
+
+    @Test
     void getCloudTests_demoFallbackOffLeavesTabEmptyWhenLiveEmpty() throws Exception {
         // demoFallback stays false in plain unit construction (no @Value injection).
         when(apiClient.getJson("/cloud-security/findings?perPage=100"))
