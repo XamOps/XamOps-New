@@ -82,6 +82,18 @@ describe('Soc2ProgramPage write actions', () => {
     await waitFor(() => expect(refetch).toHaveBeenCalled());
   });
 
+  it('shows the assignee name when a task has an owner, and "Unassigned" otherwise', () => {
+    renderTab('evidence-tasks', {
+      tasks: [
+        { id: 'tsk_1', title: 'Enforce MFA', controlName: 'Access Rights', status: 'todo', assigneeId: 'mem_1', assigneeName: 'Priya Sharma' },
+        { id: 'tsk_2', title: 'Review access logs', controlName: 'Access Rights', status: 'todo', assigneeId: null, assigneeName: null },
+      ],
+    });
+
+    expect(screen.getByText('Priya Sharma')).toBeInTheDocument();
+    expect(screen.getByText('Unassigned')).toBeInTheDocument();
+  });
+
   it('Add Vendor opens a modal that submits via createSoc2Vendor', async () => {
     vi.mocked(soc2Api.createSoc2Vendor).mockResolvedValue({} as any);
     const { refetch } = renderTab('vendors', { vendors: [] });

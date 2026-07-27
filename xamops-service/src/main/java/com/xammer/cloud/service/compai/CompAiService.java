@@ -28,7 +28,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Read side of the SOC2 Program tabs. Proxies the self-hosted comp.ai apps/api
@@ -118,7 +120,7 @@ public class CompAiService {
             for (JsonNode t : tasksNode) {
                 controlTasks.add(new TaskDto(
                         t.path("id").asText(null), t.path("title").asText(null),
-                        controlName, t.path("status").asText(null)));
+                        controlName, t.path("status").asText(null), null, null));
             }
         }
         dto.setTasks(controlTasks);
@@ -221,12 +223,19 @@ public class CompAiService {
         }
     }
 
-    /** Tasks aggregated from the tasks embedded on each control. */
+    /**
+     * Tasks aggregated from the tasks embedded on each control. comp.ai's list
+     * endpoints omit assigneeId, so it's resolved with one GET per task id
+     * (absorbed by the 10-minute cache) and joined against {@link #getPersonnel()}.
+     */
     public List<TaskDto> getTasks() {
         if (!apiClient.isConfigured()) return List.of();
         Optional<List<TaskDto>> cached =
                 redisCacheService.get("compai:tasks", new TypeReference<List<TaskDto>>() {});
         if (cached.isPresent()) return cached.get();
+
+        Map<String, String> personNames = getPersonnel().stream()
+                .collect(Collectors.toMap(PersonDto::getId, PersonDto::getName, (a, b) -> a));
 
         List<TaskDto> rows = new ArrayList<>();
         try {
@@ -239,6 +248,7 @@ public class CompAiService {
                     dto.setTitle(t.path("title").asText(null));
                     dto.setControlName(controlName);
                     dto.setStatus(t.path("status").asText(null));
+                    enrichAssignee(dto, personNames);
                     rows.add(dto);
                 }
             }
@@ -247,6 +257,18 @@ public class CompAiService {
         }
         if (!rows.isEmpty()) redisCacheService.put("compai:tasks", rows, CACHE_MINUTES);
         return rows;
+    }
+
+    private void enrichAssignee(TaskDto dto, Map<String, String> personNames) {
+        if (dto.getId() == null) return;
+        try {
+            JsonNode t = apiClient.getJson("/tasks/" + dto.getId());
+            String assigneeId = t.path("assigneeId").isNull() ? null : t.path("assigneeId").asText(null);
+            dto.setAssigneeId(assigneeId);
+            dto.setAssigneeName(assigneeId != null ? personNames.get(assigneeId) : null);
+        } catch (Exception e) {
+            log.warn("[CompAi] task assignee fetch failed for {}: {}", dto.getId(), e.getMessage());
+        }
     }
 
     public List<PersonDto> getPersonnel() {

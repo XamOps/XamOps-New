@@ -13,4 +13,6 @@ public class TaskDto {
     private String title;
     private String controlName;   // the control this task belongs to
     private String status;        // comp.ai: "todo" | "in_progress" | "done" ...
+    private String assigneeId;
+    private String assigneeName;  // resolved from PersonDto; null if unassigned
 }

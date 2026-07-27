@@ -42,6 +42,8 @@ export interface Soc2Task {
   title: string;
   controlName: string | null;
   status: string | null;
+  assigneeId: string | null;
+  assigneeName: string | null;
 }
 
 export interface Soc2Control {

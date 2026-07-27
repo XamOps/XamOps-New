@@ -126,6 +126,18 @@ const Chip: React.FC<{ text: string }> = ({ text }) => (
   </span>
 );
 
+const OwnerBadge: React.FC<{ name: string | null }> = ({ name }) => {
+  if (!name) return <span className="text-[12px] text-gray-400 italic">Unassigned</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="w-5 h-5 rounded-full bg-gray-200 text-gray-700 text-[10px] font-semibold flex items-center justify-center shrink-0">
+        {name.trim().charAt(0).toUpperCase() || '?'}
+      </span>
+      <span className="text-[12px] text-gray-700">{name}</span>
+    </span>
+  );
+};
+
 const ICON_TONE_BG: Record<Tone, string> = {
   success: 'bg-emerald-50 text-emerald-600',
   warning: 'bg-amber-50 text-amber-600',
@@ -526,7 +538,7 @@ const Soc2ProgramPage: React.FC = () => {
           </div>
           <TableWrap>
             <thead className="bg-gray-50 border-b border-gray-200">
-              <tr><Th>Task</Th><Th>Control</Th><Th>Status</Th></tr>
+              <tr><Th>Task</Th><Th>Control</Th><Th>Owner</Th><Th>Status</Th></tr>
             </thead>
             <tbody>
               {tasks.map((t) => (
@@ -534,6 +546,7 @@ const Soc2ProgramPage: React.FC = () => {
                     className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
                   <td className="p-3 text-[13px] text-gray-900 font-medium">{t.title}</td>
                   <td className="p-3 text-[12px] text-gray-500">{t.controlName || '—'}</td>
+                  <td className="p-3"><OwnerBadge name={t.assigneeName} /></td>
                   <td className="p-3">
                     <select
                       value={t.status || 'todo'}
@@ -549,7 +562,7 @@ const Soc2ProgramPage: React.FC = () => {
                   </td>
                 </tr>
               ))}
-              {tasks.length === 0 && <EmptyRow cols={3} text="No tasks." />}
+              {tasks.length === 0 && <EmptyRow cols={4} text="No tasks." />}
             </tbody>
           </TableWrap>
         </div>
@@ -1091,6 +1104,7 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
     }
     return (
       <DrawerShell title={t.title} subtitle={t.controlName || undefined} onClose={onClose}>
+        <DrawerSection label="Owner"><OwnerBadge name={t.assigneeName} /></DrawerSection>
         <DrawerSection label="Status">
           <div className="flex items-center justify-between">
             <select
@@ -1325,7 +1339,7 @@ const RiskEditForm: React.FC<{ risk: Soc2Risk; onCancel: () => void; onSave: (pa
 const TaskEditForm: React.FC<{ task: Soc2Task; personnel: Soc2Person[]; onCancel: () => void; onSave: (payload: UpdateTaskRequest) => Promise<void> }> = ({ task, personnel, onCancel, onSave }) => {
   const [title, setTitleVal] = useState(task.title);
   const [description, setDescription] = useState('');
-  const [assigneeId, setAssigneeId] = useState('');
+  const [assigneeId, setAssigneeId] = useState(task.assigneeId || '');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 

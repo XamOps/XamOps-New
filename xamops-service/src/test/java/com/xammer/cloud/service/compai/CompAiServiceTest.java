@@ -111,6 +111,29 @@ class CompAiServiceTest {
     }
 
     @Test
+    void getTasks_resolvesAssigneeNameFromPersonnel() throws Exception {
+        when(apiClient.getJson("/tasks/tsk_1")).thenReturn(mapper.readTree("{\"assigneeId\":\"mem_1\"}"));
+        when(apiClient.getJson("/tasks/tsk_2")).thenReturn(mapper.readTree("{\"assigneeId\":null}"));
+
+        List<TaskDto> tasks = service.getTasks();
+
+        TaskDto assigned = tasks.stream().filter(t -> "tsk_1".equals(t.getId())).findFirst().orElseThrow();
+        assertEquals("mem_1", assigned.getAssigneeId());
+        assertEquals("Aditya Mehta", assigned.getAssigneeName());
+
+        TaskDto unassigned = tasks.stream().filter(t -> "tsk_2".equals(t.getId())).findFirst().orElseThrow();
+        assertNull(unassigned.getAssigneeId());
+        assertNull(unassigned.getAssigneeName());
+    }
+
+    @Test
+    void getTasks_leavesAssigneeNullWhenDetailFetchFails() {
+        // /tasks/tsk_1 and /tasks/tsk_2 are unstubbed -> apiClient.getJson returns null (Mockito default).
+        List<TaskDto> tasks = service.getTasks();
+        assertTrue(tasks.stream().allMatch(t -> t.getAssigneeId() == null && t.getAssigneeName() == null));
+    }
+
+    @Test
     void getPersonnel_fallsBackToEmailWhenNameBlank() {
         List<PersonDto> people = service.getPersonnel();
         assertEquals(1, people.size());
