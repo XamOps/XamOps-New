@@ -9,6 +9,7 @@ import com.xammer.cloud.dto.compai.ControlSummaryDto;
 import com.xammer.cloud.dto.compai.CreateRiskRequestDto;
 import com.xammer.cloud.dto.compai.CreateTaskRequestDto;
 import com.xammer.cloud.dto.compai.CreateVendorRequestDto;
+import com.xammer.cloud.dto.compai.FrameworkDto;
 import com.xammer.cloud.dto.compai.IntegrationDto;
 import com.xammer.cloud.dto.compai.InviteMemberRequestDto;
 import com.xammer.cloud.dto.compai.OverviewDto;
@@ -85,6 +86,45 @@ public class CompAiService {
         this.redisCacheService = redisCacheService;
     }
 
+    /**
+     * Frameworks the org is working against. comp.ai returns one instance per
+     * enabled framework; we surface the visible ones and fold in derived
+     * control progress (this single-org demo maps all controls to SOC 2).
+     */
+    public List<FrameworkDto> getFrameworks() {
+        if (!apiClient.isConfigured()) return List.of();
+        Optional<List<FrameworkDto>> cached =
+                redisCacheService.get("compai:frameworks", new TypeReference<List<FrameworkDto>>() {});
+        if (cached.isPresent()) return cached.get();
+
+        List<ControlSummaryDto> controls = getControls();
+        int total = controls.size();
+        int completed = (int) controls.stream().filter(c -> c.getCompliancePercent() >= 100).count();
+        int avg = total == 0 ? 0
+                : (int) Math.round(controls.stream().mapToInt(ControlSummaryDto::getCompliancePercent).average().orElse(0));
+
+        List<FrameworkDto> rows = new ArrayList<>();
+        try {
+            JsonNode body = apiClient.getJson("/frameworks");
+            for (JsonNode f : body.path("data")) {
+                JsonNode fw = f.path("framework");
+                if (!fw.path("visible").asBoolean(true)) continue;   // hide internal/legacy versions
+                FrameworkDto dto = new FrameworkDto();
+                dto.setId(f.path("id").asText(null));
+                dto.setName(fw.path("name").asText(null));
+                dto.setDescription(fw.path("description").asText(null));
+                dto.setControlsTotal(total);
+                dto.setControlsCompleted(completed);
+                dto.setCompliancePercent(avg);
+                rows.add(dto);
+            }
+        } catch (Exception e) {
+            log.warn("[CompAi] frameworks fetch failed: {}", e.getMessage());
+        }
+        if (!rows.isEmpty()) redisCacheService.put("compai:frameworks", rows, CACHE_MINUTES);
+        return rows;
+    }
+
     public List<ControlSummaryDto> getControls() {
         if (!apiClient.isConfigured()) return List.of();
         Optional<List<ControlSummaryDto>> cached =
@@ -156,6 +196,33 @@ public class CompAiService {
         dto.setTasks(controlTasks);
 
         dto.setStatus(deriveControlStatus(policies, tasksNode));
+
+        // Progress counters (comp.ai's framework table shows Policies x/y, Tasks x/y,
+        // Documents x/y and a per-control compliance %). Documents aren't exposed per
+        // control over the API, so that pair stays 0/0.
+        int polTotal = policies.isArray() ? policies.size() : 0;
+        int polPublished = 0;
+        if (policies.isArray()) {
+            for (JsonNode p : policies) {
+                if ("published".equalsIgnoreCase(p.path("status").asText(""))) polPublished++;
+            }
+        }
+        int taskTotal = tasksNode.isArray() ? tasksNode.size() : 0;
+        int taskDone = 0;
+        if (tasksNode.isArray()) {
+            for (JsonNode t : tasksNode) {
+                String s = t.path("status").asText("");
+                if ("done".equalsIgnoreCase(s) || "completed".equalsIgnoreCase(s)) taskDone++;
+            }
+        }
+        dto.setPoliciesPublished(polPublished);
+        dto.setPoliciesTotal(polTotal);
+        dto.setTasksDone(taskDone);
+        dto.setTasksTotal(taskTotal);
+        dto.setDocumentsCompleted(0);
+        dto.setDocumentsTotal(0);
+        int denom = polTotal + taskTotal;
+        dto.setCompliancePercent(denom == 0 ? 0 : (polPublished + taskDone) * 100 / denom);
         return dto;
     }
 

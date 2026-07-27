@@ -55,6 +55,11 @@ public class CompAiController {
         return ResponseEntity.ok(compAiService.getOverview());
     }
 
+    @GetMapping("/frameworks")
+    public ResponseEntity<?> frameworks() {
+        return ResponseEntity.ok(compAiService.getFrameworks());
+    }
+
     @GetMapping("/controls")
     public ResponseEntity<?> controls() {
         return ResponseEntity.ok(compAiService.getControls());

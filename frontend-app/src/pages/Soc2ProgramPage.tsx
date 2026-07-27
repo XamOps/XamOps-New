@@ -257,7 +257,7 @@ const DangerButton: React.FC<{ onClick: (e: React.MouseEvent) => void; disabled?
 const Soc2ProgramPage: React.FC = () => {
   const { tab = 'overview' } = useParams<{ tab: string }>();
   const { setTitle, clearActions } = useTopbar();
-  const { overview, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, isLoading, error, refetch } = useSoc2ProgramData();
+  const { overview, frameworks, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, isLoading, error, refetch } = useSoc2ProgramData();
 
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
@@ -446,7 +446,7 @@ const Soc2ProgramPage: React.FC = () => {
                 <Legend color="bg-amber-400" label="In Progress" value={overview.controlsInProgress} />
                 <Legend color="bg-gray-300" label="Not Started" value={overview.controlsNotStarted} />
               </div>
-              <Link to="/soc2-program/controls" className="text-[12px] font-medium text-gray-600 hover:text-gray-900 mt-1 inline-flex items-center gap-1 w-fit">
+              <Link to="/soc2-program/frameworks" className="text-[12px] font-medium text-gray-600 hover:text-gray-900 mt-1 inline-flex items-center gap-1 w-fit">
                 View all controls <Icon icon="mdi:arrow-right" width={14} />
               </Link>
             </div>
@@ -479,6 +479,38 @@ const Soc2ProgramPage: React.FC = () => {
               value={overview.integrationsConnected} sub="connected"
             />
           </div>
+        </div>
+      )}
+
+      {tab === 'frameworks' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {frameworks.map((f) => (
+            <Link
+              key={f.id}
+              to={`/soc2-program/frameworks/${f.id}`}
+              className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-5 hover:shadow-sm transition-shadow block"
+            >
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className="w-9 h-9 rounded-lg bg-gray-900 text-white flex items-center justify-center shrink-0">
+                  <Icon icon="mdi:shield-check-outline" width={18} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[14px] font-semibold text-gray-900 truncate">{f.name}</div>
+                  <div className="text-[11px] text-gray-400 truncate">{f.description || 'Type I & II'}</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-[12px] mb-1.5">
+                <span className="text-gray-500">{f.controlsCompleted}/{f.controlsTotal} controls</span>
+                <span className="font-semibold text-emerald-700">{f.compliancePercent}%</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${f.compliancePercent}%` }} />
+              </div>
+            </Link>
+          ))}
+          {frameworks.length === 0 && (
+            <div className="col-span-full text-center text-[13px] text-gray-400 py-8">No frameworks enabled.</div>
+          )}
         </div>
       )}
 

@@ -33,8 +33,8 @@ const XAMSECURE_SUBTABS: { id: string; label: string; icon: string }[] = [
 const SOC2_SUBTABS: { id: string; label: string; icon: string; tooltip: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'fas fa-gauge',
     tooltip: 'Audit readiness at a glance — control status, policies, tasks, personnel, vendors and open risks.' },
-  { id: 'controls', label: 'Controls', icon: 'fas fa-list-check',
-    tooltip: 'SOC 2 controls mapped to Trust Service Criteria, each with its status and linked policies and tasks.' },
+  { id: 'frameworks', label: 'Frameworks', icon: 'fas fa-layer-group',
+    tooltip: 'Compliance frameworks (SOC 2) and their controls, mapped to Trust Service Criteria with status, policies and tasks.' },
   { id: 'policies', label: 'Policies', icon: 'fas fa-file-lines',
     tooltip: 'Security policy documents and their approval status — the written commitments behind each control.' },
   { id: 'evidence-tasks', label: 'Evidence & Tasks', icon: 'fas fa-clipboard-check',

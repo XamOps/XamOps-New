@@ -58,9 +58,25 @@ export interface Soc2Control {
   policyName: string | null;
   policyStatus: string | null;
   taskCount: number;
+  compliancePercent: number;
+  policiesPublished: number;
+  policiesTotal: number;
+  tasksDone: number;
+  tasksTotal: number;
+  documentsCompleted: number;
+  documentsTotal: number;
   requirements: Soc2ControlRequirementRef[];
   policies: Soc2ControlPolicyRef[];
   tasks: Soc2Task[];
+}
+
+export interface Soc2Framework {
+  id: string;
+  name: string;
+  description: string | null;
+  controlsTotal: number;
+  controlsCompleted: number;
+  compliancePercent: number;
 }
 
 export interface Soc2Policy {
@@ -127,6 +143,7 @@ export interface Soc2Integration {
 }
 
 export const fetchSoc2Overview = (): Promise<Soc2Overview> => apiClient.get('/api/soc2/overview');
+export const fetchSoc2Frameworks = (): Promise<Soc2Framework[]> => apiClient.get('/api/soc2/frameworks');
 export const fetchSoc2Controls = (): Promise<Soc2Control[]> => apiClient.get('/api/soc2/controls');
 export const fetchSoc2Policies = (): Promise<Soc2Policy[]> => apiClient.get('/api/soc2/policies');
 export const fetchSoc2Tasks = (): Promise<Soc2Task[]> => apiClient.get('/api/soc2/tasks');

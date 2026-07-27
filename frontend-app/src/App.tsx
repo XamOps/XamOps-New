@@ -137,6 +137,8 @@ const SreSetupPage = lazy(() => import('./pages/SreSetupPage'));
 const MediaOpsPage = lazy(() => import('./pages/MediaOpsPage'));
 const ComplianceOpsPage = lazy(() => import('./pages/ComplianceOpsPage'));
 const Soc2ProgramPage = lazy(() => import('./pages/Soc2ProgramPage'));
+const Soc2FrameworkDetailPage = lazy(() => import('./pages/soc2/Soc2FrameworkDetailPage'));
+const Soc2ControlDetailPage = lazy(() => import('./pages/soc2/Soc2ControlDetailPage'));
 const CalculatorPage = lazy(() => import('./pages/CalculatorPage'));
 
 // BillOps — User
@@ -596,6 +598,8 @@ const AppContent: React.FC = () => {
                             <Route path="/my-profile" element={<MyProfilePage />} />
                             <Route path="/complianceops" element={<ComplianceOpsPage />} />
                             <Route path="/soc2-program" element={<Navigate to="/soc2-program/overview" replace />} />
+                            <Route path="/soc2-program/frameworks/:frameworkId/controls/:controlId" element={<Soc2ControlDetailPage />} />
+                            <Route path="/soc2-program/frameworks/:frameworkId" element={<Soc2FrameworkDetailPage />} />
                             <Route path="/soc2-program/:tab" element={<Soc2ProgramPage />} />
                             <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
                             <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />

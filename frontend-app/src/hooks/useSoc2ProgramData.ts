@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  fetchSoc2Overview, fetchSoc2Controls, fetchSoc2Policies,
+  fetchSoc2Overview, fetchSoc2Frameworks, fetchSoc2Controls, fetchSoc2Policies,
   fetchSoc2Tasks, fetchSoc2Personnel, fetchSoc2Vendors,
   fetchSoc2Risks, fetchSoc2CloudTests, fetchSoc2Integrations,
-  Soc2Overview, Soc2Control, Soc2Policy, Soc2Task, Soc2Person, Soc2Vendor,
+  Soc2Overview, Soc2Framework, Soc2Control, Soc2Policy, Soc2Task, Soc2Person, Soc2Vendor,
   Soc2Risk, Soc2CloudTest, Soc2Integration,
 } from '../api/soc2Api';
 
@@ -14,6 +14,7 @@ import {
  */
 export const useSoc2ProgramData = () => {
   const [overview, setOverview] = useState<Soc2Overview | null>(null);
+  const [frameworks, setFrameworks] = useState<Soc2Framework[]>([]);
   const [controls, setControls] = useState<Soc2Control[]>([]);
   const [policies, setPolicies] = useState<Soc2Policy[]>([]);
   const [tasks, setTasks] = useState<Soc2Task[]>([]);
@@ -29,8 +30,9 @@ export const useSoc2ProgramData = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [ov, ctrl, pol, tsk, ppl, vnd, rsk, cld, intg] = await Promise.all([
+      const [ov, fw, ctrl, pol, tsk, ppl, vnd, rsk, cld, intg] = await Promise.all([
         fetchSoc2Overview(),
+        fetchSoc2Frameworks(),
         fetchSoc2Controls(),
         fetchSoc2Policies(),
         fetchSoc2Tasks(),
@@ -41,6 +43,7 @@ export const useSoc2ProgramData = () => {
         fetchSoc2Integrations(),
       ]);
       setOverview(ov);
+      setFrameworks(fw);
       setControls(ctrl);
       setPolicies(pol);
       setTasks(tsk);
@@ -61,7 +64,7 @@ export const useSoc2ProgramData = () => {
   }, [fetchData]);
 
   return {
-    overview, controls, policies, tasks, personnel, vendors,
+    overview, frameworks, controls, policies, tasks, personnel, vendors,
     risks, cloudTests, integrations,
     isLoading, error, refetch: fetchData,
   };

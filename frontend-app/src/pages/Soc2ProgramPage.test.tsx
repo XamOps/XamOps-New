@@ -31,7 +31,7 @@ vi.mock('../contexts/TopbarContext', () => ({
 }));
 
 const baseData: Record<string, any> = {
-  overview: null, controls: [], policies: [], tasks: [], personnel: [], vendors: [],
+  overview: null, frameworks: [], controls: [], policies: [], tasks: [], personnel: [], vendors: [],
   risks: [], cloudTests: [], integrations: [],
   isLoading: false, error: null, refetch: vi.fn(),
 };
@@ -193,6 +193,6 @@ describe('Soc2ProgramPage overview tab', () => {
     expect(screen.getByText('Personnel').closest('a')).toHaveAttribute('href', '/soc2-program/personnel');
     expect(screen.getByText('Vendors').closest('a')).toHaveAttribute('href', '/soc2-program/vendors');
     expect(screen.getByText('Open Risks').closest('a')).toHaveAttribute('href', '/soc2-program/risks');
-    expect(screen.getByText('View all controls').closest('a')).toHaveAttribute('href', '/soc2-program/controls');
+    expect(screen.getByText('View all controls').closest('a')).toHaveAttribute('href', '/soc2-program/frameworks');
   });
 });
