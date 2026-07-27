@@ -11,6 +11,7 @@ import com.xammer.cloud.dto.compai.UpdateVendorRequestDto;
 import com.xammer.cloud.service.compai.CompAiService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -45,6 +46,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/soc2")
+@PreAuthorize("isAuthenticated()")
 @RequiredArgsConstructor
 public class CompAiController {
 
