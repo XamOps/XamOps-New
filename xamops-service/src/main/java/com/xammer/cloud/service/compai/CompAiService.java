@@ -204,7 +204,7 @@ public class CompAiService {
                 dto.setName(p.path("name").asText(null));
                 dto.setDescription(p.path("description").asText(null));
                 dto.setStatus(p.path("status").asText(null));
-                dto.setContent(extractPlainText(p.path("content")));
+                dto.setContent(renderPolicyTemplate(extractPlainText(p.path("content"))));
                 rows.add(dto);
             }
         } catch (Exception e) {
@@ -248,6 +248,81 @@ public class CompAiService {
         if ("heading".equals(type) || "paragraph".equals(type)) {
             sb.append("\n\n");
         }
+    }
+
+    // comp.ai policy templates embed Handlebars: framework toggles
+    // ({{#if soc2}}...{{/if}}) and onboarding variables ({{COMPANY}}, {{DATA}}...).
+    // They render server-side from the org's onboarding answers; over the API the
+    // raw tokens come through, so we resolve them here for the read-only drawer.
+
+    /** Framework toggles that are "on" for this org — content in other {{#if}} blocks is dropped. */
+    private static final java.util.Set<String> ENABLED_POLICY_FLAGS = java.util.Set.of("soc2");
+
+    /** Onboarding variable values for the demo org (RE-Digital). */
+    private static final Map<String, String> POLICY_VARS = Map.ofEntries(
+            Map.entry("COMPANY", "RE-Digital"),
+            Map.entry("DATA", "PII, customer and employee records"),
+            Map.entry("CRITICAL", "AWS and Azure"),
+            Map.entry("GEO", "India and the US"),
+            Map.entry("DEVICES", "laptops and mobile devices"),
+            Map.entry("SOFTWARE", "core SaaS applications"),
+            Map.entry("INDUSTRY", "technology"),
+            Map.entry("LOCATION", "India-based"),
+            Map.entry("EMPLOYEES", "50"));
+
+    /**
+     * Renders the Handlebars-lite policy text: keeps {{#if soc2}} blocks, drops
+     * other framework blocks (hipaa/gdpr/pci/...), substitutes {{VAR}} tokens,
+     * strips anything left over, and tidies whitespace. Nesting-safe.
+     */
+    private String renderPolicyTemplate(String raw) {
+        if (raw == null) return null;
+
+        // 1. Resolve {{#if flag}}...{{/if}} conditionals (supports nesting).
+        String resolved = resolveConditionalBlocks(raw);
+
+        // 2. Substitute known {{VAR}} onboarding tokens.
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("\\{\\{\\s*([A-Z_]+)\\s*\\}\\}").matcher(resolved);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String value = POLICY_VARS.getOrDefault(m.group(1), "");
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(value));
+        }
+        m.appendTail(sb);
+
+        // 3. Drop any stray tokens and normalize whitespace left by removals.
+        String out = sb.toString()
+                .replaceAll("\\{\\{[^}]*\\}\\}", "")
+                .replaceAll("[ \\t]+", " ")
+                .replaceAll(" *\\n *", "\n")
+                .replaceAll("\\n{3,}", "\n\n")
+                .trim();
+        return out.isEmpty() ? null : out;
+    }
+
+    /** Emits only the text inside enabled {{#if}} blocks; drops disabled ones. Nesting-safe. */
+    private String resolveConditionalBlocks(String raw) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\\{\\{\\s*#if\\s+(\\w+)\\s*\\}\\}|\\{\\{\\s*/if\\s*\\}\\}")
+                .matcher(raw);
+        StringBuilder out = new StringBuilder();
+        java.util.Deque<Boolean> stack = new java.util.ArrayDeque<>();
+        boolean emit = true;
+        int idx = 0;
+        while (m.find()) {
+            if (emit) out.append(raw, idx, m.start());
+            idx = m.end();
+            String openFlag = m.group(1);
+            if (openFlag != null) {                 // {{#if flag}}
+                stack.push(emit);
+                emit = emit && ENABLED_POLICY_FLAGS.contains(openFlag.toLowerCase());
+            } else {                                 // {{/if}}
+                emit = stack.isEmpty() ? true : stack.pop();
+            }
+        }
+        if (emit) out.append(raw, idx, raw.length());
+        return out.toString();
     }
 
     /**
@@ -314,7 +389,7 @@ public class CompAiService {
                 String name = user.path("name").asText("");
                 String email = user.path("email").asText(null);
                 dto.setName(name != null && !name.isEmpty() ? name : email);
-                dto.setEmail(email);
+                dto.setEmail(demoEmail(name, email));
                 dto.setRole(m.path("role").asText(null));
                 dto.setDepartment(m.path("department").asText(null));
                 dto.setJobTitle(m.path("jobTitle").asText(null));
@@ -326,6 +401,27 @@ public class CompAiService {
         }
         if (!rows.isEmpty()) redisCacheService.put("compai:people", rows, CACHE_MINUTES);
         return rows;
+    }
+
+    /** Domain the demo roster lives on; off-domain addresses are normalized to it for display. */
+    private static final String DEMO_PERSONNEL_DOMAIN = "redigital.com";
+
+    /**
+     * Display-only email normalization for the demo. The org owner logs in with a
+     * real internal account (e.g. aditya@xammer.com), which looks out of place next
+     * to the @redigital.com roster. When the demo fallback is on, we present an
+     * on-domain address derived from the person's name (e.g. "Rohan Kapoor" ->
+     * rohan.kapoor@redigital.com). This never touches the underlying login/user —
+     * it's purely what the Personnel table shows.
+     */
+    private String demoEmail(String name, String email) {
+        if (!demoFallback || email == null) return email;
+        if (email.toLowerCase().endsWith("@" + DEMO_PERSONNEL_DOMAIN)) return email;
+        if (name == null || name.isBlank()) return email;
+        String slug = java.text.Normalizer.normalize(name.trim().toLowerCase(), java.text.Normalizer.Form.NFD)
+                .replaceAll("[^a-z0-9]+", ".")
+                .replaceAll("(^\\.+)|(\\.+$)", "");
+        return slug.isEmpty() ? email : slug + "@" + DEMO_PERSONNEL_DOMAIN;
     }
 
     public List<VendorDto> getVendors() {

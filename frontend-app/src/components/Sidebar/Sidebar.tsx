@@ -30,16 +30,25 @@ const XAMSECURE_SUBTABS: { id: string; label: string; icon: string }[] = [
   { id: 'components', label: 'Components', icon: 'fas fa-cubes' },
 ];
 
-const SOC2_SUBTABS: { id: string; label: string; icon: string }[] = [
-  { id: 'overview', label: 'Overview', icon: 'fas fa-gauge' },
-  { id: 'controls', label: 'Controls', icon: 'fas fa-list-check' },
-  { id: 'policies', label: 'Policies', icon: 'fas fa-file-lines' },
-  { id: 'evidence-tasks', label: 'Evidence & Tasks', icon: 'fas fa-clipboard-check' },
-  { id: 'personnel', label: 'Personnel', icon: 'fas fa-users' },
-  { id: 'vendors', label: 'Vendors', icon: 'fas fa-building' },
-  { id: 'risks', label: 'Risks', icon: 'fas fa-triangle-exclamation' },
-  { id: 'integrations', label: 'Integrations', icon: 'fas fa-plug' },
-  { id: 'cloud-tests', label: 'Cloud Tests', icon: 'fas fa-cloud' },
+const SOC2_SUBTABS: { id: string; label: string; icon: string; tooltip: string }[] = [
+  { id: 'overview', label: 'Overview', icon: 'fas fa-gauge',
+    tooltip: 'Audit readiness at a glance — control status, policies, tasks, personnel, vendors and open risks.' },
+  { id: 'controls', label: 'Controls', icon: 'fas fa-list-check',
+    tooltip: 'SOC 2 controls mapped to Trust Service Criteria, each with its status and linked policies and tasks.' },
+  { id: 'policies', label: 'Policies', icon: 'fas fa-file-lines',
+    tooltip: 'Security policy documents and their approval status — the written commitments behind each control.' },
+  { id: 'evidence-tasks', label: 'Evidence & Tasks', icon: 'fas fa-clipboard-check',
+    tooltip: 'Compliance tasks and the evidence collected for them, each with an owner and status.' },
+  { id: 'personnel', label: 'Personnel', icon: 'fas fa-users',
+    tooltip: 'People in scope for the audit — their roles, departments and access.' },
+  { id: 'vendors', label: 'Vendors', icon: 'fas fa-building',
+    tooltip: 'Third-party vendors and subprocessors, with inherent and residual risk ratings.' },
+  { id: 'risks', label: 'Risks', icon: 'fas fa-triangle-exclamation',
+    tooltip: 'Risk register — identified risks with severity, owner and treatment status.' },
+  { id: 'integrations', label: 'Integrations', icon: 'fas fa-plug',
+    tooltip: 'Connected tools that feed automated evidence into the program.' },
+  { id: 'cloud-tests', label: 'Cloud Tests', icon: 'fas fa-cloud',
+    tooltip: 'Automated cloud-security checks and their pass/fail findings across your cloud accounts.' },
 ];
 
 const Sidebar: React.FC = () => {
@@ -410,6 +419,7 @@ const Sidebar: React.FC = () => {
                             href={`/soc2-program/${s.id}`}
                             icon={s.icon}
                             label={s.label}
+                            tooltip={s.tooltip}
                             isActive={location.pathname === `/soc2-program/${s.id}`}
                           />
                         ))}

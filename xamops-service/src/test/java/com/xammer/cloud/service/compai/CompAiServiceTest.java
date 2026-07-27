@@ -101,6 +101,27 @@ class CompAiServiceTest {
     }
 
     @Test
+    void getPolicies_rendersHandlebarsTemplateTokens() throws Exception {
+        when(apiClient.getJson("/policies?perPage=100")).thenReturn(mapper.readTree(
+                "{\"data\":[{\"id\":\"pol_h\",\"name\":\"Transfer\",\"description\":\"d\",\"status\":\"published\","
+                        + "\"content\":[{\"type\":\"doc\",\"content\":["
+                        + "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":"
+                        + "\"Data at {{COMPANY}} hosted in {{CRITICAL}}. \"}]},"
+                        + "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":"
+                        + "\"{{#if soc2}}Keep SOC 2 clause.{{/if}}{{#if pipeda}}Drop PIPEDA clause.{{/if}}\"}]}"
+                        + "]}]}]}"));
+
+        String content = service.getPolicies().get(0).getContent();
+
+        assertFalse(content.contains("{{"), "no raw mustache tokens should remain");
+        assertFalse(content.contains("}}"));
+        assertTrue(content.contains("RE-Digital"));          // {{COMPANY}} substituted
+        assertTrue(content.contains("AWS and Azure"));       // {{CRITICAL}} substituted
+        assertTrue(content.contains("Keep SOC 2 clause."));  // enabled {{#if soc2}} kept
+        assertFalse(content.contains("Drop PIPEDA clause.")); // disabled {{#if pipeda}} dropped
+    }
+
+    @Test
     void getPolicies_contentIsNullWhenNoContentField() {
         PolicyDto policy = service.getPolicies().get(0); // fixture policies have no "content" field
         assertNull(policy.getContent());
@@ -178,6 +199,27 @@ class CompAiServiceTest {
         assertEquals("Aditya Mehta", people.get(0).getName());
         assertEquals("owner", people.get(0).getRole());
         assertTrue(people.get(0).isActive());
+    }
+
+    @Test
+    void getPersonnel_demoFallbackNormalizesOffDomainOwnerEmail() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "demoFallback", true);
+        when(apiClient.getJson("/people?perPage=100")).thenReturn(mapper.readTree(
+                "{\"data\":["
+                        + "{\"id\":\"mem_o\",\"role\":\"owner\",\"isActive\":true,"
+                        + "\"user\":{\"name\":\"Rohan Kapoor\",\"email\":\"aditya@xammer.com\"}},"
+                        + "{\"id\":\"mem_e\",\"role\":\"employee\",\"isActive\":true,"
+                        + "\"user\":{\"name\":\"Priya Sharma\",\"email\":\"priya.sharma@redigital.com\"}}"
+                        + "]}"));
+
+        List<PersonDto> people = service.getPersonnel();
+
+        PersonDto owner = people.stream().filter(p -> "mem_o".equals(p.getId())).findFirst().orElseThrow();
+        assertEquals("Rohan Kapoor", owner.getName());              // name untouched
+        assertEquals("rohan.kapoor@redigital.com", owner.getEmail()); // off-domain email normalized
+
+        PersonDto employee = people.stream().filter(p -> "mem_e".equals(p.getId())).findFirst().orElseThrow();
+        assertEquals("priya.sharma@redigital.com", employee.getEmail()); // on-domain left as-is
     }
 
     @Test
