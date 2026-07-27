@@ -245,8 +245,12 @@ public class XamSecureService {
         if (cached.isPresent()) return cached.get();
 
         try {
+            // The threat-stories search only supports severity/status/create_time/update_time
+            // as filter fields — a cloud_account_id condition is rejected with HTTP 400. Match
+            // all severities and rely on the per-account post-filter below for tenancy.
             List<Map<String, Object>> conditions = List.of(
-                    Map.of("field", "cloud_account_id", "operator", "eq", "value", ids));
+                    Map.of("field", "severity", "operator", "in",
+                            "value", List.of("CRITICAL", "HIGH", "MEDIUM", "LOW")));
             Set<String> owned = new HashSet<>(ids);
             List<Map<String, Object>> stories = new ArrayList<>();
             int active = 0;
