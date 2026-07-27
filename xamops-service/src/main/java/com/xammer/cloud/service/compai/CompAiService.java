@@ -145,9 +145,12 @@ public class CompAiService {
         if (tasksNode.isArray()) {
             String controlName = dto.getName();
             for (JsonNode t : tasksNode) {
-                controlTasks.add(new TaskDto(
-                        t.path("id").asText(null), t.path("title").asText(null),
-                        controlName, t.path("status").asText(null), null, null));
+                TaskDto ct = new TaskDto();
+                ct.setId(t.path("id").asText(null));
+                ct.setTitle(t.path("title").asText(null));
+                ct.setControlName(controlName);
+                ct.setStatus(t.path("status").asText(null));
+                controlTasks.add(ct);
             }
         }
         dto.setTasks(controlTasks);
@@ -205,6 +208,12 @@ public class CompAiService {
                 dto.setDescription(p.path("description").asText(null));
                 dto.setStatus(p.path("status").asText(null));
                 dto.setContent(renderPolicyTemplate(extractPlainText(p.path("content"))));
+                dto.setFrequency(emptyToNull(p.path("frequency").asText(null)));
+                String dept = p.path("department").asText(null);
+                dto.setDepartment(("none".equalsIgnoreCase(dept)) ? null : emptyToNull(dept));
+                dto.setRequiresSignature(p.path("isRequiredToSign").asBoolean(false));
+                dto.setReviewDate(emptyToNull(p.path("reviewDate").asText(null)));
+                dto.setLastPublishedAt(emptyToNull(p.path("lastPublishedAt").asText(null)));
                 rows.add(dto);
             }
         } catch (Exception e) {
@@ -368,9 +377,18 @@ public class CompAiService {
             String assigneeId = t.path("assigneeId").isNull() ? null : t.path("assigneeId").asText(null);
             dto.setAssigneeId(assigneeId);
             dto.setAssigneeName(assigneeId != null ? personNames.get(assigneeId) : null);
+            // Same call also carries the evidence instruction + cadence — surface them
+            // so the Evidence & Tasks drawer shows what to collect and how often.
+            dto.setDescription(emptyToNull(t.path("description").asText(null)));
+            dto.setFrequency(emptyToNull(t.path("frequency").asText(null)));
         } catch (Exception e) {
-            log.warn("[CompAi] task assignee fetch failed for {}: {}", dto.getId(), e.getMessage());
+            log.warn("[CompAi] task detail fetch failed for {}: {}", dto.getId(), e.getMessage());
         }
+    }
+
+    /** Trims to null: returns null for null/blank strings, otherwise the value. */
+    private String emptyToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
     }
 
     public List<PersonDto> getPersonnel() {

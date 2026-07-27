@@ -98,6 +98,19 @@ const findingStatusTone = (status: string | null): Tone => {
   return 'neutral';
 };
 
+const fmtDate = (iso: string | null): string => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+const MetaItem: React.FC<{ label: string; value: string; className?: string }> = ({ label, value, className }) => (
+  <div>
+    <div className="text-[11px] text-gray-400">{label}</div>
+    <div className={`text-[12px] text-gray-700 ${className || ''}`}>{value}</div>
+  </div>
+);
+
 // SOC 2 Trust Service Criteria series: CC (Security/Common Criteria, the majority)
 // stays neutral so it doesn't dominate; the optional criteria each get their own color.
 const CATEGORY_CLASSES: Record<string, string> = {
@@ -1080,6 +1093,15 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
           </div>
         </DrawerSection>
         {p.description && <DrawerSection label="Description"><p className="text-[13px] text-gray-700">{p.description}</p></DrawerSection>}
+        <DrawerSection label="Governance">
+          <div className="grid grid-cols-2 gap-y-3 gap-x-4">
+            <MetaItem label="Review cadence" value={p.frequency || '—'} className="capitalize" />
+            <MetaItem label="Owning department" value={p.department ? p.department.toUpperCase() : '—'} />
+            <MetaItem label="Employee sign-off" value={p.requiresSignature ? 'Required' : 'Not required'} />
+            <MetaItem label="Next review" value={fmtDate(p.reviewDate)} />
+            <MetaItem label="Last published" value={fmtDate(p.lastPublishedAt)} />
+          </div>
+        </DrawerSection>
         <DrawerSection label="Document">
           {p.content
             ? <p className="text-[13px] text-gray-700 whitespace-pre-line leading-relaxed">{p.content}</p>
@@ -1119,6 +1141,16 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
             <SecondaryButton onClick={() => setEditing(true)}>Edit</SecondaryButton>
           </div>
         </DrawerSection>
+        {t.frequency && (
+          <DrawerSection label="Collection cadence">
+            <p className="text-[13px] text-gray-700 capitalize">{t.frequency}</p>
+          </DrawerSection>
+        )}
+        {t.description && (
+          <DrawerSection label="Evidence required">
+            <p className="text-[13px] text-gray-700 whitespace-pre-line leading-relaxed">{t.description}</p>
+          </DrawerSection>
+        )}
       </DrawerShell>
     );
   }

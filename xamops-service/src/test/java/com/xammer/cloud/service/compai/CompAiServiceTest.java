@@ -122,6 +122,43 @@ class CompAiServiceTest {
     }
 
     @Test
+    void getPolicies_mapsGovernanceMetadata() throws Exception {
+        when(apiClient.getJson("/policies?perPage=100")).thenReturn(mapper.readTree(
+                "{\"data\":[{\"id\":\"pol_g\",\"name\":\"Access\",\"status\":\"published\","
+                        + "\"frequency\":\"yearly\",\"department\":\"it\",\"isRequiredToSign\":true,"
+                        + "\"reviewDate\":\"2026-12-01T00:00:00.000Z\",\"lastPublishedAt\":\"2026-07-25T06:36:13.000Z\"},"
+                        + "{\"id\":\"pol_n\",\"name\":\"Draft one\",\"status\":\"draft\","
+                        + "\"frequency\":\"quarterly\",\"department\":\"none\",\"isRequiredToSign\":false}"
+                        + "]}"));
+
+        List<PolicyDto> policies = service.getPolicies();
+
+        PolicyDto p = policies.get(0);
+        assertEquals("yearly", p.getFrequency());
+        assertEquals("it", p.getDepartment());
+        assertTrue(p.isRequiresSignature());
+        assertEquals("2026-12-01T00:00:00.000Z", p.getReviewDate());
+        assertEquals("2026-07-25T06:36:13.000Z", p.getLastPublishedAt());
+
+        PolicyDto n = policies.get(1);
+        assertNull(n.getDepartment());          // "none" normalized to null
+        assertFalse(n.isRequiresSignature());
+        assertNull(n.getReviewDate());          // absent -> null
+    }
+
+    @Test
+    void getTasks_surfacesEvidenceDescriptionAndFrequency() throws Exception {
+        when(apiClient.getJson("/tasks/tsk_1")).thenReturn(mapper.readTree(
+                "{\"assigneeId\":\"mem_1\",\"description\":\"Upload cloud console screenshots.\",\"frequency\":\"quarterly\"}"));
+
+        List<TaskDto> tasks = service.getTasks();
+
+        TaskDto t = tasks.stream().filter(x -> "tsk_1".equals(x.getId())).findFirst().orElseThrow();
+        assertEquals("Upload cloud console screenshots.", t.getDescription());
+        assertEquals("quarterly", t.getFrequency());
+    }
+
+    @Test
     void getPolicies_contentIsNullWhenNoContentField() {
         PolicyDto policy = service.getPolicies().get(0); // fixture policies have no "content" field
         assertNull(policy.getContent());

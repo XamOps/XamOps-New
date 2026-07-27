@@ -44,6 +44,8 @@ export interface Soc2Task {
   status: string | null;
   assigneeId: string | null;
   assigneeName: string | null;
+  description: string | null;
+  frequency: string | null;
 }
 
 export interface Soc2Control {
@@ -67,6 +69,11 @@ export interface Soc2Policy {
   description: string | null;
   status: string | null;
   content: string | null;
+  frequency: string | null;
+  department: string | null;
+  requiresSignature: boolean;
+  reviewDate: string | null;
+  lastPublishedAt: string | null;
 }
 
 export interface Soc2Person {
