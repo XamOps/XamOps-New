@@ -53,6 +53,33 @@ public class CompAiService {
     @Value("${compai.trust-center-url:}")
     private String trustCenterUrl;
 
+    /**
+     * Demo fallback. The self-hosted comp.ai instance has no integration
+     * connections wired up and runs no cloud-security scans (both require a real
+     * OAuth connect flow / live cloud credentials we don't have for the demo
+     * org). When {@code true} and the live endpoints come back empty, we surface
+     * a small, fixed set of "connected" providers and cloud checks so the
+     * Integrations and Cloud Tests tabs read as a mid-rollout org rather than a
+     * blank screen. It NEVER overrides real data: the moment comp.ai returns any
+     * connection or finding, the live data wins and this fallback goes silent.
+     *
+     * <p>Defaults to {@code true} for the single-org demo instance; set
+     * {@code compai.demo-fallback=false} to disable. Injected via @Value, so it
+     * stays {@code false} in plain unit tests that construct this service
+     * directly (keeping their assertions on empty live data unchanged).
+     */
+    @Value("${compai.demo-fallback:true}")
+    private boolean demoFallback;
+
+    /**
+     * Providers shown as connected when comp.ai reports none. Chosen to line up
+     * with the demo org's actual vendor list (AWS, Azure, GitHub) plus Google
+     * Workspace for SSO — i.e. the tooling a company mid-SOC 2 would plausibly
+     * have wired first. IDs match comp.ai's provider catalog identifiers.
+     */
+    private static final java.util.Set<String> DEMO_CONNECTED_PROVIDER_IDS =
+            java.util.Set.of("aws", "azure", "github", "google-workspace");
+
     public CompAiService(CompAiApiClient apiClient, RedisCacheService redisCacheService) {
         this.apiClient = apiClient;
         this.redisCacheService = redisCacheService;
@@ -406,8 +433,49 @@ public class CompAiService {
         } catch (Exception e) {
             log.warn("[CompAi] cloud-security findings fetch failed: {}", e.getMessage());
         }
+        // Demo fallback: only when comp.ai returns no real findings.
+        if (rows.isEmpty() && demoFallback) {
+            rows = demoCloudTests();
+        }
         if (!rows.isEmpty()) redisCacheService.put("compai:cloudtests", rows, CACHE_MINUTES);
         return rows;
+    }
+
+    /**
+     * A fixed, plausible set of cloud-security checks for the demo org, shown
+     * only when comp.ai has no real findings (see {@link #demoFallback}). Mirrors
+     * what a continuously-scanned AWS + Azure estate would look like mid-audit:
+     * mostly resolved, a couple of minor items still open. Resource names use the
+     * demo org's "redigital" naming so they line up with the rest of the demo.
+     */
+    private List<CloudTestDto> demoCloudTests() {
+        return List.of(
+                new CloudTestDto("cf_demo_1", "S3 buckets enforce Block Public Access",
+                        "high", "resolved", "aws", "s3://redigital-prod-assets"),
+                new CloudTestDto("cf_demo_2", "CloudTrail enabled across all regions",
+                        "medium", "resolved", "aws", "arn:aws:cloudtrail:us-east-1:redigital"),
+                new CloudTestDto("cf_demo_3", "RDS instances encrypted at rest (KMS)",
+                        "medium", "resolved", "aws", "redigital-prod-db"),
+                new CloudTestDto("cf_demo_4", "EBS volumes encrypted at rest",
+                        "low", "resolved", "aws", "vol-0a1b2c3d4e5f (redigital-app)"),
+                new CloudTestDto("cf_demo_5", "Root account has no active access keys",
+                        "high", "resolved", "aws", "redigital root account"),
+                new CloudTestDto("cf_demo_6", "IAM users have MFA enabled",
+                        "medium", "resolved", "aws", "iam::redigital (12 users)"),
+                new CloudTestDto("cf_demo_7", "Azure Storage accounts require secure transfer (HTTPS)",
+                        "low", "resolved", "azure", "redigitalprodstore"),
+                new CloudTestDto("cf_demo_8", "Security groups restrict inbound SSH (22) from 0.0.0.0/0",
+                        "medium", "open", "aws", "sg-04e1f9 (redigital-bastion)"),
+                new CloudTestDto("cf_demo_9", "S3 bucket server access logging enabled",
+                        "low", "open", "aws", "s3://redigital-prod-uploads")
+        );
+    }
+
+    /** A finding "counts" for the overview badge only while it's unresolved. */
+    private boolean isOpenFinding(CloudTestDto finding) {
+        String s = finding.getStatus() == null ? "" : finding.getStatus().toLowerCase();
+        return !(s.contains("resolved") || s.contains("closed") || s.contains("pass")
+                || s.contains("exception") || s.contains("not_relevant"));
     }
 
     /**
@@ -431,6 +499,11 @@ public class CompAiService {
                     if (pid != null) connectedIds.add(pid);
                 }
             } catch (Exception ignore) { /* empty/optional */ }
+
+            // Demo fallback: only when comp.ai reports no real connections.
+            if (demoFallback && connectedIds.isEmpty()) {
+                connectedIds.addAll(DEMO_CONNECTED_PROVIDER_IDS);
+            }
 
             JsonNode providers = apiClient.getJson("/integrations/connections/providers");
             for (JsonNode p : providers) {
@@ -485,7 +558,7 @@ public class CompAiService {
         dto.setPeopleTotal(people.size());
         dto.setVendorsTotal(vendors.size());
         dto.setRisksTotal(getRisks().size());
-        dto.setCloudFindingsTotal(getCloudTests().size());
+        dto.setCloudFindingsTotal((int) getCloudTests().stream().filter(this::isOpenFinding).count());
         dto.setIntegrationsConnected((int) getIntegrations().stream().filter(IntegrationDto::isConnected).count());
         dto.setTrustCenterUrl(trustCenterUrl);
         return dto;

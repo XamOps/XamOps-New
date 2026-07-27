@@ -2,7 +2,9 @@ package com.xammer.cloud.service.compai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.dto.compai.CloudTestDto;
 import com.xammer.cloud.dto.compai.ControlSummaryDto;
+import com.xammer.cloud.dto.compai.IntegrationDto;
 import com.xammer.cloud.dto.compai.OverviewDto;
 import com.xammer.cloud.dto.compai.PersonDto;
 import com.xammer.cloud.dto.compai.PolicyDto;
@@ -365,5 +367,74 @@ class CompAiServiceTest {
 
         org.mockito.Mockito.verify(apiClient).deleteJson("/people/mem_1");
         org.mockito.Mockito.verify(redis).evict("compai:people");
+    }
+
+    // --- Demo fallback (compai.demo-fallback) --------------------------------
+
+    @Test
+    void getIntegrations_demoFallbackMarksCuratedProvidersConnectedWhenNoLiveConnections() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "demoFallback", true);
+        when(apiClient.getJson("/integrations/connections")).thenReturn(mapper.readTree("[]"));
+        when(apiClient.getJson("/integrations/connections/providers")).thenReturn(mapper.readTree(
+                "[{\"id\":\"aws\",\"name\":\"Amazon Web Services\",\"category\":\"Cloud\"},"
+                        + "{\"id\":\"github\",\"name\":\"GitHub\",\"category\":\"Development\"},"
+                        + "{\"id\":\"gcp\",\"name\":\"Google Cloud Platform\",\"category\":\"Cloud\"}]"));
+
+        List<IntegrationDto> integrations = service.getIntegrations();
+
+        assertTrue(integrations.stream().anyMatch(i -> "aws".equals(i.getId()) && i.isConnected()));
+        assertTrue(integrations.stream().anyMatch(i -> "github".equals(i.getId()) && i.isConnected()));
+        assertTrue(integrations.stream().anyMatch(i -> "gcp".equals(i.getId()) && !i.isConnected()));
+    }
+
+    @Test
+    void getIntegrations_realConnectionsWinOverDemoFallback() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "demoFallback", true);
+        when(apiClient.getJson("/integrations/connections")).thenReturn(mapper.readTree("[{\"providerId\":\"gcp\"}]"));
+        when(apiClient.getJson("/integrations/connections/providers")).thenReturn(mapper.readTree(
+                "[{\"id\":\"aws\",\"name\":\"AWS\"},{\"id\":\"gcp\",\"name\":\"GCP\"}]"));
+
+        List<IntegrationDto> integrations = service.getIntegrations();
+
+        // A real connection exists (gcp) -> fallback stays silent, aws is NOT force-connected.
+        assertTrue(integrations.stream().anyMatch(i -> "gcp".equals(i.getId()) && i.isConnected()));
+        assertTrue(integrations.stream().anyMatch(i -> "aws".equals(i.getId()) && !i.isConnected()));
+    }
+
+    @Test
+    void getCloudTests_demoFallbackReturnsSeededFindingsWhenLiveEmpty() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "demoFallback", true);
+        when(apiClient.getJson("/cloud-security/findings?perPage=100"))
+                .thenReturn(mapper.readTree("{\"data\":[],\"count\":0}"));
+
+        List<CloudTestDto> tests = service.getCloudTests();
+
+        assertFalse(tests.isEmpty());
+        assertTrue(tests.stream().anyMatch(t -> "open".equals(t.getStatus())));
+        assertTrue(tests.stream().anyMatch(t -> "resolved".equals(t.getStatus())));
+    }
+
+    @Test
+    void getCloudTests_demoFallbackOffLeavesTabEmptyWhenLiveEmpty() throws Exception {
+        // demoFallback stays false in plain unit construction (no @Value injection).
+        when(apiClient.getJson("/cloud-security/findings?perPage=100"))
+                .thenReturn(mapper.readTree("{\"data\":[],\"count\":0}"));
+
+        assertTrue(service.getCloudTests().isEmpty());
+    }
+
+    @Test
+    void getOverview_countsOnlyOpenCloudFindings() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "demoFallback", true);
+        when(apiClient.getJson("/cloud-security/findings?perPage=100"))
+                .thenReturn(mapper.readTree("{\"data\":[],\"count\":0}"));
+        when(apiClient.getJson("/risks?perPage=100")).thenReturn(mapper.readTree("{\"data\":[]}"));
+        when(apiClient.getJson("/integrations/connections")).thenReturn(mapper.readTree("[]"));
+        when(apiClient.getJson("/integrations/connections/providers")).thenReturn(mapper.readTree("[]"));
+
+        OverviewDto o = service.getOverview();
+
+        // demoCloudTests() seeds two open findings; the rest are resolved.
+        assertEquals(2, o.getCloudFindingsTotal());
     }
 }
