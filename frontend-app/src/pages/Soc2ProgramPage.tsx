@@ -611,7 +611,7 @@ const Soc2ProgramPage: React.FC = () => {
           </div>
           <TableWrap>
             <thead className="bg-gray-50 border-b border-gray-200">
-              <tr><Th>Vendor</Th><Th>Category</Th><Th>Status</Th><Th>Description</Th></tr>
+              <tr><Th>Vendor</Th><Th>Category</Th><Th>Status</Th><Th>Residual Risk</Th><Th>Description</Th></tr>
             </thead>
             <tbody>
               {vendors.map((v) => (
@@ -620,10 +620,11 @@ const Soc2ProgramPage: React.FC = () => {
                   <td className="p-3 text-[13px] text-gray-900 font-medium">{v.name}</td>
                   <td className="p-3">{v.category ? <Chip text={v.category.replace(/_/g, ' ')} /> : <span className="text-[12px] text-gray-400">—</span>}</td>
                   <td className="p-3"><StatusPill text={(v.status || '').replace(/_/g, ' ')} tone={vendorStatusTone(v.status)} /></td>
+                  <td className="p-3">{v.residualSeverity ? <StatusPill text={v.residualSeverity} tone={severityTone(v.residualSeverity)} /> : <span className="text-[12px] text-gray-400">—</span>}</td>
                   <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{v.description || '—'}</td>
                 </tr>
               ))}
-              {vendors.length === 0 && <EmptyRow cols={4} text="No vendors tracked yet." />}
+              {vendors.length === 0 && <EmptyRow cols={5} text="No vendors tracked yet." />}
             </tbody>
           </TableWrap>
         </div>
@@ -1189,6 +1190,34 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
           </div>
         </DrawerSection>
         {v.description && <DrawerSection label="Description"><p className="text-[13px] text-gray-700 whitespace-pre-line">{v.description}</p></DrawerSection>}
+        {(v.inherentSeverity || v.residualSeverity) && (
+          <DrawerSection label="Risk Assessment">
+            <div className="flex items-center gap-6">
+              <div>
+                <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Inherent</div>
+                <StatusPill text={v.inherentSeverity || '—'} tone={severityTone(v.inherentSeverity)} />
+              </div>
+              <Icon icon="mdi:arrow-right" width={14} className="text-gray-300 mt-3" />
+              <div>
+                <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Residual</div>
+                <StatusPill text={v.residualSeverity || '—'} tone={severityTone(v.residualSeverity)} />
+              </div>
+            </div>
+          </DrawerSection>
+        )}
+        {(v.subProcessor || v.website) && (
+          <DrawerSection label="Details">
+            <div className="flex items-center gap-2 flex-wrap">
+              {v.subProcessor && <Chip text="Subprocessor" />}
+              {v.website && (
+                <a href={v.website} target="_blank" rel="noopener noreferrer"
+                   className="text-[12px] text-gray-600 hover:text-gray-900 inline-flex items-center gap-1">
+                  {v.website.replace(/^https?:\/\//, '')} <Icon icon="mdi:open-in-new" width={12} />
+                </a>
+              )}
+            </div>
+          </DrawerSection>
+        )}
       </DrawerShell>
     );
   }

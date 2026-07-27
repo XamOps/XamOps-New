@@ -85,6 +85,10 @@ export interface Soc2Vendor {
   category: string | null;
   status: string | null;
   description: string | null;
+  website: string | null;
+  subProcessor: boolean;
+  inherentSeverity: string | null;
+  residualSeverity: string | null;
 }
 
 export interface Soc2Risk {

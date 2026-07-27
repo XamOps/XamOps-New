@@ -6,7 +6,9 @@ import com.xammer.cloud.dto.compai.ControlSummaryDto;
 import com.xammer.cloud.dto.compai.OverviewDto;
 import com.xammer.cloud.dto.compai.PersonDto;
 import com.xammer.cloud.dto.compai.PolicyDto;
+import com.xammer.cloud.dto.compai.RiskDto;
 import com.xammer.cloud.dto.compai.TaskDto;
+import com.xammer.cloud.dto.compai.VendorDto;
 import com.xammer.cloud.service.RedisCacheService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -131,6 +133,40 @@ class CompAiServiceTest {
         // /tasks/tsk_1 and /tasks/tsk_2 are unstubbed -> apiClient.getJson returns null (Mockito default).
         List<TaskDto> tasks = service.getTasks();
         assertTrue(tasks.stream().allMatch(t -> t.getAssigneeId() == null && t.getAssigneeName() == null));
+    }
+
+    @Test
+    void getVendors_derivesInherentAndResidualSeverityAndMapsSubProcessorFields() throws Exception {
+        when(apiClient.getJson("/vendors?perPage=100")).thenReturn(mapper.readTree(
+                "{\"data\":[{"
+                        + "\"id\":\"vnd_1\",\"name\":\"AWS\",\"category\":\"cloud\",\"status\":\"assessed\","
+                        + "\"description\":\"Cloud host\",\"website\":\"https://aws.amazon.com\",\"isSubProcessor\":true,"
+                        + "\"inherentProbability\":\"possible\",\"inherentImpact\":\"severe\","
+                        + "\"residualProbability\":\"unlikely\",\"residualImpact\":\"moderate\""
+                        + "}]}"));
+
+        VendorDto vendor = service.getVendors().get(0);
+
+        assertEquals("https://aws.amazon.com", vendor.getWebsite());
+        assertTrue(vendor.isSubProcessor());
+        assertEquals("high", vendor.getInherentSeverity());   // possible(3) x severe(5) = 15 -> "high"
+        assertEquals("medium", vendor.getResidualSeverity());  // unlikely(2) x moderate(3) = 6 -> "medium"
+    }
+
+    @Test
+    void getRisks_derivesSeverityFromLikelihoodImpactMatrix() throws Exception {
+        when(apiClient.getJson("/risks?perPage=100")).thenReturn(mapper.readTree(
+                "{\"data\":["
+                        + "{\"id\":\"rsk_1\",\"title\":\"High risk\",\"likelihood\":\"likely\",\"impact\":\"major\"},"
+                        + "{\"id\":\"rsk_2\",\"title\":\"Low risk\",\"likelihood\":\"very_unlikely\",\"impact\":\"insignificant\"},"
+                        + "{\"id\":\"rsk_3\",\"title\":\"Unmapped\",\"likelihood\":\"bogus\",\"impact\":\"bogus\"}"
+                        + "]}"));
+
+        List<RiskDto> risks = service.getRisks();
+
+        assertEquals("high", risks.get(0).getSeverity());  // likely(4) x major(4) = 16 -> "high"
+        assertEquals("low", risks.get(1).getSeverity());   // very_unlikely(1) x insignificant(1) = 1 -> "low"
+        assertNull(risks.get(2).getSeverity());            // unrecognized enum values -> null, not a guess
     }
 
     @Test

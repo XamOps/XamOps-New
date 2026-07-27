@@ -317,6 +317,12 @@ public class CompAiService {
                 dto.setCategory(v.path("category").asText(null));
                 dto.setStatus(v.path("status").asText(null));
                 dto.setDescription(v.path("description").asText(null));
+                dto.setWebsite(v.path("website").asText(null));
+                dto.setSubProcessor(v.path("isSubProcessor").asBoolean(false));
+                dto.setInherentSeverity(deriveSeverity(
+                        v.path("inherentProbability").asText(""), v.path("inherentImpact").asText("")));
+                dto.setResidualSeverity(deriveSeverity(
+                        v.path("residualProbability").asText(""), v.path("residualImpact").asText("")));
                 rows.add(dto);
             }
         } catch (Exception e) {
@@ -343,7 +349,7 @@ public class CompAiService {
                 dto.setDescription(r.path("description").asText(null));
                 dto.setCategory(r.path("category").asText(null));
                 dto.setStatus(r.path("status").asText(null));
-                dto.setSeverity(firstNonNull(r, "severity", "residualRisk", "inherentRisk"));
+                dto.setSeverity(deriveSeverity(r.path("likelihood").asText(""), r.path("impact").asText("")));
                 JsonNode owner = r.path("assignee");
                 dto.setOwner(owner.path("name").asText(owner.path("email").asText(null)));
                 rows.add(dto);
@@ -353,6 +359,28 @@ public class CompAiService {
         }
         if (!rows.isEmpty()) redisCacheService.put("compai:risks", rows, CACHE_MINUTES);
         return rows;
+    }
+
+    private static final Map<String, Integer> LIKELIHOOD_SCORES = Map.of(
+            "very_unlikely", 1, "unlikely", 2, "possible", 3, "likely", 4, "very_likely", 5);
+    private static final Map<String, Integer> IMPACT_SCORES = Map.of(
+            "insignificant", 1, "minor", 2, "moderate", 3, "major", 4, "severe", 5);
+
+    /**
+     * comp.ai has no direct "severity" field on risks or vendors -- both derive
+     * one from a probability/likelihood x impact matrix (see
+     * apps/app/src/lib/risk-score.ts upstream). Mirrors that exact scoring so
+     * XamOps' severity chips match what comp.ai itself would show.
+     */
+    private String deriveSeverity(String probability, String impact) {
+        Integer p = LIKELIHOOD_SCORES.get(probability);
+        Integer i = IMPACT_SCORES.get(impact);
+        if (p == null || i == null) return null;
+        int raw = p * i;
+        if (raw > 16) return "critical";
+        if (raw > 9) return "high";
+        if (raw > 4) return "medium";
+        return "low";
     }
 
     /** comp.ai cloud-security findings ("Cloud Tests") — GET /v1/cloud-security/findings (may be empty). */

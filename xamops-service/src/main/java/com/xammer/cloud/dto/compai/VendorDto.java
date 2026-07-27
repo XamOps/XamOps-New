@@ -13,4 +13,8 @@ public class VendorDto {
     private String category;
     private String status;
     private String description;
+    private String website;
+    private boolean subProcessor;
+    private String inherentSeverity;  // derived: "low" | "medium" | "high" | "critical" | null
+    private String residualSeverity; // derived, after applying the vendor's controls/mitigations
 }
