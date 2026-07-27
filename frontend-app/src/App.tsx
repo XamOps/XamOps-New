@@ -140,6 +140,8 @@ const Soc2ProgramPage = lazy(() => import('./pages/Soc2ProgramPage'));
 const Soc2FrameworkDetailPage = lazy(() => import('./pages/soc2/Soc2FrameworkDetailPage'));
 const Soc2ControlDetailPage = lazy(() => import('./pages/soc2/Soc2ControlDetailPage'));
 const Soc2PolicyDetailPage = lazy(() => import('./pages/soc2/Soc2PolicyDetailPage'));
+const Soc2VendorDetailPage = lazy(() => import('./pages/soc2/Soc2VendorDetailPage'));
+const Soc2RiskDetailPage = lazy(() => import('./pages/soc2/Soc2RiskDetailPage'));
 const CalculatorPage = lazy(() => import('./pages/CalculatorPage'));
 
 // BillOps — User
@@ -602,6 +604,8 @@ const AppContent: React.FC = () => {
                             <Route path="/soc2-program/frameworks/:frameworkId/controls/:controlId" element={<Soc2ControlDetailPage />} />
                             <Route path="/soc2-program/frameworks/:frameworkId" element={<Soc2FrameworkDetailPage />} />
                             <Route path="/soc2-program/policies/:policyId" element={<Soc2PolicyDetailPage />} />
+                            <Route path="/soc2-program/vendors/:vendorId" element={<Soc2VendorDetailPage />} />
+                            <Route path="/soc2-program/risks/:riskId" element={<Soc2RiskDetailPage />} />
                             <Route path="/soc2-program/:tab" element={<Soc2ProgramPage />} />
                             <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
                             <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />

@@ -112,6 +112,15 @@ export const Tabs: React.FC<{ tabs: { id: string; label: string; count?: number 
     </div>
   );
 
+/** comp.ai-style "x/10" risk score chip, colored green/amber/red by magnitude. */
+export const RiskScoreBadge: React.FC<{ score: number | null }> = ({ score }) => {
+  if (score == null) return <span className="text-[12px] text-gray-400">—</span>;
+  const tone = score >= 7 ? 'bg-red-50 text-red-700 border-red-200'
+    : score >= 4 ? 'bg-amber-50 text-amber-700 border-amber-200'
+    : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  return <span className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold border tabular-nums ${tone}`}>{score}/10</span>;
+};
+
 export interface DonutSegment { label: string; value: number; color: string; }
 
 /** Donut chart with total in the center and a legend, matching comp.ai's "by status" panels. */
@@ -145,6 +154,86 @@ export const StatusDonut: React.FC<{ segments: DonutSegment[]; total?: number }>
             {s.label} <span className="font-semibold text-gray-900 ml-auto pl-3">{s.value}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+};
+
+const IMPACT_LABELS = ['Insignificant', 'Minor', 'Moderate', 'Major', 'Severe'];
+const LIKELIHOOD_LABELS = ['Very Unlikely', 'Unlikely', 'Possible', 'Likely', 'Very Likely'];
+
+export const likelihoodLabel = (n: number | null): string => (n && n >= 1 && n <= 5 ? LIKELIHOOD_LABELS[n - 1] : '—');
+export const impactLabel = (n: number | null): string => (n && n >= 1 && n <= 5 ? IMPACT_LABELS[n - 1] : '—');
+
+/** Colour band for a raw likelihood×impact score (1-25), mirroring comp.ai's zones. */
+const matrixBand = (raw: number): string => {
+  if (raw >= 17) return 'bg-red-200';
+  if (raw >= 10) return 'bg-orange-200';
+  if (raw >= 5) return 'bg-yellow-100';
+  if (raw >= 2) return 'bg-lime-100';
+  return 'bg-emerald-100';
+};
+
+/** 5×5 likelihood × impact heatmap with an optional marker at (likelihood, impact). */
+export const RiskMatrix: React.FC<{ likelihood: number | null; impact: number | null }> = ({ likelihood, impact }) => {
+  const rows = [5, 4, 3, 2, 1];
+  const cols = [1, 2, 3, 4, 5];
+  return (
+    <div>
+      <div className="flex">
+        <div className="flex flex-col-reverse justify-between text-[10px] text-gray-400 pr-2 py-0.5" style={{ height: 200 }}>
+          {rows.slice().reverse().map((l) => <span key={l} className="h-8 flex items-center">{l}</span>)}
+        </div>
+        <div className="grid grid-cols-5 grid-rows-5 gap-1 flex-1" style={{ maxWidth: 360 }}>
+          {rows.map((l) => cols.map((i) => {
+            const here = l === likelihood && i === impact;
+            return (
+              <div key={`${l}-${i}`} className={`rounded ${matrixBand(l * i)} relative`} style={{ height: 32 }}>
+                {here && <span className="absolute inset-0 m-auto w-3.5 h-3.5 rounded-full bg-gray-900 ring-2 ring-white" />}
+              </div>
+            );
+          }))}
+        </div>
+      </div>
+      <div className="grid grid-cols-5 gap-1 ml-6 mt-1" style={{ maxWidth: 360 }}>
+        {IMPACT_LABELS.map((l) => <span key={l} className="text-[9px] text-gray-400 text-center leading-tight">{l}</span>)}
+      </div>
+      <div className="flex items-center gap-3 mt-3 flex-wrap">
+        {[
+          { label: 'Very Low', c: 'bg-emerald-100' }, { label: 'Low', c: 'bg-lime-100' },
+          { label: 'Medium', c: 'bg-yellow-100' }, { label: 'High', c: 'bg-orange-200' },
+          { label: 'Very High', c: 'bg-red-200' },
+        ].map((s) => (
+          <span key={s.label} className="flex items-center gap-1 text-[10px] text-gray-500">
+            <span className={`w-2.5 h-2.5 rounded ${s.c}`} /> {s.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/** Inherent → residual reduction summary with the negligible→critical scale bar. */
+export const TreatmentReduction: React.FC<{ from: number | null; to: number | null }> = ({ from, to }) => {
+  const band = (s: number | null) => s == null ? 'LOW' : s >= 17 ? 'CRITICAL' : s >= 10 ? 'HIGH' : s >= 5 ? 'MEDIUM' : s >= 2 ? 'LOW' : 'NEGLIGIBLE';
+  const color = (s: number | null) => s == null ? 'text-gray-400' : s >= 10 ? 'text-red-600' : s >= 5 ? 'text-amber-600' : 'text-emerald-600';
+  const changed = from !== to;
+  return (
+    <div>
+      <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-2">Risk reduction — treatment impact</div>
+      <div className="flex items-end gap-3">
+        <span className={`text-4xl font-bold ${color(from)}`}>{from ?? '—'}<span className="text-lg text-gray-400">/10</span></span>
+        <Icon icon="mdi:arrow-right" width={22} className="text-gray-400 mb-2" />
+        <span className={`text-4xl font-bold ${color(to)}`}>{to ?? '—'}<span className="text-lg text-gray-400">/10</span></span>
+      </div>
+      <p className="text-[12px] text-gray-500 mt-2">
+        {changed
+          ? <>The plan moves this risk from <b>{band(from)}</b> to <b>{band(to)}</b>.</>
+          : <>The plan keeps this risk at <b>{band(from)}</b> — no change since no mitigation plan is in place yet.</>}
+      </p>
+      <div className="mt-3 h-2 rounded-full bg-gradient-to-r from-emerald-300 via-yellow-200 to-red-300" />
+      <div className="flex justify-between text-[9px] text-gray-400 mt-1">
+        <span>NEGLIGIBLE</span><span>LOW</span><span>MEDIUM</span><span>HIGH</span><span>CRITICAL</span>
       </div>
     </div>
   );

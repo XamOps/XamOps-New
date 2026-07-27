@@ -84,7 +84,7 @@ const Soc2ControlDetailPage: React.FC = () => {
             {(control.policies || []).map((p) => (
               <tr
                 key={p.id}
-                onClick={() => navigate('/soc2-program/policies')}
+                onClick={() => navigate(`/soc2-program/policies/${p.id}`)}
                 className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer"
               >
                 <td className="p-3 text-[13px] text-gray-900 font-medium">{p.name}</td>

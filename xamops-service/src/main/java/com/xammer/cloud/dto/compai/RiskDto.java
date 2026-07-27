@@ -14,5 +14,10 @@ public class RiskDto {
     private String category;
     private String status;     // "open" | "mitigated" | "accepted" ...
     private String severity;   // "low" | "medium" | "high" | "critical"
+    private Integer riskScore; // likelihood x impact mapped to a 1-10 scale (nullable)
+    private Integer likelihood; // 1-5, for the 5x5 risk matrix (nullable)
+    private Integer impact;     // 1-5, for the 5x5 risk matrix (nullable)
+    private String department;
     private String owner;
+    private String updatedAt;  // last modification (ISO date) for the "Updated" column
 }

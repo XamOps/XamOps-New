@@ -44,6 +44,8 @@ function renderTab(tab: string, overrides: Record<string, any> = {}) {
       <Routes>
         <Route path="/soc2-program/:tab" element={<Soc2ProgramPage />} />
         <Route path="/soc2-program/policies/:policyId" element={<div>Policy Detail Route</div>} />
+        <Route path="/soc2-program/vendors/:vendorId" element={<div>Vendor Detail Route</div>} />
+        <Route path="/soc2-program/risks/:riskId" element={<div>Risk Detail Route</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -58,6 +60,25 @@ describe('Soc2ProgramPage write actions', () => {
 
     fireEvent.click(screen.getByText('Access Control Policy'));
     expect(screen.getByText('Policy Detail Route')).toBeInTheDocument();
+  });
+
+  it('renders the frameworks table and adds a framework via the catalog modal', () => {
+    renderTab('frameworks', {
+      frameworks: [{ id: 'frm_1', name: 'SOC 2', description: 'SOC 2 Type I & II', controlsTotal: 35, controlsCompleted: 20, compliancePercent: 57 }],
+    });
+
+    expect(screen.getByText('SOC 2')).toBeInTheDocument();
+    expect(screen.getByText('57%')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Add Framework'));
+    expect(screen.getByText('Select the compliance frameworks to add to your organization.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('CCPA'));
+    fireEvent.click(screen.getByText('Add Selected'));
+
+    // The newly added framework shows in the table as Not Started.
+    expect(screen.getAllByText('CCPA').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Not Started').length).toBeGreaterThan(0);
   });
 
   it('filters the policy list by status', () => {
@@ -155,31 +176,22 @@ describe('Soc2ProgramPage detail drawer', () => {
     expect(screen.getByText('Enforce MFA')).toBeInTheDocument();
   });
 
-  it('clicking a vendor row opens a drawer with its description', () => {
+  it('clicking a vendor row navigates to the vendor detail page', () => {
     renderTab('vendors', {
       vendors: [{ id: 'ven_1', name: 'AWS', category: 'cloud', status: 'assessed', description: 'Cloud infrastructure provider.' }],
     });
 
-    // Before opening: only the table row shows the description.
-    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(1);
-
     fireEvent.click(screen.getByText('AWS'));
-
-    // After opening: table row + drawer both show it.
-    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(2);
+    expect(screen.getByText('Vendor Detail Route')).toBeInTheDocument();
   });
 
-  it('closing the drawer removes it from the document', () => {
-    renderTab('vendors', {
-      vendors: [{ id: 'ven_1', name: 'AWS', category: 'cloud', status: 'assessed', description: 'Cloud infrastructure provider.' }],
+  it('clicking a risk row navigates to the risk detail page', () => {
+    renderTab('risks', {
+      risks: [{ id: 'rsk_1', title: 'Incident response plan not tested', description: 'gap', category: 'technology', status: 'open', severity: 'medium', riskScore: 5, owner: null, updatedAt: null }],
     });
 
-    fireEvent.click(screen.getByText('AWS'));
-    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(2);
-
-    const closeButtons = screen.getAllByRole('button', { name: '' });
-    fireEvent.click(closeButtons[closeButtons.length - 1]); // the drawer's close (X) icon button
-    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(1);
+    fireEvent.click(screen.getByText('Incident response plan not tested'));
+    expect(screen.getByText('Risk Detail Route')).toBeInTheDocument();
   });
 });
 

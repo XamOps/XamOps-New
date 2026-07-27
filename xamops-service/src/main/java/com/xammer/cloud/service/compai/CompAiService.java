@@ -109,14 +109,17 @@ public class CompAiService {
             JsonNode body = apiClient.getJson("/frameworks");
             for (JsonNode f : body.path("data")) {
                 JsonNode fw = f.path("framework");
-                if (!fw.path("visible").asBoolean(true)) continue;   // hide internal/legacy versions
+                // Demo single-org: the org's controls all belong to the primary (visible)
+                // framework instance; other enabled frameworks show as 0 controls / not started
+                // (matches comp.ai's own Frameworks table).
+                boolean primary = fw.path("visible").asBoolean(true);
                 FrameworkDto dto = new FrameworkDto();
                 dto.setId(f.path("id").asText(null));
                 dto.setName(fw.path("name").asText(null));
                 dto.setDescription(fw.path("description").asText(null));
-                dto.setControlsTotal(total);
-                dto.setControlsCompleted(completed);
-                dto.setCompliancePercent(avg);
+                dto.setControlsTotal(primary ? total : 0);
+                dto.setControlsCompleted(primary ? completed : 0);
+                dto.setCompliancePercent(primary ? avg : 0);
                 rows.add(dto);
             }
         } catch (Exception e) {
@@ -533,6 +536,14 @@ public class CompAiService {
                         v.path("inherentProbability").asText(""), v.path("inherentImpact").asText("")));
                 dto.setResidualSeverity(deriveSeverity(
                         v.path("residualProbability").asText(""), v.path("residualImpact").asText("")));
+                dto.setInherentScore(score10(
+                        v.path("inherentProbability").asText(""), v.path("inherentImpact").asText("")));
+                dto.setResidualScore(score10(
+                        v.path("residualProbability").asText(""), v.path("residualImpact").asText("")));
+                dto.setInherentLikelihood(LIKELIHOOD_SCORES.get(v.path("inherentProbability").asText("")));
+                dto.setInherentImpact(IMPACT_SCORES.get(v.path("inherentImpact").asText("")));
+                dto.setResidualLikelihood(LIKELIHOOD_SCORES.get(v.path("residualProbability").asText("")));
+                dto.setResidualImpact(IMPACT_SCORES.get(v.path("residualImpact").asText("")));
                 rows.add(dto);
             }
         } catch (Exception e) {
@@ -560,6 +571,11 @@ public class CompAiService {
                 dto.setCategory(r.path("category").asText(null));
                 dto.setStatus(r.path("status").asText(null));
                 dto.setSeverity(deriveSeverity(r.path("likelihood").asText(""), r.path("impact").asText("")));
+                dto.setRiskScore(score10(r.path("likelihood").asText(""), r.path("impact").asText("")));
+                dto.setLikelihood(LIKELIHOOD_SCORES.get(r.path("likelihood").asText("")));
+                dto.setImpact(IMPACT_SCORES.get(r.path("impact").asText("")));
+                dto.setDepartment(emptyToNull(r.path("department").asText(null)));
+                dto.setUpdatedAt(emptyToNull(r.path("updatedAt").asText(null)));
                 JsonNode owner = r.path("assignee");
                 dto.setOwner(owner.path("name").asText(owner.path("email").asText(null)));
                 rows.add(dto);
@@ -591,6 +607,18 @@ public class CompAiService {
         if (raw > 9) return "high";
         if (raw > 4) return "medium";
         return "low";
+    }
+
+    /**
+     * Maps a probability x impact pair (each 1-5, so raw 1-25) onto comp.ai's
+     * 1-10 risk-score scale used in the Risks/Vendors "x/10" badges. Null when
+     * either enum is unrecognized (we don't guess).
+     */
+    private Integer score10(String probability, String impact) {
+        Integer p = LIKELIHOOD_SCORES.get(probability);
+        Integer i = IMPACT_SCORES.get(impact);
+        if (p == null || i == null) return null;
+        return Math.max(1, (int) Math.round((p * i) / 2.5));
     }
 
     /**

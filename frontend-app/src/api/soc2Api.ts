@@ -113,6 +113,12 @@ export interface Soc2Vendor {
   subProcessor: boolean;
   inherentSeverity: string | null;
   residualSeverity: string | null;
+  inherentScore: number | null;
+  residualScore: number | null;
+  inherentLikelihood: number | null;
+  inherentImpact: number | null;
+  residualLikelihood: number | null;
+  residualImpact: number | null;
 }
 
 export interface Soc2Risk {
@@ -122,7 +128,12 @@ export interface Soc2Risk {
   category: string | null;
   status: string | null;
   severity: string | null;
+  riskScore: number | null;
+  likelihood: number | null;
+  impact: number | null;
+  department: string | null;
   owner: string | null;
+  updatedAt: string | null;
 }
 
 export interface Soc2CloudTest {
