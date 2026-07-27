@@ -703,7 +703,7 @@ const Soc2ProgramPage: React.FC = () => {
                 <td className="p-3"><StatusPill text={(f.status || '').replace(/_/g, ' ')} tone={findingStatusTone(f.status)} /></td>
               </tr>
             ))}
-            {cloudTests.length === 0 && <EmptyRow cols={5} text="No cloud test findings. Connect a cloud provider under Integrations to run checks." />}
+            {cloudTests.length === 0 && <EmptyRow cols={5} text="No cloud test findings yet." />}
           </tbody>
         </TableWrap>
       )}
