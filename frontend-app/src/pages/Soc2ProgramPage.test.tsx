@@ -155,6 +155,14 @@ describe('Soc2ProgramPage write actions', () => {
   });
 });
 
+describe('Soc2ProgramPage loading state', () => {
+  it('renders a layout-aware skeleton (not a text spinner) while loading', () => {
+    renderTab('policies', { isLoading: true });
+    expect(screen.getByTestId('soc2-skeleton')).toBeInTheDocument();
+    expect(screen.queryByText(/Loading SOC 2 program/)).not.toBeInTheDocument();
+  });
+});
+
 describe('Soc2ProgramPage detail drawer', () => {
   it('clicking a control row opens a drawer with its requirements, policies, and tasks', () => {
     renderTab('controls', {

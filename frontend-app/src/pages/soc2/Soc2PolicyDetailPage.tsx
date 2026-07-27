@@ -4,7 +4,7 @@ import { Icon } from '@iconify/react';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../../hooks/useSoc2ProgramData';
 import { publishSoc2Policy, setSoc2PolicyArchived } from '../../api/soc2Api';
-import { Breadcrumbs, StatusPill, policyTone, CategoryBadge, Th, TableCard, Tabs, fmtDate } from './soc2Ui';
+import { Breadcrumbs, StatusPill, policyTone, CategoryBadge, Th, TableCard, Tabs, fmtDate, Soc2Skeleton } from './soc2Ui';
 
 type PolicyTab = 'overview' | 'content' | 'mappings' | 'versions' | 'activity' | 'comments';
 
@@ -36,7 +36,7 @@ const Soc2PolicyDetailPage: React.FC = () => {
       .map((c) => ({ id: c.id, name: c.name, requirement: c.requirements?.[0]?.identifier || c.category }));
   }, [controls, policy]);
 
-  if (isLoading) return <div className="p-6 text-gray-500 text-sm">Loading policy…</div>;
+  if (isLoading) return <Soc2Skeleton variant="detail" />;
   if (error) return <div className="p-6 text-sm text-red-600">Failed to load: {error.message}</div>;
   if (!policy) return <div className="p-6 text-sm text-gray-500">Policy not found.</div>;
 

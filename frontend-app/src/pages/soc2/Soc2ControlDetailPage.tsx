@@ -4,7 +4,7 @@ import { Icon } from '@iconify/react';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../../hooks/useSoc2ProgramData';
 import {
-  Breadcrumbs, ComplianceBar, StatusPill, policyTone, Th, TableCard, Tabs, controlStatusPill,
+  Breadcrumbs, ComplianceBar, StatusPill, policyTone, Th, TableCard, Tabs, controlStatusPill, Soc2Skeleton,
 } from './soc2Ui';
 
 const taskStatusTone = (s: string | null) => {
@@ -36,7 +36,7 @@ const Soc2ControlDetailPage: React.FC = () => {
     });
   }, [control, tasks]);
 
-  if (isLoading) return <div className="p-6 text-gray-500 text-sm">Loading control…</div>;
+  if (isLoading) return <Soc2Skeleton variant="detail" />;
   if (error) return <div className="p-6 text-sm text-red-600">Failed to load: {error.message}</div>;
   if (!control) return <div className="p-6 text-sm text-gray-500">Control not found.</div>;
 

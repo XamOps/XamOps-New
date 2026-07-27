@@ -5,7 +5,7 @@ import { useTopbar } from '../../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../../hooks/useSoc2ProgramData';
 import {
   Breadcrumbs, StatusPill, Tabs, RiskMatrix, TreatmentReduction, RiskScoreBadge,
-  likelihoodLabel, impactLabel,
+  likelihoodLabel, impactLabel, Soc2Skeleton,
 } from './soc2Ui';
 
 type VTab = 'overview' | 'treatment' | 'matrix' | 'assessment' | 'tasks' | 'comments' | 'activity' | 'settings';
@@ -36,7 +36,7 @@ const Soc2VendorDetailPage: React.FC = () => {
   useEffect(() => { setTitle('Program'); return () => setTitle(null); }, [setTitle]);
 
   const vendor = vendors.find((v) => v.id === vendorId);
-  if (isLoading) return <div className="p-6 text-gray-500 text-sm">Loading vendor…</div>;
+  if (isLoading) return <Soc2Skeleton variant="detail" />;
   if (error) return <div className="p-6 text-sm text-red-600">Failed to load: {error.message}</div>;
   if (!vendor) return <div className="p-6 text-sm text-gray-500">Vendor not found.</div>;
 

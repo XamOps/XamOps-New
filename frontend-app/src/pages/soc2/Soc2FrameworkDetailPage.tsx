@@ -4,7 +4,7 @@ import { useTopbar } from '../../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../../hooks/useSoc2ProgramData';
 import {
   Breadcrumbs, CategoryBadge, ComplianceBar, StatusPill, Th, TableCard, Tabs, SearchInput,
-  controlStatusPill,
+  controlStatusPill, Soc2Skeleton,
 } from './soc2Ui';
 
 const Soc2FrameworkDetailPage: React.FC = () => {
@@ -37,7 +37,7 @@ const Soc2FrameworkDetailPage: React.FC = () => {
       .sort((a, b) => a.identifier.localeCompare(b.identifier, undefined, { numeric: true }));
   }, [controls]);
 
-  if (isLoading) return <div className="p-6 text-gray-500 text-sm">Loading framework…</div>;
+  if (isLoading) return <Soc2Skeleton variant="detail" />;
   if (error) return <div className="p-6 text-sm text-red-600">Failed to load: {error.message}</div>;
 
   const total = framework?.controlsTotal ?? controls.length;

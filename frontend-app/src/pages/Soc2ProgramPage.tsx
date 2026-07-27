@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { StatusDonut, RiskScoreBadge } from './soc2/soc2Ui';
+import { StatusDonut, RiskScoreBadge, Soc2Skeleton } from './soc2/soc2Ui';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../hooks/useSoc2ProgramData';
@@ -459,7 +459,9 @@ const Soc2ProgramPage: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="p-6 text-gray-500 text-sm">Loading SOC 2 program…</div>;
+    const cardTabs = ['frameworks', 'integrations', 'documents', 'cloud-tests'];
+    const variant = tab === 'overview' ? 'overview' : cardTabs.includes(tab) ? 'cards' : 'table';
+    return <Soc2Skeleton variant={variant} />;
   }
   if (error) {
     return <div className="p-6 text-sm text-red-600">Failed to load SOC 2 program data: {error.message}</div>;

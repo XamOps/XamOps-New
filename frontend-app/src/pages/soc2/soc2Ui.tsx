@@ -239,6 +239,109 @@ export const TreatmentReduction: React.FC<{ from: number | null; to: number | nu
   );
 };
 
+// ── Loading skeletons ───────────────────────────────────────────────────────
+// Mirror the real layout of each surface so the page resolves in place rather
+// than flashing a spinner. One synchronized pulse on the wrapper (quiet Operate
+// surface — a sweeping shimmer would fight the calm), neutral gray placeholders
+// on the incumbent white-card / hairline system.
+
+const CARD = 'border border-[rgba(0,0,0,0.10)] rounded-xl bg-white';
+const Bar: React.FC<{ className?: string }> = ({ className }) => (
+  <div className={`bg-gray-200 rounded ${className || ''}`} />
+);
+
+const OverviewSkeleton: React.FC = () => (
+  <div className="space-y-6">
+    <div className={`${CARD} p-6 flex flex-col md:flex-row items-center md:items-stretch gap-6`}>
+      <div className="flex flex-col items-center gap-3 shrink-0">
+        <div className="w-32 h-32 rounded-full border-[10px] border-gray-100" />
+        <Bar className="w-16 h-3" />
+      </div>
+      <div className="flex-1 w-full flex flex-col justify-center gap-4">
+        <div className="flex justify-between"><Bar className="w-24 h-3.5" /><Bar className="w-16 h-3" /></div>
+        <Bar className="w-full h-2.5 rounded-full" />
+        <div className="flex gap-5"><Bar className="w-20 h-3" /><Bar className="w-24 h-3" /><Bar className="w-20 h-3" /></div>
+      </div>
+    </div>
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {Array.from({ length: 7 }).map((_, i) => (
+        <div key={i} className={`${CARD} p-4 flex items-start gap-3`}>
+          <Bar className="w-9 h-9 rounded-lg shrink-0" />
+          <div className="flex-1 space-y-2 pt-0.5"><Bar className="w-14 h-2.5" /><Bar className="w-10 h-5" /></div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const TableSkeleton: React.FC = () => (
+  <div className="space-y-4">
+    <div className="flex items-center justify-between">
+      <Bar className="w-40 h-6" />
+      <Bar className="w-28 h-9 rounded-lg" />
+    </div>
+    <div className={`${CARD} overflow-hidden`}>
+      <div className="bg-gray-50 border-b border-gray-200 h-10" />
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 p-3 border-t border-gray-100">
+          <Bar className="h-3 flex-1 max-w-[240px]" />
+          <Bar className="h-5 w-16 rounded-full" />
+          <Bar className="h-3 w-24" />
+          <Bar className="h-3 w-16" />
+          <Bar className="h-3 w-20" />
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const CardsSkeleton: React.FC = () => (
+  <div className="space-y-4">
+    <div className="flex items-center justify-between">
+      <Bar className="w-40 h-6" />
+      <Bar className="w-28 h-9 rounded-lg" />
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className={`${CARD} p-5 space-y-3`}>
+          <div className="flex items-center gap-3">
+            <Bar className="w-10 h-10 rounded-lg shrink-0" />
+            <div className="flex-1 space-y-2"><Bar className="w-24 h-3" /><Bar className="w-16 h-2.5" /></div>
+          </div>
+          <Bar className="w-full h-2.5" />
+          <Bar className="w-3/4 h-2.5" />
+          <Bar className="w-full h-2 rounded-full mt-1" />
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const DetailSkeleton: React.FC = () => (
+  <div className="space-y-5">
+    <Bar className="w-48 h-3" />
+    <div className="space-y-2"><Bar className="w-64 h-7" /><Bar className="w-96 max-w-full h-3" /></div>
+    <div className="flex gap-5 border-b border-gray-200 pb-2.5">
+      {Array.from({ length: 5 }).map((_, i) => <Bar key={i} className="w-20 h-3" />)}
+    </div>
+    <div className={`${CARD} p-5 space-y-3`}>
+      {Array.from({ length: 5 }).map((_, i) => <Bar key={i} className={`h-3 ${['w-full', 'w-11/12', 'w-3/4', 'w-full', 'w-2/3'][i]}`} />)}
+    </div>
+  </div>
+);
+
+export type SkeletonVariant = 'overview' | 'table' | 'cards' | 'detail';
+
+/** Layout-aware loading placeholder for the SOC 2 Program surfaces. */
+export const Soc2Skeleton: React.FC<{ variant: SkeletonVariant }> = ({ variant }) => (
+  <div className="p-6 animate-pulse" data-testid="soc2-skeleton" aria-busy="true" aria-label="Loading">
+    {variant === 'overview' && <OverviewSkeleton />}
+    {variant === 'table' && <TableSkeleton />}
+    {variant === 'cards' && <CardsSkeleton />}
+    {variant === 'detail' && <DetailSkeleton />}
+  </div>
+);
+
 export const SearchInput: React.FC<{ value: string; onChange: (v: string) => void; placeholder?: string }> =
   ({ value, onChange, placeholder }) => (
     <div className="relative max-w-sm">

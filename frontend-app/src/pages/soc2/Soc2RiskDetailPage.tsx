@@ -5,7 +5,7 @@ import { useTopbar } from '../../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../../hooks/useSoc2ProgramData';
 import {
   Breadcrumbs, StatusPill, Tabs, RiskMatrix, TreatmentReduction,
-  likelihoodLabel, impactLabel,
+  likelihoodLabel, impactLabel, Soc2Skeleton,
 } from './soc2Ui';
 
 type RTab = 'overview' | 'treatment' | 'matrix' | 'tasks' | 'comments' | 'activity' | 'settings';
@@ -39,7 +39,7 @@ const Soc2RiskDetailPage: React.FC = () => {
   useEffect(() => { setTitle('Program'); return () => setTitle(null); }, [setTitle]);
 
   const risk = risks.find((r) => r.id === riskId);
-  if (isLoading) return <div className="p-6 text-gray-500 text-sm">Loading risk…</div>;
+  if (isLoading) return <Soc2Skeleton variant="detail" />;
   if (error) return <div className="p-6 text-sm text-red-600">Failed to load: {error.message}</div>;
   if (!risk) return <div className="p-6 text-sm text-gray-500">Risk not found.</div>;
 
