@@ -30,6 +30,9 @@ interface UseGcpDashboardDataReturn {
 
 const CACHE_KEY_PREFIX = 'gcp_dashboard_';
 const DEFAULT_REFRESH_INTERVAL = 60; // 60 seconds
+// Without a TTL this cache never expires for the life of the tab, so a dashboard opened
+// before cost data landed keeps showing the stale figures no matter what the server holds.
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export const useGcpDashboardData = ({
   accountIds,
@@ -72,6 +75,11 @@ export const useGcpDashboardData = ({
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
         const parsedData = JSON.parse(cached);
+        const cachedAt = Date.parse(parsedData.cachedAt ?? '');
+        if (!parsedData.cachedAt || Number.isNaN(cachedAt) || Date.now() - cachedAt > CACHE_TTL_MS) {
+          sessionStorage.removeItem(cacheKey);
+          return null;
+        }
         setLastUpdated(parsedData.lastUpdated || new Date().toISOString());
         return parsedData;
       }
@@ -86,7 +94,10 @@ export const useGcpDashboardData = ({
     (dashboardData: GcpDashboardData | GcpMultiAccountDashboardData) => {
       try {
         const cacheKey = getCacheKey();
-        sessionStorage.setItem(cacheKey, JSON.stringify(dashboardData));
+        sessionStorage.setItem(cacheKey, JSON.stringify({
+          ...dashboardData,
+          cachedAt: new Date().toISOString(),
+        }));
       } catch (err) {
         console.error('Failed to save to cache:', err);
       }

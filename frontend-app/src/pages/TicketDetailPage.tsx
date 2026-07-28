@@ -21,6 +21,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { formatIST, getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
+import TicketCallButton from '../components/calls/TicketCallButton';
+import TicketCallHistory from '../components/calls/TicketCallHistory';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -379,6 +381,8 @@ const TicketDetailPage: React.FC = () => {
             {ticket.status.replace('_', ' ')}
           </span>
 
+          <TicketCallButton ticketId={ticket.id} disabled={ticket.status === 'CLOSED'} />
+
           {/* Assign dropdown (admin only) - keep all logic, update classes */}
           {isAdmin && (
             <div className="relative" data-assign-dropdown>
@@ -577,6 +581,8 @@ const TicketDetailPage: React.FC = () => {
             <span className="text-[10px] font-semibold uppercase tracking-[0.2em] whitespace-nowrap text-[rgba(0,0,0,0.35)]">Correspondence</span>
             <div className="h-px bg-[rgba(0,0,0,0.06)] flex-1"></div>
           </div>
+
+          <TicketCallHistory ticketId={ticket.id} />
 
           {/* Messages */}
           <div className="space-y-6">

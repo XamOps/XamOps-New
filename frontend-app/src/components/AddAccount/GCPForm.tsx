@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Icon } from '@iconify/react';
-import { useCspBillingConfig } from '../../hooks/useCspBillingConfig';
 import { apiFetch } from '../../utils/apiClient';
 
 const SCRIPT_URL = 'https://xamops-gcp-sa.s3.ap-south-1.amazonaws.com/create_serviceaccount.sh';
@@ -16,8 +15,6 @@ const GCPForm: React.FC = () => {
   const [serviceAccountKey, setServiceAccountKey] = useState('');
   const [billingTable, setBillingTable] = useState('');
   const [isCspManaged, setIsCspManaged] = useState(false);
-  const [cspConfigId, setCspConfigId] = useState<number | null>(null);
-  const { configs: cspConfigs } = useCspBillingConfig();
   const [isLoading, setIsLoading] = useState(false);
   const [commandText, setCommandText] = useState(`sh <(curl -s ${SCRIPT_URL}) YOUR_PROJECT_ID`);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -68,11 +65,6 @@ const GCPForm: React.FC = () => {
       }
     }
 
-    if (isCspManaged && !cspConfigId) {
-      setError('Please select your reseller.');
-      return;
-    }
-
     setIsLoading(true);
     try {
       const res = await apiFetch('/api/xamops/account-manager/add-gcp-account', {
@@ -84,7 +76,7 @@ const GCPForm: React.FC = () => {
           accessType,
           serviceAccountKey: serviceAccountKey.trim(),
           cspManaged: isCspManaged,
-          ...(isCspManaged && cspConfigId && { cspBillingConfigId: cspConfigId }),
+          // Reseller (CSP billing config) is resolved server-side from the tenant.
           ...(!isCspManaged && billingTable.trim() && { billingExportTable: billingTable.trim() }),
         }),
       });
@@ -100,7 +92,7 @@ const GCPForm: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [accountName, projectId, accessType, serviceAccountKey, billingTable, isCspManaged, cspConfigId]);
+  }, [accountName, projectId, accessType, serviceAccountKey, billingTable, isCspManaged]);
 
   // ── Success screen ──
   if (success) {
@@ -352,7 +344,7 @@ const GCPForm: React.FC = () => {
                 type="radio"
                 name="cspManaged"
                 checked={!isCspManaged}
-                onChange={() => { setIsCspManaged(false); setCspConfigId(null); }}
+                onChange={() => setIsCspManaged(false)}
                 className="accent-[#4285F4]"
               />
               <span className="text-[13px] text-[rgba(0,0,0,0.7)]">No — I manage my own billing export</span>
@@ -370,19 +362,11 @@ const GCPForm: React.FC = () => {
           </div>
 
           {isCspManaged && (
-            <div className="mt-3">
-              <label htmlFor="cspConfig" className={labelCls}>Select your reseller</label>
-              <select
-                id="cspConfig"
-                value={cspConfigId ?? ''}
-                onChange={(e) => setCspConfigId(Number(e.target.value))}
-                className={inputCls}
-              >
-                <option value="">Select reseller...</option>
-                {cspConfigs.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+            <div className="flex items-start gap-2 p-3 mt-3 bg-[#4285F4]/[0.04] border border-[#4285F4]/20 rounded-lg">
+              <Icon icon="mdi:information-outline" width={16} className="text-[#4285F4] flex-shrink-0 mt-0.5" />
+              <p className="text-[11px] text-[rgba(0,0,0,0.6)] leading-relaxed">
+                Your billing is handled by Xammer. Cost data is pulled automatically from the managed billing dataset — no further setup needed.
+              </p>
             </div>
           )}
         </div>

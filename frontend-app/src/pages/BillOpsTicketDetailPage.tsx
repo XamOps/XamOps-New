@@ -19,6 +19,8 @@ import { RCAFormData, RCAFormSection, TicketReply } from '../types/billopsTicket
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
 import CannedResponsesPicker from '../components/tickets/CannedResponsesPicker';
+import TicketCallButton from '../components/calls/TicketCallButton';
+import TicketCallHistory from '../components/calls/TicketCallHistory';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 import '../styles/billopsTicketDetail.css';
@@ -600,6 +602,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
           {ticket.status === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0"></span>}
           {ticket.status === 'IN_PROGRESS' ? 'In Progress' : ticket.status === 'OPEN' ? 'Open' : 'Closed'}
         </span>
+
+        <TicketCallButton ticketId={ticket.id} disabled={ticket.status === 'CLOSED'} />
 
         {/* Assign dropdown (admin only) */}
         {isAdmin && (
@@ -1270,6 +1274,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
             <div className="h-px bg-[rgba(0,0,0,0.08)] flex-1"></div>
             <span className="text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap">{ticket.replies?.length || 0} msg{(ticket.replies?.length || 0) !== 1 ? 's' : ''}</span>
           </div>
+
+          <TicketCallHistory ticketId={ticket.id} />
 
           {/* Replies */}
           {ticket.replies && ticket.replies.length > 0 ? (

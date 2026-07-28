@@ -59,6 +59,14 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
    * Fetch fresh tickets from API
    */
   const fetchTickets = useCallback(async (forceRefresh = false) => {
+    // Without a selected account there is nothing this user is scoped to see —
+    // returning here stops event-driven refreshes from rendering an unfiltered list.
+    if (!selectedAccountId) {
+      setTickets([]);
+      setLoading(false);
+      return;
+    }
+
     if (forceRefresh) {
       console.log('🖱️ Manual refresh triggered');
     }
@@ -202,6 +210,14 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
    * Poll for new tickets and notify admins (every 30 seconds)
    */
   useEffect(() => {
+    // Mirror the initial-load guard: a user with no accounts (or none selected yet)
+    // must not poll — an unguarded poll re-populated the list unfiltered, showing
+    // other users' tickets.
+    if (accountsLoading || accounts.length === 0 || !selectedAccountId) {
+      setTickets([]);
+      return;
+    }
+
     pollingIntervalRef.current = setInterval(async () => {
       try {
         const url = `/api/billops/tickets/category/Account%20and%20Billing?forceRefresh=false`;
@@ -252,7 +268,7 @@ export const useBillOpsTickets = (): UseBillOpsTicketsReturn => {
         clearInterval(pollingIntervalRef.current);
       }
     };
-  }, [selectedAccountId]);
+  }, [selectedAccountId, accounts.length, accountsLoading]);
 
   /**
    * Update ticket IDs ref when tickets change

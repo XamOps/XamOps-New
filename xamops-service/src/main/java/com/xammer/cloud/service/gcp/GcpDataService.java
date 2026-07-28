@@ -83,6 +83,9 @@ public class GcpDataService {
 
     @Autowired
     private CspBillingConfigRepository cspBillingConfigRepository;
+
+    @Autowired
+    private CspBillingIngestionService cspBillingIngestionService;
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
     private final ObjectMapper objectMapper;
     private final RedisCacheService redisCache;
@@ -230,6 +233,9 @@ public class GcpDataService {
         // TIER 3: Live GCP API calls — 12 parallel futures, each with 55 s timeout
         log.info("🔍 Fetching live GCP dashboard data for project: {}", gcpProjectId);
 
+        // Cost is refreshed differently for reseller-billed projects — see the helper.
+        boolean costForceRefresh = forceRefresh && !refreshCspBillingIfManaged(gcpProjectId, forceRefresh);
+
         CompletableFuture<List<GcpResourceDto>> resourcesFuture = getAllResources(gcpProjectId, forceRefresh)
                 .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
@@ -260,7 +266,7 @@ public class GcpDataService {
                     return new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList());
                 });
 
-        CompletableFuture<Double> unfilteredMtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId, forceRefresh)
+        CompletableFuture<Double> unfilteredMtdSpendFuture = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId, costForceRefresh)
                 .orTimeout(55, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
                     log.warn("⚠️ GCP MTD spend timed out / failed for {}: {}", gcpProjectId, ex.getMessage());
@@ -947,9 +953,18 @@ public class GcpDataService {
 
             if (Boolean.TRUE.equals(request.getCspManaged())) {
                 account.setCspManaged(true);
-                if (request.getCspBillingConfigId() != null) {
-                    cspBillingConfigRepository.findById(request.getCspBillingConfigId())
-                        .ifPresent(account::setCspBillingConfig);
+                // The reseller (CSP billing config) is a property of the deployment/tenant,
+                // not something the end user picks. Auto-resolve it so onboarding works
+                // end-to-end without a reseller-selection step in the UI.
+                CspBillingConfig cspConfig = resolveCspBillingConfig(request.getCspBillingConfigId());
+                if (cspConfig != null) {
+                    account.setCspBillingConfig(cspConfig);
+                    log.info("🔗 Linked CSP billing config '{}' (id={}) to account '{}'",
+                            cspConfig.getName(), cspConfig.getId(), request.getAccountName());
+                } else {
+                    log.warn("⚠️ CSP-managed GCP account '{}' created but no CspBillingConfig is available — "
+                            + "billing ingestion will be skipped until a reseller config exists",
+                            request.getAccountName());
                 }
             }
 
@@ -959,8 +974,21 @@ public class GcpDataService {
 
             if (savedAccount.getBillingExportTable() != null) {
                 log.info("📊 Billing export table configured: {}", savedAccount.getBillingExportTable());
-            } else {
+            } else if (!savedAccount.isCspManaged()) {
                 log.warn("⚠️ No billing export table configured - cost data will not be available");
+            }
+
+            // CSP-managed accounts draw cost from the reseller dataset, not from the project
+            // itself. Pull it now rather than waiting for the 02:00 cron, so spend is on the
+            // dashboard as soon as onboarding finishes. Never let it fail account creation —
+            // a project missing from the reseller export is a billing gap, not a bad account.
+            if (savedAccount.isCspManaged() && savedAccount.getCspBillingConfig() != null) {
+                try {
+                    cspBillingIngestionService.ingestForAccountId(savedAccount.getId());
+                } catch (Exception e) {
+                    log.error("⚠️ Initial CSP billing ingestion failed for project {} — the nightly job will retry: {}",
+                            savedAccount.getGcpProjectId(), e.getMessage(), e);
+                }
             }
 
             return savedAccount;
@@ -969,6 +997,42 @@ public class GcpDataService {
             log.error("❌ Failed to create GCP account: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to create GCP account: " + e.getMessage());
         }
+    }
+
+    /**
+     * Resolves the CSP billing config (reseller) to link to a CSP-managed account.
+     * <p>
+     * The reseller is a property of the deployment/tenant, so end users do not
+     * choose it. Resolution order:
+     * <ol>
+     *   <li>If an explicit id is supplied (e.g. from an admin tool) and it exists, use it.</li>
+     *   <li>Otherwise, if exactly one config exists in this tenant, use it.</li>
+     *   <li>If several exist, deterministically pick the earliest by id and warn,
+     *       so a mis-provisioned deployment is visible in logs.</li>
+     *   <li>If none exist, return {@code null} — ingestion is skipped until one is added.</li>
+     * </ol>
+     */
+    private CspBillingConfig resolveCspBillingConfig(Long requestedId) {
+        if (requestedId != null) {
+            Optional<CspBillingConfig> byId = cspBillingConfigRepository.findById(requestedId);
+            if (byId.isPresent()) {
+                return byId.get();
+            }
+            log.warn("Requested CSP billing config id {} not found — falling back to auto-resolution", requestedId);
+        }
+
+        List<CspBillingConfig> all = cspBillingConfigRepository.findAll();
+        if (all.isEmpty()) {
+            return null;
+        }
+        if (all.size() > 1) {
+            log.warn("Multiple CSP billing configs found ({}); auto-selecting the earliest by id. "
+                    + "Add tenant-to-reseller mapping if this deployment truly serves multiple resellers.",
+                    all.size());
+        }
+        return all.stream()
+                .min(Comparator.comparing(CspBillingConfig::getId))
+                .orElse(all.get(0));
     }
 
     @Transactional
@@ -2304,6 +2368,42 @@ public class GcpDataService {
     private String tenantPrefix() {
         String t = TenantContext.getCurrentTenant();
         return (t != null) ? t + ":" : "";
+    }
+
+    /**
+     * For a reseller-billed (CSP-managed) project, refresh cost by re-running the reseller
+     * ingestion rather than the direct BigQuery path — the customer project has no billing
+     * export of its own, so that path finds no table and yields 0.
+     *
+     * @return true if the project is CSP-managed, in which case the caller must NOT pass
+     *         forceRefresh to the direct cost getters: doing so evicts the ingested figures
+     *         and overwrites them with zeros.
+     */
+    private boolean refreshCspBillingIfManaged(String gcpProjectId, boolean forceRefresh) {
+        Optional<CloudAccount> accountOpt;
+        try {
+            accountOpt = cloudAccountRepository.findByGcpProjectId(gcpProjectId);
+        } catch (Exception e) {
+            log.warn("Could not resolve account for project {} while checking CSP billing: {}",
+                    gcpProjectId, e.getMessage());
+            return false;
+        }
+
+        if (accountOpt.isEmpty() || !accountOpt.get().isCspManaged()) {
+            return false;
+        }
+
+        if (forceRefresh) {
+            try {
+                log.info("🔄 CSP-managed project {} — re-running reseller billing ingestion "
+                        + "instead of the direct BigQuery cost path", gcpProjectId);
+                cspBillingIngestionService.ingestForAccountId(accountOpt.get().getId());
+            } catch (Exception e) {
+                log.error("CSP billing ingestion failed on refresh for project {}: {}",
+                        gcpProjectId, e.getMessage(), e);
+            }
+        }
+        return true;
     }
 
     public void clearProjectCache(String gcpProjectId) {

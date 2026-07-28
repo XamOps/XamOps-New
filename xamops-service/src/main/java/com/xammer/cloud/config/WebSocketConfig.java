@@ -1,7 +1,9 @@
 package com.xammer.cloud.config;
 
+import com.xammer.cloud.websocket.CallStompAuthInterceptor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
@@ -14,6 +16,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Value("${cors.allowed-origins}")
     private String allowedOrigins;
 
+    private final CallStompAuthInterceptor callStompAuthInterceptor;
+
+    public WebSocketConfig(CallStompAuthInterceptor callStompAuthInterceptor) {
+        this.callStompAuthInterceptor = callStompAuthInterceptor;
+    }
+
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/xamops-ws")
@@ -23,7 +31,21 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic");
+        // /topic stays broadcast (dashboard inventory, ticket refresh pings).
+        // /queue is required for user-targeted delivery: call signals go to one
+        // person via convertAndSendToUser, which resolves to /user/{id}/queue/calls.
+        //
+        // NOTE: this is the in-memory simple broker, so a user-targeted message only
+        // reaches a recipient connected to the same instance. Running more than one
+        // replica needs either sticky sessions or a shared relay — otherwise calls
+        // between users on different instances fail silently.
+        registry.enableSimpleBroker("/topic", "/queue");
         registry.setApplicationDestinationPrefixes("/app");
+        registry.setUserDestinationPrefix("/user");
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(callStompAuthInterceptor);
     }
 }

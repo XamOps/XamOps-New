@@ -1,14 +1,17 @@
 package com.xammer.cloud.service;
 
 import com.xammer.cloud.domain.Client;
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.Ticket;
 import com.xammer.cloud.domain.TicketReply;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.dto.TicketDto;
 import com.xammer.cloud.dto.TicketReplyDto;
 import com.xammer.cloud.repository.ClientRepository;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.TicketReplyRepository;
 import com.xammer.cloud.repository.TicketRepository;
+import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.util.SecurityUtils;
 import org.slf4j.Logger;
@@ -65,6 +68,32 @@ public class TicketService {
     private RedisCacheService redisCacheService;
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+    @Autowired
+    private CloudAccountRepository cloudAccountRepository;
+
+    /**
+     * True when the user can see at least one cloud account (AWS account, GCP
+     * project or Azure subscription). Mirrors the visibility rules of
+     * GET /api/xamops/account-manager/accounts: explicit user→cloud-account
+     * mappings win when present, a primary user (createdBy == null) with no
+     * mappings falls back to all of their client's accounts, and everyone else
+     * sees nothing.
+     *
+     * <p>Users with no visible accounts get no ticket visibility at all.
+     */
+    private boolean hasVisibleCloudAccounts(User user) {
+        List<Long> mappedIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(user.getId());
+        if (!mappedIds.isEmpty()) {
+            return true;
+        }
+        if (user.getCreatedBy() != null || user.getClient() == null) {
+            return false;
+        }
+        List<CloudAccount> clientAccounts = cloudAccountRepository.findByClientId(user.getClient().getId());
+        return !clientAccounts.isEmpty();
+    }
 
     private void broadcastTicketChange() {
         // Fire after the transaction commits AND after Spring's @CacheEvict AOP advice
@@ -225,6 +254,13 @@ public class TicketService {
                 return allTickets.stream().map(this::convertToDto).collect(Collectors.toList());
             }
 
+            // No accounts / projects / subscriptions visible → no tickets visible
+            if (!hasVisibleCloudAccounts(currentUser)) {
+                logger.debug("[TicketService] getAllTickets — user id={} has no visible cloud accounts, returning none",
+                        currentUser.getId());
+                return java.util.Collections.emptyList();
+            }
+
             // Regular user: only their own tickets
             final Long creatorId = currentUser.getId();
             logger.debug("[TicketService] getAllTickets — non-admin id={} scoping to own tickets only", creatorId);
@@ -255,7 +291,41 @@ public class TicketService {
     public TicketDto getTicketByIdForViewer(Long id, boolean viewerIsAdmin) {
         Ticket ticket = ticketRepository.findByIdWithRepliesAndAuthors(id)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
+        if (!canCurrentUserViewTicket(ticket)) {
+            // Same response as a missing ticket — don't confirm that the ID exists.
+            throw new RuntimeException("Ticket not found");
+        }
         return convertToDto(ticket, viewerIsAdmin);
+    }
+
+    /**
+     * Applies the same scoping rules as the ticket list to a single ticket, so
+     * fetching a ticket by ID cannot bypass them.
+     */
+    private boolean canCurrentUserViewTicket(Ticket ticket) {
+        try {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            String effectiveRole = (auth != null) ? auth.getAuthorities().stream()
+                    .map(a -> a.getAuthority()).filter(a -> a.startsWith("ROLE_"))
+                    .findFirst().orElse(null) : null;
+
+            if (effectiveRole != null && effectiveRole.contains("ADMIN")) {
+                return true;
+            }
+
+            User currentUser = userRepository.findById(SecurityUtils.getCurrentUserId()).orElse(null);
+            if (currentUser == null && auth != null) {
+                currentUser = userRepository.findByUsername(auth.getName()).orElse(null);
+            }
+            if (currentUser == null || !hasVisibleCloudAccounts(currentUser)) {
+                return false;
+            }
+
+            return ticket.getCreator() != null && currentUser.getId().equals(ticket.getCreator().getId());
+        } catch (Exception e) {
+            logger.error("[TicketService] ticket visibility check failed, denying access: {}", e.getMessage(), e);
+            return false;
+        }
     }
 
     @Transactional
@@ -477,6 +547,13 @@ public class TicketService {
             boolean isAdmin = effectiveRole != null && effectiveRole.contains("ADMIN");
             if (isAdmin) {
                 return allTickets.stream().map(this::convertToDto).collect(Collectors.toList());
+            }
+
+            // No accounts / projects / subscriptions visible → no tickets visible
+            if (!hasVisibleCloudAccounts(currentUser)) {
+                logger.debug("[TicketService] getTicketsByCategory — user id={} has no visible cloud accounts,"
+                        + " returning none", currentUser.getId());
+                return java.util.Collections.emptyList();
             }
 
             final Long creatorId = currentUser.getId();

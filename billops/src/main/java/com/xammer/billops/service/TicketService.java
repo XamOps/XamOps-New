@@ -305,23 +305,52 @@ public class TicketService {
             return java.util.Collections.emptyList();
         }
 
-        // Non-admin: resolve allowed provider account ID strings
-        List<Long> allowedDbIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(currentUser.getId());
-        if (allowedDbIds.isEmpty()) {
+        // Non-admin: resolve the provider account IDs this user can actually see
+        Set<String> allowedProviderIds = resolveVisibleProviderAccountIds(currentUser);
+
+        // A user with no cloud accounts / GCP projects / Azure subscriptions has no
+        // ticket visibility at all — never fall through to an unfiltered list.
+        if (allowedProviderIds.isEmpty()) {
+            logger.debug("User {} has no visible cloud accounts — returning no tickets", currentUser.getId());
             return java.util.Collections.emptyList();
         }
 
-        List<CloudAccount> allowedAccounts = cloudAccountRepository.findAllById(allowedDbIds);
-        java.util.Set<String> allowedProviderIds = allowedAccounts.stream()
+        logger.debug("User {} allowed provider account IDs: {}", currentUser.getId(), allowedProviderIds);
+
+        final Long currentUserId = currentUser.getId();
+        return tickets.stream()
+                .filter(t -> (t.getAccountId() != null && allowedProviderIds.contains(t.getAccountId()))
+                        || (t.getCreatorId() != null && t.getCreatorId().equals(currentUserId)))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Resolves the provider account IDs (AWS account / GCP project / Azure
+     * subscription) a non-admin user is allowed to see. Mirrors the visibility
+     * rules of GET /api/xamops/account-manager/accounts:
+     * <ul>
+     * <li>explicit user→cloud-account mappings win when present</li>
+     * <li>a primary user (createdBy == null) with no mappings sees all of their
+     * client's accounts</li>
+     * <li>anyone else — including users with no accounts at all — sees nothing</li>
+     * </ul>
+     */
+    private Set<String> resolveVisibleProviderAccountIds(AppUser user) {
+        List<Long> mappedIds = userCloudAccountAccessRepository.findCloudAccountIdsByUserId(user.getId());
+
+        List<CloudAccount> visibleAccounts;
+        if (!mappedIds.isEmpty()) {
+            visibleAccounts = cloudAccountRepository.findAllById(mappedIds);
+        } else if (user.getCreatedBy() == null && user.getClient() != null) {
+            visibleAccounts = cloudAccountRepository.findByClientId(user.getClient().getId());
+        } else {
+            visibleAccounts = java.util.Collections.emptyList();
+        }
+
+        return visibleAccounts.stream()
                 .map(this::resolveProviderAccountId)
                 .filter(id -> id != null && !id.isEmpty())
-                .collect(java.util.stream.Collectors.toSet());
-
-        logger.debug("Sub-user {} allowed provider account IDs: {}", currentUser.getId(), allowedProviderIds);
-
-        return tickets.stream()
-                .filter(t -> t.getAccountId() != null && allowedProviderIds.contains(t.getAccountId()))
-                .collect(Collectors.toList());
+                .collect(Collectors.toSet());
     }
 
     /**
@@ -347,7 +376,13 @@ public class TicketService {
         if (ticket == null) {
             throw new RuntimeException("Ticket not found");
         }
-        return convertToDto(ticket, isAdmin);
+        TicketDto dto = convertToDto(ticket, isAdmin);
+        // Run the single ticket through the list scoping so fetching by ID cannot
+        // bypass it. Same response as a missing ticket — don't confirm the ID exists.
+        if (applyAccountFilter(java.util.Collections.singletonList(dto)).isEmpty()) {
+            throw new RuntimeException("Ticket not found");
+        }
+        return dto;
     }
 
     /**
@@ -365,7 +400,9 @@ public class TicketService {
             });
             if (cached.isPresent()) {
                 logger.debug("Returning CACHED tickets for category: {}", cacheKey);
-                return cached.get();
+                // Re-apply the filter on read: entries cached by an earlier build may
+                // still hold the unscoped list, and filtering twice is a no-op.
+                return applyAccountFilter(cached.get());
             }
         }
 
@@ -379,8 +416,11 @@ public class TicketService {
                 })
                 .collect(Collectors.toList());
 
-        redisCache.put(cacheKey, freshData, CACHE_TTL_MINUTES);
-        return freshData;
+        // Scope to the caller BEFORE caching — this endpoint previously returned every
+        // ticket in the category to every authenticated user.
+        List<TicketDto> visibleData = applyAccountFilter(freshData);
+        redisCache.put(cacheKey, visibleData, CACHE_TTL_MINUTES);
+        return visibleData;
     }
 
     @Transactional

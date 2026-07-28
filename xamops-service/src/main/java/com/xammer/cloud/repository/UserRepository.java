@@ -36,4 +36,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findByClientId(Long clientId);
 
     List<User> findByClientIdIn(List<Long> clientIds);
+
+    /**
+     * Users whose role contains the given fragment. Passing "BILLOPS_ADMIN" matches
+     * both ROLE_BILLOPS_ADMIN and ROLE_BILLOPS_ADMIN_SUB, and tolerates rows stored
+     * without the ROLE_ prefix.
+     */
+    List<User> findByRoleContainingIgnoreCase(String roleFragment);
 }

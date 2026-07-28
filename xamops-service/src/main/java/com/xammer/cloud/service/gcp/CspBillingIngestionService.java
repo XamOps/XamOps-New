@@ -19,6 +19,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -34,15 +35,32 @@ public class CspBillingIngestionService {
     @Scheduled(cron = "0 0 2 * * *")
     public void ingestAll() {
         log.info("Starting daily CSP billing ingestion");
-        List<CloudAccount> accounts = cloudAccountRepository.findByCspManagedTrue();
-        for (CloudAccount account : accounts) {
+        List<Long> accountIds = cloudAccountRepository.findByCspManagedTrue().stream()
+            .map(CloudAccount::getId)
+            .collect(Collectors.toList());
+        for (Long accountId : accountIds) {
             try {
-                ingestForAccount(account);
+                ingestForAccountId(accountId);
             } catch (Exception e) {
-                log.error("CSP ingestion failed for account {}", account.getGcpProjectId(), e);
+                log.error("CSP ingestion failed for account id {}", accountId, e);
             }
         }
-        log.info("CSP billing ingestion complete — {} accounts processed", accounts.size());
+        log.info("CSP billing ingestion complete — {} accounts processed", accountIds.size());
+    }
+
+    /**
+     * Ingest by id, loading the account inside the transaction.
+     * <p>
+     * {@link CloudAccount#getCspBillingConfig()} is a LAZY association, so an account
+     * loaded elsewhere and passed in detached blows up with LazyInitializationException
+     * outside a web request (the scheduled job, and onboarding). Re-reading it here keeps
+     * the session open for the whole ingest.
+     */
+    @Transactional
+    public void ingestForAccountId(Long accountId) {
+        cloudAccountRepository.findById(accountId).ifPresentOrElse(
+            this::ingestForAccount,
+            () -> log.warn("CSP ingestion requested for unknown account id {}", accountId));
     }
 
     @Transactional
@@ -61,6 +79,10 @@ public class CspBillingIngestionService {
 
         List<GcpCostDto> breakdown = queryService.queryServiceBreakdown(bq, config, projectId, currentMonth);
         writeCache("GCP_COST_BREAKDOWN::" + projectId + "::SERVICE", breakdown, 60);
+        // The dashboard's Top Services widget reads the billing summary under its own key
+        // (GcpCostService.BILLING_SUMMARY_CACHE_PREFIX), not the breakdown key. Same
+        // service-level data, so publish it there too or CSP accounts show an empty widget.
+        writeCache("gcp:billing-summary:" + projectId, breakdown, 60);
 
         List<GcpCostDto> regions = queryService.queryRegionBreakdown(bq, config, projectId, currentMonth);
         writeCache("GCP_COST_BY_REGION::" + projectId, regions, 60);

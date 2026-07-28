@@ -28,4 +28,13 @@ public interface UserCloudAccountAccessRepository extends JpaRepository<UserClou
 
     @Query("SELECT uca.user.id, uca.cloudAccount.id FROM UserCloudAccountAccess uca WHERE uca.user.id IN :userIds")
     List<Object[]> findUserIdAndAccountIdsByUserIdIn(@Param("userIds") List<Long> userIds);
+
+    /**
+     * Reverse of {@link #findCloudAccountIdsByUserId}: everyone explicitly granted
+     * access to any of these cloud accounts. Note this only covers sub-users who
+     * have rows in the access table — primary users hold access implicitly through
+     * their client and are resolved separately.
+     */
+    @Query("SELECT DISTINCT uca.user.id FROM UserCloudAccountAccess uca WHERE uca.cloudAccount.id IN :cloudAccountIds")
+    List<Long> findUserIdsByCloudAccountIdIn(@Param("cloudAccountIds") List<Long> cloudAccountIds);
 }

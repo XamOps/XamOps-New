@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
@@ -50,6 +51,7 @@ class CspBillingIngestionServiceTest {
         config.setServiceAccountKey("{}");
 
         account = new CloudAccount();
+        account.setId(1L);
         account.setGcpProjectId("my-project");
         account.setCspManaged(true);
         account.setCspBillingConfig(config);
@@ -83,6 +85,18 @@ class CspBillingIngestionServiceTest {
         assertThat(savedKeys).anyMatch(k -> k.equals("GCP_COST_BY_REGION::my-project"));
         assertThat(savedKeys).anyMatch(k -> k.equals("GCP_COST_HISTORY::my-project"));
         assertThat(savedKeys).anyMatch(k -> k.equals("gcp:unfiltered-mtd-spend:my-project"));
+        // The dashboard's Top Services widget reads this key, not the breakdown key.
+        assertThat(savedKeys).anyMatch(k -> k.equals("gcp:billing-summary:my-project"));
+    }
+
+    @Test
+    void ingestForAccountId_skipsUnknownAccount() {
+        when(cloudAccountRepository.findById(99L)).thenReturn(Optional.empty());
+
+        service.ingestForAccountId(99L);
+
+        verify(queryService, never()).buildClient(any());
+        verify(cachedDataRepository, never()).save(any());
     }
 
     @Test
@@ -98,6 +112,9 @@ class CspBillingIngestionServiceTest {
     @Test
     void ingestAll_processesAllManagedAccounts() {
         when(cloudAccountRepository.findByCspManagedTrue()).thenReturn(List.of(account));
+        // ingestAll re-reads each account by id so the LAZY cspBillingConfig resolves
+        // inside the transaction — the scheduled job has no open session otherwise.
+        when(cloudAccountRepository.findById(1L)).thenReturn(Optional.of(account));
         when(queryService.buildClient(config)).thenReturn(bigQuery);
         when(queryService.queryServiceBreakdown(any(), any(), any(), any())).thenReturn(List.of());
         when(queryService.queryRegionBreakdown(any(), any(), any(), any())).thenReturn(List.of());

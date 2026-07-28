@@ -1,0 +1,44 @@
+# Local LiveKit SFU for ticket calls.
+#
+#   docker compose -f docker-compose.livekit.yml up -d
+#
+# Runs in --dev mode (self-signed, no TURN, single node), which is fine for
+# localhost testing where both browsers are on the same machine and never need
+# a relay. Any real environment needs TURN — see the notes at the bottom.
+#
+# NOTE: the key below is intentionally long. LiveKit's own dev default secret
+# ("secret") is 6 characters, which is below the 256-bit minimum HS256 requires,
+# and token minting rejects it rather than silently producing a weak signature.
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: xamops-livekit
+    # --dev relaxes TLS and logs verbosely; --bind 0.0.0.0 is required or the
+    # server only listens inside the container and the host cannot reach it.
+    #
+    # --node-ip is the one that bites: without it LiveKit advertises its Docker
+    # bridge address (172.x.x.x) in ICE candidates. On macOS and Windows that
+    # subnet is not routable from the host, so signalling succeeds, the call
+    # appears to connect, and then no audio ever arrives. Pinning it to 127.0.0.1
+    # works because the media ports below are published to the host.
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+    environment:
+      # Format is "key: secret". Must match xamops.calls.livekit.* in
+      # application-local.properties.
+      LIVEKIT_KEYS: "xamopsdev: wCRAMpPdli2cpufQjczVZrV23VxQBmT1Q4E8kZHY1NmfbrfF"
+    ports:
+      - "7880:7880"       # signalling / websocket (this is the browser-facing port)
+      - "7881:7881"       # TCP fallback for WebRTC when UDP is blocked
+      - "7882:7882/udp"   # primary WebRTC media path
+    restart: unless-stopped
+
+# Beyond localhost:
+#   * Media must reach the browser, so 7882/udp has to be open end to end. On a
+#     cloud host behind NAT you also need `--node-ip <public-ip>` or clients will
+#     be handed an unroutable candidate and calls connect then go silent.
+#   * Deploy a TURN server. Roughly 15-20% of connections fail without one, and
+#     it is worse for users behind corporate firewalls — which is most of the
+#     people who will actually be on these support calls.
+#   * Serve LiveKit over wss:// once the app is on https; a browser on a secure
+#     page refuses to open a plaintext ws:// socket.

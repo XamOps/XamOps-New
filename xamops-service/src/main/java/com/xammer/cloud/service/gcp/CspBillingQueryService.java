@@ -34,7 +34,7 @@ public class CspBillingQueryService {
     public List<GcpCostDto> queryServiceBreakdown(BigQuery bq, CspBillingConfig config,
                                                    String projectId, String invoiceMonth) {
         String sql = String.format(
-            "SELECT service_description, SUM(cost_at_list_usd) AS cost " +
+            "SELECT service_description, SUM(cost_at_list) AS cost " +
             "FROM `%s.%s.%s` " +
             "WHERE project_id = @projectId AND invoice_month = @invoiceMonth " +
             "GROUP BY service_description",
@@ -45,7 +45,7 @@ public class CspBillingQueryService {
     public List<GcpCostDto> queryRegionBreakdown(BigQuery bq, CspBillingConfig config,
                                                   String projectId, String invoiceMonth) {
         String sql = String.format(
-            "SELECT COALESCE(region, 'global') AS region, SUM(cost_at_list_usd) AS cost " +
+            "SELECT COALESCE(region, 'global') AS region, SUM(cost_at_list) AS cost " +
             "FROM `%s.%s.%s` " +
             "WHERE project_id = @projectId AND invoice_month = @invoiceMonth " +
             "GROUP BY region",
@@ -55,7 +55,7 @@ public class CspBillingQueryService {
 
     public List<GcpCostDto> queryMonthlyHistory(BigQuery bq, CspBillingConfig config, String projectId) {
         String sql = String.format(
-            "SELECT invoice_month, SUM(cost_at_list_usd) AS cost " +
+            "SELECT invoice_month, SUM(cost_at_list) AS cost " +
             "FROM `%s.%s.%s` " +
             "WHERE project_id = @projectId " +
             "GROUP BY invoice_month ORDER BY invoice_month DESC LIMIT 12",
@@ -82,7 +82,7 @@ public class CspBillingQueryService {
     public double queryMtdTotal(BigQuery bq, CspBillingConfig config,
                                 String projectId, String invoiceMonth) {
         String sql = String.format(
-            "SELECT SUM(cost_at_list_usd) AS cost " +
+            "SELECT SUM(cost_at_list) AS cost " +
             "FROM `%s.%s.%s` " +
             "WHERE project_id = @projectId AND invoice_month = @invoiceMonth",
             config.getGcpProjectId(), config.getDatasetId(), config.getTableId());

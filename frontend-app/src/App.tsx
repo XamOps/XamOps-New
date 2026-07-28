@@ -24,6 +24,8 @@ import MaintenancePage from './pages/MaintenancePage';
 import { VPCProvider } from './contexts/VPCContext';
 import { EksDashboardCacheProvider } from './contexts/EksDashboardCacheContext';
 import { AutoSpottingCacheProvider } from './contexts/AutoSpottingCacheContext';
+import { CallProvider } from './contexts/CallContext';
+import CallCenter from './components/calls/CallCenter';
 import { Sidebar } from './components/Sidebar';
 import { TopbarProvider } from './contexts/TopbarContext';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -449,6 +451,9 @@ const AuthenticatedLayout: React.FC = () => {
                 <CommandPalette />
                 {/* Support Chat Widget - Visible on all authenticated pages for ROLE_XAMOPS users */}
                 <SupportChatWidget />
+                {/* Incoming/active ticket calls — app-wide so a ring reaches an
+                    admin on any page, not only the tickets list */}
+                <CallCenter />
                 {/* Admin Support Notifications - Background listener for ROLE_BILLOPS_ADMIN */}
                 <AdminSupportNotificationListener />
                 {/* User Support Notifications - Background listener for ROLE_XAMOPS users */}
@@ -633,7 +638,11 @@ const App: React.FC = () => {
                                 <VPCProvider>
                                     <EksDashboardCacheProvider>
                                         <AutoSpottingCacheProvider>
-                                            <AppContent />
+                                            {/* Inside AuthProvider: the call socket only opens
+                                                once we know who the user is. */}
+                                            <CallProvider>
+                                                <AppContent />
+                                            </CallProvider>
                                         </AutoSpottingCacheProvider>
                                     </EksDashboardCacheProvider>
                                 </VPCProvider>
