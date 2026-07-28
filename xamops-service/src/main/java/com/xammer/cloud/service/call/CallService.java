@@ -215,6 +215,14 @@ public class CallService {
         answered.setAnsweredByName(user.getDisplayName());
         notify(fresh.getInitiatorUserId(), answered);
 
+        // Also tell the answerer. User destinations fan out to every session that
+        // user has open, so this is what stops their *other* browser tabs ringing
+        // — those tabs were rung too and would otherwise keep going for the whole
+        // duration of the call, since an answered call never expires.
+        if (!user.getUserId().equals(fresh.getInitiatorUserId())) {
+            notify(user.getUserId(), answered);
+        }
+
         // Everyone else stops ringing but keeps a way in.
         CallSignal joinable = buildSignal(CallSignal.Type.JOINABLE, fresh, ticket);
         joinable.setAnsweredByUserId(user.getUserId());

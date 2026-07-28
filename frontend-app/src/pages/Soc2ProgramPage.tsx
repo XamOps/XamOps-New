@@ -15,7 +15,7 @@ import {
 } from '../api/soc2Api';
 import type {
   Soc2ControlStatus, Soc2Control, Soc2Policy, Soc2Task, Soc2Person,
-  Soc2Vendor, Soc2Risk, Soc2Integration, Soc2CloudTest,
+  Soc2Vendor, Soc2Risk, Soc2Integration, Soc2CloudTest, Soc2Framework,
   CreateVendorRequest, UpdateVendorRequest, CreateRiskRequest, UpdateRiskRequest,
   UpdateTaskRequest, CreateTaskRequest, UpdatePersonRequest, InviteMemberRequest,
 } from '../api/soc2Api';

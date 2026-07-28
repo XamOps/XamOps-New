@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../../hooks/useSoc2ProgramData';
@@ -17,7 +17,6 @@ const MetaRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, v
 
 const Soc2PolicyDetailPage: React.FC = () => {
   const { policyId = '' } = useParams<{ policyId: string }>();
-  const navigate = useNavigate();
   const { setTitle } = useTopbar();
   const { policies, controls, isLoading, error, refetch } = useSoc2ProgramData();
   const [tab, setTab] = useState<PolicyTab>('overview');

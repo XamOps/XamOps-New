@@ -153,12 +153,19 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           break;
 
         case 'ANSWERED':
-          // Only meaningful to the caller; the answerer already knows.
+          // Reaches the caller and every session belonging to the answerer.
           if (activeCallIdRef.current === signal.callId) {
             setPhase('in-call');
             setOutgoing(null);
             setActiveCall(signal);
             gooeyToast.success(`${signal.answeredByName ?? 'An agent'} joined the call`);
+          } else if (incomingIdRef.current === signal.callId) {
+            // This tab is still ringing for a call that was answered elsewhere —
+            // most often another tab of our own. Stand down silently.
+            incomingIdRef.current = null;
+            setIncoming(null);
+            setPhase('idle');
+            stopRinging();
           }
           break;
 
@@ -402,13 +409,16 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     stopRinging();
     setPhase('connecting');
+    // Cleared before the round trip, not after: the server's ANSWERED broadcast
+    // can beat our own accept response back to this tab, and a stale marker
+    // would make us treat our own success as "answered elsewhere".
+    incomingIdRef.current = null;
     try {
       const outcome = await acceptCall(call.callId);
       if (!mountedRef.current) return;
 
       if (outcome.won) {
         setIncoming(null);
-        incomingIdRef.current = null;
         enterRoom(outcome.token, call, call.mediaKind ?? 'AUDIO');
         setPhase('in-call');
         return;
