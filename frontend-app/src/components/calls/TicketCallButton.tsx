@@ -26,11 +26,12 @@ const TicketCallButton: React.FC<TicketCallButtonProps> = ({
   compact = false,
   className = '',
 }) => {
-  const { startCall, phase, activeToken, socketConnected } = useCalls();
+  const { startCall, phase, activeToken, socketConnected, callingEnabled } = useCalls();
 
   const onCall = phase !== 'idle' || !!activeToken;
-  // Without a live socket we would place a call and never hear the answer.
-  const unavailable = disabled || !socketConnected;
+  // Without a live socket we would place a call and never hear the answer; with
+  // no LiveKit on the environment there is no room to join at all.
+  const unavailable = disabled || !socketConnected || !callingEnabled;
   const isBusy = phase === 'connecting';
 
   const start = (mediaKind: CallMediaKind) => {
@@ -39,9 +40,11 @@ const TicketCallButton: React.FC<TicketCallButtonProps> = ({
   };
 
   const title = unavailable
-    ? !socketConnected
-      ? 'Calling is offline — reconnecting'
-      : 'Calling is unavailable for this ticket'
+    ? !callingEnabled
+      ? 'Calling is not enabled on this environment'
+      : !socketConnected
+        ? 'Calling is offline — reconnecting'
+        : 'Calling is unavailable for this ticket'
     : onCall
       ? 'You are already on a call'
       : undefined;

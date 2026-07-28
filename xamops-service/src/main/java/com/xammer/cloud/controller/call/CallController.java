@@ -9,6 +9,7 @@ import com.xammer.cloud.service.call.CallPrincipalFactory;
 import com.xammer.cloud.service.call.CallService;
 import com.xammer.cloud.service.call.CallUserPrincipal;
 import com.xammer.cloud.service.call.CallWsTokenService;
+import com.xammer.cloud.service.call.LiveKitTokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -42,13 +43,16 @@ public class CallController {
     private final CallService callService;
     private final CallWsTokenService wsTokenService;
     private final CallPrincipalFactory principalFactory;
+    private final LiveKitTokenService liveKitTokenService;
 
     public CallController(CallService callService,
             CallWsTokenService wsTokenService,
-            CallPrincipalFactory principalFactory) {
+            CallPrincipalFactory principalFactory,
+            LiveKitTokenService liveKitTokenService) {
         this.callService = callService;
         this.wsTokenService = wsTokenService;
         this.principalFactory = principalFactory;
+        this.liveKitTokenService = liveKitTokenService;
     }
 
     /**
@@ -69,6 +73,10 @@ public class CallController {
         body.put("token", token);
         body.put("ttlSeconds", wsTokenService.getTtlSeconds());
         body.put("userId", me.getUserId());
+        // Lets the UI disable the call buttons on environments with no LiveKit
+        // rather than offering a control that always fails on click. Rides along
+        // with the token the client already fetches, so it costs no extra request.
+        body.put("callingEnabled", liveKitTokenService.isConfigured());
         return ResponseEntity.ok(body);
     }
 

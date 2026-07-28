@@ -46,6 +46,11 @@ export const fetchWsToken = async (): Promise<{
   token: string;
   ttlSeconds: number;
   userId: number;
+  /**
+   * False on environments with no LiveKit configured. Lets the UI disable the
+   * call controls instead of offering a button that fails on click.
+   */
+  callingEnabled?: boolean;
 }> => apiClient.get(`${BASE}/ws-token`);
 
 export const initiateCall = async (

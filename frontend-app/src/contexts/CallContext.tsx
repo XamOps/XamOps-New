@@ -93,6 +93,8 @@ interface CallContextValue {
    */
   activeMediaKind: CallMediaKind;
   socketConnected: boolean;
+  /** False when the environment has no LiveKit — call controls should be disabled. */
+  callingEnabled: boolean;
 
   /** Missed calls that reached us and have not been cleared yet, newest first. */
   missedCalls: MissedCallEntry[];
@@ -123,6 +125,9 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [activeCall, setActiveCall] = useState<CallSignal | null>(null);
   const [activeMediaKind, setActiveMediaKind] = useState<CallMediaKind>('AUDIO');
   const [socketConnected, setSocketConnected] = useState(false);
+  // Assume available until the server says otherwise, so buttons do not flicker
+  // disabled on first paint before the token request returns.
+  const [callingEnabled, setCallingEnabled] = useState(true);
   const [missedRaw, setMissedRaw] = useState<MissedCallEntry[]>([]);
   const [dismissedMissed, setDismissedMissed] = useState<number[]>(() => loadDismissedMissed());
 
@@ -316,7 +321,11 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       // Fetched fresh on every attempt: the token is short-lived, so a socket
       // that drops for longer than its TTL must not retry with a stale one.
-      ({ token } = await fetchWsToken());
+      const issued = await fetchWsToken();
+      token = issued.token;
+      // Older builds of the service omit the flag; assume calling works rather
+      // than hiding the feature on a version skew during a rolling deploy.
+      setCallingEnabled(issued.callingEnabled !== false);
     } catch {
       connectingRef.current = false;
       scheduleReconnect();
@@ -615,6 +624,7 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       activeCall,
       activeMediaKind,
       socketConnected,
+      callingEnabled,
       missedCalls,
       startCall,
       acceptIncoming,
@@ -635,6 +645,7 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       activeCall,
       activeMediaKind,
       socketConnected,
+      callingEnabled,
       missedCalls,
       startCall,
       acceptIncoming,
