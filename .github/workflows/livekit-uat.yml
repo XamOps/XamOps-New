@@ -1,0 +1,182 @@
+# LiveKit SFU (ticket calls) — UAT
+#
+# Deliberately a separate workflow from ci-cd.yml rather than a job inside it.
+# Two reasons:
+#
+#   1. LiveKit is infrastructure, not one of our services. Restarting it drops
+#      every call in progress, so it must never ride along with a code push — a
+#      frontend tweak should not be able to hang up a live support call.
+#   2. ci-cd.yml has no workflow_dispatch trigger, and adding one there would
+#      make a manual run fire all four *-build-test jobs, since those are gated
+#      only on the change-detection output and not on the event type.
+#
+# xamops-service needs NO deploy change to pick up these credentials. Its
+# application-uat.properties imports `aws-secretsmanager:uat/xamops_db_uat`, and
+# the LiveKit settings in application.properties are ${ENV:} placeholders, which
+# Spring resolves against every property source. Adding these four keys to that
+# existing secret is enough:
+#
+#     LIVEKIT_URL            wss://<host the browser reaches>  (ws:// only if UAT is plain http)
+#     LIVEKIT_API_KEY        must equal the LIVEKIT_API_KEY repo secret
+#     LIVEKIT_API_SECRET     must equal the LIVEKIT_API_SECRET repo secret, 32+ chars
+#     CALLS_WS_TOKEN_SECRET  base64, decoding to 32+ bytes
+#
+# Required GitHub secrets: LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_NODE_IP,
+# plus BASTION_SSH_KEY / BASTION_HOST / SSH_KEY / SSH_HOST already used by ci-cd.yml.
+
+name: LiveKit SFU – UAT
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'What to do on the UAT host'
+        type: choice
+        options:
+          - status
+          - deploy
+        default: status
+
+permissions:
+  contents: read
+
+jobs:
+  livekit:
+    name: "[livekit] ${{ inputs.action }} on UAT"
+    runs-on: ubuntu-latest
+    environment: uat
+    steps:
+      - name: Validate secrets
+        if: inputs.action == 'deploy'
+        env:
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          LIVEKIT_NODE_IP: ${{ secrets.LIVEKIT_NODE_IP }}
+        run: |
+          fail=0
+          [ -n "$LIVEKIT_API_KEY" ] || { echo "::error::LIVEKIT_API_KEY is not set"; fail=1; }
+          [ -n "$LIVEKIT_NODE_IP" ] || { echo "::error::LIVEKIT_NODE_IP is not set"; fail=1; }
+          if [ -z "$LIVEKIT_API_SECRET" ]; then
+            echo "::error::LIVEKIT_API_SECRET is not set"; fail=1
+          elif [ ${#LIVEKIT_API_SECRET} -lt 32 ]; then
+            # Join tokens are HS256, which needs 256 bits of key material. A
+            # shorter secret is rejected at runtime on the first call, so it is
+            # far better to fail here than to ship a server nobody can join.
+            echo "::error::LIVEKIT_API_SECRET must be at least 32 characters (got ${#LIVEKIT_API_SECRET})"
+            fail=1
+          fi
+          [ $fail -eq 0 ] || exit 1
+          echo "✅ LiveKit secrets present"
+
+      - name: Setup SSH keys
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cat << 'SSHKEY' > ~/.ssh/bastion_key
+          ${{ secrets.BASTION_SSH_KEY }}
+          SSHKEY
+          chmod 600 ~/.ssh/bastion_key
+          cat << 'SSHKEY' > ~/.ssh/uat_key
+          ${{ secrets.SSH_KEY }}
+          SSHKEY
+          chmod 600 ~/.ssh/uat_key
+          cat > ~/.ssh/config << 'EOF'
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ServerAliveInterval 60
+            ServerAliveCountMax 10
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Test bastion connection
+        run: |
+          ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+            ec2-user@${{ secrets.BASTION_HOST }} "echo '✅ Bastion connected!'"
+
+      # Read-only. Safe to run at any time, including during a live call.
+      - name: Report status
+        if: inputs.action == 'status'
+        run: |
+          ssh \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            -o "ProxyCommand=ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -W %h:%p ec2-user@${{ secrets.BASTION_HOST }}" \
+            -i ~/.ssh/uat_key \
+            ec2-user@${{ secrets.SSH_HOST }} << 'ENDSSH'
+            echo "── container ──────────────────────────────"
+            docker ps -a --filter "name=livekit" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
+            echo
+            echo "── advertised node IP (must be reachable by the browser) ──"
+            docker logs livekit 2>&1 | grep -o '"nodeIP": *"[^"]*"' | tail -1 || echo "(not found — is it running?)"
+            echo
+            echo "── signalling endpoint ────────────────────"
+            curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://localhost:7880/ || echo "no response on 7880"
+            echo
+            echo "── recent logs ────────────────────────────"
+            docker logs --tail=20 livekit 2>&1 || true
+          ENDSSH
+
+      - name: Deploy LiveKit via bastion
+        if: inputs.action == 'deploy'
+        env:
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          LIVEKIT_NODE_IP: ${{ secrets.LIVEKIT_NODE_IP }}
+        run: |
+          ssh \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            -o "ProxyCommand=ssh -i ~/.ssh/bastion_key -o StrictHostKeyChecking=no -W %h:%p ec2-user@${{ secrets.BASTION_HOST }}" \
+            -i ~/.ssh/uat_key \
+            ec2-user@${{ secrets.SSH_HOST }} \
+            "LIVEKIT_API_KEY='$LIVEKIT_API_KEY' LIVEKIT_API_SECRET='$LIVEKIT_API_SECRET' LIVEKIT_NODE_IP='$LIVEKIT_NODE_IP' bash -s" << 'ENDSSH'
+            set -e
+            echo "🔄 Deploying LiveKit SFU..."
+
+            docker pull livekit/livekit-server:latest
+            docker network inspect xamops-network >/dev/null 2>&1 || docker network create xamops-network
+
+            docker stop livekit 2>/dev/null || true
+            docker rm   livekit 2>/dev/null || true
+
+            # --node-ip is the address LiveKit advertises in ICE candidates, so it
+            # has to be one the *browser* can reach, not the container's own. Left
+            # unset it advertises the Docker bridge address, which yields calls
+            # that connect and then carry no audio — the hardest failure here to
+            # diagnose, because every status check looks healthy.
+            docker run -d \
+              --name livekit \
+              --restart unless-stopped \
+              --network xamops-network \
+              --memory=2g --memory-swap=2g \
+              -p 7880:7880 \
+              -p 7881:7881 \
+              -p 7882:7882/udp \
+              -e LIVEKIT_KEYS="${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}" \
+              livekit/livekit-server:latest \
+              --bind 0.0.0.0 --node-ip "${LIVEKIT_NODE_IP}"
+
+            sleep 10
+            if docker ps --filter "name=livekit" --filter "status=running" | grep -q livekit; then
+              echo "✅ livekit is running"
+              docker ps --filter "name=livekit"
+            else
+              echo "❌ livekit failed to start"
+              docker logs --tail=50 livekit
+              exit 1
+            fi
+
+            # An unauthenticated probe answers 200 with "no permissions to access
+            # the room", which is enough to prove signalling is up.
+            if curl -sf -o /dev/null http://localhost:7880/; then
+              echo "✅ signalling endpoint responding on 7880"
+            else
+              echo "⚠️  no answer on 7880 — check the security group"
+            fi
+
+            echo "ℹ️  advertised node IP:"
+            docker logs livekit 2>&1 | grep -o '"nodeIP": *"[^"]*"' | tail -1 || true
+
+            docker image prune -f
+            echo "🚀 LiveKit deployment complete!"
+          ENDSSH

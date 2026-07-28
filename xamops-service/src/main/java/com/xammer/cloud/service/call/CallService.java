@@ -1,12 +1,15 @@
 package com.xammer.cloud.service.call;
 
 import com.xammer.cloud.domain.Ticket;
+import com.xammer.cloud.domain.TicketReply;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.domain.call.CallParticipant;
 import com.xammer.cloud.domain.call.CallSession;
 import com.xammer.cloud.dto.call.CallSignal;
 import com.xammer.cloud.dto.call.CallTokenResponse;
 import com.xammer.cloud.repository.TicketRepository;
+import com.xammer.cloud.repository.TicketReplyRepository;
+import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.repository.call.CallParticipantRepository;
 import com.xammer.cloud.repository.call.CallSessionRepository;
 import org.slf4j.Logger;
@@ -25,6 +28,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * The call lifecycle: ring a group, let the first responder win, keep the room
@@ -48,9 +52,12 @@ public class CallService {
     private final CallSessionRepository sessionRepository;
     private final CallParticipantRepository participantRepository;
     private final TicketRepository ticketRepository;
+    private final TicketReplyRepository ticketReplyRepository;
+    private final UserRepository userRepository;
     private final CallRecipientResolver recipientResolver;
     private final CallPresenceService presenceService;
     private final LiveKitTokenService liveKitTokenService;
+    private final CallNotificationService callNotificationService;
     private final SimpMessagingTemplate messagingTemplate;
 
     @Value("${xamops.calls.ring-seconds:40}")
@@ -59,16 +66,22 @@ public class CallService {
     public CallService(CallSessionRepository sessionRepository,
             CallParticipantRepository participantRepository,
             TicketRepository ticketRepository,
+            TicketReplyRepository ticketReplyRepository,
+            UserRepository userRepository,
             CallRecipientResolver recipientResolver,
             CallPresenceService presenceService,
             LiveKitTokenService liveKitTokenService,
+            CallNotificationService callNotificationService,
             SimpMessagingTemplate messagingTemplate) {
         this.sessionRepository = sessionRepository;
         this.participantRepository = participantRepository;
         this.ticketRepository = ticketRepository;
+        this.ticketReplyRepository = ticketReplyRepository;
+        this.userRepository = userRepository;
         this.recipientResolver = recipientResolver;
         this.presenceService = presenceService;
         this.liveKitTokenService = liveKitTokenService;
+        this.callNotificationService = callNotificationService;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -343,6 +356,7 @@ public class CallService {
         }
 
         if (closeCall(session, CallSession.State.ENDED, "all_participants_left", null, ticket)) {
+            recordCallSummaryNote(session, ticket);
             CallSignal ended = buildSignal(CallSignal.Type.ENDED, session, ticket);
             broadcastToParticipants(callId, ended, null);
         }
@@ -411,7 +425,143 @@ public class CallService {
         }
         session.setState(newState);
         session.setEndReason(reason);
+
+        // A call that ended MISSED rang people who may not be in the app at all;
+        // email them so it does not vanish into the badge until they next log in.
+        if (newState == CallSession.State.MISSED) {
+            emailMissedRecipients(session, ticket);
+        }
         return true;
+    }
+
+    /**
+     * Notifies by email everyone settled as MISSED on this call.
+     *
+     * Only reached when the whole call missed — if any online colleague had
+     * answered, those rung would carry a non-MISSED outcome and none of this runs,
+     * so a group ring that someone picked up never spams the rest. Recipient data
+     * is resolved here, on the transaction thread, and handed to the async sender
+     * as plain values.
+     */
+    private void emailMissedRecipients(CallSession session, Ticket ticket) {
+        try {
+            List<Long> missedUserIds = participantRepository.findByCallSessionId(session.getId()).stream()
+                    .filter(p -> p.isWasRung() && p.getOutcome() == CallParticipant.Outcome.MISSED)
+                    .map(CallParticipant::getUserId)
+                    .collect(Collectors.toList());
+            if (missedUserIds.isEmpty()) {
+                return;
+            }
+
+            List<String> emails = new ArrayList<>();
+            for (User u : userRepository.findAllById(missedUserIds)) {
+                if (u.getEmail() != null && !u.getEmail().isBlank()) {
+                    emails.add(u.getEmail());
+                }
+            }
+            if (emails.isEmpty()) {
+                return;
+            }
+
+            // A customer's missed call was rung at admins, so their callback link
+            // points at the admin ticket view; an admin's missed call points the
+            // customer at their own.
+            String ticketPath = session.getDirection() == CallSession.Direction.USER_TO_ADMIN
+                    ? "/billops-ticket-detail"
+                    : "/ticket-detail";
+            String callerName = session.getInitiatorDisplayName() != null
+                    ? session.getInitiatorDisplayName()
+                    : session.getInitiatorUsername();
+            boolean video = session.getMediaKind() == CallSession.MediaKind.VIDEO;
+
+            callNotificationService.sendMissedCallEmails(emails, callerName, session.getTicketId(),
+                    ticket != null ? ticket.getSubject() : null, ticketPath, video);
+        } catch (Exception e) {
+            // Never let a notification failure roll back the call's terminal state.
+            log.warn("Could not queue missed-call emails for call {} on ticket {}: {}",
+                    session.getId(), session.getTicketId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Drops a call summary onto the ticket timeline once a real conversation ends.
+     *
+     * A call that never connected leaves nothing here — the call history strip and
+     * the missed-call badge already cover unanswered rings, and a timeline entry for
+     * every dropped ring would be noise. Only answered calls (a non-null answeredAt)
+     * produce a note, so the ticket record reflects conversations that actually
+     * happened.
+     *
+     * Written directly through the reply repository rather than the normal reply
+     * path on purpose: a system-generated call record must not flip the ticket's
+     * unread indicator or reset the response-SLA reminder clock.
+     */
+    private void recordCallSummaryNote(CallSession session, Ticket ticket) {
+        if (ticket == null || session.getAnsweredAt() == null) {
+            return;
+        }
+        try {
+            User author = userRepository.findById(session.getInitiatorUserId()).orElse(null);
+            if (author == null) {
+                return;
+            }
+
+            String participants = participantRepository.findByCallSessionId(session.getId()).stream()
+                    .filter(p -> p.getOutcome() == CallParticipant.Outcome.JOINED)
+                    .map(p -> p.getDisplayName() != null ? p.getDisplayName() : p.getUsername())
+                    .filter(name -> name != null && !name.isBlank())
+                    .distinct()
+                    .collect(Collectors.joining(", "));
+
+            String durationLabel = formatDuration(
+                    Duration.between(session.getAnsweredAt(), LocalDateTime.now()));
+            String mediaLabel = session.getMediaKind() == CallSession.MediaKind.VIDEO ? "Video" : "Audio";
+
+            StringBuilder message = new StringBuilder("\uD83D\uDCDE <em>")
+                    .append(mediaLabel).append(" call ended");
+            if (durationLabel != null) {
+                message.append(" · ").append(durationLabel);
+            }
+            if (!participants.isBlank()) {
+                message.append(" · ").append(escapeHtml(participants));
+            }
+            message.append("</em>");
+
+            TicketReply note = new TicketReply();
+            note.setTicket(ticket);
+            note.setAuthor(author);
+            note.setMessage(message.toString());
+            note.setCreatedAt(LocalDateTime.now());
+            note.setInternal(false);
+            ticketReplyRepository.save(note);
+        } catch (Exception e) {
+            // A missing note must never break call teardown — the call itself is done.
+            log.warn("Could not record call summary note for call {} on ticket {}: {}",
+                    session.getId(), session.getTicketId(), e.getMessage());
+        }
+    }
+
+    /** "6m 32s", "45s", or null when the span is not meaningful. */
+    private String formatDuration(Duration duration) {
+        if (duration == null || duration.isNegative() || duration.isZero()) {
+            return null;
+        }
+        long totalSeconds = duration.getSeconds();
+        long minutes = totalSeconds / 60;
+        long seconds = totalSeconds % 60;
+        return minutes > 0 ? minutes + "m " + seconds + "s" : seconds + "s";
+    }
+
+    /**
+     * The ticket UI renders reply bodies as HTML, so participant names — which are
+     * user-controlled — are escaped before they land in the timeline.
+     */
+    private String escapeHtml(String raw) {
+        return raw.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private void markJoined(Long callId, Long userId) {

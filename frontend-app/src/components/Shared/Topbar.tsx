@@ -10,6 +10,7 @@ import SuperAdminTopBar from './SuperAdminTopBar';
 import LogoutModal from './LogoutModal';
 import NotificationDropdown from './NotificationDropdown';
 import BillOpsUserNotificationDropdown from '../BillOps/BillOpsUserNotificationDropdown';
+import MissedCallsBell from '../calls/MissedCallsBell';
 import { useTheme } from '../../contexts/ThemeContext';
 import { isDemoMode } from '../../demo/demoConfig';
 
@@ -174,6 +175,10 @@ const Topbar: React.FC = () => {
                             {actions}
                         </div>
                     )}
+
+                    {/* Missed ticket calls — global, so a call missed while away is
+                        visible on any page, not only the tickets list */}
+                    <MissedCallsBell />
 
                     {/* Demo shortcuts — BillOps Admin only */}
                     {isBillOpsAdmin && !isDemoMode() && (

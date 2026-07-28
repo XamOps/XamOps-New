@@ -28,6 +28,7 @@ import {
   acceptCall,
   cancelCall,
   declineCall,
+  fetchMissedCalls,
   fetchWsToken,
   initiateCall,
   joinCall,
@@ -40,12 +41,40 @@ import type {
   CallSignal,
   CallTokenResponse,
   LocalCallPhase,
+  MissedCallEntry,
 } from '../types/calls';
 
 /** Keep well inside the server's presence TTL (default 900s) so we never lapse. */
 const PRESENCE_PING_MS = 4 * 60 * 1000;
 const RECONNECT_BASE_MS = 3000;
 const RECONNECT_MAX_MS = 30000;
+
+/**
+ * Missed calls the user has already seen and cleared. Persisted locally because
+ * the server has no per-user "read" state — a missed call stays in the record
+ * forever, so without this the badge would only ever grow. Dismissal is a
+ * client-side convenience, not a state that needs to survive across devices.
+ */
+const DISMISSED_MISSED_KEY = 'xamops.calls.dismissedMissed';
+
+const loadDismissedMissed = (): number[] => {
+  try {
+    const raw = localStorage.getItem(DISMISSED_MISSED_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((n): n is number => typeof n === 'number') : [];
+  } catch {
+    return [];
+  }
+};
+
+const persistDismissedMissed = (ids: number[]) => {
+  try {
+    // Cap the stored set so it cannot grow without bound as calls accumulate.
+    localStorage.setItem(DISMISSED_MISSED_KEY, JSON.stringify(ids.slice(-500)));
+  } catch {
+    /* storage full or unavailable — dismissal simply won't persist this session */
+  }
+};
 
 interface CallContextValue {
   phase: LocalCallPhase;
@@ -65,12 +94,20 @@ interface CallContextValue {
   activeMediaKind: CallMediaKind;
   socketConnected: boolean;
 
+  /** Missed calls that reached us and have not been cleared yet, newest first. */
+  missedCalls: MissedCallEntry[];
+
   startCall: (ticketId: number, mediaKind?: CallMediaKind) => Promise<void>;
   acceptIncoming: () => Promise<void>;
   declineIncoming: () => Promise<void>;
   joinExisting: (callId: number) => Promise<void>;
   hangUp: () => Promise<void>;
   dismissJoinable: (callId: number) => void;
+  refreshMissedCalls: () => Promise<void>;
+  /** Marks one missed call as seen; it drops off the badge. */
+  dismissMissedCall: (participantId: number) => void;
+  /** Clears every currently visible missed call at once. */
+  clearMissedCalls: () => void;
 }
 
 const CallContext = createContext<CallContextValue | undefined>(undefined);
@@ -86,6 +123,8 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [activeCall, setActiveCall] = useState<CallSignal | null>(null);
   const [activeMediaKind, setActiveMediaKind] = useState<CallMediaKind>('AUDIO');
   const [socketConnected, setSocketConnected] = useState(false);
+  const [missedRaw, setMissedRaw] = useState<MissedCallEntry[]>([]);
+  const [dismissedMissed, setDismissedMissed] = useState<number[]>(() => loadDismissedMissed());
 
   const stompRef = useRef<any>(null);
   // stompRef is only set once the handshake completes, so it cannot by itself
@@ -100,6 +139,10 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // current call id is mirrored into a ref for the handler to read.
   const activeCallIdRef = useRef<number | null>(null);
   const incomingIdRef = useRef<number | null>(null);
+  // A MISSED signal fires from a socket callback that closed over an early
+  // render; the refresh function is defined later, so it is reached through a
+  // ref rather than captured directly.
+  const refreshMissedRef = useRef<() => void>(() => undefined);
 
   const isAuthenticated = authReady && userRoles.length > 0;
 
@@ -196,6 +239,22 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         case 'DECLINED':
         case 'NO_ANSWER_AVAILABLE': {
           setJoinable(prev => prev.filter(c => c.callId !== signal.callId));
+
+          // A missed ring becomes a durable record for everyone it rang, not just
+          // whichever tab happened to be showing the call — pull the fresh list so
+          // the badge updates even if we were mid-navigation when it expired.
+          if (signal.type === 'MISSED') {
+            refreshMissedRef.current();
+          }
+
+          // A finished call leaves a summary note on its ticket. Nudge any open
+          // ticket page for that ticket to reload so the note shows without a
+          // manual refresh; a page that does not care simply ignores the event.
+          if (signal.type === 'ENDED' && signal.ticketId != null) {
+            window.dispatchEvent(
+              new CustomEvent('call:ended', { detail: { ticketId: signal.ticketId } })
+            );
+          }
 
           const wasOurs =
             activeCallIdRef.current === signal.callId || incomingIdRef.current === signal.callId;
@@ -357,6 +416,49 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, [isAuthenticated, connect, disconnect]);
 
+  // ─── Missed calls ────────────────────────────────────────────────────────
+
+  const refreshMissedCalls = useCallback(async () => {
+    try {
+      const list = await fetchMissedCalls();
+      if (mountedRef.current) setMissedRaw(list);
+    } catch {
+      // The badge is supplementary; a failed fetch just leaves the last known set.
+    }
+  }, []);
+  refreshMissedRef.current = () => {
+    void refreshMissedCalls();
+  };
+
+  const dismissMissedCall = useCallback((participantId: number) => {
+    setDismissedMissed(prev => {
+      if (prev.includes(participantId)) return prev;
+      const next = [...prev, participantId];
+      persistDismissedMissed(next);
+      return next;
+    });
+  }, []);
+
+  const clearMissedCalls = useCallback(() => {
+    setDismissedMissed(prev => {
+      const next = Array.from(new Set([...prev, ...missedRaw.map(m => m.participantId)]));
+      persistDismissedMissed(next);
+      return next;
+    });
+  }, [missedRaw]);
+
+  // Load the standing missed list once identity is known, and refresh it when a
+  // call ends so a miss that happened while we were away is waiting for us.
+  useEffect(() => {
+    if (isAuthenticated) void refreshMissedCalls();
+    else setMissedRaw([]);
+  }, [isAuthenticated, refreshMissedCalls]);
+
+  const missedCalls = useMemo(() => {
+    const seen = new Set(dismissedMissed);
+    return missedRaw.filter(m => !seen.has(m.participantId));
+  }, [missedRaw, dismissedMissed]);
+
   // ─── Actions ───────────────────────────────────────────────────────────────
 
   const enterRoom = useCallback(
@@ -513,12 +615,16 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       activeCall,
       activeMediaKind,
       socketConnected,
+      missedCalls,
       startCall,
       acceptIncoming,
       declineIncoming,
       joinExisting,
       hangUp,
       dismissJoinable,
+      refreshMissedCalls,
+      dismissMissedCall,
+      clearMissedCalls,
     }),
     [
       phase,
@@ -529,12 +635,16 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       activeCall,
       activeMediaKind,
       socketConnected,
+      missedCalls,
       startCall,
       acceptIncoming,
       declineIncoming,
       joinExisting,
       hangUp,
       dismissJoinable,
+      refreshMissedCalls,
+      dismissMissedCall,
+      clearMissedCalls,
     ]
   );
 

@@ -334,6 +334,19 @@ const TicketDetailPage: React.FC = () => {
     fetchTicket();
   }, [fetchTicket]);
 
+  // A call that just ended dropped a summary note on this ticket; reload so it
+  // appears without the user having to refresh.
+  useEffect(() => {
+    const onCallEnded = (e: Event) => {
+      const endedTicketId = (e as CustomEvent<{ ticketId?: number }>).detail?.ticketId;
+      if (endedTicketId != null && String(endedTicketId) === String(ticketId)) {
+        void fetchTicket();
+      }
+    };
+    window.addEventListener('call:ended', onCallEnded);
+    return () => window.removeEventListener('call:ended', onCallEnded);
+  }, [ticketId, fetchTicket]);
+
   useEffect(() => {
     if (isAdmin) fetchAdminUsers();
   }, [isAdmin, fetchAdminUsers]);

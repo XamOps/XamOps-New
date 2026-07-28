@@ -456,6 +456,21 @@ export const useBillOpsTicketDetail = (
   }, [fetchTicketDetails]);
 
   /**
+   * A finished call leaves a summary note on its ticket; reload when one ends
+   * for the ticket we are viewing so the note appears without a manual refresh.
+   */
+  useEffect(() => {
+    const onCallEnded = (e: Event) => {
+      const endedTicketId = (e as CustomEvent<{ ticketId?: number }>).detail?.ticketId;
+      if (endedTicketId != null && String(endedTicketId) === String(ticketId)) {
+        void fetchTicketDetails();
+      }
+    };
+    window.addEventListener('call:ended', onCallEnded);
+    return () => window.removeEventListener('call:ended', onCallEnded);
+  }, [ticketId, fetchTicketDetails]);
+
+  /**
    * Initialize notification service
    */
   useEffect(() => {
