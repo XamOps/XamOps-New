@@ -11,6 +11,8 @@ interface NavItemProps {
   gradientClass?: string;
   isActive?: boolean;
   onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
+  /** Optional hover tooltip describing what the destination contains. */
+  tooltip?: string;
 }
 
 const NavItem: React.FC<NavItemProps> = ({
@@ -19,6 +21,7 @@ const NavItem: React.FC<NavItemProps> = ({
   label,
   isActive = false,
   onClick,
+  tooltip,
 }) => {
   const { theme } = useTheme();
   const isReactRoute = !href.includes('.html');
@@ -52,14 +55,14 @@ const NavItem: React.FC<NavItemProps> = ({
 
   if (isReactRoute) {
     return (
-      <Link to={href} className={className}>
+      <Link to={href} className={className} title={tooltip}>
         {content}
       </Link>
     );
   }
 
   return (
-    <a href={href} onClick={onClick} className={className}>
+    <a href={href} onClick={onClick} className={className} title={tooltip}>
       {content}
     </a>
   );

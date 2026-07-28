@@ -31,8 +31,8 @@ vi.mock('../contexts/TopbarContext', () => ({
 }));
 
 const baseData: Record<string, any> = {
-  overview: null, controls: [], policies: [], tasks: [], personnel: [], vendors: [],
-  risks: [], cloudTests: [], integrations: [],
+  overview: null, frameworks: [], controls: [], policies: [], tasks: [], personnel: [], vendors: [],
+  risks: [], cloudTests: [], integrations: [], documents: [],
   isLoading: false, error: null, refetch: vi.fn(),
 };
 
@@ -43,6 +43,9 @@ function renderTab(tab: string, overrides: Record<string, any> = {}) {
     <MemoryRouter initialEntries={[`/soc2-program/${tab}`]}>
       <Routes>
         <Route path="/soc2-program/:tab" element={<Soc2ProgramPage />} />
+        <Route path="/soc2-program/policies/:policyId" element={<div>Policy Detail Route</div>} />
+        <Route path="/soc2-program/vendors/:vendorId" element={<div>Vendor Detail Route</div>} />
+        <Route path="/soc2-program/risks/:riskId" element={<div>Risk Detail Route</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -50,23 +53,64 @@ function renderTab(tab: string, overrides: Record<string, any> = {}) {
 }
 
 describe('Soc2ProgramPage write actions', () => {
-  it('Publish button calls publishSoc2Policy and refetches for a draft policy', async () => {
-    vi.mocked(soc2Api.publishSoc2Policy).mockResolvedValue({} as any);
-    const { refetch } = renderTab('policies', {
-      policies: [{ id: 'pol_1', name: 'Access Control Policy', description: 'desc', status: 'draft' }],
+  it('clicking a policy row navigates to the policy detail page', () => {
+    renderTab('policies', {
+      policies: [{ id: 'pol_1', name: 'Access Control Policy', description: 'desc', status: 'draft', department: 'it', updatedAt: '2026-07-25T00:00:00Z' }],
     });
 
-    fireEvent.click(screen.getByText('Publish'));
-
-    await waitFor(() => expect(soc2Api.publishSoc2Policy).toHaveBeenCalledWith('pol_1'));
-    await waitFor(() => expect(refetch).toHaveBeenCalled());
+    fireEvent.click(screen.getByText('Access Control Policy'));
+    expect(screen.getByText('Policy Detail Route')).toBeInTheDocument();
   });
 
-  it('does not show a Publish button for an already-published policy', () => {
-    renderTab('policies', {
-      policies: [{ id: 'pol_2', name: 'Encryption Policy', description: 'desc', status: 'published' }],
+  it('renders the frameworks table and adds a framework via the catalog modal', () => {
+    renderTab('frameworks', {
+      frameworks: [{ id: 'frm_1', name: 'SOC 2', description: 'SOC 2 Type I & II', controlsTotal: 35, controlsCompleted: 20, compliancePercent: 57 }],
     });
-    expect(screen.queryByText('Publish')).not.toBeInTheDocument();
+
+    expect(screen.getByText('SOC 2')).toBeInTheDocument();
+    expect(screen.getByText('57%')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Add Framework'));
+    expect(screen.getByText('Select the compliance frameworks to add to your organization.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('CCPA'));
+    fireEvent.click(screen.getByText('Add Selected'));
+
+    // The newly added framework shows in the table as Not Started.
+    expect(screen.getAllByText('CCPA').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Not Started').length).toBeGreaterThan(0);
+  });
+
+  it('filters the policy list by status', () => {
+    renderTab('policies', {
+      policies: [
+        { id: 'pol_1', name: 'Access Control Policy', status: 'draft', department: 'it', updatedAt: null },
+        { id: 'pol_2', name: 'Encryption Policy', status: 'published', department: 'it', updatedAt: null },
+      ],
+    });
+
+    expect(screen.getByText('Encryption Policy')).toBeInTheDocument();
+    fireEvent.change(screen.getByDisplayValue('All Statuses'), { target: { value: 'draft' } });
+    expect(screen.queryByText('Encryption Policy')).not.toBeInTheDocument();
+    expect(screen.getByText('Access Control Policy')).toBeInTheDocument();
+  });
+
+  it('groups evidence into category cards and drills into a category', () => {
+    renderTab('evidence-tasks', {
+      tasks: [
+        { id: 'tsk_1', title: 'Enforce MFA', controlName: 'Access Rights', status: 'done', assigneeName: 'Priya Sharma' },
+        { id: 'tsk_2', title: 'Review access logs', controlName: 'Access Rights', status: 'todo', assigneeName: null },
+      ],
+    });
+
+    // Default categories view shows a category card with progress (1/2 done = 50%).
+    expect(screen.getByText('Access Rights')).toBeInTheDocument();
+    expect(screen.getAllByText('50%').length).toBeGreaterThan(0);
+
+    // Drilling in shows the individual task cards.
+    fireEvent.click(screen.getByText('Access Rights'));
+    expect(screen.getByText('Enforce MFA')).toBeInTheDocument();
+    expect(screen.getByText('Review access logs')).toBeInTheDocument();
   });
 
   it('changing the task status dropdown calls updateSoc2Task and refetches', async () => {
@@ -75,11 +119,25 @@ describe('Soc2ProgramPage write actions', () => {
       tasks: [{ id: 'tsk_1', title: 'Enforce MFA', controlName: 'Access Rights', status: 'todo' }],
     });
 
+    fireEvent.click(screen.getByText('List')); // switch from the default Categories view
     const select = screen.getByRole('combobox');
     fireEvent.change(select, { target: { value: 'done' } });
 
     await waitFor(() => expect(soc2Api.updateSoc2Task).toHaveBeenCalledWith('tsk_1', { status: 'done' }));
     await waitFor(() => expect(refetch).toHaveBeenCalled());
+  });
+
+  it('shows the assignee name when a task has an owner, and "Unassigned" otherwise', () => {
+    renderTab('evidence-tasks', {
+      tasks: [
+        { id: 'tsk_1', title: 'Enforce MFA', controlName: 'Access Rights', status: 'todo', assigneeId: 'mem_1', assigneeName: 'Priya Sharma' },
+        { id: 'tsk_2', title: 'Review access logs', controlName: 'Access Rights', status: 'todo', assigneeId: null, assigneeName: null },
+      ],
+    });
+
+    fireEvent.click(screen.getByText('List')); // switch from the default Categories view
+    expect(screen.getByText('Priya Sharma')).toBeInTheDocument();
+    expect(screen.getByText('Unassigned')).toBeInTheDocument();
   });
 
   it('Add Vendor opens a modal that submits via createSoc2Vendor', async () => {
@@ -94,6 +152,14 @@ describe('Soc2ProgramPage write actions', () => {
 
     await waitFor(() => expect(soc2Api.createSoc2Vendor).toHaveBeenCalled());
     await waitFor(() => expect(refetch).toHaveBeenCalled());
+  });
+});
+
+describe('Soc2ProgramPage loading state', () => {
+  it('renders a layout-aware skeleton (not a text spinner) while loading', () => {
+    renderTab('policies', { isLoading: true });
+    expect(screen.getByTestId('soc2-skeleton')).toBeInTheDocument();
+    expect(screen.queryByText(/Loading SOC 2 program/)).not.toBeInTheDocument();
   });
 });
 
@@ -118,41 +184,22 @@ describe('Soc2ProgramPage detail drawer', () => {
     expect(screen.getByText('Enforce MFA')).toBeInTheDocument();
   });
 
-  it('clicking a policy row opens a drawer showing the extracted document content', () => {
-    renderTab('policies', {
-      policies: [{ id: 'pol_2', name: 'Encryption Policy', description: 'desc', status: 'published', content: 'Purpose\n\nEncrypt all data at rest.' }],
-    });
-
-    fireEvent.click(screen.getByText('Encryption Policy'));
-
-    expect(screen.getByText(/Encrypt all data at rest\./)).toBeInTheDocument();
-  });
-
-  it('clicking a vendor row opens a drawer with its description', () => {
-    renderTab('vendors', {
-      vendors: [{ id: 'ven_1', name: 'AWS', category: 'cloud', status: 'assessed', description: 'Cloud infrastructure provider.' }],
-    });
-
-    // Before opening: only the table row shows the description.
-    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(1);
-
-    fireEvent.click(screen.getByText('AWS'));
-
-    // After opening: table row + drawer both show it.
-    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(2);
-  });
-
-  it('closing the drawer removes it from the document', () => {
+  it('clicking a vendor row navigates to the vendor detail page', () => {
     renderTab('vendors', {
       vendors: [{ id: 'ven_1', name: 'AWS', category: 'cloud', status: 'assessed', description: 'Cloud infrastructure provider.' }],
     });
 
     fireEvent.click(screen.getByText('AWS'));
-    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(2);
+    expect(screen.getByText('Vendor Detail Route')).toBeInTheDocument();
+  });
 
-    const closeButtons = screen.getAllByRole('button', { name: '' });
-    fireEvent.click(closeButtons[closeButtons.length - 1]); // the drawer's close (X) icon button
-    expect(screen.getAllByText('Cloud infrastructure provider.')).toHaveLength(1);
+  it('clicking a risk row navigates to the risk detail page', () => {
+    renderTab('risks', {
+      risks: [{ id: 'rsk_1', title: 'Incident response plan not tested', description: 'gap', category: 'technology', status: 'open', severity: 'medium', riskScore: 5, owner: null, updatedAt: null }],
+    });
+
+    fireEvent.click(screen.getByText('Incident response plan not tested'));
+    expect(screen.getByText('Risk Detail Route')).toBeInTheDocument();
   });
 });
 
@@ -181,6 +228,6 @@ describe('Soc2ProgramPage overview tab', () => {
     expect(screen.getByText('Personnel').closest('a')).toHaveAttribute('href', '/soc2-program/personnel');
     expect(screen.getByText('Vendors').closest('a')).toHaveAttribute('href', '/soc2-program/vendors');
     expect(screen.getByText('Open Risks').closest('a')).toHaveAttribute('href', '/soc2-program/risks');
-    expect(screen.getByText('View all controls').closest('a')).toHaveAttribute('href', '/soc2-program/controls');
+    expect(screen.getByText('View all controls').closest('a')).toHaveAttribute('href', '/soc2-program/frameworks');
   });
 });

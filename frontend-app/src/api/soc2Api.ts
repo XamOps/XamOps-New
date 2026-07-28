@@ -42,6 +42,10 @@ export interface Soc2Task {
   title: string;
   controlName: string | null;
   status: string | null;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  description: string | null;
+  frequency: string | null;
 }
 
 export interface Soc2Control {
@@ -54,9 +58,25 @@ export interface Soc2Control {
   policyName: string | null;
   policyStatus: string | null;
   taskCount: number;
+  compliancePercent: number;
+  policiesPublished: number;
+  policiesTotal: number;
+  tasksDone: number;
+  tasksTotal: number;
+  documentsCompleted: number;
+  documentsTotal: number;
   requirements: Soc2ControlRequirementRef[];
   policies: Soc2ControlPolicyRef[];
   tasks: Soc2Task[];
+}
+
+export interface Soc2Framework {
+  id: string;
+  name: string;
+  description: string | null;
+  controlsTotal: number;
+  controlsCompleted: number;
+  compliancePercent: number;
 }
 
 export interface Soc2Policy {
@@ -65,6 +85,12 @@ export interface Soc2Policy {
   description: string | null;
   status: string | null;
   content: string | null;
+  frequency: string | null;
+  department: string | null;
+  requiresSignature: boolean;
+  reviewDate: string | null;
+  lastPublishedAt: string | null;
+  updatedAt: string | null;
 }
 
 export interface Soc2Person {
@@ -83,6 +109,16 @@ export interface Soc2Vendor {
   category: string | null;
   status: string | null;
   description: string | null;
+  website: string | null;
+  subProcessor: boolean;
+  inherentSeverity: string | null;
+  residualSeverity: string | null;
+  inherentScore: number | null;
+  residualScore: number | null;
+  inherentLikelihood: number | null;
+  inherentImpact: number | null;
+  residualLikelihood: number | null;
+  residualImpact: number | null;
 }
 
 export interface Soc2Risk {
@@ -92,7 +128,12 @@ export interface Soc2Risk {
   category: string | null;
   status: string | null;
   severity: string | null;
+  riskScore: number | null;
+  likelihood: number | null;
+  impact: number | null;
+  department: string | null;
   owner: string | null;
+  updatedAt: string | null;
 }
 
 export interface Soc2CloudTest {
@@ -113,7 +154,16 @@ export interface Soc2Integration {
   capabilities: string | null;
 }
 
+export interface Soc2Document {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;    // "Governance" | "Security" | "People"
+  status: string;      // "todo" | "optional" | "done" | "not_relevant"
+}
+
 export const fetchSoc2Overview = (): Promise<Soc2Overview> => apiClient.get('/api/soc2/overview');
+export const fetchSoc2Frameworks = (): Promise<Soc2Framework[]> => apiClient.get('/api/soc2/frameworks');
 export const fetchSoc2Controls = (): Promise<Soc2Control[]> => apiClient.get('/api/soc2/controls');
 export const fetchSoc2Policies = (): Promise<Soc2Policy[]> => apiClient.get('/api/soc2/policies');
 export const fetchSoc2Tasks = (): Promise<Soc2Task[]> => apiClient.get('/api/soc2/tasks');
@@ -122,6 +172,7 @@ export const fetchSoc2Vendors = (): Promise<Soc2Vendor[]> => apiClient.get('/api
 export const fetchSoc2Risks = (): Promise<Soc2Risk[]> => apiClient.get('/api/soc2/risks');
 export const fetchSoc2CloudTests = (): Promise<Soc2CloudTest[]> => apiClient.get('/api/soc2/cloud-tests');
 export const fetchSoc2Integrations = (): Promise<Soc2Integration[]> => apiClient.get('/api/soc2/integrations');
+export const fetchSoc2Documents = (): Promise<Soc2Document[]> => apiClient.get('/api/soc2/documents');
 
 // --- Write actions ---
 

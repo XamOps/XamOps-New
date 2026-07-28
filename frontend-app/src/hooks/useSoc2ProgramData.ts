@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  fetchSoc2Overview, fetchSoc2Controls, fetchSoc2Policies,
+  fetchSoc2Overview, fetchSoc2Frameworks, fetchSoc2Controls, fetchSoc2Policies,
   fetchSoc2Tasks, fetchSoc2Personnel, fetchSoc2Vendors,
-  fetchSoc2Risks, fetchSoc2CloudTests, fetchSoc2Integrations,
-  Soc2Overview, Soc2Control, Soc2Policy, Soc2Task, Soc2Person, Soc2Vendor,
-  Soc2Risk, Soc2CloudTest, Soc2Integration,
+  fetchSoc2Risks, fetchSoc2CloudTests, fetchSoc2Integrations, fetchSoc2Documents,
+  Soc2Overview, Soc2Framework, Soc2Control, Soc2Policy, Soc2Task, Soc2Person, Soc2Vendor,
+  Soc2Risk, Soc2CloudTest, Soc2Integration, Soc2Document,
 } from '../api/soc2Api';
 
 /**
@@ -14,6 +14,7 @@ import {
  */
 export const useSoc2ProgramData = () => {
   const [overview, setOverview] = useState<Soc2Overview | null>(null);
+  const [frameworks, setFrameworks] = useState<Soc2Framework[]>([]);
   const [controls, setControls] = useState<Soc2Control[]>([]);
   const [policies, setPolicies] = useState<Soc2Policy[]>([]);
   const [tasks, setTasks] = useState<Soc2Task[]>([]);
@@ -22,6 +23,7 @@ export const useSoc2ProgramData = () => {
   const [risks, setRisks] = useState<Soc2Risk[]>([]);
   const [cloudTests, setCloudTests] = useState<Soc2CloudTest[]>([]);
   const [integrations, setIntegrations] = useState<Soc2Integration[]>([]);
+  const [documents, setDocuments] = useState<Soc2Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -29,8 +31,9 @@ export const useSoc2ProgramData = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [ov, ctrl, pol, tsk, ppl, vnd, rsk, cld, intg] = await Promise.all([
+      const [ov, fw, ctrl, pol, tsk, ppl, vnd, rsk, cld, intg, docs] = await Promise.all([
         fetchSoc2Overview(),
+        fetchSoc2Frameworks(),
         fetchSoc2Controls(),
         fetchSoc2Policies(),
         fetchSoc2Tasks(),
@@ -39,8 +42,10 @@ export const useSoc2ProgramData = () => {
         fetchSoc2Risks(),
         fetchSoc2CloudTests(),
         fetchSoc2Integrations(),
+        fetchSoc2Documents(),
       ]);
       setOverview(ov);
+      setFrameworks(fw);
       setControls(ctrl);
       setPolicies(pol);
       setTasks(tsk);
@@ -49,6 +54,7 @@ export const useSoc2ProgramData = () => {
       setRisks(rsk);
       setCloudTests(cld);
       setIntegrations(intg);
+      setDocuments(docs);
     } catch (e) {
       setError(e instanceof Error ? e : new Error('Failed to load SOC2 program data'));
     } finally {
@@ -61,8 +67,8 @@ export const useSoc2ProgramData = () => {
   }, [fetchData]);
 
   return {
-    overview, controls, policies, tasks, personnel, vendors,
-    risks, cloudTests, integrations,
+    overview, frameworks, controls, policies, tasks, personnel, vendors,
+    risks, cloudTests, integrations, documents,
     isLoading, error, refetch: fetchData,
   };
 };

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { StatusDonut, RiskScoreBadge, Soc2Skeleton } from './soc2/soc2Ui';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSoc2ProgramData } from '../hooks/useSoc2ProgramData';
@@ -42,6 +43,27 @@ const VENDOR_STATUS_OPTIONS = ['not_assessed', 'in_progress', 'assessed'];
 const RISK_CATEGORY_OPTIONS = ['customer', 'fraud', 'governance', 'operations', 'other', 'people', 'regulatory', 'reporting', 'resilience', 'technology', 'vendor_management'];
 const DEPARTMENT_OPTIONS = ['none', 'admin', 'gov', 'hr', 'it', 'itsm', 'qms'];
 const MEMBER_ROLE_OPTIONS = ['admin', 'employee', 'auditor'];
+
+// Catalog of frameworks available to add (mirrors comp.ai's "Add Frameworks" picker).
+const FRAMEWORK_CATALOG: { name: string; version: string; description: string }[] = [
+  { name: 'CCPA', version: 'v1.0.0', description: 'California Consumer Privacy Act' },
+  { name: 'GDPR', version: 'v1.0.0', description: 'GDPR' },
+  { name: 'HIPAA', version: 'v2025', description: 'Health Insurance Portability and Accountability Act' },
+  { name: 'ISO 27001', version: 'v2022', description: 'ISO 27001' },
+  { name: 'ISO 42001', version: 'v1.0.0', description: 'Global standard for AI management, guiding organizations to use AI safely, ethically, and effectively.' },
+  { name: 'ISO 9001', version: 'v1.0.0', description: 'Quality Management Systems' },
+  { name: 'NEN 7510', version: 'v1.0.0', description: 'Dutch information security standard for the healthcare' },
+  { name: 'PCI DSS', version: 'v1.0.0', description: 'PCI DSS' },
+  { name: 'PCI DSS Level 1', version: 'v1.0.0', description: 'Level 1 On-Site Assessment (ROC)' },
+];
+
+const INTEGRATION_ICON: Record<string, string> = {
+  'Cloud': 'mdi:cloud-outline',
+  'Development': 'mdi:github',
+  'Identity & Access': 'mdi:account-key-outline',
+  'HR & People': 'mdi:account-group-outline',
+  'Security': 'mdi:shield-check-outline',
+};
 
 type Tone = 'success' | 'warning' | 'danger' | 'neutral';
 
@@ -98,6 +120,19 @@ const findingStatusTone = (status: string | null): Tone => {
   return 'neutral';
 };
 
+const fmtDate = (iso: string | null): string => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+const MetaItem: React.FC<{ label: string; value: string; className?: string }> = ({ label, value, className }) => (
+  <div>
+    <div className="text-[11px] text-gray-400">{label}</div>
+    <div className={`text-[12px] text-gray-700 ${className || ''}`}>{value}</div>
+  </div>
+);
+
 // SOC 2 Trust Service Criteria series: CC (Security/Common Criteria, the majority)
 // stays neutral so it doesn't dominate; the optional criteria each get their own color.
 const CATEGORY_CLASSES: Record<string, string> = {
@@ -125,6 +160,18 @@ const Chip: React.FC<{ text: string }> = ({ text }) => (
     {text}
   </span>
 );
+
+const OwnerBadge: React.FC<{ name: string | null }> = ({ name }) => {
+  if (!name) return <span className="text-[12px] text-gray-400 italic">Unassigned</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="w-5 h-5 rounded-full bg-gray-200 text-gray-700 text-[10px] font-semibold flex items-center justify-center shrink-0">
+        {name.trim().charAt(0).toUpperCase() || '?'}
+      </span>
+      <span className="text-[12px] text-gray-700">{name}</span>
+    </span>
+  );
+};
 
 const ICON_TONE_BG: Record<Tone, string> = {
   success: 'bg-emerald-50 text-emerald-600',
@@ -231,8 +278,9 @@ const DangerButton: React.FC<{ onClick: (e: React.MouseEvent) => void; disabled?
 
 const Soc2ProgramPage: React.FC = () => {
   const { tab = 'overview' } = useParams<{ tab: string }>();
+  const navigate = useNavigate();
   const { setTitle, clearActions } = useTopbar();
-  const { overview, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, isLoading, error, refetch } = useSoc2ProgramData();
+  const { overview, frameworks, controls, policies, tasks, personnel, vendors, risks, cloudTests, integrations, documents, isLoading, error, refetch } = useSoc2ProgramData();
 
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
@@ -242,6 +290,22 @@ const Soc2ProgramPage: React.FC = () => {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [selected, setSelected] = useState<SelectedRow>(null);
+  const [policyQuery, setPolicyQuery] = useState('');
+  const [policyStatusFilter, setPolicyStatusFilter] = useState('all');
+  const [policyDeptFilter, setPolicyDeptFilter] = useState('all');
+  const [evidenceView, setEvidenceView] = useState<'categories' | 'list'>('categories');
+  const [evidenceCategory, setEvidenceCategory] = useState<string | null>(null);
+  const [documentsTab, setDocumentsTab] = useState<'overview' | 'settings'>('overview');
+  const [notRelevantDocs, setNotRelevantDocs] = useState<Set<string>>(new Set());
+  const [riskQuery, setRiskQuery] = useState('');
+  const [riskSeverityFilter, setRiskSeverityFilter] = useState('all');
+  const [riskStatusFilter, setRiskStatusFilter] = useState('all');
+  const [riskOwnerFilter, setRiskOwnerFilter] = useState('all');
+  const [peopleTab, setPeopleTab] = useState<'people' | 'tasks' | 'devices' | 'chart' | 'settings'>('people');
+  const [peopleQuery, setPeopleQuery] = useState('');
+  const [frameworkQuery, setFrameworkQuery] = useState('');
+  const [addFrameworkModalOpen, setAddFrameworkModalOpen] = useState(false);
+  const [addedFrameworks, setAddedFrameworks] = useState<Soc2Framework[]>([]);
 
   useEffect(() => {
     setTitle('Program');
@@ -357,6 +421,19 @@ const Soc2ProgramPage: React.FC = () => {
     setTaskModalOpen(false);
   };
 
+  const handleAddFrameworks = (picked: { name: string; version: string; description: string }[]) => {
+    // Demo: enabling a framework is a client-side add (starts empty, "Not Started").
+    setAddedFrameworks((prev) => [
+      ...prev,
+      ...picked.map((f) => ({
+        id: `fw_added_${f.name.replace(/\s+/g, '_').toLowerCase()}`,
+        name: f.name, description: f.description,
+        controlsTotal: 0, controlsCompleted: 0, compliancePercent: 0,
+      })),
+    ]);
+    setAddFrameworkModalOpen(false);
+  };
+
   const handleInviteMember = async (payload: InviteMemberRequest) => {
     await inviteSoc2Member(payload);
     await refetch();
@@ -382,11 +459,65 @@ const Soc2ProgramPage: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="p-6 text-gray-500 text-sm">Loading SOC 2 program…</div>;
+    const cardTabs = ['frameworks', 'integrations', 'documents', 'cloud-tests'];
+    const variant = tab === 'overview' ? 'overview' : cardTabs.includes(tab) ? 'cards' : 'table';
+    return <Soc2Skeleton variant={variant} />;
   }
   if (error) {
     return <div className="p-6 text-sm text-red-600">Failed to load SOC 2 program data: {error.message}</div>;
   }
+
+  const policyDepartments = Array.from(new Set(policies.map((p) => p.department).filter(Boolean))) as string[];
+  const filteredPolicies = policies.filter((p) => {
+    const q = policyQuery.trim().toLowerCase();
+    if (q && !p.name.toLowerCase().includes(q)) return false;
+    if (policyStatusFilter !== 'all' && (p.status || '').toLowerCase() !== policyStatusFilter) return false;
+    if (policyDeptFilter !== 'all' && p.department !== policyDeptFilter) return false;
+    return true;
+  });
+  const policyStatusSegments = [
+    { label: 'Published', value: policies.filter((p) => (p.status || '').toLowerCase() === 'published').length, color: '#059669' },
+    { label: 'Draft', value: policies.filter((p) => (p.status || '').toLowerCase() === 'draft').length, color: '#d97706' },
+    { label: 'Needs Review', value: policies.filter((p) => ['needs_review', 'in_review'].includes((p.status || '').toLowerCase())).length, color: '#dc2626' },
+    { label: 'Archived', value: policies.filter((p) => (p.status || '').toLowerCase() === 'archived').length, color: '#9ca3af' },
+  ];
+
+  const isDone = (s: string | null) => ['done', 'completed'].includes((s || '').toLowerCase());
+  const evTotal = tasks.length;
+  const evDone = tasks.filter((t) => isDone(t.status)).length;
+  const evActive = tasks.filter((t) => (t.status || '').toLowerCase() === 'in_progress').length;
+  const evReview = tasks.filter((t) => (t.status || '').toLowerCase() === 'in_review').length;
+  const evPending = tasks.filter((t) => (t.status || '').toLowerCase() === 'todo').length;
+  const evProgress = evTotal ? Math.round((evDone * 100) / evTotal) : 0;
+  const evidenceCategories = (() => {
+    const map = new Map<string, typeof tasks>();
+    tasks.forEach((t) => {
+      const k = t.controlName || 'Uncategorized';
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(t);
+    });
+    return Array.from(map.entries())
+      .map(([name, ts]) => ({ name, tasks: ts, done: ts.filter((t) => isDone(t.status)).length, total: ts.length,
+        pct: ts.length ? Math.round((ts.filter((t) => isDone(t.status)).length * 100) / ts.length) : 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  const publishedPolicyCount = policies.filter((p) => (p.status || '').toLowerCase() === 'published').length;
+  const TRAINING_TOTAL = 5; // comp.ai's default training module set (no per-user data over the API)
+  const filteredPeople = personnel.filter((p) => {
+    const q = peopleQuery.trim().toLowerCase();
+    return !q || p.name.toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q);
+  });
+  const riskOwners = Array.from(new Set(risks.map((r) => r.owner).filter(Boolean))) as string[];
+  const riskStatuses = Array.from(new Set(risks.map((r) => (r.status || '').toLowerCase()).filter(Boolean)));
+  const filteredRisks = risks.filter((r) => {
+    const q = riskQuery.trim().toLowerCase();
+    if (q && !(r.title || '').toLowerCase().includes(q)) return false;
+    if (riskSeverityFilter !== 'all' && (r.severity || '') !== riskSeverityFilter) return false;
+    if (riskStatusFilter !== 'all' && (r.status || '').toLowerCase() !== riskStatusFilter) return false;
+    if (riskOwnerFilter !== 'all' && (r.owner || '') !== riskOwnerFilter) return false;
+    return true;
+  });
 
   return (
     <div className="p-6">
@@ -421,7 +552,7 @@ const Soc2ProgramPage: React.FC = () => {
                 <Legend color="bg-amber-400" label="In Progress" value={overview.controlsInProgress} />
                 <Legend color="bg-gray-300" label="Not Started" value={overview.controlsNotStarted} />
               </div>
-              <Link to="/soc2-program/controls" className="text-[12px] font-medium text-gray-600 hover:text-gray-900 mt-1 inline-flex items-center gap-1 w-fit">
+              <Link to="/soc2-program/frameworks" className="text-[12px] font-medium text-gray-600 hover:text-gray-900 mt-1 inline-flex items-center gap-1 w-fit">
                 View all controls <Icon icon="mdi:arrow-right" width={14} />
               </Link>
             </div>
@@ -457,6 +588,90 @@ const Soc2ProgramPage: React.FC = () => {
         </div>
       )}
 
+      {tab === 'frameworks' && (() => {
+        const allFrameworks = [...frameworks, ...addedFrameworks];
+        const shown = allFrameworks.filter((f) =>
+          f.name.toLowerCase().includes(frameworkQuery.trim().toLowerCase()));
+        const fwStatus = (f: Soc2Framework): { text: string; tone: Tone } => {
+          if (f.controlsTotal === 0) return { text: 'Not Started', tone: 'danger' };
+          if (f.compliancePercent >= 100) return { text: 'Compliant', tone: 'success' };
+          return { text: 'In Progress', tone: 'neutral' };
+        };
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">Frameworks</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAddFrameworkModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 text-[12px] font-medium hover:bg-gray-50">
+                  <Icon icon="mdi:plus" width={14} /> Add Custom Framework
+                </button>
+                <button
+                  onClick={() => setAddFrameworkModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#1a1a1a] text-white text-[12px] font-medium hover:bg-black">
+                  <Icon icon="mdi:plus" width={14} /> Add Framework
+                </button>
+              </div>
+            </div>
+
+            <div className="relative max-w-sm">
+              <Icon icon="mdi:magnify" width={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={frameworkQuery} onChange={(e) => setFrameworkQuery(e.target.value)} placeholder="Search frameworks…"
+                className="w-full text-[13px] border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400"
+              />
+            </div>
+
+            <TableWrap>
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr><Th>Framework</Th><Th>Description</Th><Th>Compliance</Th><Th>Controls</Th><Th>Status</Th></tr>
+              </thead>
+              <tbody>
+                {shown.map((f) => {
+                  const st = fwStatus(f);
+                  const clickable = f.controlsTotal > 0;
+                  return (
+                    <tr key={f.id}
+                        onClick={clickable ? () => navigate(`/soc2-program/frameworks/${f.id}`) : undefined}
+                        className={`border-t border-gray-100 ${clickable ? 'hover:bg-gray-50/60 cursor-pointer' : ''}`}>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-md bg-gray-900 text-white flex items-center justify-center shrink-0">
+                            <Icon icon="mdi:shield-check-outline" width={13} />
+                          </div>
+                          <span className="text-[13px] text-gray-900 font-medium">{f.name}</span>
+                        </div>
+                      </td>
+                      <td className="p-3 text-[12px] text-gray-500 max-w-md truncate">{f.description || '—'}</td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-24 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${f.compliancePercent}%` }} />
+                          </div>
+                          <span className="text-[12px] text-gray-600 tabular-nums w-9 text-right">{f.compliancePercent}%</span>
+                        </div>
+                      </td>
+                      <td className="p-3 text-[12px] text-gray-600 tabular-nums">{f.controlsTotal}</td>
+                      <td className="p-3"><StatusPill text={st.text} tone={st.tone} /></td>
+                    </tr>
+                  );
+                })}
+                {shown.length === 0 && <EmptyRow cols={5} text="No frameworks match your search." />}
+              </tbody>
+            </TableWrap>
+          </div>
+        );
+      })()}
+
+      {addFrameworkModalOpen && (
+        <AddFrameworksModal
+          existing={[...frameworks, ...addedFrameworks].map((f) => f.name)}
+          onClose={() => setAddFrameworkModalOpen(false)}
+          onSubmit={handleAddFrameworks}
+        />
+      )}
+
       {tab === 'controls' && (
         <TableWrap>
           <thead className="bg-gray-50 border-b border-gray-200">
@@ -486,103 +701,308 @@ const Soc2ProgramPage: React.FC = () => {
       )}
 
       {tab === 'policies' && (
-        <TableWrap>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr><Th>Policy</Th><Th>Status</Th><Th>Description</Th><Th>Action</Th></tr>
-          </thead>
-          <tbody>
-            {policies.map((p) => {
-              const isPublished = (p.status || '').toLowerCase() === 'published';
-              return (
-                <tr key={p.id} onClick={() => setSelected({ type: 'policy', data: p })}
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-5">
+              <div className="text-[13px] font-semibold text-gray-900 mb-3">Policy by Status</div>
+              <StatusDonut segments={policyStatusSegments} />
+            </div>
+            <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-5">
+              <div className="text-[13px] font-semibold text-gray-900 mb-3">Policies by Assignee</div>
+              <div className="flex flex-col items-center justify-center h-[120px] text-gray-400">
+                <Icon icon="mdi:account-off-outline" width={24} />
+                <p className="text-[12px] mt-1">No policies assigned to users</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Icon icon="mdi:magnify" width={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={policyQuery} onChange={(e) => setPolicyQuery(e.target.value)} placeholder="Search policies…"
+                className="w-full text-[13px] border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400"
+              />
+            </div>
+            <select value={policyStatusFilter} onChange={(e) => setPolicyStatusFilter(e.target.value)}
+              className="text-[13px] border border-gray-300 rounded-lg px-3 py-2 text-gray-700 capitalize">
+              <option value="all">All Statuses</option>
+              <option value="published">Published</option>
+              <option value="draft">Draft</option>
+              <option value="needs_review">Needs Review</option>
+              <option value="archived">Archived</option>
+            </select>
+            <select value={policyDeptFilter} onChange={(e) => setPolicyDeptFilter(e.target.value)}
+              className="text-[13px] border border-gray-300 rounded-lg px-3 py-2 text-gray-700 uppercase">
+              <option value="all">All Departments</option>
+              {policyDepartments.map((d) => <option key={d} value={d}>{d.toUpperCase()}</option>)}
+            </select>
+          </div>
+
+          <TableWrap>
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr><Th>Policy Name</Th><Th>Status</Th><Th>Department</Th><Th>Last Updated</Th></tr>
+            </thead>
+            <tbody>
+              {filteredPolicies.map((p) => (
+                <tr key={p.id} onClick={() => navigate(`/soc2-program/policies/${p.id}`)}
                     className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
                   <td className="p-3 text-[13px] text-gray-900 font-medium">{p.name}</td>
                   <td className="p-3"><StatusPill text={(p.status || '').replace(/_/g, ' ')} tone={policyTone(p.status)} /></td>
-                  <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{p.description || '—'}</td>
-                  <td className="p-3">
-                    {!isPublished && (
-                      <ActionButton onClick={(e) => { e.stopPropagation(); handlePublish(p.id); }} disabled={publishingId === p.id}>
-                        {publishingId === p.id ? 'Publishing…' : 'Publish'}
-                      </ActionButton>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {policies.length === 0 && <EmptyRow cols={4} text="No policies." />}
-          </tbody>
-        </TableWrap>
-      )}
-
-      {tab === 'evidence-tasks' && (
-        <div className="space-y-3">
-          <div className="flex justify-end">
-            <button
-              onClick={() => setTaskModalOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2 bg-[#1a1a1a] text-white rounded-lg text-[12px] font-medium hover:bg-black transition-colors"
-            >
-              <Icon icon="mdi:plus" width={14} /> New Task
-            </button>
-          </div>
-          <TableWrap>
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr><Th>Task</Th><Th>Control</Th><Th>Status</Th></tr>
-            </thead>
-            <tbody>
-              {tasks.map((t) => (
-                <tr key={t.id} onClick={() => setSelected({ type: 'task', data: t })}
-                    className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
-                  <td className="p-3 text-[13px] text-gray-900 font-medium">{t.title}</td>
-                  <td className="p-3 text-[12px] text-gray-500">{t.controlName || '—'}</td>
-                  <td className="p-3">
-                    <select
-                      value={t.status || 'todo'}
-                      disabled={updatingTaskId === t.id}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => handleTaskStatusChange(t.id, e.target.value)}
-                      className="text-[11px] font-medium rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 disabled:opacity-40 capitalize"
-                    >
-                      {TASK_STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s} className="capitalize">{s.replace(/_/g, ' ')}</option>
-                      ))}
-                    </select>
-                  </td>
+                  <td className="p-3 text-[12px] text-gray-500">{p.department ? p.department.toUpperCase() : '—'}</td>
+                  <td className="p-3 text-[12px] text-gray-500">{fmtDate(p.updatedAt)}</td>
                 </tr>
               ))}
-              {tasks.length === 0 && <EmptyRow cols={3} text="No tasks." />}
+              {filteredPolicies.length === 0 && <EmptyRow cols={4} text="No policies match your filters." />}
             </tbody>
           </TableWrap>
         </div>
       )}
 
+      {tab === 'evidence-tasks' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Evidence</h2>
+            <button
+              onClick={() => setTaskModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-[#1a1a1a] text-white rounded-lg text-[12px] font-medium hover:bg-black transition-colors"
+            >
+              <Icon icon="mdi:plus" width={14} /> Create Evidence
+            </button>
+          </div>
+
+          {/* KPI strip */}
+          <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-4 flex items-center gap-8 flex-wrap">
+            <div className="min-w-[180px]">
+              <div className="flex items-center justify-between text-[12px] mb-1">
+                <span className="text-gray-500 font-medium">PROGRESS</span>
+                <span className="font-semibold text-gray-900">{evProgress}%</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${evProgress}%` }} />
+              </div>
+              <div className="text-[11px] text-gray-400 mt-1">{evDone}/{evTotal} complete</div>
+            </div>
+            {[
+              { label: 'DONE', value: evDone, color: 'text-emerald-600' },
+              { label: 'ACTIVE', value: evActive, color: 'text-amber-600' },
+              { label: 'IN REVIEW', value: evReview, color: 'text-blue-600' },
+              { label: 'PENDING', value: evPending, color: 'text-gray-500' },
+            ].map((k) => (
+              <div key={k.label} className="text-center">
+                <div className={`text-2xl font-semibold ${k.color}`}>{k.value}</div>
+                <div className="text-[11px] text-gray-400 uppercase tracking-wide">{k.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* view toggle */}
+          <div className="flex items-center justify-between">
+            {evidenceView === 'categories' && evidenceCategory ? (
+              <button onClick={() => setEvidenceCategory(null)}
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-gray-600 hover:text-gray-900">
+                <Icon icon="mdi:arrow-left" width={14} /> Back to categories
+              </button>
+            ) : <div />}
+            <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+              {(['categories', 'list'] as const).map((v) => (
+                <button key={v} onClick={() => { setEvidenceView(v); setEvidenceCategory(null); }}
+                  className={`px-3 py-1.5 text-[12px] font-medium ${evidenceView === v ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                  {v === 'list' ? 'List' : 'Categories'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {evidenceView === 'categories' && !evidenceCategory && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {evidenceCategories.map((cat) => (
+                <button key={cat.name} onClick={() => setEvidenceCategory(cat.name)}
+                  className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-4 text-left hover:shadow-sm transition-shadow">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Icon icon="mdi:folder-outline" width={18} className="text-gray-400" />
+                    <span className="text-[13px] font-medium text-gray-900 truncate">{cat.name}</span>
+                    <span className="ml-auto text-[12px] font-semibold text-gray-700">{cat.pct}%</span>
+                  </div>
+                  <div className="text-[11px] text-gray-400 mb-2">{cat.total} task{cat.total !== 1 ? 's' : ''}</div>
+                  <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${cat.pct}%` }} />
+                  </div>
+                </button>
+              ))}
+              {evidenceCategories.length === 0 && (
+                <div className="col-span-full text-center text-[13px] text-gray-400 py-8">No evidence tasks.</div>
+              )}
+            </div>
+          )}
+
+          {evidenceView === 'categories' && evidenceCategory && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[15px] font-semibold text-gray-900">{evidenceCategory}</span>
+                {(() => { const c = evidenceCategories.find((x) => x.name === evidenceCategory);
+                  return c ? <span className="text-[12px] text-gray-400">{c.done}/{c.total} · {c.pct}% complete</span> : null; })()}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {evidenceCategories.find((x) => x.name === evidenceCategory)?.tasks.map((t) => (
+                  <button key={t.id} onClick={() => setSelected({ type: 'task', data: t })}
+                    className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-4 text-left hover:shadow-sm transition-shadow">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <span className="text-[13px] font-medium text-gray-900">{t.title}</span>
+                      <StatusPill text={(t.status || '').replace(/_/g, ' ')} tone={isDone(t.status) ? 'success' : (t.status || '').toLowerCase() === 'in_progress' ? 'warning' : 'neutral'} />
+                    </div>
+                    {t.description && <p className="text-[11px] text-gray-400 truncate mb-2">{t.description}</p>}
+                    <OwnerBadge name={t.assigneeName} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {evidenceView === 'list' && (
+            <TableWrap>
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr><Th>Task</Th><Th>Control</Th><Th>Owner</Th><Th>Status</Th></tr>
+              </thead>
+              <tbody>
+                {tasks.map((t) => (
+                  <tr key={t.id} onClick={() => setSelected({ type: 'task', data: t })}
+                      className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
+                    <td className="p-3 text-[13px] text-gray-900 font-medium">{t.title}</td>
+                    <td className="p-3 text-[12px] text-gray-500">{t.controlName || '—'}</td>
+                    <td className="p-3"><OwnerBadge name={t.assigneeName} /></td>
+                    <td className="p-3">
+                      <select
+                        value={t.status || 'todo'}
+                        disabled={updatingTaskId === t.id}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => handleTaskStatusChange(t.id, e.target.value)}
+                        className="text-[11px] font-medium rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 disabled:opacity-40 capitalize"
+                      >
+                        {TASK_STATUS_OPTIONS.map((s) => (
+                          <option key={s} value={s} className="capitalize">{s.replace(/_/g, ' ')}</option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+                {tasks.length === 0 && <EmptyRow cols={4} text="No tasks." />}
+              </tbody>
+            </TableWrap>
+          )}
+        </div>
+      )}
+
       {tab === 'personnel' && (
-        <div className="space-y-3">
-          <div className="flex justify-end">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">People</h2>
             <button
               onClick={() => setInviteModalOpen(true)}
               className="flex items-center gap-2 px-3.5 py-2 bg-[#1a1a1a] text-white rounded-lg text-[12px] font-medium hover:bg-black transition-colors"
             >
-              <Icon icon="mdi:plus" width={14} /> Invite Member
+              <Icon icon="mdi:plus" width={14} /> Add User
             </button>
           </div>
-          <TableWrap>
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr><Th>Name</Th><Th>Email</Th><Th>Role</Th><Th>Department</Th><Th>Status</Th></tr>
-            </thead>
-            <tbody>
-              {personnel.map((p) => (
-                <tr key={p.id} onClick={() => setSelected({ type: 'person', data: p })}
-                    className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
-                  <td className="p-3 text-[13px] text-gray-900 font-medium">{p.name}</td>
-                  <td className="p-3 text-[12px] text-gray-500">{p.email}</td>
-                  <td className="p-3 text-[12px] text-gray-500 capitalize">{p.role}</td>
-                  <td className="p-3 text-[12px] text-gray-500 capitalize">{p.department || '—'}</td>
-                  <td className="p-3"><StatusPill text={p.active ? 'Active' : 'Inactive'} tone={p.active ? 'success' : 'neutral'} /></td>
-                </tr>
+
+          <div className="flex items-center gap-5 border-b border-gray-200">
+            {(['people', 'tasks', 'devices', 'chart', 'settings'] as const).map((t) => (
+              <button key={t} onClick={() => setPeopleTab(t)}
+                className={`pb-2 -mb-px text-[13px] font-medium border-b-2 capitalize transition-colors ${
+                  peopleTab === t ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800'
+                }`}>
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {(peopleTab === 'people' || peopleTab === 'tasks') && (
+            <div className="relative max-w-sm">
+              <Icon icon="mdi:magnify" width={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={peopleQuery} onChange={(e) => setPeopleQuery(e.target.value)}
+                placeholder={peopleTab === 'tasks' ? 'Search employees…' : 'Search people…'}
+                className="w-full text-[13px] border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400"
+              />
+            </div>
+          )}
+
+          {peopleTab === 'people' && (
+            <TableWrap>
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr><Th>Name</Th><Th>Status</Th><Th>Role</Th><Th>Onboarded</Th><Th>Offboarded</Th><Th>Policies</Th><Th>Training</Th><Th>Device</Th><Th>Background</Th></tr>
+              </thead>
+              <tbody>
+                {filteredPeople.map((p) => (
+                  <tr key={p.id} onClick={() => setSelected({ type: 'person', data: p })}
+                      className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
+                    <td className="p-3">
+                      <div className="text-[13px] text-gray-900 font-medium">{p.name}</div>
+                      <div className="text-[11px] text-gray-400">{p.email}</div>
+                    </td>
+                    <td className="p-3"><StatusPill text={p.active ? 'Active' : 'Pending'} tone={p.active ? 'success' : 'warning'} /></td>
+                    <td className="p-3 text-[12px] text-gray-500 uppercase">{p.role}</td>
+                    <td className="p-3 text-[12px] text-gray-400">—</td>
+                    <td className="p-3 text-[12px] text-gray-400">—</td>
+                    <td className="p-3 text-[12px] text-gray-600 tabular-nums">0/{publishedPolicyCount}</td>
+                    <td className="p-3 text-[12px] text-gray-600 tabular-nums">0/{TRAINING_TOTAL}</td>
+                    <td className="p-3"><span className="text-[10px] font-medium text-gray-400 uppercase">Missing</span></td>
+                    <td className="p-3"><span className="text-[10px] font-medium text-gray-400 uppercase">Missing</span></td>
+                  </tr>
+                ))}
+                {filteredPeople.length === 0 && <EmptyRow cols={9} text="No people." />}
+              </tbody>
+            </TableWrap>
+          )}
+
+          {peopleTab === 'tasks' && (
+            <div className="space-y-4">
+              <div className="text-[13px] font-semibold text-gray-900">Employee Task Completion</div>
+              {filteredPeople.map((p) => (
+                <div key={p.id} className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <div className="text-[13px] font-medium text-gray-900">{p.name}</div>
+                      <div className="text-[11px] text-gray-400">{p.email}</div>
+                    </div>
+                    <div className="text-[11px] text-gray-400">0/{publishedPolicyCount} policies signed · 0/{TRAINING_TOTAL} training</div>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-gray-100 overflow-hidden">
+                    <div className="h-full bg-amber-400 rounded-full" style={{ width: '0%' }} />
+                  </div>
+                  <div className="flex items-center gap-4 mt-1.5 text-[10px] text-gray-400">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Completed</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Not Completed</span>
+                  </div>
+                </div>
               ))}
-              {personnel.length === 0 && <EmptyRow cols={5} text="No personnel." />}
-            </tbody>
-          </TableWrap>
+              {filteredPeople.length === 0 && <div className="text-center text-[13px] text-gray-400 py-8">No employees.</div>}
+            </div>
+          )}
+
+          {peopleTab === 'devices' && (
+            <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-8 flex flex-col items-center justify-center text-center">
+              <Icon icon="mdi:laptop" width={26} className="text-gray-300 mb-2" />
+              <p className="text-[13px] text-gray-500">No managed devices reported. Connect an MDM to sync device posture.</p>
+            </div>
+          )}
+
+          {peopleTab === 'chart' && (
+            <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-5 max-w-md">
+              <div className="text-[13px] font-semibold text-gray-900 mb-3">Workforce</div>
+              <StatusDonut segments={[
+                { label: 'Active', value: personnel.filter((p) => p.active).length, color: '#059669' },
+                { label: 'Pending', value: personnel.filter((p) => !p.active).length, color: '#d97706' },
+              ]} />
+            </div>
+          )}
+
+          {peopleTab === 'settings' && (
+            <div className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-8 flex flex-col items-center justify-center text-center">
+              <Icon icon="mdi:cog-outline" width={26} className="text-gray-300 mb-2" />
+              <p className="text-[13px] text-gray-500">Configure an identity provider to sync people and onboarding status automatically.</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -598,19 +1018,21 @@ const Soc2ProgramPage: React.FC = () => {
           </div>
           <TableWrap>
             <thead className="bg-gray-50 border-b border-gray-200">
-              <tr><Th>Vendor</Th><Th>Category</Th><Th>Status</Th><Th>Description</Th></tr>
+              <tr><Th>Name</Th><Th>Status</Th><Th>Inherent Risk</Th><Th>Current Risk</Th><Th>Category</Th><Th>Owner</Th></tr>
             </thead>
             <tbody>
               {vendors.map((v) => (
-                <tr key={v.id} onClick={() => setSelected({ type: 'vendor', data: v })}
+                <tr key={v.id} onClick={() => navigate(`/soc2-program/vendors/${v.id}`)}
                     className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
                   <td className="p-3 text-[13px] text-gray-900 font-medium">{v.name}</td>
-                  <td className="p-3">{v.category ? <Chip text={v.category.replace(/_/g, ' ')} /> : <span className="text-[12px] text-gray-400">—</span>}</td>
                   <td className="p-3"><StatusPill text={(v.status || '').replace(/_/g, ' ')} tone={vendorStatusTone(v.status)} /></td>
-                  <td className="p-3 text-[12px] text-gray-500 max-w-lg truncate">{v.description || '—'}</td>
+                  <td className="p-3"><RiskScoreBadge score={v.inherentScore} /></td>
+                  <td className="p-3"><RiskScoreBadge score={v.residualScore ?? v.inherentScore} /></td>
+                  <td className="p-3">{v.category ? <Chip text={v.category.replace(/_/g, ' ')} /> : <span className="text-[12px] text-gray-400">—</span>}</td>
+                  <td className="p-3 text-[12px] text-gray-400">None</td>
                 </tr>
               ))}
-              {vendors.length === 0 && <EmptyRow cols={4} text="No vendors tracked yet." />}
+              {vendors.length === 0 && <EmptyRow cols={6} text="No vendors tracked yet." />}
             </tbody>
           </TableWrap>
         </div>
@@ -626,72 +1048,199 @@ const Soc2ProgramPage: React.FC = () => {
               <Icon icon="mdi:plus" width={14} /> Add Risk
             </button>
           </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Icon icon="mdi:magnify" width={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={riskQuery} onChange={(e) => setRiskQuery(e.target.value)} placeholder="Search risks…"
+                className="w-full text-[13px] border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400"
+              />
+            </div>
+            <select value={riskSeverityFilter} onChange={(e) => setRiskSeverityFilter(e.target.value)}
+              className="text-[13px] border border-gray-300 rounded-lg px-3 py-2 text-gray-700 capitalize">
+              <option value="all">All severities</option>
+              {['low', 'medium', 'high', 'critical'].map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={riskStatusFilter} onChange={(e) => setRiskStatusFilter(e.target.value)}
+              className="text-[13px] border border-gray-300 rounded-lg px-3 py-2 text-gray-700 capitalize">
+              <option value="all">All statuses</option>
+              {riskStatuses.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+            </select>
+            <select value={riskOwnerFilter} onChange={(e) => setRiskOwnerFilter(e.target.value)}
+              className="text-[13px] border border-gray-300 rounded-lg px-3 py-2 text-gray-700">
+              <option value="all">All owners</option>
+              {riskOwners.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
           <TableWrap>
             <thead className="bg-gray-50 border-b border-gray-200">
-              <tr><Th>Risk</Th><Th>Category</Th><Th>Severity</Th><Th>Status</Th><Th>Owner</Th></tr>
+              <tr><Th>Risk</Th><Th>Severity</Th><Th>Inherent Risk</Th><Th>Current Risk</Th><Th>Status</Th><Th>Owner</Th><Th>Updated</Th></tr>
             </thead>
             <tbody>
-              {risks.map((r) => (
-                <tr key={r.id} onClick={() => setSelected({ type: 'risk', data: r })}
+              {filteredRisks.map((r) => (
+                <tr key={r.id} onClick={() => navigate(`/soc2-program/risks/${r.id}`)}
                     className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
                   <td className="p-3">
                     <div className="text-[13px] text-gray-900 font-medium">{r.title || '—'}</div>
                     {r.description && <div className="text-[11px] text-gray-400 truncate max-w-md">{r.description}</div>}
                   </td>
-                  <td className="p-3">{r.category ? <Chip text={r.category.replace(/_/g, ' ')} /> : <span className="text-[12px] text-gray-400">—</span>}</td>
                   <td className="p-3"><StatusPill text={r.severity || '—'} tone={severityTone(r.severity)} /></td>
+                  <td className="p-3"><RiskScoreBadge score={r.riskScore} /></td>
+                  <td className="p-3"><RiskScoreBadge score={r.riskScore} /></td>
                   <td className="p-3"><StatusPill text={(r.status || '').replace(/_/g, ' ')} tone={riskStatusTone(r.status)} /></td>
-                  <td className="p-3 text-[12px] text-gray-500">{r.owner || '—'}</td>
+                  <td className="p-3 text-[12px] text-gray-500">{r.owner || <span className="text-gray-400">Unassigned</span>}</td>
+                  <td className="p-3 text-[12px] text-gray-500">{fmtDate(r.updatedAt)}</td>
                 </tr>
               ))}
-              {risks.length === 0 && <EmptyRow cols={5} text="No risks in the register yet." />}
+              {filteredRisks.length === 0 && <EmptyRow cols={7} text="No risks match your filters." />}
             </tbody>
           </TableWrap>
         </div>
       )}
 
       {tab === 'integrations' && (
-        <TableWrap>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr><Th>Integration</Th><Th>Category</Th><Th>Capabilities</Th><Th>Status</Th></tr>
-          </thead>
-          <tbody>
-            {integrations.map((i) => (
-              <tr key={i.id} onClick={() => setSelected({ type: 'integration', data: i })}
-                  className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
-                <td className="p-3">
-                  <div className="text-[13px] text-gray-900 font-medium">{i.name}</div>
-                  {i.description && <div className="text-[11px] text-gray-400 truncate max-w-md">{i.description}</div>}
-                </td>
-                <td className="p-3 text-[12px] text-gray-500">{i.category || '—'}</td>
-                <td className="p-3 text-[12px] text-gray-500">{i.capabilities || '—'}</td>
-                <td className="p-3"><StatusPill text={i.connected ? 'Connected' : 'Available'} tone={i.connected ? 'success' : 'neutral'} /></td>
-              </tr>
-            ))}
-            {integrations.length === 0 && <EmptyRow cols={4} text="No integrations available." />}
-          </tbody>
-        </TableWrap>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {integrations.map((i) => {
+            const caps = (i.capabilities || '').split(',').map((c) => c.trim()).filter(Boolean);
+            const shown = caps.slice(0, 3);
+            const extra = caps.length - shown.length;
+            return (
+              <div key={i.id} className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-5 flex flex-col">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                    <Icon icon={INTEGRATION_ICON[i.category || ''] || 'mdi:power-plug-outline'} width={20} className="text-gray-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-gray-900 truncate">{i.name}</div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {i.category && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{i.category}</span>}
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Platform</span>
+                    </div>
+                  </div>
+                </div>
+                {i.description && <p className="text-[12px] text-gray-500 mb-3 line-clamp-2">{i.description}</p>}
+                {shown.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {shown.map((c) => <span key={c} className="text-[10px] px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-600">{c}</span>)}
+                    {extra > 0 && <span className="text-[10px] px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-400">+{extra} more</span>}
+                  </div>
+                )}
+                <div className="mt-auto">
+                  {i.connected
+                    ? <div className="w-full text-center px-3 py-2 rounded-lg bg-emerald-600 text-white text-[12px] font-medium">Connected</div>
+                    : <div className="w-full text-center px-3 py-2 rounded-lg border border-gray-300 text-gray-500 text-[12px] font-medium">Coming Soon</div>}
+                </div>
+              </div>
+            );
+          })}
+          {integrations.length === 0 && (
+            <div className="col-span-full text-center text-[13px] text-gray-400 py-8">No integrations available.</div>
+          )}
+        </div>
       )}
 
       {tab === 'cloud-tests' && (
-        <TableWrap>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr><Th>Check</Th><Th>Provider</Th><Th>Resource</Th><Th>Severity</Th><Th>Status</Th></tr>
-          </thead>
-          <tbody>
-            {cloudTests.map((f) => (
-              <tr key={f.id} onClick={() => setSelected({ type: 'cloudtest', data: f })}
-                  className="border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer">
-                <td className="p-3 text-[13px] text-gray-900 font-medium">{f.title || '—'}</td>
-                <td className="p-3 text-[12px] text-gray-500 uppercase">{f.provider || '—'}</td>
-                <td className="p-3 text-[12px] text-gray-500 truncate max-w-xs">{f.resource || '—'}</td>
-                <td className="p-3"><StatusPill text={f.severity || '—'} tone={severityTone(f.severity)} /></td>
-                <td className="p-3"><StatusPill text={(f.status || '').replace(/_/g, ' ')} tone={findingStatusTone(f.status)} /></td>
-              </tr>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[
+            { id: 'aws', name: 'AWS', icon: 'mdi:aws', desc: 'Scan AWS Security Hub for vulnerabilities and compliance issues.' },
+            { id: 'gcp', name: 'GCP', icon: 'mdi:google-cloud', desc: 'Monitor GCP Security Command Center for security findings.' },
+            { id: 'azure', name: 'Azure', icon: 'mdi:microsoft-azure', desc: 'Check Azure Security Center for compliance data.' },
+          ].map((p) => {
+            const findings = cloudTests.filter((f) => (f.provider || '').toLowerCase() === p.id);
+            const open = findings.filter((f) => !['resolved', 'closed', 'pass', 'passed'].includes((f.status || '').toLowerCase())).length;
+            return (
+              <div key={p.id} className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-5">
+                <div className="w-11 h-11 rounded-lg bg-gray-100 flex items-center justify-center mb-3">
+                  <Icon icon={p.icon} width={24} className="text-gray-600" />
+                </div>
+                <div className="text-[15px] font-semibold text-gray-900 mb-1">{p.name}</div>
+                <p className="text-[12px] text-gray-500 mb-3">{p.desc}</p>
+                {findings.length > 0
+                  ? <div className="text-[11px] text-gray-500">{findings.length} checks · <span className={open > 0 ? 'text-red-600 font-medium' : 'text-emerald-600 font-medium'}>{open} open</span></div>
+                  : <div className="text-[11px] text-gray-400">Not connected</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === 'documents' && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-5 border-b border-gray-200">
+            {(['overview', 'settings'] as const).map((t) => (
+              <button key={t} onClick={() => setDocumentsTab(t)}
+                className={`pb-2 -mb-px text-[13px] font-medium border-b-2 capitalize transition-colors ${
+                  documentsTab === t ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800'
+                }`}>
+                {t}
+              </button>
             ))}
-            {cloudTests.length === 0 && <EmptyRow cols={5} text="No cloud test findings. Connect a cloud provider under Integrations to run checks." />}
-          </tbody>
-        </TableWrap>
+          </div>
+
+          {documentsTab === 'overview' && (
+            <div className="space-y-6">
+              {['Governance', 'Security', 'People'].map((cat) => {
+                const docs = documents.filter((d) => d.category === cat && !notRelevantDocs.has(d.id));
+                if (docs.length === 0) return null;
+                return (
+                  <div key={cat}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[13px] font-semibold text-gray-900">{cat}</span>
+                      <span className="text-[11px] text-gray-400">{docs.length}</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {docs.map((d) => (
+                        <div key={d.id} className="border border-[rgba(0,0,0,0.10)] rounded-xl bg-white p-4">
+                          <div className="text-[13px] font-medium text-gray-900 mb-1">{d.name}</div>
+                          {d.description && <p className="text-[12px] text-gray-500 mb-2">{d.description}</p>}
+                          <StatusPill
+                            text={(d.status || '').replace(/_/g, ' ')}
+                            tone={d.status === 'done' ? 'success' : d.status === 'todo' ? 'warning' : 'neutral'}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {documents.length === 0 && <EmptyRow cols={1} text="No documents." />}
+            </div>
+          )}
+
+          {documentsTab === 'settings' && (
+            <TableWrap>
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr><Th>Document</Th><Th>Category</Th><Th>Not Relevant</Th></tr>
+              </thead>
+              <tbody>
+                {documents.map((d) => {
+                  const nr = notRelevantDocs.has(d.id);
+                  return (
+                    <tr key={d.id} className="border-t border-gray-100">
+                      <td className="p-3 text-[13px] text-gray-900 font-medium">{d.name}</td>
+                      <td className="p-3 text-[12px] text-gray-500">{d.category}</td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => setNotRelevantDocs((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(d.id)) next.delete(d.id); else next.add(d.id);
+                            return next;
+                          })}
+                          className={`relative w-9 h-5 rounded-full transition-colors ${nr ? 'bg-gray-900' : 'bg-gray-200'}`}
+                          aria-pressed={nr}
+                          aria-label={`Mark ${d.name} not relevant`}
+                        >
+                          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${nr ? 'left-[18px]' : 'left-0.5'}`} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {documents.length === 0 && <EmptyRow cols={3} text="No documents." />}
+              </tbody>
+            </TableWrap>
+          )}
+        </div>
       )}
 
       {vendorModalOpen && (
@@ -752,6 +1301,62 @@ const FormField: React.FC<{ label: string; children: React.ReactNode }> = ({ lab
 );
 
 const inputCls = "w-full text-[13px] border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400";
+
+const AddFrameworksModal: React.FC<{
+  existing: string[];
+  onClose: () => void;
+  onSubmit: (picked: { name: string; version: string; description: string }[]) => void;
+}> = ({ existing, onClose, onSubmit }) => {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const available = FRAMEWORK_CATALOG.filter((f) => !existing.includes(f.name));
+  const toggle = (name: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  });
+  return (
+    <ModalShell title="Add Frameworks" onClose={onClose}>
+      <p className="text-[12px] text-gray-500 mb-3 -mt-1">Select the compliance frameworks to add to your organization.</p>
+      <div className="max-h-[320px] overflow-y-auto -mx-1 px-1 space-y-2">
+        {available.map((f) => {
+          const checked = selected.has(f.name);
+          return (
+            <button
+              key={f.name}
+              onClick={() => toggle(f.name)}
+              className={`w-full text-left border rounded-lg p-3 flex items-start gap-3 transition-colors ${
+                checked ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 ${
+                checked ? 'bg-gray-900 border-gray-900' : 'border-gray-300 bg-white'
+              }`}>
+                {checked && <Icon icon="mdi:check" width={12} className="text-white" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-[13px] font-medium text-gray-900">{f.name}</span>
+                  <span className="text-[10px] text-gray-400">{f.version}</span>
+                </span>
+                <span className="block text-[11px] text-gray-500 mt-0.5">{f.description}</span>
+              </span>
+            </button>
+          );
+        })}
+        {available.length === 0 && <p className="text-[12px] text-gray-400 text-center py-6">All available frameworks are already added.</p>}
+      </div>
+      <div className="flex justify-end gap-2 mt-4">
+        <button onClick={onClose} className="px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+        <ActionButton
+          onClick={() => onSubmit(available.filter((f) => selected.has(f.name)))}
+          disabled={selected.size === 0}
+        >
+          Add Selected
+        </ActionButton>
+      </div>
+    </ModalShell>
+  );
+};
 
 const VendorModal: React.FC<{ onClose: () => void; onSubmit: (payload: CreateVendorRequest) => Promise<void> }> = ({ onClose, onSubmit }) => {
   const [name, setName] = useState('');
@@ -1066,6 +1671,15 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
           </div>
         </DrawerSection>
         {p.description && <DrawerSection label="Description"><p className="text-[13px] text-gray-700">{p.description}</p></DrawerSection>}
+        <DrawerSection label="Governance">
+          <div className="grid grid-cols-2 gap-y-3 gap-x-4">
+            <MetaItem label="Review cadence" value={p.frequency || '—'} className="capitalize" />
+            <MetaItem label="Owning department" value={p.department ? p.department.toUpperCase() : '—'} />
+            <MetaItem label="Employee sign-off" value={p.requiresSignature ? 'Required' : 'Not required'} />
+            <MetaItem label="Next review" value={fmtDate(p.reviewDate)} />
+            <MetaItem label="Last published" value={fmtDate(p.lastPublishedAt)} />
+          </div>
+        </DrawerSection>
         <DrawerSection label="Document">
           {p.content
             ? <p className="text-[13px] text-gray-700 whitespace-pre-line leading-relaxed">{p.content}</p>
@@ -1091,6 +1705,7 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
     }
     return (
       <DrawerShell title={t.title} subtitle={t.controlName || undefined} onClose={onClose}>
+        <DrawerSection label="Owner"><OwnerBadge name={t.assigneeName} /></DrawerSection>
         <DrawerSection label="Status">
           <div className="flex items-center justify-between">
             <select
@@ -1104,6 +1719,16 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
             <SecondaryButton onClick={() => setEditing(true)}>Edit</SecondaryButton>
           </div>
         </DrawerSection>
+        {t.frequency && (
+          <DrawerSection label="Collection cadence">
+            <p className="text-[13px] text-gray-700 capitalize">{t.frequency}</p>
+          </DrawerSection>
+        )}
+        {t.description && (
+          <DrawerSection label="Evidence required">
+            <p className="text-[13px] text-gray-700 whitespace-pre-line leading-relaxed">{t.description}</p>
+          </DrawerSection>
+        )}
       </DrawerShell>
     );
   }
@@ -1175,6 +1800,34 @@ const DetailDrawer: React.FC<DetailDrawerProps> = ({
           </div>
         </DrawerSection>
         {v.description && <DrawerSection label="Description"><p className="text-[13px] text-gray-700 whitespace-pre-line">{v.description}</p></DrawerSection>}
+        {(v.inherentSeverity || v.residualSeverity) && (
+          <DrawerSection label="Risk Assessment">
+            <div className="flex items-center gap-6">
+              <div>
+                <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Inherent</div>
+                <StatusPill text={v.inherentSeverity || '—'} tone={severityTone(v.inherentSeverity)} />
+              </div>
+              <Icon icon="mdi:arrow-right" width={14} className="text-gray-300 mt-3" />
+              <div>
+                <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Residual</div>
+                <StatusPill text={v.residualSeverity || '—'} tone={severityTone(v.residualSeverity)} />
+              </div>
+            </div>
+          </DrawerSection>
+        )}
+        {(v.subProcessor || v.website) && (
+          <DrawerSection label="Details">
+            <div className="flex items-center gap-2 flex-wrap">
+              {v.subProcessor && <Chip text="Subprocessor" />}
+              {v.website && (
+                <a href={v.website} target="_blank" rel="noopener noreferrer"
+                   className="text-[12px] text-gray-600 hover:text-gray-900 inline-flex items-center gap-1">
+                  {v.website.replace(/^https?:\/\//, '')} <Icon icon="mdi:open-in-new" width={12} />
+                </a>
+              )}
+            </div>
+          </DrawerSection>
+        )}
       </DrawerShell>
     );
   }
@@ -1325,7 +1978,7 @@ const RiskEditForm: React.FC<{ risk: Soc2Risk; onCancel: () => void; onSave: (pa
 const TaskEditForm: React.FC<{ task: Soc2Task; personnel: Soc2Person[]; onCancel: () => void; onSave: (payload: UpdateTaskRequest) => Promise<void> }> = ({ task, personnel, onCancel, onSave }) => {
   const [title, setTitleVal] = useState(task.title);
   const [description, setDescription] = useState('');
-  const [assigneeId, setAssigneeId] = useState('');
+  const [assigneeId, setAssigneeId] = useState(task.assigneeId || '');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 

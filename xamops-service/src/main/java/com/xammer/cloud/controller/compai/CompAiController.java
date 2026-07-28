@@ -55,6 +55,11 @@ public class CompAiController {
         return ResponseEntity.ok(compAiService.getOverview());
     }
 
+    @GetMapping("/frameworks")
+    public ResponseEntity<?> frameworks() {
+        return ResponseEntity.ok(compAiService.getFrameworks());
+    }
+
     @GetMapping("/controls")
     public ResponseEntity<?> controls() {
         return ResponseEntity.ok(compAiService.getControls());
@@ -88,6 +93,11 @@ public class CompAiController {
     @GetMapping("/cloud-tests")
     public ResponseEntity<?> cloudTests() {
         return ResponseEntity.ok(compAiService.getCloudTests());
+    }
+
+    @GetMapping("/documents")
+    public ResponseEntity<?> documents() {
+        return ResponseEntity.ok(compAiService.getDocuments());
     }
 
     @GetMapping("/integrations")

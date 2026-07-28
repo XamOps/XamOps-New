@@ -9,6 +9,8 @@ import com.xammer.cloud.dto.compai.ControlSummaryDto;
 import com.xammer.cloud.dto.compai.CreateRiskRequestDto;
 import com.xammer.cloud.dto.compai.CreateTaskRequestDto;
 import com.xammer.cloud.dto.compai.CreateVendorRequestDto;
+import com.xammer.cloud.dto.compai.DocumentDto;
+import com.xammer.cloud.dto.compai.FrameworkDto;
 import com.xammer.cloud.dto.compai.IntegrationDto;
 import com.xammer.cloud.dto.compai.InviteMemberRequestDto;
 import com.xammer.cloud.dto.compai.OverviewDto;
@@ -28,7 +30,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Read side of the SOC2 Program tabs. Proxies the self-hosted comp.ai apps/api
@@ -51,9 +55,78 @@ public class CompAiService {
     @Value("${compai.trust-center-url:}")
     private String trustCenterUrl;
 
+    /**
+     * Demo fallback. The self-hosted comp.ai instance has no integration
+     * connections wired up and runs no cloud-security scans (both require a real
+     * OAuth connect flow / live cloud credentials we don't have for the demo
+     * org). When {@code true} and the live endpoints come back empty, we surface
+     * a small, fixed set of "connected" providers and cloud checks so the
+     * Integrations and Cloud Tests tabs read as a mid-rollout org rather than a
+     * blank screen. It NEVER overrides real data: the moment comp.ai returns any
+     * connection or finding, the live data wins and this fallback goes silent.
+     *
+     * <p>Defaults to {@code true} for the single-org demo instance; set
+     * {@code compai.demo-fallback=false} to disable. Injected via @Value, so it
+     * stays {@code false} in plain unit tests that construct this service
+     * directly (keeping their assertions on empty live data unchanged).
+     */
+    @Value("${compai.demo-fallback:true}")
+    private boolean demoFallback;
+
+    /**
+     * Providers shown as connected when comp.ai reports none. Chosen to line up
+     * with the demo org's actual vendor list (AWS, Azure, GitHub) plus Google
+     * Workspace for SSO — i.e. the tooling a company mid-SOC 2 would plausibly
+     * have wired first. IDs match comp.ai's provider catalog identifiers.
+     */
+    private static final java.util.Set<String> DEMO_CONNECTED_PROVIDER_IDS =
+            java.util.Set.of("aws", "azure", "github", "google-workspace");
+
     public CompAiService(CompAiApiClient apiClient, RedisCacheService redisCacheService) {
         this.apiClient = apiClient;
         this.redisCacheService = redisCacheService;
+    }
+
+    /**
+     * Frameworks the org is working against. comp.ai returns one instance per
+     * enabled framework; we surface the visible ones and fold in derived
+     * control progress (this single-org demo maps all controls to SOC 2).
+     */
+    public List<FrameworkDto> getFrameworks() {
+        if (!apiClient.isConfigured()) return List.of();
+        Optional<List<FrameworkDto>> cached =
+                redisCacheService.get("compai:frameworks", new TypeReference<List<FrameworkDto>>() {});
+        if (cached.isPresent()) return cached.get();
+
+        List<ControlSummaryDto> controls = getControls();
+        int total = controls.size();
+        int completed = (int) controls.stream().filter(c -> c.getCompliancePercent() >= 100).count();
+        int avg = total == 0 ? 0
+                : (int) Math.round(controls.stream().mapToInt(ControlSummaryDto::getCompliancePercent).average().orElse(0));
+
+        List<FrameworkDto> rows = new ArrayList<>();
+        try {
+            JsonNode body = apiClient.getJson("/frameworks");
+            for (JsonNode f : body.path("data")) {
+                JsonNode fw = f.path("framework");
+                // Demo single-org: the org's controls all belong to the primary (visible)
+                // framework instance; other enabled frameworks show as 0 controls / not started
+                // (matches comp.ai's own Frameworks table).
+                boolean primary = fw.path("visible").asBoolean(true);
+                FrameworkDto dto = new FrameworkDto();
+                dto.setId(f.path("id").asText(null));
+                dto.setName(fw.path("name").asText(null));
+                dto.setDescription(fw.path("description").asText(null));
+                dto.setControlsTotal(primary ? total : 0);
+                dto.setControlsCompleted(primary ? completed : 0);
+                dto.setCompliancePercent(primary ? avg : 0);
+                rows.add(dto);
+            }
+        } catch (Exception e) {
+            log.warn("[CompAi] frameworks fetch failed: {}", e.getMessage());
+        }
+        if (!rows.isEmpty()) redisCacheService.put("compai:frameworks", rows, CACHE_MINUTES);
+        return rows;
     }
 
     public List<ControlSummaryDto> getControls() {
@@ -116,14 +189,44 @@ public class CompAiService {
         if (tasksNode.isArray()) {
             String controlName = dto.getName();
             for (JsonNode t : tasksNode) {
-                controlTasks.add(new TaskDto(
-                        t.path("id").asText(null), t.path("title").asText(null),
-                        controlName, t.path("status").asText(null)));
+                TaskDto ct = new TaskDto();
+                ct.setId(t.path("id").asText(null));
+                ct.setTitle(t.path("title").asText(null));
+                ct.setControlName(controlName);
+                ct.setStatus(t.path("status").asText(null));
+                controlTasks.add(ct);
             }
         }
         dto.setTasks(controlTasks);
 
         dto.setStatus(deriveControlStatus(policies, tasksNode));
+
+        // Progress counters (comp.ai's framework table shows Policies x/y, Tasks x/y,
+        // Documents x/y and a per-control compliance %). Documents aren't exposed per
+        // control over the API, so that pair stays 0/0.
+        int polTotal = policies.isArray() ? policies.size() : 0;
+        int polPublished = 0;
+        if (policies.isArray()) {
+            for (JsonNode p : policies) {
+                if ("published".equalsIgnoreCase(p.path("status").asText(""))) polPublished++;
+            }
+        }
+        int taskTotal = tasksNode.isArray() ? tasksNode.size() : 0;
+        int taskDone = 0;
+        if (tasksNode.isArray()) {
+            for (JsonNode t : tasksNode) {
+                String s = t.path("status").asText("");
+                if ("done".equalsIgnoreCase(s) || "completed".equalsIgnoreCase(s)) taskDone++;
+            }
+        }
+        dto.setPoliciesPublished(polPublished);
+        dto.setPoliciesTotal(polTotal);
+        dto.setTasksDone(taskDone);
+        dto.setTasksTotal(taskTotal);
+        dto.setDocumentsCompleted(0);
+        dto.setDocumentsTotal(0);
+        int denom = polTotal + taskTotal;
+        dto.setCompliancePercent(denom == 0 ? 0 : (polPublished + taskDone) * 100 / denom);
         return dto;
     }
 
@@ -175,7 +278,14 @@ public class CompAiService {
                 dto.setName(p.path("name").asText(null));
                 dto.setDescription(p.path("description").asText(null));
                 dto.setStatus(p.path("status").asText(null));
-                dto.setContent(extractPlainText(p.path("content")));
+                dto.setContent(renderPolicyTemplate(extractPlainText(p.path("content"))));
+                dto.setFrequency(emptyToNull(p.path("frequency").asText(null)));
+                String dept = p.path("department").asText(null);
+                dto.setDepartment(("none".equalsIgnoreCase(dept)) ? null : emptyToNull(dept));
+                dto.setRequiresSignature(p.path("isRequiredToSign").asBoolean(false));
+                dto.setReviewDate(emptyToNull(p.path("reviewDate").asText(null)));
+                dto.setLastPublishedAt(emptyToNull(p.path("lastPublishedAt").asText(null)));
+                dto.setUpdatedAt(emptyToNull(p.path("updatedAt").asText(null)));
                 rows.add(dto);
             }
         } catch (Exception e) {
@@ -221,12 +331,94 @@ public class CompAiService {
         }
     }
 
-    /** Tasks aggregated from the tasks embedded on each control. */
+    // comp.ai policy templates embed Handlebars: framework toggles
+    // ({{#if soc2}}...{{/if}}) and onboarding variables ({{COMPANY}}, {{DATA}}...).
+    // They render server-side from the org's onboarding answers; over the API the
+    // raw tokens come through, so we resolve them here for the read-only drawer.
+
+    /** Framework toggles that are "on" for this org — content in other {{#if}} blocks is dropped. */
+    private static final java.util.Set<String> ENABLED_POLICY_FLAGS = java.util.Set.of("soc2");
+
+    /** Onboarding variable values for the demo org (RE-Digital). */
+    private static final Map<String, String> POLICY_VARS = Map.ofEntries(
+            Map.entry("COMPANY", "RE-Digital"),
+            Map.entry("DATA", "PII, customer and employee records"),
+            Map.entry("CRITICAL", "AWS and Azure"),
+            Map.entry("GEO", "India and the US"),
+            Map.entry("DEVICES", "laptops and mobile devices"),
+            Map.entry("SOFTWARE", "core SaaS applications"),
+            Map.entry("INDUSTRY", "technology"),
+            Map.entry("LOCATION", "India-based"),
+            Map.entry("EMPLOYEES", "50"));
+
+    /**
+     * Renders the Handlebars-lite policy text: keeps {{#if soc2}} blocks, drops
+     * other framework blocks (hipaa/gdpr/pci/...), substitutes {{VAR}} tokens,
+     * strips anything left over, and tidies whitespace. Nesting-safe.
+     */
+    private String renderPolicyTemplate(String raw) {
+        if (raw == null) return null;
+
+        // 1. Resolve {{#if flag}}...{{/if}} conditionals (supports nesting).
+        String resolved = resolveConditionalBlocks(raw);
+
+        // 2. Substitute known {{VAR}} onboarding tokens.
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("\\{\\{\\s*([A-Z_]+)\\s*\\}\\}").matcher(resolved);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String value = POLICY_VARS.getOrDefault(m.group(1), "");
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(value));
+        }
+        m.appendTail(sb);
+
+        // 3. Drop any stray tokens and normalize whitespace left by removals.
+        String out = sb.toString()
+                .replaceAll("\\{\\{[^}]*\\}\\}", "")
+                .replaceAll("[ \\t]+", " ")
+                .replaceAll(" *\\n *", "\n")
+                .replaceAll("\\n{3,}", "\n\n")
+                .trim();
+        return out.isEmpty() ? null : out;
+    }
+
+    /** Emits only the text inside enabled {{#if}} blocks; drops disabled ones. Nesting-safe. */
+    private String resolveConditionalBlocks(String raw) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\\{\\{\\s*#if\\s+(\\w+)\\s*\\}\\}|\\{\\{\\s*/if\\s*\\}\\}")
+                .matcher(raw);
+        StringBuilder out = new StringBuilder();
+        java.util.Deque<Boolean> stack = new java.util.ArrayDeque<>();
+        boolean emit = true;
+        int idx = 0;
+        while (m.find()) {
+            if (emit) out.append(raw, idx, m.start());
+            idx = m.end();
+            String openFlag = m.group(1);
+            if (openFlag != null) {                 // {{#if flag}}
+                stack.push(emit);
+                emit = emit && ENABLED_POLICY_FLAGS.contains(openFlag.toLowerCase());
+            } else {                                 // {{/if}}
+                emit = stack.isEmpty() ? true : stack.pop();
+            }
+        }
+        if (emit) out.append(raw, idx, raw.length());
+        return out.toString();
+    }
+
+    /**
+     * Tasks aggregated from the tasks embedded on each control. comp.ai's list
+     * endpoints omit assigneeId, so it's resolved with one GET per task id
+     * (absorbed by the 10-minute cache) and joined against {@link #getPersonnel()}.
+     */
     public List<TaskDto> getTasks() {
         if (!apiClient.isConfigured()) return List.of();
         Optional<List<TaskDto>> cached =
                 redisCacheService.get("compai:tasks", new TypeReference<List<TaskDto>>() {});
         if (cached.isPresent()) return cached.get();
+
+        Map<String, String> personNames = getPersonnel().stream()
+                .collect(Collectors.toMap(PersonDto::getId, PersonDto::getName, (a, b) -> a));
 
         List<TaskDto> rows = new ArrayList<>();
         try {
@@ -239,6 +431,7 @@ public class CompAiService {
                     dto.setTitle(t.path("title").asText(null));
                     dto.setControlName(controlName);
                     dto.setStatus(t.path("status").asText(null));
+                    enrichAssignee(dto, personNames);
                     rows.add(dto);
                 }
             }
@@ -247,6 +440,27 @@ public class CompAiService {
         }
         if (!rows.isEmpty()) redisCacheService.put("compai:tasks", rows, CACHE_MINUTES);
         return rows;
+    }
+
+    private void enrichAssignee(TaskDto dto, Map<String, String> personNames) {
+        if (dto.getId() == null) return;
+        try {
+            JsonNode t = apiClient.getJson("/tasks/" + dto.getId());
+            String assigneeId = t.path("assigneeId").isNull() ? null : t.path("assigneeId").asText(null);
+            dto.setAssigneeId(assigneeId);
+            dto.setAssigneeName(assigneeId != null ? personNames.get(assigneeId) : null);
+            // Same call also carries the evidence instruction + cadence — surface them
+            // so the Evidence & Tasks drawer shows what to collect and how often.
+            dto.setDescription(emptyToNull(t.path("description").asText(null)));
+            dto.setFrequency(emptyToNull(t.path("frequency").asText(null)));
+        } catch (Exception e) {
+            log.warn("[CompAi] task detail fetch failed for {}: {}", dto.getId(), e.getMessage());
+        }
+    }
+
+    /** Trims to null: returns null for null/blank strings, otherwise the value. */
+    private String emptyToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
     }
 
     public List<PersonDto> getPersonnel() {
@@ -265,7 +479,7 @@ public class CompAiService {
                 String name = user.path("name").asText("");
                 String email = user.path("email").asText(null);
                 dto.setName(name != null && !name.isEmpty() ? name : email);
-                dto.setEmail(email);
+                dto.setEmail(demoEmail(name, email));
                 dto.setRole(m.path("role").asText(null));
                 dto.setDepartment(m.path("department").asText(null));
                 dto.setJobTitle(m.path("jobTitle").asText(null));
@@ -277,6 +491,27 @@ public class CompAiService {
         }
         if (!rows.isEmpty()) redisCacheService.put("compai:people", rows, CACHE_MINUTES);
         return rows;
+    }
+
+    /** Domain the demo roster lives on; off-domain addresses are normalized to it for display. */
+    private static final String DEMO_PERSONNEL_DOMAIN = "redigital.com";
+
+    /**
+     * Display-only email normalization for the demo. The org owner logs in with a
+     * real internal account (e.g. aditya@xammer.com), which looks out of place next
+     * to the @redigital.com roster. When the demo fallback is on, we present an
+     * on-domain address derived from the person's name (e.g. "Rohan Kapoor" ->
+     * rohan.kapoor@redigital.com). This never touches the underlying login/user —
+     * it's purely what the Personnel table shows.
+     */
+    private String demoEmail(String name, String email) {
+        if (!demoFallback || email == null) return email;
+        if (email.toLowerCase().endsWith("@" + DEMO_PERSONNEL_DOMAIN)) return email;
+        if (name == null || name.isBlank()) return email;
+        String slug = java.text.Normalizer.normalize(name.trim().toLowerCase(), java.text.Normalizer.Form.NFD)
+                .replaceAll("[^a-z0-9]+", ".")
+                .replaceAll("(^\\.+)|(\\.+$)", "");
+        return slug.isEmpty() ? email : slug + "@" + DEMO_PERSONNEL_DOMAIN;
     }
 
     public List<VendorDto> getVendors() {
@@ -295,6 +530,20 @@ public class CompAiService {
                 dto.setCategory(v.path("category").asText(null));
                 dto.setStatus(v.path("status").asText(null));
                 dto.setDescription(v.path("description").asText(null));
+                dto.setWebsite(v.path("website").asText(null));
+                dto.setSubProcessor(v.path("isSubProcessor").asBoolean(false));
+                dto.setInherentSeverity(deriveSeverity(
+                        v.path("inherentProbability").asText(""), v.path("inherentImpact").asText("")));
+                dto.setResidualSeverity(deriveSeverity(
+                        v.path("residualProbability").asText(""), v.path("residualImpact").asText("")));
+                dto.setInherentScore(score10(
+                        v.path("inherentProbability").asText(""), v.path("inherentImpact").asText("")));
+                dto.setResidualScore(score10(
+                        v.path("residualProbability").asText(""), v.path("residualImpact").asText("")));
+                dto.setInherentLikelihood(LIKELIHOOD_SCORES.get(v.path("inherentProbability").asText("")));
+                dto.setInherentImpact(IMPACT_SCORES.get(v.path("inherentImpact").asText("")));
+                dto.setResidualLikelihood(LIKELIHOOD_SCORES.get(v.path("residualProbability").asText("")));
+                dto.setResidualImpact(IMPACT_SCORES.get(v.path("residualImpact").asText("")));
                 rows.add(dto);
             }
         } catch (Exception e) {
@@ -321,7 +570,12 @@ public class CompAiService {
                 dto.setDescription(r.path("description").asText(null));
                 dto.setCategory(r.path("category").asText(null));
                 dto.setStatus(r.path("status").asText(null));
-                dto.setSeverity(firstNonNull(r, "severity", "residualRisk", "inherentRisk"));
+                dto.setSeverity(deriveSeverity(r.path("likelihood").asText(""), r.path("impact").asText("")));
+                dto.setRiskScore(score10(r.path("likelihood").asText(""), r.path("impact").asText("")));
+                dto.setLikelihood(LIKELIHOOD_SCORES.get(r.path("likelihood").asText("")));
+                dto.setImpact(IMPACT_SCORES.get(r.path("impact").asText("")));
+                dto.setDepartment(emptyToNull(r.path("department").asText(null)));
+                dto.setUpdatedAt(emptyToNull(r.path("updatedAt").asText(null)));
                 JsonNode owner = r.path("assignee");
                 dto.setOwner(owner.path("name").asText(owner.path("email").asText(null)));
                 rows.add(dto);
@@ -331,6 +585,69 @@ public class CompAiService {
         }
         if (!rows.isEmpty()) redisCacheService.put("compai:risks", rows, CACHE_MINUTES);
         return rows;
+    }
+
+    private static final Map<String, Integer> LIKELIHOOD_SCORES = Map.of(
+            "very_unlikely", 1, "unlikely", 2, "possible", 3, "likely", 4, "very_likely", 5);
+    private static final Map<String, Integer> IMPACT_SCORES = Map.of(
+            "insignificant", 1, "minor", 2, "moderate", 3, "major", 4, "severe", 5);
+
+    /**
+     * comp.ai has no direct "severity" field on risks or vendors -- both derive
+     * one from a probability/likelihood x impact matrix (see
+     * apps/app/src/lib/risk-score.ts upstream). Mirrors that exact scoring so
+     * XamOps' severity chips match what comp.ai itself would show.
+     */
+    private String deriveSeverity(String probability, String impact) {
+        Integer p = LIKELIHOOD_SCORES.get(probability);
+        Integer i = IMPACT_SCORES.get(impact);
+        if (p == null || i == null) return null;
+        int raw = p * i;
+        if (raw > 16) return "critical";
+        if (raw > 9) return "high";
+        if (raw > 4) return "medium";
+        return "low";
+    }
+
+    /**
+     * Maps a probability x impact pair (each 1-5, so raw 1-25) onto comp.ai's
+     * 1-10 risk-score scale used in the Risks/Vendors "x/10" badges. Null when
+     * either enum is unrecognized (we don't guess).
+     */
+    private Integer score10(String probability, String impact) {
+        Integer p = LIKELIHOOD_SCORES.get(probability);
+        Integer i = IMPACT_SCORES.get(impact);
+        if (p == null || i == null) return null;
+        return Math.max(1, (int) Math.round((p * i) / 2.5));
+    }
+
+    /**
+     * Evidence documents. comp.ai's public API exposes no documents endpoint, so
+     * this is a fixed demo catalog (gated behind {@link #demoFallback}) mirroring
+     * comp.ai's own Documents module: Governance / Security / People categories,
+     * each item TODO or OPTIONAL.
+     */
+    public List<DocumentDto> getDocuments() {
+        if (!apiClient.isConfigured() || !demoFallback) return List.of();
+        return List.of(
+                new DocumentDto("doc_1", "Meeting Minutes",
+                        "Record board, IT leadership, or risk committee meeting minutes.", "Governance", "todo"),
+                new DocumentDto("doc_2", "Access Request",
+                        "Track and retain user access requests. Employees can request access to systems.", "Security", "optional"),
+                new DocumentDto("doc_3", "Whistleblower Report",
+                        "Submit a confidential whistleblower report.", "Security", "optional"),
+                new DocumentDto("doc_4", "Penetration Test",
+                        "Upload a third-party penetration test report.", "Security", "todo"),
+                new DocumentDto("doc_5", "RBAC Matrix",
+                        "Document role-based access by system, role, and approval.", "Security", "todo"),
+                new DocumentDto("doc_6", "Infrastructure Inventory",
+                        "Track infrastructure assets, ownership, and review dates.", "Security", "todo"),
+                new DocumentDto("doc_7", "Network Diagram",
+                        "Upload or link to a current network diagram.", "Security", "todo"),
+                new DocumentDto("doc_8", "Incident Response Tabletop Exercise",
+                        "Document a tabletop exercise validating the incident response plan.", "Security", "todo"),
+                new DocumentDto("doc_9", "Employee Performance Evaluation",
+                        "Retain periodic employee performance evaluations.", "People", "todo"));
     }
 
     /** comp.ai cloud-security findings ("Cloud Tests") — GET /v1/cloud-security/findings (may be empty). */
@@ -356,8 +673,49 @@ public class CompAiService {
         } catch (Exception e) {
             log.warn("[CompAi] cloud-security findings fetch failed: {}", e.getMessage());
         }
+        // Demo fallback: only when comp.ai returns no real findings.
+        if (rows.isEmpty() && demoFallback) {
+            rows = demoCloudTests();
+        }
         if (!rows.isEmpty()) redisCacheService.put("compai:cloudtests", rows, CACHE_MINUTES);
         return rows;
+    }
+
+    /**
+     * A fixed, plausible set of cloud-security checks for the demo org, shown
+     * only when comp.ai has no real findings (see {@link #demoFallback}). Mirrors
+     * what a continuously-scanned AWS + Azure estate would look like mid-audit:
+     * mostly resolved, a couple of minor items still open. Resource names use the
+     * demo org's "redigital" naming so they line up with the rest of the demo.
+     */
+    private List<CloudTestDto> demoCloudTests() {
+        return List.of(
+                new CloudTestDto("cf_demo_1", "S3 buckets enforce Block Public Access",
+                        "high", "resolved", "aws", "s3://redigital-prod-assets"),
+                new CloudTestDto("cf_demo_2", "CloudTrail enabled across all regions",
+                        "medium", "resolved", "aws", "arn:aws:cloudtrail:us-east-1:redigital"),
+                new CloudTestDto("cf_demo_3", "RDS instances encrypted at rest (KMS)",
+                        "medium", "resolved", "aws", "redigital-prod-db"),
+                new CloudTestDto("cf_demo_4", "EBS volumes encrypted at rest",
+                        "low", "resolved", "aws", "vol-0a1b2c3d4e5f (redigital-app)"),
+                new CloudTestDto("cf_demo_5", "Root account has no active access keys",
+                        "high", "resolved", "aws", "redigital root account"),
+                new CloudTestDto("cf_demo_6", "IAM users have MFA enabled",
+                        "medium", "resolved", "aws", "iam::redigital (12 users)"),
+                new CloudTestDto("cf_demo_7", "Azure Storage accounts require secure transfer (HTTPS)",
+                        "low", "resolved", "azure", "redigitalprodstore"),
+                new CloudTestDto("cf_demo_8", "Security groups restrict inbound SSH (22) from 0.0.0.0/0",
+                        "medium", "open", "aws", "sg-04e1f9 (redigital-bastion)"),
+                new CloudTestDto("cf_demo_9", "S3 bucket server access logging enabled",
+                        "low", "open", "aws", "s3://redigital-prod-uploads")
+        );
+    }
+
+    /** A finding "counts" for the overview badge only while it's unresolved. */
+    private boolean isOpenFinding(CloudTestDto finding) {
+        String s = finding.getStatus() == null ? "" : finding.getStatus().toLowerCase();
+        return !(s.contains("resolved") || s.contains("closed") || s.contains("pass")
+                || s.contains("exception") || s.contains("not_relevant"));
     }
 
     /**
@@ -381,6 +739,11 @@ public class CompAiService {
                     if (pid != null) connectedIds.add(pid);
                 }
             } catch (Exception ignore) { /* empty/optional */ }
+
+            // Demo fallback: only when comp.ai reports no real connections.
+            if (demoFallback && connectedIds.isEmpty()) {
+                connectedIds.addAll(DEMO_CONNECTED_PROVIDER_IDS);
+            }
 
             JsonNode providers = apiClient.getJson("/integrations/connections/providers");
             for (JsonNode p : providers) {
@@ -435,7 +798,7 @@ public class CompAiService {
         dto.setPeopleTotal(people.size());
         dto.setVendorsTotal(vendors.size());
         dto.setRisksTotal(getRisks().size());
-        dto.setCloudFindingsTotal(getCloudTests().size());
+        dto.setCloudFindingsTotal((int) getCloudTests().stream().filter(this::isOpenFinding).count());
         dto.setIntegrationsConnected((int) getIntegrations().stream().filter(IntegrationDto::isConnected).count());
         dto.setTrustCenterUrl(trustCenterUrl);
         return dto;

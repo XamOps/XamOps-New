@@ -29,6 +29,16 @@ public class ControlSummaryDto {
     private String policyName;        // first linked policy (nullable)
     private String policyStatus;      // first linked policy status (nullable)
     private int taskCount;
+
+    // Progress counters for the framework control table (published/total, done/total).
+    private int compliancePercent;    // (publishedPolicies + doneTasks) / (totalPolicies + totalTasks)
+    private int policiesPublished;
+    private int policiesTotal;
+    private int tasksDone;
+    private int tasksTotal;
+    private int documentsCompleted;   // no per-control documents over the API -> 0/0
+    private int documentsTotal;
+
     private List<ControlRequirementRefDto> requirements;
     private List<ControlPolicyRefDto> policies;
     private List<TaskDto> tasks;
