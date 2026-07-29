@@ -197,8 +197,10 @@ const ClientDetailsPage: React.FC = () => {
                 return;
             }
 
-            const { token } = await res.json();
-            const url = `${window.location.origin}/unified-dashboard#imp=${token}`;
+            // The backend picks the landing page from the target user's real role —
+            // BillOps users must not land on (and be stuck in) the XamOps dashboard.
+            const { token, destination } = await res.json();
+            const url = `${window.location.origin}/${destination || 'unified-dashboard'}#imp=${token}`;
             // Use a programmatic <a> click instead of window.open('', '_blank').
             // window.open with a blank URL clones the opener's sessionStorage into the new
             // tab — when bootstrapImpersonationHash writes back, the admin tab's session

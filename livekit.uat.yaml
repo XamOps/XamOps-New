@@ -1,0 +1,49 @@
+# LiveKit server config for UAT.
+#
+# Mounted read-only into the livekit container by docker-compose.livekit.uat.yml.
+# This is a REAL (non --dev) deployment: TLS is relaxed at the media layer but the
+# browser reaches signalling over wss:// through the api-gateway (see the compose
+# header for the nginx snippet).
+#
+# API keys are NOT stored here — they come from the LIVEKIT_KEYS env var so the
+# secret never lands in git. Everything below is non-secret topology.
+
+port: 7880                     # signalling / websocket (proxied as wss by nginx)
+bind_addresses:
+  - "0.0.0.0"
+
+rtc:
+  # TCP fallback for WebRTC when a client's network blocks UDP. Must be reachable
+  # from the browser (open in the security group).
+  tcp_port: 7881
+  # UDP media range. Keep it small but large enough for concurrent calls; every
+  # publisher/subscriber pair uses a port. Must be open in the security group.
+  port_range_start: 50000
+  port_range_end: 50100
+  # CRITICAL on a cloud host behind NAT (this UAT box has a private 10.x address):
+  # without this LiveKit advertises its internal IP in ICE candidates and media
+  # never arrives — signalling connects, then the call is silent. `true` makes it
+  # discover the instance's public/reachable IP. If discovery picks the wrong
+  # address, replace with an explicit `node_ip: <reachable-ip>` instead.
+  use_external_ip: true
+
+# Built-in TURN relay. Roughly 15-20% of connections need a relay (corporate
+# firewalls, symmetric NAT) — which is most support users. This is plain TCP/UDP
+# TURN as a baseline. For turns:// (TLS TURN) set domain + tls_port and point it
+# at a cert; see the notes in the compose header.
+turn:
+  enabled: true
+  # A dedicated TURN TCP port. 3478 is the standard; open it in the security group.
+  tcp_port: 3478
+  # domain: livekit-uat.xamops.com
+  # tls_port: 5349
+
+# Single-node UAT needs no Redis. Uncomment to run multiple LiveKit nodes sharing
+# the existing UAT redis (also required if you scale xamops-service past one
+# replica and move calls to a shared STOMP relay).
+# redis:
+#   address: redis-uat:6379
+
+logging:
+  level: info
+  json: false

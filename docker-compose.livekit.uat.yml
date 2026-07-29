@@ -1,0 +1,78 @@
+version: '3.8'
+
+# LiveKit SFU for ticket calls on UAT.
+#
+#   # 1. Generate a key/secret once (secret must be >= 32 chars):
+#   docker run --rm livekit/livekit-server generate-keys
+#
+#   # 2. Export them (and a ws-token secret) in the shell that runs compose:
+#   export LIVEKIT_API_KEY=APIxxxxxxxx
+#   export LIVEKIT_API_SECRET=<the generated secret, >= 32 chars>
+#
+#   # 3. Bring it up:
+#   docker compose -f docker-compose.livekit.uat.yml up -d
+#
+# ── Wire it to xamops-service ────────────────────────────────────────────────
+# Set these on the xamops-service container (same LIVEKIT_API_KEY/SECRET), then
+# restart it. xamops-service only MINTS tokens; it never talks to LiveKit itself,
+# so it does not need to be on this network.
+#   LIVEKIT_URL=wss://livekit-uat.xamops.com   # browser-facing, must be wss on https
+#   LIVEKIT_API_KEY=APIxxxxxxxx
+#   LIVEKIT_API_SECRET=<same secret>
+#   CALLS_WS_TOKEN_SECRET=<base64, >= 32 bytes decoded>   # override the committed dev default
+#
+# ── nginx (api-gateway) — terminate TLS and proxy signalling to wss ──────────
+# Point livekit-uat.xamops.com at the gateway and add:
+#   location / {
+#       proxy_pass http://xamops-livekit-uat:7880;   # same docker network
+#       proxy_http_version 1.1;
+#       proxy_set_header Upgrade $http_upgrade;
+#       proxy_set_header Connection "upgrade";
+#       proxy_set_header Host $host;
+#       proxy_read_timeout 3600s;
+#   }
+# (If the gateway is not on xamops-network, target the host IP + published 7880.)
+#
+# ── Security group / firewall — open to the internet (or client CIDR) ────────
+#   7881/tcp            WebRTC TCP fallback
+#   50000-50100/udp     WebRTC media
+#   3478/tcp + 3478/udp TURN relay
+#   443/tcp             wss signalling (via the gateway)
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: xamops-livekit-uat
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    environment:
+      # Format is "key: secret". Kept in env so the secret is not committed.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.uat.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"          # signalling (proxied as wss by the gateway)
+      - "7881:7881"          # WebRTC TCP fallback
+      - "3478:3478/tcp"      # TURN
+      - "3478:3478/udp"      # TURN
+      - "50000-50100:50000-50100/udp"  # WebRTC media
+    networks:
+      - xamops-network
+    healthcheck:
+      # LiveKit serves a plain 200 on / for the signalling port.
+      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+networks:
+  # Join the existing shared network so the api-gateway reaches this container by
+  # name. `external: true` means "already created by the main stack" — find its
+  # real name (compose usually prefixes it with the project) and set it below:
+  #
+  #   docker inspect xamops-service -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}'
+  #
+  # then replace `xamops-network` on both lines with what that prints.
+  xamops-network:
+    external: true

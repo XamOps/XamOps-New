@@ -44,20 +44,42 @@ public class ImpersonationTokenController {
     @PostMapping("/generate-impersonation-token")
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<Map<String, String>> generateToken(@RequestBody ImpersonationTokenRequest request) {
-        SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secretKey));
+        // Resolve the target user's REAL role from the DB. ImpersonationJwtFilter builds the
+        // impersonated SecurityContext's authorities straight from this claim, and the frontend
+        // renders its sidebar from those authorities — so hardcoding ROLE_XAMOPS here made every
+        // "Login As" session show the XamOps sidebar/dashboard even for BillOps users.
+        String role = userRepository.findById(request.getUserId())
+                .map(User::getRole)
+                .filter(r -> r != null && !r.trim().isEmpty())
+                .map(r -> r.startsWith("ROLE_") ? r : "ROLE_" + r)
+                .orElse("ROLE_XAMOPS");
 
-        String token = Jwts.builder()
-                .setSubject(String.valueOf(request.getUserId()))
-                .claim("tenantId", request.getTenantId())
-                .claim("allowedAccountIds", request.getAllowedAccountIds())
-                .claim("role", "ROLE_XAMOPS")
-                .setIssuer("billops")
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 8L * 60 * 60 * 1000))
-                .signWith(key, SignatureAlgorithm.HS256)
-                .compact();
+        // Never hand out super-admin through impersonation — a BillOps admin (or sub-admin)
+        // must not be able to escalate by "Login As"-ing a super admin. Fall back to ROLE_XAMOPS.
+        if ("ROLE_SUPER_ADMIN".equals(role)) {
+            role = "ROLE_XAMOPS";
+        }
 
-        return ResponseEntity.ok(Map.of("token", token));
+        String token = buildToken(request.getUserId(), request.getTenantId(),
+                request.getAllowedAccountIds(), role);
+
+        return ResponseEntity.ok(Map.of("token", token, "destination", destinationForRole(role)));
+    }
+
+    /**
+     * Landing page for an impersonated session, mirroring the role → redirect mapping
+     * used on normal login (LoginOtpController.verifyLoginOtp).
+     */
+    private String destinationForRole(String role) {
+        switch (role) {
+            case "ROLE_BILLOPS_ADMIN":
+            case "ROLE_BILLOPS_ADMIN_SUB":
+                return "billops-admin-dashboard";
+            case "ROLE_BILLOPS":
+                return "billops-dashboard";
+            default:
+                return "unified-dashboard";
+        }
     }
 
     /**
