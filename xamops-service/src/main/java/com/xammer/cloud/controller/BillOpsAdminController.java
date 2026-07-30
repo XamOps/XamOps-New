@@ -308,6 +308,15 @@ public class BillOpsAdminController {
     @DeleteMapping("/clients/cache")
     public ResponseEntity<String> evictClientsCache() {
         redisCacheService.evict(CLIENTS_CACHE_KEY);
+        // Sub-admins are served from their own key, so evicting only the primary one would leave
+        // them refreshing into the same cached copy.
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        boolean isSubAdmin = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_BILLOPS_ADMIN_SUB".equals(a.getAuthority()));
+        if (isSubAdmin) {
+            userRepository.findByUsername(auth.getName())
+                    .ifPresent(u -> redisCacheService.evict(CLIENTS_CACHE_KEY + ":sub:" + u.getId()));
+        }
         return ResponseEntity.ok("Cache evicted");
     }
 

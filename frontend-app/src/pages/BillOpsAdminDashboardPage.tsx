@@ -12,11 +12,12 @@
  *  4. Tickets   — Recent tickets with severity/status filter
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chart from 'chart.js/auto';
 import { Icon } from '@iconify/react';
 import { useBillOpsAdminDashboard } from '../hooks/useBillOpsAdminDashboard';
+import { useAuth } from '../contexts/AuthContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import type { TopSpendingAccount, AdminInvoice, AdminTicket, SpendingTrendItem } from '../types/billopsAdminDashboard';
 import { apiFetch } from '../utils/apiClient';
@@ -72,6 +73,11 @@ const NUM_STYLE: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 };
 
+// Spend figures live only as long as the server-side clients cache (5 min).
+const CLIENTS_CACHE_TTL_MS = 5 * 60 * 1000;
+// Written by earlier builds: not keyed by user, never expired, never refreshed.
+const LEGACY_CLIENTS_CACHE_KEY = 'billops_admin_clients_data';
+
 const splitCurrency = (str: string): { main: string; cents: string } => {
   const dot = str.lastIndexOf('.');
   return dot === -1 ? { main: str, cents: '' } : { main: str.slice(0, dot), cents: str.slice(dot) };
@@ -79,6 +85,7 @@ const splitCurrency = (str: string): { main: string; cents: string } => {
 
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, isRefreshingTopSpending, error, refreshDashboard, refreshTopSpending } = useBillOpsAdminDashboard();
+  const { userProfile } = useAuth();
   const { setActions, clearActions } = useTopbar();
   const { loadRates, convert } = useCurrency();
 
@@ -91,27 +98,55 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
   const [clientsData, setClientsData] = useState<ClientsApiData[] | null>(null);
   const [clientsLoading, setClientsLoading] = useState(true);
+  const [clientsRefreshing, setClientsRefreshing] = useState(false);
+  const [clientsError, setClientsError] = useState<string | null>(null);
+  const [clientsStale, setClientsStale] = useState(false);
 
-  const CLIENTS_CACHE_KEY = 'billops_admin_clients_data';
+  // Keyed by username so two admins sharing a browser never see each other's spend,
+  // and stamped with a timestamp so a copy expires instead of living forever.
+  const clientsCacheKeyRef = useRef(`${LEGACY_CLIENTS_CACHE_KEY}:${userProfile?.username ?? 'unknown'}`);
+  useEffect(() => {
+    clientsCacheKeyRef.current = `${LEGACY_CLIENTS_CACHE_KEY}:${userProfile?.username ?? 'unknown'}`;
+  }, [userProfile?.username]);
+
+  const fetchClients = useCallback(async (silent = false) => {
+    if (silent) setClientsRefreshing(true); else setClientsLoading(true);
+    try {
+      const res = await apiFetch('/api/xamops/billops-admin/clients', { credentials: 'include' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json() as ClientsApiData[];
+      setClientsData(d);
+      setClientsError(null);
+      setClientsStale(false);
+      localStorage.setItem(clientsCacheKeyRef.current, JSON.stringify({ data: d, ts: Date.now() }));
+    } catch (err) {
+      // Never substitute another spend source here — a failed fetch has to look failed,
+      // otherwise the tile silently renders a different backend's total.
+      console.error('Failed to load clients data for spend total', err);
+      setClientsError(err instanceof Error ? err.message : 'Failed to load spend data');
+    } finally {
+      setClientsLoading(false);
+      setClientsRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const cached = localStorage.getItem(CLIENTS_CACHE_KEY);
+    localStorage.removeItem(LEGACY_CLIENTS_CACHE_KEY);
+
+    const cached = localStorage.getItem(clientsCacheKeyRef.current);
     if (cached) {
       try {
-        setClientsData(JSON.parse(cached) as ClientsApiData[]);
-        setClientsLoading(false);
+        const { data: d, ts } = JSON.parse(cached) as { data: ClientsApiData[]; ts: number };
+        if (Array.isArray(d)) {
+          setClientsData(d);
+          setClientsStale(Date.now() - ts > CLIENTS_CACHE_TTL_MS);
+          setClientsLoading(false);
+        }
       } catch (e) { /* ignore corrupt cache */ }
     }
 
-    apiFetch('/api/xamops/billops-admin/clients', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then((d: ClientsApiData[]) => {
-        setClientsData(d);
-        localStorage.setItem(CLIENTS_CACHE_KEY, JSON.stringify(d));
-      })
-      .catch(err => console.error('Failed to load clients data for spend total', err))
-      .finally(() => setClientsLoading(false));
-  }, []);
+    fetchClients(true);
+  }, [fetchClients]);
 
   useEffect(() => {
     apiFetch('/api/admin/autospotting/customer-savings', { credentials: 'include' })
@@ -200,9 +235,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     return { byProvider, total };
   }, [clientsData, convert]);
 
-  // ── Top 10 accounts derived from clientsData (same source as Client Details page) ──
-  const top10FromClients = React.useMemo(() => {
-    if (!clientsData) return convertedData?.topSpendingAccounts ?? [];
+  // ── All accounts derived from clientsData (same source as Client Details page) ──
+  const accountsFromClients = React.useMemo(() => {
+    if (!clientsData) return null;
 
     // Build a lookup of lastMonthSpending from the backend top accounts by providerAccountId
     const lastMonthMap: Record<string, number> = {};
@@ -238,22 +273,25 @@ const BillOpsAdminDashboardPage: React.FC = () => {
       }
     }
 
-    return allAccounts
-      .sort((a, b) => (b.currentMonthSpending ?? 0) - (a.currentMonthSpending ?? 0))
-      .slice(0, 10);
-  }, [clientsData, data, convert, convertedData]);
+    return allAccounts.sort((a, b) => (b.currentMonthSpending ?? 0) - (a.currentMonthSpending ?? 0));
+  }, [clientsData, data, convert]);
 
-  // ── Clients grouped from top accounts ─────────────────────────────────────
+  const top10FromClients = React.useMemo(
+    () => accountsFromClients?.slice(0, 10) ?? [],
+    [accountsFromClients],
+  );
+
+  // ── Clients grouped from the same account list the totals are built from ──
   const clientGroups = React.useMemo(() => {
-    if (!convertedData?.topSpendingAccounts) return [];
+    if (!accountsFromClients) return [];
     const map: Record<string, { clientName: string; totalSpend: number; accounts: TopSpendingAccount[] }> = {};
-    for (const acc of convertedData.topSpendingAccounts) {
+    for (const acc of accountsFromClients) {
       if (!map[acc.clientName]) map[acc.clientName] = { clientName: acc.clientName, totalSpend: 0, accounts: [] };
       map[acc.clientName].totalSpend += acc.currentMonthSpending || 0;
       map[acc.clientName].accounts.push(acc);
     }
     return Object.values(map).sort((a, b) => b.totalSpend - a.totalSpend);
-  }, [convertedData]);
+  }, [accountsFromClients]);
 
   // ── Filtered invoices/tickets ──────────────────────────────────────────────
   const filteredInvoices = React.useMemo(() => {
@@ -306,7 +344,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
   // ── Charts ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const spendingByProvider = clientsSpend?.byProvider ?? convertedData?.spendingByProvider;
+    const spendingByProvider = clientsSpend?.byProvider;
     if (!providerChartRef.current || !spendingByProvider) return;
     if (providerChartInstance.current) providerChartInstance.current.destroy();
     const ctx = providerChartRef.current.getContext('2d');
@@ -376,7 +414,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
       },
     });
     return () => { providerChartInstance.current?.destroy(); };
-  }, [clientsSpend, convertedData?.spendingByProvider]);
+  }, [clientsSpend]);
 
   useEffect(() => {
     if (!trendChartRef.current || !convertedData?.spendingTrend?.length) return;
@@ -459,7 +497,20 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   }, [convertedData?.spendingTrend]);
 
   // ── Topbar actions ─────────────────────────────────────────────────────────
+  // Refresh has to cover BOTH sources — the spend figures come from the clients
+  // endpoint, so refreshing only the dashboard endpoint leaves them untouched.
+  const refreshAll = useCallback(async () => {
+    refreshDashboard();
+    try {
+      await apiFetch('/api/xamops/billops-admin/clients/cache', { method: 'DELETE', credentials: 'include' });
+    } catch (err) {
+      console.error('Failed to evict server clients cache', err);
+    }
+    fetchClients(true);
+  }, [refreshDashboard, fetchClients]);
+
   useEffect(() => {
+    const busy = isRefreshing || clientsRefreshing;
     setActions(
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1.5">
@@ -468,16 +519,16 @@ const BillOpsAdminDashboardPage: React.FC = () => {
         </div>
         <span className="text-[rgba(0,0,0,0.15)] text-[12px] select-none">|</span>
         <button
-          onClick={refreshDashboard} disabled={isRefreshing}
+          onClick={refreshAll} disabled={busy}
           className="flex items-center gap-1.5 text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-40"
         >
-          <Icon icon="mdi:refresh" width={14} className={isRefreshing ? 'animate-spin' : ''} />
-          {isRefreshing ? 'Refreshing…' : 'Refresh'}
+          <Icon icon="mdi:refresh" width={14} className={busy ? 'animate-spin' : ''} />
+          {busy ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, data?.lastUpdated, isRefreshing, refreshDashboard]);
+  }, [setActions, clearActions, data?.lastUpdated, isRefreshing, clientsRefreshing, refreshAll]);
 
   // ── Shimmer skeleton ───────────────────────────────────────────────────────
   const Shimmer = ({ className }: { className: string }) => (
@@ -594,9 +645,18 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             label="Total System Spend"
             icon="mdi:currency-usd"
             iconColor="#4285F4"
-            loading={loading || clientsLoading}
-            currency={formatCurrency(clientsSpend?.total ?? convertedData?.totalSpending)}
-            sub="All clients · current month"
+            loading={clientsLoading}
+            currency={clientsSpend ? formatCurrency(clientsSpend.total) : undefined}
+            count={clientsSpend ? undefined : '—'}
+            sub={
+              clientsSpend
+                ? (clientsError
+                    ? <span className="text-amber-600">Cached copy — refresh failed</span>
+                    : clientsStale
+                      ? <span className="text-amber-600">Cached · refreshing…</span>
+                      : 'All clients · current month')
+                : <span className="text-red-600">Spend data unavailable — press Refresh</span>
+            }
           />
 
           <MetricCard
@@ -687,10 +747,12 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                   subtitle="By cloud provider · current month"
                 />
                 <div className="p-5">
-                  {!loading && !Object.values(clientsSpend?.byProvider ?? convertedData?.spendingByProvider ?? {}).some(v => v > 0) ? (
+                  {!clientsLoading && !Object.values(clientsSpend?.byProvider ?? {}).some(v => v > 0) ? (
                     <div className="flex flex-col items-center justify-center h-[220px] text-[rgba(0,0,0,0.25)]">
-                      <Icon icon="mdi:chart-pie" width={44} />
-                      <p className="text-[13px] font-medium mt-2 text-[rgba(0,0,0,0.35)]">No spending data available</p>
+                      <Icon icon={clientsError ? 'mdi:cloud-off-outline' : 'mdi:chart-pie'} width={44} />
+                      <p className="text-[13px] font-medium mt-2 text-[rgba(0,0,0,0.35)]">
+                        {clientsError ? 'Spend data unavailable — press Refresh to retry' : 'No spending data available'}
+                      </p>
                     </div>
                   ) : (
                     <div className="admin-chart-container"><canvas ref={providerChartRef} /></div>
@@ -790,7 +852,9 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                           );
                         })
                       ) : (
-                        <tr><td colSpan={8} className="px-4 py-10 text-center text-[rgba(0,0,0,0.4)] text-[13px]">No account data available</td></tr>
+                        <tr><td colSpan={8} className="px-4 py-10 text-center text-[rgba(0,0,0,0.4)] text-[13px]">
+                          {clientsError ? 'Spend data unavailable — press Refresh to retry' : 'No account data available'}
+                        </td></tr>
                       )}
                     </tbody>
                   </table>
@@ -855,15 +919,15 @@ const BillOpsAdminDashboardPage: React.FC = () => {
             <SectionHeader
               icon="mdi:account-group-outline" color="#7C3AED"
               title="Client Spending Summary"
-              subtitle={`${clientGroups.length} client${clientGroups.length !== 1 ? 's' : ''} · grouped from top spending accounts`}
+              subtitle={`${clientGroups.length} client${clientGroups.length !== 1 ? 's' : ''} · current month spend`}
             />
             <div className="overflow-x-auto">
-              {loading ? (
+              {clientsLoading ? (
                 <div className="p-5 space-y-2">{[1, 2, 3].map(i => <Shimmer key={i} className="h-12 w-full" />)}</div>
               ) : clientGroups.length === 0 ? (
                 <div className="px-6 py-12 text-center text-[rgba(0,0,0,0.4)] text-[13px]">
-                  <Icon icon="mdi:account-group-outline" width={40} className="mx-auto mb-2 text-[rgba(0,0,0,0.2)]" />
-                  No client data available
+                  <Icon icon={clientsError ? 'mdi:cloud-off-outline' : 'mdi:account-group-outline'} width={40} className="mx-auto mb-2 text-[rgba(0,0,0,0.2)]" />
+                  {clientsError ? 'Spend data unavailable — press Refresh to retry' : 'No client data available'}
                 </div>
               ) : (
                 <table className="bo-table min-w-full">

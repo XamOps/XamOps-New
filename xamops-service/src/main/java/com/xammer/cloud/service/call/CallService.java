@@ -25,6 +25,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -48,6 +50,9 @@ public class CallService {
 
     private static final Set<CallSession.State> LIVE_STATES =
             Set.of(CallSession.State.RINGING, CallSession.State.ACTIVE);
+
+    /** Matches ROLE_BILLOPS_ADMIN and ROLE_BILLOPS_ADMIN_SUB alike. */
+    private static final String ADMIN_ROLE_FRAGMENT = "BILLOPS_ADMIN";
 
     private final CallSessionRepository sessionRepository;
     private final CallParticipantRepository participantRepository;
@@ -407,6 +412,139 @@ public class CallService {
         return sessionRepository.findById(callId);
     }
 
+    // ─── Invite / add participant ─────────────────────────────────────────────
+
+    /**
+     * The users the caller may pull into this call, scoped by role.
+     *
+     * A customer sees only their own client's users; a BillOps admin sees the
+     * ticket client's users plus the whole admin pool. The current initiator and
+     * anyone already in the call are filtered out, so the picker only offers
+     * people who can actually be added.
+     */
+    @Transactional(readOnly = true)
+    public List<User> invitableUsers(CallUserPrincipal caller, Long callId) {
+        CallSession session = requireSession(callId);
+        requireParticipant(session, caller.getUserId());
+
+        Ticket ticket = ticketRepository.findById(session.getTicketId()).orElse(null);
+        Long ticketClientId = (ticket != null && ticket.getClient() != null)
+                ? ticket.getClient().getId()
+                : null;
+
+        // Insertion-ordered + de-duplicated: an admin can appear both as a client
+        // user (unlikely) and in the admin pool, and we want one entry.
+        LinkedHashMap<Long, User> eligible = new LinkedHashMap<>();
+        if (caller.isBillOpsAdmin()) {
+            if (ticketClientId != null) {
+                for (User u : userRepository.findByClientId(ticketClientId)) {
+                    eligible.put(u.getId(), u);
+                }
+            }
+            for (User u : userRepository.findByRoleContainingIgnoreCase(ADMIN_ROLE_FRAGMENT)) {
+                eligible.put(u.getId(), u);
+            }
+        } else if (caller.getClientId() != null) {
+            for (User u : userRepository.findByClientId(caller.getClientId())) {
+                eligible.put(u.getId(), u);
+            }
+        }
+
+        eligible.remove(caller.getUserId());
+        for (CallParticipant p : participantRepository.findByCallSessionId(callId)) {
+            eligible.remove(p.getUserId());
+        }
+        return new ArrayList<>(eligible.values());
+    }
+
+    /**
+     * Pulls specific users into a live call: rings the ones who are online and
+     * emails all of them a "join" invite. Every id is re-checked against the
+     * caller's allowed set, so a crafted request cannot ring someone outside the
+     * caller's scope.
+     */
+    @Transactional
+    public void invite(CallUserPrincipal caller, Long callId, List<Long> userIds) {
+        CallSession session = requireSession(callId);
+        if (!session.isLive()) {
+            throw new IllegalStateException("Call " + callId + " has ended");
+        }
+        requireParticipant(session, caller.getUserId());
+
+        List<Long> targets = userIds == null ? List.of()
+                : userIds.stream().filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        if (targets.isEmpty()) {
+            return;
+        }
+
+        Set<Long> allowed = invitableUsers(caller, callId).stream()
+                .map(User::getId)
+                .collect(Collectors.toSet());
+        for (Long id : targets) {
+            if (!allowed.contains(id)) {
+                throw new IllegalStateException("Not allowed to invite user " + id);
+            }
+        }
+
+        Ticket ticket = ticketRepository.findById(session.getTicketId()).orElse(null);
+        List<CallParticipant> added = new ArrayList<>();
+        List<String> adminEmails = new ArrayList<>();
+        List<String> customerEmails = new ArrayList<>();
+
+        for (User u : userRepository.findAllById(targets)) {
+            if (participantRepository.findByCallSessionIdAndUserId(callId, u.getId()).isPresent()) {
+                continue; // already in the call
+            }
+            boolean admin = u.getRole() != null && u.getRole().toUpperCase().contains(ADMIN_ROLE_FRAGMENT);
+
+            CallParticipant p = new CallParticipant();
+            p.setCallSessionId(callId);
+            p.setUserId(u.getId());
+            p.setUsername(u.getUsername());
+            p.setDisplayName(u.getUsername());
+            p.setParty(admin ? CallParticipant.Party.ADMIN : CallParticipant.Party.CUSTOMER);
+            p.setWasRung(true);
+            added.add(p);
+
+            if (u.getEmail() != null && !u.getEmail().isBlank()) {
+                (admin ? adminEmails : customerEmails).add(u.getEmail());
+            }
+        }
+        if (added.isEmpty()) {
+            return;
+        }
+        participantRepository.saveAll(added);
+
+        // Ring the ones who are online, exactly like the initial fan-out.
+        CallSignal incoming = buildSignal(CallSignal.Type.INCOMING, session, ticket);
+        Set<Long> online = presenceService.filterOnline(
+                added.stream().map(CallParticipant::getUserId).toList());
+        for (Long userId : online) {
+            notify(userId, incoming);
+        }
+
+        // Email everyone invited (durable "click to join"), with the detail route
+        // that matches each invitee's side.
+        boolean video = session.getMediaKind() == CallSession.MediaKind.VIDEO;
+        String callerName = caller.getDisplayName();
+        String subject = ticket != null ? ticket.getSubject() : null;
+        if (!adminEmails.isEmpty()) {
+            callNotificationService.sendCallInviteEmails(adminEmails, callerName, session.getTicketId(),
+                    subject, "/billops-ticket-detail", video);
+        }
+        if (!customerEmails.isEmpty()) {
+            callNotificationService.sendCallInviteEmails(customerEmails, callerName, session.getTicketId(),
+                    subject, "/ticket-detail", video);
+        }
+
+        // Let everyone already in the room see the roster grow.
+        CallSignal changed = buildSignal(CallSignal.Type.PARTICIPANT_CHANGED, session, ticket);
+        changed.setReason("invited:" + added.size());
+        broadcastToParticipants(callId, changed, null);
+
+        log.info("User {} invited {} participant(s) to call {}", caller.getUserId(), added.size(), callId);
+    }
+
     // ─── Internals ───────────────────────────────────────────────────────────
 
     /**
@@ -595,6 +733,23 @@ public class CallService {
         if (!invited) {
             throw new IllegalStateException(
                     "User " + userId + " was not invited to call " + session.getId());
+        }
+    }
+
+    /**
+     * Only someone already in the call may pull others in. Without this, knowing a
+     * call id would let an outsider ring arbitrary users.
+     */
+    private void requireParticipant(CallSession session, Long userId) {
+        if (session.getInitiatorUserId().equals(userId)) {
+            return;
+        }
+        boolean member = participantRepository
+                .findByCallSessionIdAndUserId(session.getId(), userId)
+                .isPresent();
+        if (!member) {
+            throw new IllegalStateException(
+                    "User " + userId + " is not part of call " + session.getId());
         }
     }
 

@@ -60,6 +60,13 @@ public class AdminDashboardService {
     private static final String DB_CACHE_KEY_PREFIX = "BILLOPS_ADMIN_DASHBOARD::";
     private static final String TOP_SPENDING_DB_KEY = "BILLOPS_TOP_SPENDING::system";
     private static final long CACHE_TTL_MINUTES = 120;
+    /**
+     * A DB snapshot is only worth serving while it is no older than the Redis TTL. Past that it is
+     * treated as a miss and rebuilt — otherwise a Redis miss re-warms from an arbitrarily old
+     * snapshot and the dashboard freezes at whatever the last build produced, which is how two
+     * admins end up looking at counts from different days.
+     */
+    private static final long SNAPSHOT_MAX_AGE_MINUTES = CACHE_TTL_MINUTES;
 
     private final BillingService billingService;
     private final CostService costService;
@@ -105,6 +112,14 @@ public class AdminDashboardService {
         return CACHE_KEY + ":system";
     }
 
+    /** True while a DB snapshot is recent enough to serve instead of rebuilding. */
+    private boolean isSnapshotFresh(CachedData entry) {
+        LocalDateTime lastUpdated = entry.getLastUpdated();
+        if (lastUpdated == null) return false;
+        return lastUpdated.isAfter(
+                LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusMinutes(SNAPSHOT_MAX_AGE_MINUTES));
+    }
+
     @Transactional
     public AdminDashboardDto getAdminDashboardSummary(boolean forceRefresh) {
         // Sub-users get a custom filtered view — never served from (or stored to) the global cache
@@ -123,9 +138,9 @@ public class AdminDashboardService {
                     logger.info("Returning Redis-cached admin dashboard for tenant: {}", tenantCacheKey);
                     return cached.get();
                 }
-                // 2. Try DB snapshot
+                // 2. Try DB snapshot — only while it is still fresh, otherwise fall through and rebuild
                 Optional<CachedData> dbEntry = cachedDataRepository.findById(dbKey);
-                if (dbEntry.isPresent()) {
+                if (dbEntry.isPresent() && isSnapshotFresh(dbEntry.get())) {
                     try {
                         AdminDashboardDto dbData = objectMapper.readValue(dbEntry.get().getJsonData(), AdminDashboardDto.class);
                         redisCache.put(tenantCacheKey, dbData, CACHE_TTL_MINUTES);
@@ -134,6 +149,9 @@ public class AdminDashboardService {
                     } catch (Exception e) {
                         logger.warn("Failed to deserialize DB admin dashboard snapshot for {}: {}", dbKey, e.getMessage());
                     }
+                } else if (dbEntry.isPresent()) {
+                    logger.info("DB admin dashboard snapshot {} older than {} min (lastUpdated={}) — rebuilding",
+                            dbKey, SNAPSHOT_MAX_AGE_MINUTES, dbEntry.get().getLastUpdated());
                 }
             }
 
@@ -160,7 +178,7 @@ public class AdminDashboardService {
                     return cached.get();
                 }
                 Optional<CachedData> dbEntry = cachedDataRepository.findById(userDbKey);
-                if (dbEntry.isPresent()) {
+                if (dbEntry.isPresent() && isSnapshotFresh(dbEntry.get())) {
                     try {
                         AdminDashboardDto dbData = objectMapper.readValue(dbEntry.get().getJsonData(), AdminDashboardDto.class);
                         redisCache.put(userCacheKey, dbData, CACHE_TTL_MINUTES);
@@ -169,6 +187,9 @@ public class AdminDashboardService {
                     } catch (Exception e) {
                         logger.warn("Failed to deserialize sub-user DB dashboard for user {}: {}", userId, e.getMessage());
                     }
+                } else if (dbEntry.isPresent()) {
+                    logger.info("DB sub-user dashboard snapshot {} older than {} min (lastUpdated={}) — rebuilding",
+                            userDbKey, SNAPSHOT_MAX_AGE_MINUTES, dbEntry.get().getLastUpdated());
                 }
             }
 
@@ -543,9 +564,56 @@ public class AdminDashboardService {
         String breakdownPrefix = "AWS_COST_BREAKDOWN::" + accountId + "::SERVICE::::" + month.atDay(1) + "::";
 
         if (isCurrentMonth) {
-            // 1a. DASHBOARD_DATA::{tenant}::{accountId} — the exact same source that the individual
-            //     account dashboard renders. Written by refreshAwsDashboardData() at WED/SUN 3:30 AM
-            //     (fresh CE call), so it is always >= AWS_MTD_COST (written 1 h earlier at 2:30 AM).
+            // 1a. Date-scoped AWS_COST_BREAKDOWN — the exact key (and value) that
+            //     BillOpsAdminController#buildClientDtos reads for the Client Details page and the
+            //     admin dashboard spend tile, refreshed on every Cost/FinOps visit. This has to come
+            //     first: the two endpoints must resolve the same number for the same account, and
+            //     the alternatives below are only refreshed WED/SUN. The row is trusted even when it
+            //     sums to 0, matching buildClientDtos.
+            String breakdownKey = breakdownPrefix + month.atEndOfMonth();
+            try {
+                Optional<CachedData> breakdown = cachedDataRepository.findById(breakdownKey);
+                if (breakdown.isPresent()) {
+                    List<Map<String, Object>> costs = objectMapper.readValue(
+                            breakdown.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
+                    double total = costs.stream()
+                            .mapToDouble(c -> ((Number) c.getOrDefault("amount", 0.0)).doubleValue())
+                            .sum();
+                    return BigDecimal.valueOf(total);
+                }
+            } catch (Exception e) {
+                logger.debug("AWS_COST_BREAKDOWN read failed for {}/{}: {}", accountId, month, e.getMessage());
+            }
+
+            // 1b. AWS_MTD_COST — populated on every dashboard visit and by the WED/SUN scheduler.
+            String mtdKey = "AWS_MTD_COST::" + accountId;
+            try {
+                Optional<CachedData> mtd = cachedDataRepository.findById(mtdKey);
+                if (mtd.isPresent()) {
+                    Double total = objectMapper.readValue(mtd.get().getJsonData(), Double.class);
+                    if (total != null && total > 0) return BigDecimal.valueOf(total);
+                }
+            } catch (Exception e) {
+                logger.debug("AWS_MTD_COST read failed for {}: {}", accountId, e.getMessage());
+            }
+
+            // 1c. Any breakdown row for this month, whatever its end date.
+            try {
+                Optional<CachedData> breakdown = cachedDataRepository.findFirstByCacheKeyStartingWith(breakdownPrefix);
+                if (breakdown.isPresent()) {
+                    List<Map<String, Object>> costs = objectMapper.readValue(
+                            breakdown.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
+                    double total = costs.stream()
+                            .mapToDouble(c -> ((Number) c.getOrDefault("amount", 0.0)).doubleValue())
+                            .sum();
+                    if (total > 0) return BigDecimal.valueOf(total);
+                }
+            } catch (Exception e) {
+                logger.debug("AWS_COST_BREAKDOWN prefix read failed for {}/{}: {}", accountId, month, e.getMessage());
+            }
+
+            // 1d. DASHBOARD_DATA::{tenant}::{accountId} — last resort. Written by
+            //     refreshAwsDashboardData() at WED/SUN 3:30 AM, so it can be days behind.
             try {
                 Optional<CachedData> dashEntry = cachedDataRepository
                         .findFirstByCacheKeyStartingWithAndCacheKeyEndingWith("DASHBOARD_DATA::", "::" + accountId);
@@ -564,33 +632,6 @@ public class AdminDashboardService {
                 }
             } catch (Exception e) {
                 logger.debug("DASHBOARD_DATA read failed for {}: {}", accountId, e.getMessage());
-            }
-
-            // 1b. AWS_MTD_COST — populated on every dashboard visit and by the WED/SUN scheduler.
-            String mtdKey = "AWS_MTD_COST::" + accountId;
-            try {
-                Optional<CachedData> mtd = cachedDataRepository.findById(mtdKey);
-                if (mtd.isPresent()) {
-                    Double total = objectMapper.readValue(mtd.get().getJsonData(), Double.class);
-                    if (total != null && total > 0) return BigDecimal.valueOf(total);
-                }
-            } catch (Exception e) {
-                logger.debug("AWS_MTD_COST read failed for {}: {}", accountId, e.getMessage());
-            }
-
-            // 1c. Fall back to service breakdown sum if both MTD keys are absent.
-            try {
-                Optional<CachedData> breakdown = cachedDataRepository.findFirstByCacheKeyStartingWith(breakdownPrefix);
-                if (breakdown.isPresent()) {
-                    List<Map<String, Object>> costs = objectMapper.readValue(
-                            breakdown.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
-                    double total = costs.stream()
-                            .mapToDouble(c -> ((Number) c.getOrDefault("amount", 0.0)).doubleValue())
-                            .sum();
-                    if (total > 0) return BigDecimal.valueOf(total);
-                }
-            } catch (Exception e) {
-                logger.debug("AWS_COST_BREAKDOWN prefix read failed for {}/{}: {}", accountId, month, e.getMessage());
             }
         }
 

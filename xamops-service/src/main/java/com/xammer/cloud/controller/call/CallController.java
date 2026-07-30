@@ -5,6 +5,8 @@ import com.xammer.cloud.domain.call.CallSession;
 import com.xammer.cloud.dto.call.CallSessionDto;
 import com.xammer.cloud.dto.call.CallTokenResponse;
 import com.xammer.cloud.dto.call.InitiateCallRequest;
+import com.xammer.cloud.dto.call.InvitableUserDto;
+import com.xammer.cloud.dto.call.InviteCallRequest;
 import com.xammer.cloud.service.call.CallPrincipalFactory;
 import com.xammer.cloud.service.call.CallService;
 import com.xammer.cloud.service.call.CallUserPrincipal;
@@ -202,6 +204,43 @@ public class CallController {
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+        }
+    }
+
+    /** Users the caller may pull into this call (scoped by role, server-side). */
+    @GetMapping("/{callId}/invitable-users")
+    public ResponseEntity<?> invitableUsers(@PathVariable Long callId, Authentication authentication) {
+        CallUserPrincipal me = principalFactory.fromAuthentication(authentication);
+        if (me == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        try {
+            List<InvitableUserDto> users = callService.invitableUsers(me, callId).stream()
+                    .map(InvitableUserDto::from)
+                    .collect(Collectors.toList());
+            return ResponseEntity.ok(users);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error(e.getMessage()));
+        }
+    }
+
+    /** Pulls chosen users into a live call — rings the online ones and emails all. */
+    @PostMapping("/{callId}/invite")
+    public ResponseEntity<?> invite(@PathVariable Long callId,
+            @RequestBody InviteCallRequest request, Authentication authentication) {
+        CallUserPrincipal me = principalFactory.fromAuthentication(authentication);
+        if (me == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        try {
+            callService.invite(me, callId, request.getUserIds());
+            return ResponseEntity.noContent().build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error(e.getMessage()));
         }
     }
 

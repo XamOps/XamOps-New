@@ -20,6 +20,7 @@ import {
 } from 'livekit-client';
 import { gooeyToast } from 'goey-toast';
 import CallDeviceMenu from './CallDeviceMenu';
+import CallInvitePicker from './CallInvitePicker';
 import type { CallSignal, CallTokenResponse } from '../../types/calls';
 
 /**
@@ -232,6 +233,7 @@ const CallRoom: React.FC<CallRoomProps> = ({
   const [camOn, setCamOn] = useState(startWithVideo);
   const [elapsed, setElapsed] = useState(0);
   const [size, setSize] = useState<CallSize>('docked');
+  const [showInvite, setShowInvite] = useState(false);
   // LiveKit mutates the participant objects in place, so setState with the same
   // reference is a no-op and local publish/unpublish never repaints. Bumping a
   // counter alongside it forces the render that the identity check suppresses.
@@ -627,6 +629,16 @@ const CallRoom: React.FC<CallRoomProps> = ({
             />
           </button>
         )}
+        <button
+          onClick={() => setShowInvite(true)}
+          className={`rounded-full transition-colors bg-slate-700 hover:bg-slate-600 ${
+            isFull ? 'p-4' : 'p-2.5'
+          }`}
+          aria-label="Add participant"
+          title="Add participant"
+        >
+          <Icon icon="mdi:account-plus" width={isFull ? 24 : 18} />
+        </button>
         <CallDeviceMenu room={roomRef.current} compact={!isFull} />
         <button
           onClick={onHangUp}
@@ -638,6 +650,10 @@ const CallRoom: React.FC<CallRoomProps> = ({
           <Icon icon="mdi:phone-hangup" width={isFull ? 24 : 18} />
         </button>
       </div>
+
+      {showInvite && (
+        <CallInvitePicker callId={token.callId} onClose={() => setShowInvite(false)} />
+      )}
     </div>
   );
 };

@@ -70,6 +70,68 @@ public class CallNotificationService {
         log.info("Sent {} missed-call email(s) for ticket {}", toEmails.size(), ticketId);
     }
 
+    /**
+     * Emails users who were pulled into a live call, so an invite reaches them
+     * even if they are not in the app at that moment. Unlike the missed-call
+     * mail, this is a "click to join" invitation sent at ring time.
+     *
+     * @param ticketPath role-appropriate detail route for the invitee
+     */
+    @Async
+    public void sendCallInviteEmails(List<String> toEmails, String callerName, Long ticketId,
+            String ticketSubject, String ticketPath, boolean video) {
+        if (toEmails == null || toEmails.isEmpty()) {
+            return;
+        }
+        String caller = (callerName == null || callerName.isBlank()) ? "A colleague" : callerName;
+        String subject = "Incoming call on Ticket #" + ticketId;
+        String html = buildInviteHtml(caller, ticketId, ticketSubject, ticketPath, video);
+
+        for (String to : toEmails) {
+            try {
+                emailService.sendHtmlEmail(to, subject, html);
+            } catch (Exception e) {
+                log.warn("Failed to send call-invite email to {} for ticket {}: {}",
+                        to, ticketId, e.getMessage());
+            }
+        }
+        log.info("Sent {} call-invite email(s) for ticket {}", toEmails.size(), ticketId);
+    }
+
+    private String buildInviteHtml(String caller, Long ticketId, String ticketSubject,
+            String ticketPath, boolean video) {
+        String kind = video ? "video" : "audio";
+        String safeCaller = escapeHtml(caller);
+        String safeSubject = ticketSubject != null && !ticketSubject.isBlank()
+                ? escapeHtml(ticketSubject)
+                : null;
+
+        StringBuilder body = new StringBuilder();
+        body.append("<div style=\"font-family:Arial,Helvetica,sans-serif;color:#111;max-width:520px;margin:0 auto;\">");
+        body.append("<h2 style=\"font-size:18px;margin:0 0 12px;\">You're invited to a ").append(kind).append(" call</h2>");
+        body.append("<p style=\"font-size:14px;line-height:1.5;margin:0 0 8px;\"><strong>")
+                .append(safeCaller).append("</strong> is inviting you to a call on ");
+        body.append("<strong>Ticket #").append(ticketId).append("</strong>");
+        if (safeSubject != null) {
+            body.append(" — ").append(safeSubject);
+        }
+        body.append(".</p>");
+        body.append("<p style=\"font-size:14px;line-height:1.5;margin:0 0 16px;color:#555;\">"
+                + "Open the ticket to join the call.</p>");
+
+        String link = ticketLink(ticketPath, ticketId);
+        if (link != null) {
+            body.append("<a href=\"").append(link).append("\" ")
+                    .append("style=\"display:inline-block;background:#059669;color:#fff;text-decoration:none;")
+                    .append("font-size:14px;font-weight:600;padding:10px 18px;border-radius:6px;\">")
+                    .append("Join the call").append("</a>");
+        }
+        body.append("<p style=\"font-size:12px;color:#999;margin:20px 0 0;\">"
+                + "This is an automated notification from XamOps support.</p>");
+        body.append("</div>");
+        return body.toString();
+    }
+
     private String buildHtml(String caller, Long ticketId, String ticketSubject,
             String ticketPath, boolean video) {
         String kind = video ? "video" : "audio";

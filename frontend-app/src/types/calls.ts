@@ -73,6 +73,15 @@ export interface CallTokenResponse {
   callId: number;
 }
 
+/** A user the caller may pull into a live call (scoped by role, server-side). */
+export interface InvitableUser {
+  userId: number;
+  name: string;
+  email?: string;
+  /** "ADMIN" for BillOps admins, "CLIENT_USER" otherwise. */
+  kind: 'ADMIN' | 'CLIENT_USER';
+}
+
 export interface MissedCallEntry {
   callId: number;
   participantId: number;

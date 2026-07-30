@@ -12,6 +12,7 @@ import type {
   CallMediaKind,
   CallSessionDto,
   CallTokenResponse,
+  InvitableUser,
   MissedCallEntry,
 } from '../types/calls';
 
@@ -104,6 +105,15 @@ export const cancelCall = async (callId: number): Promise<void> => {
 
 export const leaveCall = async (callId: number): Promise<void> => {
   await apiClient.post(`${BASE}/${callId}/leave`);
+};
+
+/** Users the caller may pull into a live call — role-scoped by the server. */
+export const fetchInvitableUsers = async (callId: number): Promise<InvitableUser[]> =>
+  apiClient.get(`${BASE}/${callId}/invitable-users`);
+
+/** Rings the chosen users into a live call and emails them a join invite. */
+export const inviteToCall = async (callId: number, userIds: number[]): Promise<void> => {
+  await apiClient.post(`${BASE}/${callId}/invite`, { userIds });
 };
 
 export const fetchTicketCallHistory = async (ticketId: number): Promise<CallSessionDto[]> =>

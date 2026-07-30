@@ -442,6 +442,10 @@ jobs:
               -e MANAGEMENT_HEALTH_REDIS_ENABLED=false \
               -e "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info" \
               -e MANAGEMENT_ENDPOINT_METRICS_ENABLED=true \
+              -e LIVEKIT_URL=wss://uat.xamops.com/livekit \
+              -e LIVEKIT_API_KEY=${{ secrets.LIVEKIT_API_KEY }} \
+              -e LIVEKIT_API_SECRET=${{ secrets.LIVEKIT_API_SECRET }} \
+              -e CALLS_WS_TOKEN_SECRET=${{ secrets.CALLS_WS_TOKEN_SECRET }} \
               ghcr.io/xamops/xamops-new:latest
 
             sleep 20
