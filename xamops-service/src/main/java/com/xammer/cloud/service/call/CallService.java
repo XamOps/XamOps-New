@@ -450,9 +450,18 @@ public class CallService {
             }
         }
 
+        // Exclude only people currently IN the room — not everyone the initial
+        // fan-out rang. A customer→admin call rings the whole admin pool (so every
+        // admin already has a participant row), and an admin→customer call rings
+        // the whole client audience; removing all participants would hide exactly
+        // the people you'd want to add. People rung earlier who never joined stay
+        // eligible so they can be re-rung.
         eligible.remove(caller.getUserId());
         for (CallParticipant p : participantRepository.findByCallSessionId(callId)) {
-            eligible.remove(p.getUserId());
+            boolean inRoom = p.getOutcome() == CallParticipant.Outcome.JOINED && p.getLeftAt() == null;
+            if (inRoom) {
+                eligible.remove(p.getUserId());
+            }
         }
         return new ArrayList<>(eligible.values());
     }
@@ -492,18 +501,31 @@ public class CallService {
         List<String> customerEmails = new ArrayList<>();
 
         for (User u : userRepository.findAllById(targets)) {
-            if (participantRepository.findByCallSessionIdAndUserId(callId, u.getId()).isPresent()) {
-                continue; // already in the call
-            }
             boolean admin = u.getRole() != null && u.getRole().toUpperCase().contains(ADMIN_ROLE_FRAGMENT);
 
-            CallParticipant p = new CallParticipant();
-            p.setCallSessionId(callId);
-            p.setUserId(u.getId());
-            p.setUsername(u.getUsername());
-            p.setDisplayName(u.getUsername());
-            p.setParty(admin ? CallParticipant.Party.ADMIN : CallParticipant.Party.CUSTOMER);
-            p.setWasRung(true);
+            Optional<CallParticipant> existing =
+                    participantRepository.findByCallSessionIdAndUserId(callId, u.getId());
+            CallParticipant p;
+            if (existing.isPresent()) {
+                p = existing.get();
+                // Already in the room → nothing to do. Otherwise they were rung
+                // earlier but never joined (or declined/left) — reset to pending
+                // and ring again.
+                if (p.getOutcome() == CallParticipant.Outcome.JOINED && p.getLeftAt() == null) {
+                    continue;
+                }
+                p.setOutcome(null);
+                p.setWasRung(true);
+                p.setLeftAt(null);
+            } else {
+                p = new CallParticipant();
+                p.setCallSessionId(callId);
+                p.setUserId(u.getId());
+                p.setUsername(u.getUsername());
+                p.setDisplayName(u.getUsername());
+                p.setParty(admin ? CallParticipant.Party.ADMIN : CallParticipant.Party.CUSTOMER);
+                p.setWasRung(true);
+            }
             added.add(p);
 
             if (u.getEmail() != null && !u.getEmail().isBlank()) {
