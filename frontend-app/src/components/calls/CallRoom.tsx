@@ -19,6 +19,7 @@ import {
   Track,
 } from 'livekit-client';
 import { gooeyToast } from 'goey-toast';
+import { AnimatePresence } from 'framer-motion';
 import CallDeviceMenu from './CallDeviceMenu';
 import CallInvitePicker from './CallInvitePicker';
 import type { CallSignal, CallTokenResponse } from '../../types/calls';
@@ -446,7 +447,7 @@ const CallRoom: React.FC<CallRoomProps> = ({
 
   if (size === 'pill') {
     return (
-      <div className="fixed bottom-4 right-4 z-[70] flex items-center gap-2 rounded-full bg-slate-900 text-white shadow-2xl px-3 py-2">
+      <div className="fixed bottom-4 right-4 z-[70] flex items-center gap-2 rounded-full bg-slate-900/90 backdrop-blur-xl text-white border border-indigo-400/20 shadow-[0_16px_40px_-4px_rgba(99,102,241,0.3)] px-3 py-2">
         <span className="relative flex h-2 w-2">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
@@ -461,7 +462,7 @@ const CallRoom: React.FC<CallRoomProps> = ({
         </button>
         <button
           onClick={onHangUp}
-          className="p-1 rounded-full bg-red-600 hover:bg-red-700"
+          className="p-1 rounded-full bg-gradient-to-r from-rose-500 to-red-600 shadow-md shadow-rose-500/30 hover:brightness-110 transition-all"
           aria-label="Hang up"
         >
           <Icon icon="mdi:phone-hangup" width={14} />
@@ -477,7 +478,7 @@ const CallRoom: React.FC<CallRoomProps> = ({
       className={
         isFull
           ? 'fixed inset-0 z-[70] flex flex-col bg-slate-950 text-white'
-          : 'fixed bottom-4 right-4 z-[70] w-[min(94vw,380px)] rounded-xl bg-slate-900 text-white shadow-2xl overflow-hidden border border-slate-700'
+          : 'fixed bottom-4 right-4 z-[70] w-[min(94vw,380px)] rounded-2xl bg-slate-900/90 backdrop-blur-xl text-white shadow-[0_24px_48px_-8px_rgba(99,102,241,0.35)] overflow-hidden border border-indigo-400/20'
       }
     >
       <div
@@ -579,7 +580,7 @@ const CallRoom: React.FC<CallRoomProps> = ({
       )}
 
       <div
-        className={`flex items-center justify-center border-t border-slate-700 ${
+        className={`flex items-center justify-center border-t border-white/10 bg-white/[0.02] ${
           isFull ? 'gap-4 px-5 py-4 flex-shrink-0' : 'gap-2 px-3 py-2.5'
         }`}
       >
@@ -642,7 +643,7 @@ const CallRoom: React.FC<CallRoomProps> = ({
         <CallDeviceMenu room={roomRef.current} compact={!isFull} />
         <button
           onClick={onHangUp}
-          className={`rounded-full bg-red-600 hover:bg-red-700 transition-colors ${
+          className={`rounded-full bg-gradient-to-r from-rose-500 to-red-600 shadow-lg shadow-rose-500/30 hover:brightness-110 transition-all ${
             isFull ? 'px-6 py-4' : 'p-2.5'
           }`}
           aria-label="Hang up"
@@ -651,9 +652,11 @@ const CallRoom: React.FC<CallRoomProps> = ({
         </button>
       </div>
 
-      {showInvite && (
-        <CallInvitePicker callId={token.callId} onClose={() => setShowInvite(false)} />
-      )}
+      <AnimatePresence>
+        {showInvite && (
+          <CallInvitePicker callId={token.callId} onClose={() => setShowInvite(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

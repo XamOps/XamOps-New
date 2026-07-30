@@ -8,6 +8,7 @@
 
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useCalls } from '../../contexts/CallContext';
 import IncomingCallSheet from './IncomingCallSheet';
@@ -44,14 +45,16 @@ const CallCenter: React.FC = () => {
         />
       )}
 
-      {incoming && (
-        <IncomingCallSheet
-          call={incoming}
-          busy={busy}
-          onAccept={acceptIncoming}
-          onDecline={declineIncoming}
-        />
-      )}
+      <AnimatePresence>
+        {incoming && (
+          <IncomingCallSheet
+            call={incoming}
+            busy={busy}
+            onAccept={acceptIncoming}
+            onDecline={declineIncoming}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Calls someone else answered that we can still drop into. Stacked above
           the call panel so they stay reachable while already on a call. */}
