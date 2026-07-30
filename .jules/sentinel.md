@@ -1,0 +1,4 @@
+## 2026-07-30 - [IDOR and Auth Bypass on EKS/K8s Management APIs]
+**Vulnerability:** Sensitive EKS/K8s APIs (`/api/xamops/k8s/**` and `/api/xamops/eks/**`) were exposed publicly via Spring Security's `permitAll()` with no session checks or tenant ID validation, allowing unauthorized external access and IDOR-based configuration overrides.
+**Learning:** Spring Security configs can easily list broad wildcards (e.g., `/api/xamops/k8s/**`) in permitAll list for debugging/testing or legacy reasons, exposing critical APIs that configure clusters via custom kubeconfig YAML.
+**Prevention:** Avoid wildcards in `permitAll()` list and always enforce class-level `@PreAuthorize("isAuthenticated()")` coupled with a tenant ownership check on resource IDs (both Long and String provider account IDs) matching the logged-in user's `clientId`.

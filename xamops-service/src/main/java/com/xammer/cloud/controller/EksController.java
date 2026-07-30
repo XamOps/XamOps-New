@@ -8,6 +8,7 @@ import com.xammer.cloud.service.EksDashboardSyncService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -16,6 +17,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/xamops/eks")
+@PreAuthorize("isAuthenticated()")
 public class EksController {
 
     private static final Logger logger = LoggerFactory.getLogger(EksController.class);
@@ -30,6 +32,23 @@ public class EksController {
         this.cloudAccountRepository = cloudAccountRepository;
         this.dashboardService = dashboardService;
         this.syncService = syncService;
+    }
+
+    private void validateAwsAccountOwnership(String awsAccountId) {
+        if (com.xammer.cloud.util.SecurityUtils.isSuperAdmin()) {
+            return;
+        }
+        com.xammer.cloud.security.ClientUserDetails principal = com.xammer.cloud.util.SecurityUtils.getPrincipal();
+        Long userClientId = principal.getClientId();
+
+        java.util.List<com.xammer.cloud.domain.CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(awsAccountId);
+        if (accounts.isEmpty()) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied");
+        }
+        boolean owns = accounts.stream().anyMatch(acc -> acc.getClient().getId().equals(userClientId));
+        if (!owns) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied");
+        }
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -60,6 +79,7 @@ public class EksController {
             @RequestParam(required = false, defaultValue = "ACTIVE") String status,
             @RequestParam(required = false, defaultValue = "false") boolean forceRefresh) {
 
+        validateAwsAccountOwnership(accountId);
         CloudAccount account = getAccount(accountId);
 
         // DEBUG: Log all request parameters
@@ -116,6 +136,7 @@ public class EksController {
             @RequestParam String accountId,
             @RequestParam String region) {
 
+        validateAwsAccountOwnership(accountId);
         try {
             CloudAccount account = getAccount(accountId);
 
@@ -161,6 +182,7 @@ public class EksController {
             @RequestParam String accountId,
             @RequestParam String region) {
 
+        validateAwsAccountOwnership(accountId);
         LocalDateTime lastSynced = syncService.getLastSyncedAt(clusterName, accountId, region);
 
         if (lastSynced != null) {
