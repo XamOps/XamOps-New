@@ -235,9 +235,6 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/api/cicd/github/runs"),
                                                                 new AntPathRequestMatcher("/api/cicd/config/**"),
                                                                 new AntPathRequestMatcher("/api/cicd/**"),
-                                                                new AntPathRequestMatcher("/api/xamops/k8s/**"),
-                                                                // ✅ YOUR CODE: Preserved missing APIs
-                                                                new AntPathRequestMatcher("/api/xamops/eks/**"),
                                                                 new AntPathRequestMatcher("/api/eks/autoscaling/**"),
                                                                 new AntPathRequestMatcher("/api/karpenter/**"),
 

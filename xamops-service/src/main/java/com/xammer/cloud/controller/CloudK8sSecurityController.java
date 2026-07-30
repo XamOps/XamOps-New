@@ -1,8 +1,10 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.k8s.KubescapeDashboard;
 import com.xammer.cloud.dto.k8s.KarpenterDashboard;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.K8sClientFactory;
 import com.xammer.cloud.service.KubescapeService;
@@ -11,6 +13,7 @@ import io.fabric8.kubernetes.client.KubernetesClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Optional;
@@ -18,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/xamops/k8s/security")
+@PreAuthorize("isAuthenticated()")
 public class CloudK8sSecurityController {
 
     private static final Logger logger = LoggerFactory.getLogger(CloudK8sSecurityController.class);
@@ -26,16 +30,34 @@ public class CloudK8sSecurityController {
     private final K8sClientFactory k8sClientFactory;
     private final KubescapeService kubescapeService;
     private final KarpenterService karpenterService;
+    private final CloudAccountRepository cloudAccountRepository;
 
     public CloudK8sSecurityController(
             KubernetesClusterConfigRepository clusterConfigRepository,
             K8sClientFactory k8sClientFactory,
             KubescapeService kubescapeService,
-            KarpenterService karpenterService) {
+            KarpenterService karpenterService,
+            CloudAccountRepository cloudAccountRepository) {
         this.clusterConfigRepository = clusterConfigRepository;
         this.k8sClientFactory = k8sClientFactory;
         this.kubescapeService = kubescapeService;
         this.karpenterService = karpenterService;
+        this.cloudAccountRepository = cloudAccountRepository;
+    }
+
+    private void validateAccountOwnership(Long accountId) {
+        if (com.xammer.cloud.util.SecurityUtils.isSuperAdmin()) {
+            return;
+        }
+        com.xammer.cloud.security.ClientUserDetails principal = com.xammer.cloud.util.SecurityUtils.getPrincipal();
+        Long userClientId = principal.getClientId();
+
+        CloudAccount account = cloudAccountRepository.findById(accountId)
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Access denied"));
+
+        if (!account.getClient().getId().equals(userClientId)) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied");
+        }
     }
 
     @GetMapping("/kubescape")
@@ -44,6 +66,7 @@ public class CloudK8sSecurityController {
             @RequestParam String clusterName) {
 
         logger.info("🔍 Fetching Kubescape data for cluster: {}", clusterName);
+        validateAccountOwnership(accountId);
 
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -85,6 +108,7 @@ public class CloudK8sSecurityController {
             @RequestParam String clusterName) {
 
         logger.info("🔍 Fetching Karpenter data for cluster: {}", clusterName);
+        validateAccountOwnership(accountId);
 
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -127,6 +151,7 @@ public class CloudK8sSecurityController {
             @RequestBody String kubeconfigYaml) {
 
         logger.info("⚙️ Configuring cluster: {} for account: {}", clusterName, accountId);
+        validateAccountOwnership(accountId);
 
         try {
             Optional<KubernetesClusterConfig> existingConfig = clusterConfigRepository
