@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import type { AttackSurfaceSummary, IssueSummary, IssueDetail } from '../../types/xamsecure';
+import type {
+  AttackSurfaceSummary, IssueSummary, IssueDetail, ResourceDetail,
+} from '../../types/xamsecure';
 import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
 import IssueDrawer from './IssueDrawer';
+import { useResourceDrawer } from './useResourceDrawer';
 
 interface Props {
   data: AttackSurfaceSummary | null;
   isLoading: boolean;
   loadDetail: (check: string) => Promise<IssueDetail>;
+  loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -45,7 +49,8 @@ const kindLabel = (t: string | null | undefined) =>
 
 const IMPACT_ORDER = ['Public exposure', 'Authenticated exposure', 'Other exposure'];
 
-const AttackSurfaceTab: React.FC<Props> = ({ data, isLoading, loadDetail }) => {
+const AttackSurfaceTab: React.FC<Props> = ({ data, isLoading, loadDetail, loadResourceDetail }) => {
+  const { open, drawer } = useResourceDrawer(loadResourceDetail);
   const [view, setView] = useState<'dashboard' | 'findings'>('dashboard');
   const [selected, setSelected] = useState<IssueSummary | null>(null);
   const [detail, setDetail] = useState<IssueDetail | null>(null);
@@ -143,8 +148,10 @@ const AttackSurfaceTab: React.FC<Props> = ({ data, isLoading, loadDetail }) => {
 
       {selected && (
         <IssueDrawer title={selected.title} detail={detail} isLoading={detailLoading}
-                     onClose={() => { setSelected(null); setDetail(null); }} />
+                     onClose={() => { setSelected(null); setDetail(null); }}
+                     onOpenResource={(id) => { setSelected(null); setDetail(null); open(id); }} />
       )}
+      {drawer}
     </div>
   );
 };

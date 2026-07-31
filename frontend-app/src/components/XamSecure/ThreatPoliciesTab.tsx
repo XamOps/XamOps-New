@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { ThreatPolicy } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
+import FilterChips from './FilterChips';
 
 interface Props {
   data: ThreatPolicy[] | null;
@@ -14,9 +15,28 @@ const prettyCategory = (c: string | null) =>
 const ThreatPoliciesTab: React.FC<Props> = ({ data, isLoading }) => {
   const all = data ?? [];
   const [enabledOnly, setEnabledOnly] = useState(false);
-  const filtered = useMemo(
+  const [category, setCategory] = useState<string | null>(null);
+
+  const filteredByEnabled = useMemo(
     () => (enabledOnly ? all.filter((p) => p.enabled) : all),
     [all, enabledOnly]);
+
+  // Categories reflect the enabled filter so the chip counts always match what's listed.
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of filteredByEnabled) {
+      const key = p.category ?? 'UNCATEGORISED';
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [filteredByEnabled]);
+
+  const filtered = useMemo(
+    () => (category === null
+      ? filteredByEnabled
+      : filteredByEnabled.filter((p) => (p.category ?? 'UNCATEGORISED') === category)),
+    [filteredByEnabled, category]);
+
   const { page, setPage, pageItems: rows, totalPages, total } = usePaged(filtered, 50);
 
   const totals = useMemo(() => ({
@@ -38,11 +58,18 @@ const ThreatPoliciesTab: React.FC<Props> = ({ data, isLoading }) => {
       </div>
 
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100">
+        <div className="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-gray-100">
           <label className="flex items-center gap-1.5 text-xs text-gray-600">
             <input type="checkbox" checked={enabledOnly} onChange={(e) => { setEnabledOnly(e.target.checked); setPage(0); }} />
             Enabled only
           </label>
+          {/* Upwind groups policies by category; 49 flat rows are hard to scan without it. */}
+          <FilterChips
+            options={categories.map(([c, n]) => ({ value: c, label: prettyCategory(c), count: n }))}
+            active={category}
+            allCount={filteredByEnabled.length}
+            onChange={(v) => { setCategory(v); setPage(0); }}
+          />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">

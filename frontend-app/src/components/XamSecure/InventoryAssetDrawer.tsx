@@ -6,6 +6,8 @@ import type { InventoryAsset } from '../../types/xamsecure';
 interface Props {
   asset: InventoryAsset;
   onClose: () => void;
+  /** Jumps to the cross-domain view for this asset. */
+  onOpenResource?: (resourceId: string) => void;
 }
 
 /** snake_case / camelCase → "Title Case". */
@@ -36,7 +38,7 @@ const PRIORITY = [
  * humanized key/value list (instead of raw JSON): a header with name + category, then the
  * asset's attributes. Portaled to body so it isn't clipped by the tab container.
  */
-const InventoryAssetDrawer: React.FC<Props> = ({ asset, onClose }) => {
+const InventoryAssetDrawer: React.FC<Props> = ({ asset, onClose, onOpenResource }) => {
   const raw = useMemo<Record<string, unknown>>(() => {
     try { return asset.rawPayload ? JSON.parse(asset.rawPayload) : {}; }
     catch { return {}; }
@@ -85,9 +87,20 @@ const InventoryAssetDrawer: React.FC<Props> = ({ asset, onClose }) => {
               {asset.name ?? asset.cloudResourceId ?? 'Asset'}
             </h3>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 flex-shrink-0" aria-label="Close">
-            <Icon icon="mdi:close" width={18} />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {onOpenResource && asset.cloudResourceId && (
+              <button
+                onClick={() => onOpenResource(asset.cloudResourceId!)}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold rounded-lg border border-gray-200 hover:border-gray-400 text-gray-700"
+              >
+                Security findings
+                <Icon icon="mdi:arrow-top-right" width={11} />
+              </button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100" aria-label="Close">
+              <Icon icon="mdi:close" width={18} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">

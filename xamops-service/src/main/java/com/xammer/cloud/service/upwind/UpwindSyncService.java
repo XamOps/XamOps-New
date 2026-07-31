@@ -23,9 +23,15 @@ import java.util.StringJoiner;
 @Slf4j
 public class UpwindSyncService {
 
-    static final int DETECTION_POLL_MAX_PAGES = 5;    // ~500 newest detections per poll
-    static final int FULL_SYNC_MAX_PAGES = 200;       // ~20k items cap per domain
+    // Page caps are in PAGES; the client requests UpwindApiClient.PAGE_SIZE (1000) per page.
+    static final int DETECTION_POLL_MAX_PAGES = 5;    // ~5k newest detections per poll
+    // ~200k items per domain. Measured 2026-07-31: configuration-findings returns ~19.4k
+    // findings (20 pages), so this leaves ~10x headroom. Under the old 100-item pages the
+    // same walk needed 196 of 200 pages — effectively at the cap.
+    static final int FULL_SYNC_MAX_PAGES = 200;
     static final int INVENTORY_MAX_ITEMS = 20000;
+    // ~6.8k endpoints measured 2026-07-31; 20 pages of 1000 leaves comfortable headroom.
+    static final int APISEC_MAX_PAGES = 20;
 
     private final UpwindApiClient apiClient;
     private final UpwindThreatDetectionRepository detectionRepo;
@@ -33,19 +39,22 @@ public class UpwindSyncService {
     private final UpwindPostureFindingRepository postureRepo;
     private final UpwindSyncStateRepository syncStateRepo;
     private final UpwindInventoryAssetRepository inventoryRepo;
+    private final UpwindApiEndpointRepository apiEndpointRepo;
 
     public UpwindSyncService(UpwindApiClient apiClient,
                              UpwindThreatDetectionRepository detectionRepo,
                              UpwindVulnerabilityFindingRepository vulnRepo,
                              UpwindPostureFindingRepository postureRepo,
                              UpwindSyncStateRepository syncStateRepo,
-                             UpwindInventoryAssetRepository inventoryRepo) {
+                             UpwindInventoryAssetRepository inventoryRepo,
+                             UpwindApiEndpointRepository apiEndpointRepo) {
         this.apiClient = apiClient;
         this.detectionRepo = detectionRepo;
         this.vulnRepo = vulnRepo;
         this.postureRepo = postureRepo;
         this.syncStateRepo = syncStateRepo;
         this.inventoryRepo = inventoryRepo;
+        this.apiEndpointRepo = apiEndpointRepo;
     }
 
     public void syncDetections() {
@@ -68,13 +77,18 @@ public class UpwindSyncService {
         syncDetections();
         Instant runStart = Instant.now();
         try {
-            List<JsonNode> items = apiClient.fetchVulnerabilityFindings(FULL_SYNC_MAX_PAGES);
-            for (JsonNode item : items) {
+            UpwindApiClient.FetchResult res =
+                    apiClient.fetchVulnerabilityFindingsPaged(FULL_SYNC_MAX_PAGES);
+            for (JsonNode item : res.items()) {
                 upsertVulnerability(item, Instant.now());
             }
-            if (!items.isEmpty()) {
+            // Reconcile only on a COMPLETE fetch: a truncated page walk would archive
+            // every finding we simply never re-read.
+            if (!res.items().isEmpty() && !res.truncated()) {
                 vulnRepo.markResolvedNotSyncedSince(runStart);
             }
+            log.info("[Upwind] Vulnerability sync upserted {} findings (complete={})",
+                    res.items().size(), !res.truncated());
             recordSuccess("VULNERABILITIES");
         } catch (Exception e) {
             log.error("[Upwind] Vulnerability sync failed: {}", e.getMessage());
@@ -82,19 +96,88 @@ public class UpwindSyncService {
         }
         runStart = Instant.now();
         try {
-            List<JsonNode> items = apiClient.fetchConfigurationFindings(FULL_SYNC_MAX_PAGES);
-            for (JsonNode item : items) {
+            UpwindApiClient.FetchResult res =
+                    apiClient.fetchConfigurationFindingsPaged(FULL_SYNC_MAX_PAGES);
+            for (JsonNode item : res.items()) {
                 upsertPosture(item, Instant.now());
             }
-            if (!items.isEmpty()) {
+            if (!res.items().isEmpty() && !res.truncated()) {
                 postureRepo.markResolvedNotSyncedSince(runStart);
             }
+            log.info("[Upwind] Posture sync upserted {} findings (complete={})",
+                    res.items().size(), !res.truncated());
             recordSuccess("POSTURE");
         } catch (Exception e) {
             log.error("[Upwind] Posture sync failed: {}", e.getMessage());
             recordError("POSTURE", e);
         }
         syncInventory();
+        syncApiEndpoints();
+    }
+
+    /**
+     * Syncs API-security endpoints per connected account. The endpoint payload has no
+     * cloud_account_id — tenancy comes from the request parameter — so we iterate the
+     * accounts Upwind has inventory for and stamp the id on each row.
+     *
+     * This exists so the APIs tab reads locally: fetching ~6.8k endpoints inline made the
+     * request block ~20s on every 10-minute cache miss.
+     */
+    public void syncApiEndpoints() {
+        if (!apiClient.isConfigured()) return;
+        List<String> accountIds = inventoryRepo.findDistinctCloudAccountIds();
+        if (accountIds.isEmpty()) {
+            log.info("[Upwind] API endpoint sync skipped — no known cloud accounts yet");
+            return;
+        }
+        int synced = 0;
+        boolean allComplete = true;
+        try {
+            for (String accountId : accountIds) {
+                Instant runStart = Instant.now();
+                UpwindApiClient.FetchResult res =
+                        apiClient.fetchApiSecurityEndpointsPaged(accountId, APISEC_MAX_PAGES);
+                for (JsonNode ep : res.items()) {
+                    upsertApiEndpoint(ep, accountId, Instant.now());
+                    synced++;
+                }
+                if (!res.items().isEmpty() && !res.truncated()) {
+                    apiEndpointRepo.markResolvedNotSyncedSince(accountId, runStart);
+                }
+                allComplete &= !res.truncated();
+            }
+            log.info("[Upwind] API endpoint sync upserted {} endpoints across {} account(s) (complete={})",
+                    synced, accountIds.size(), allComplete);
+            recordSuccess("API_ENDPOINTS");
+        } catch (Exception e) {
+            log.error("[Upwind] API endpoint sync failed: {}", e.getMessage());
+            recordError("API_ENDPOINTS", e);
+        }
+    }
+
+    private void upsertApiEndpoint(JsonNode ep, String accountId, Instant now) {
+        String upwindId = text(ep, "id");
+        if (upwindId == null) return;
+        UpwindApiEndpoint e = apiEndpointRepo.findByUpwindId(upwindId)
+                .orElseGet(UpwindApiEndpoint::new);
+        e.setUpwindId(upwindId);
+        e.setCloudAccountId(accountId);
+        e.setMethod(text(ep, "method"));
+        e.setUri(text(ep, "uri"));
+        e.setResourceId(text(ep, "resource_id"));
+        // Internet exposure is implied by an observed ingress timestamp.
+        e.setInternetExposed(ep.path("risk_overview").path("internet_exposure")
+                .path("ingress").has("last_seen_time"));
+        e.setAuthState(text(ep.path("risk_overview").path("authentication"), "state"));
+        StringJoiner domains = new StringJoiner(",");
+        ep.path("domains").forEach(d -> domains.add(d.asText()));
+        e.setDomains(domains.length() > 0 ? domains.toString() : null);
+        e.setFirstSeenTime(instant(ep, "first_seen_time"));
+        e.setLastSeenTime(instant(ep, "last_seen_time"));
+        e.setStatus("ACTIVE");
+        e.setRawPayload(ep.toString());
+        e.setSyncedAt(now);
+        apiEndpointRepo.save(e);
     }
 
     public void syncInventory() {

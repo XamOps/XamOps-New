@@ -9,6 +9,8 @@ import { FrameworkLogo, hasFrameworkLogo } from '../../utils/frameworkBranding';
 interface Props {
   finding: PostureFinding;
   onClose: () => void;
+  /** Jumps to the cross-domain view for this finding's resource. */
+  onOpenResource?: (resourceId: string) => void;
 }
 
 const fmt = (iso: string | null | undefined): string =>
@@ -20,7 +22,7 @@ const fmt = (iso: string | null | undefined): string =>
  * details and remediation markup — instead of dumping raw JSON. Mirrors Upwind's
  * finding detail pane.
  */
-const PostureFindingDrawer: React.FC<Props> = ({ finding, onClose }) => {
+const PostureFindingDrawer: React.FC<Props> = ({ finding, onClose, onOpenResource }) => {
   const raw = useMemo<any>(() => {
     try { return finding.rawPayload ? JSON.parse(finding.rawPayload) : {}; }
     catch { return {}; }
@@ -89,7 +91,16 @@ const PostureFindingDrawer: React.FC<Props> = ({ finding, onClose }) => {
             )}
 
             {/* Resource */}
-            <Section title="Affected resource">
+            <Section title="Affected resource"
+                     action={onOpenResource && finding.resourceId ? (
+                       <button
+                         onClick={() => onOpenResource(finding.resourceId!)}
+                         className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold rounded-lg border border-gray-200 hover:border-gray-400 text-gray-700"
+                       >
+                         Open resource
+                         <Icon icon="mdi:arrow-top-right" width={11} />
+                       </button>
+                     ) : undefined}>
               <div className="border border-gray-200 rounded-lg divide-y divide-gray-50">
                 <Row label="Name" value={resourceName} />
                 <Row label="Type" value={resourceType} />
@@ -124,9 +135,13 @@ const PostureFindingDrawer: React.FC<Props> = ({ finding, onClose }) => {
   ), document.body);
 };
 
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+const Section: React.FC<{ title: string; children: React.ReactNode; action?: React.ReactNode }> =
+  ({ title, children, action }) => (
   <div>
-    <h4 className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-2">{title}</h4>
+    <div className="flex items-center justify-between gap-3 mb-2">
+      <h4 className="text-[10px] font-bold uppercase tracking-wide text-gray-400">{title}</h4>
+      {action}
+    </div>
     {children}
   </div>
 );

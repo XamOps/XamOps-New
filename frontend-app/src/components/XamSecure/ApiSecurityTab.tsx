@@ -64,6 +64,9 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
               hint="Upwind hasn't observed enough traffic to classify auth state" />
       </div>
 
+      <EndpointsFunnel total={stats.total} exposed={stats.exposed}
+                       authed={stats.authed} unauth={stats.unauth} />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Endpoints by method */}
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
@@ -115,6 +118,7 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
               <tr className="text-left text-[10px] uppercase text-gray-400 border-b border-gray-100">
                 <th className="px-5 py-2.5">Method</th>
                 <th className="px-5 py-2.5">Endpoint</th>
+                <th className="px-5 py-2.5">Served by</th>
                 <th className="px-5 py-2.5">Auth</th>
                 <th className="px-5 py-2.5">Internet Exposed</th>
                 <th className="px-5 py-2.5">First Seen</th>
@@ -130,6 +134,13 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                     {e.domains && e.domains.length > 0 && (
                       <span className="block text-[10px] text-gray-400">{e.domains.join(', ')}</span>
                     )}
+                  </td>
+                  {/* Upwind's endpoint resource_id is an internal API-resource id (ep-…), not a
+                      cloud resource id, so it cannot join the resource view. Shown as reference
+                      only rather than as a link that would open an empty drawer. */}
+                  <td className="px-5 py-3 font-mono text-[10px] text-gray-500 max-w-[140px] truncate"
+                      title={e.resourceId ?? undefined}>
+                    {e.resourceId ?? '—'}
                   </td>
                   <td className="px-5 py-3">
                     {(e.authState ?? '').toUpperCase() === 'AUTHENTICATED' ? (
@@ -155,7 +166,7 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">
+                <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">
                   No API endpoints discovered for the selected account.</td></tr>
               )}
             </tbody>
@@ -163,6 +174,64 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
         </div>
         <Pager page={page} totalPages={totalPages} total={total} unit="endpoints" onPage={setPage} />
       </div>
+    </div>
+  );
+};
+
+/**
+ * Endpoint narrowing, matching Upwind's APIs funnel: how the full surface reduces to the
+ * endpoints that actually warrant attention. Stages are strictly nested subsets, so a
+ * narrowing ribbon is an honest encoding rather than decoration.
+ */
+const EndpointsFunnel: React.FC<{
+  total: number; exposed: number; authed: number; unauth: number;
+}> = ({ total, exposed, authed, unauth }) => {
+  const stages = [
+    { label: 'Endpoints', value: total, icon: 'mdi:api' },
+    { label: 'Internet exposed', value: exposed, icon: 'mdi:earth' },
+    { label: 'Authenticated', value: authed, icon: 'mdi:lock-check' },
+    { label: 'Unauthenticated', value: unauth, icon: 'mdi:lock-open-alert' },
+  ];
+  if (total === 0) return null;
+
+  const W = 1000, H = 110, midY = H / 2, maxH = H * 0.9;
+  const max = Math.max(1, total);
+  const n = stages.length;
+  const x = (i: number) => (i / (n - 1)) * W;
+  const h = (v: number) => Math.max(2, (Math.min(v, max) / max) * maxH);
+  let d = `M ${x(0)} ${midY - h(stages[0].value) / 2}`;
+  for (let i = 1; i < n; i++) d += ` L ${x(i)} ${midY - h(stages[i].value) / 2}`;
+  d += ` L ${x(n - 1)} ${midY + h(stages[n - 1].value) / 2}`;
+  for (let i = n - 2; i >= 0; i--) d += ` L ${x(i)} ${midY + h(stages[i].value) / 2}`;
+  d += ' Z';
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">
+        API endpoints funnel
+      </p>
+      <div className="flex justify-between gap-1 mb-1">
+        {stages.map((s) => (
+          <div key={s.label} className="flex-1 min-w-0 text-left">
+            <div className="flex items-center gap-1 text-[9px] text-gray-500">
+              <Icon icon={s.icon} width={11} className="flex-shrink-0" />
+              <span className="truncate">{s.label}</span>
+            </div>
+            <p className="text-sm font-bold text-gray-900">{s.value.toLocaleString()}</p>
+          </div>
+        ))}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 100 }}
+           role="img" aria-label="API endpoints narrowing from total to unauthenticated">
+        <defs>
+          <linearGradient id="apiFunnelGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#60a5fa" />
+            <stop offset="55%" stopColor="#3b82f6" />
+            <stop offset="100%" stopColor="#1d4ed8" />
+          </linearGradient>
+        </defs>
+        <path d={d} fill="url(#apiFunnelGrad)" />
+      </svg>
     </div>
   );
 };

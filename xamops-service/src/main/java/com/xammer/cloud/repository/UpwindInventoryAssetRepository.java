@@ -17,6 +17,12 @@ public interface UpwindInventoryAssetRepository extends JpaRepository<UpwindInve
 
     Optional<UpwindInventoryAsset> findByUpwindId(String upwindId);
 
+    /**
+     * Looks an asset up by its cloud resource id — the key findings join on. Findings
+     * reference the cloud resource, not Upwind's internal asset id.
+     */
+    Optional<UpwindInventoryAsset> findByCloudResourceId(String cloudResourceId);
+
     Page<UpwindInventoryAsset> findByCloudAccountIdInOrderByNameAsc(List<String> accountIds, Pageable pageable);
 
     Page<UpwindInventoryAsset> findByCloudAccountIdInAndAssetCategoryOrderByNameAsc(
@@ -37,4 +43,12 @@ public interface UpwindInventoryAssetRepository extends JpaRepository<UpwindInve
     @Query("UPDATE UpwindInventoryAsset a SET a.status = 'RESOLVED' " +
            "WHERE a.syncedAt < :runStart AND a.status <> 'RESOLVED'")
     int markResolvedNotSyncedSince(@Param("runStart") Instant runStart);
+
+    /**
+     * Distinct cloud accounts Upwind has assets for. Endpoint and SBOM fetches are
+     * per-account query-parameter calls, so the sync needs the account list.
+     */
+    @Query("SELECT DISTINCT a.cloudAccountId FROM UpwindInventoryAsset a " +
+           "WHERE a.cloudAccountId IS NOT NULL")
+    List<String> findDistinctCloudAccountIds();
 }

@@ -5,6 +5,11 @@ export interface PageResp<T> {
   totalElements: number;
   totalPages: number;
   number: number;
+  /**
+   * Severity distribution across the whole result set, independent of the current page or
+   * active filter. Present on endpoints that back group-by chips (currently by-CVE).
+   */
+  severityCounts?: Record<string, number>;
 }
 
 export interface ThreatDetection {
@@ -16,6 +21,8 @@ export interface ThreatDetection {
   title: string | null;
   cloudProvider: string | null;
   cloudAccountId: string | null;
+  /** Cloud resource id — the key the resource drawer joins every domain on. */
+  resourceId: string | null;
   resourceName: string | null;
   resourceType: string | null;
   mitreTactics: string | null;
@@ -67,6 +74,7 @@ export interface CveGroupRow {
 
 /** Drill-down row: one per affected RESOURCE for a CVE (packages summarised). */
 export interface CveResourceFinding {
+  resourceId: string | null;
   resourceName: string | null;
   resourceType: string | null;
   region: string | null;
@@ -115,6 +123,8 @@ export interface PostureFinding {
   cloudProvider: string | null;
   cloudAccountId: string | null;
   region: string | null;
+  /** Cloud resource id — the key the resource drawer joins every domain on. */
+  resourceId: string | null;
   resourceName: string | null;
   resourceType: string | null;
   firstSeenTime: string | null;
@@ -185,6 +195,10 @@ export interface Workflow {
   lastExecutionTime: string | null;
   cron: string | null;
   actions: string[];
+  /** Per-action delivery detail, shown in the workflow detail panel. */
+  actionDetails?: { type: string | null; targetAudience: string | null }[];
+  /** e.g. WEEKLY_REPORT — what the scheduled run produces. */
+  reportType?: string | null;
 }
 
 export interface SbomComponent {
@@ -290,6 +304,90 @@ export interface SyncStateEntry {
   domain: string;
   lastSuccessAt: string | null;
   lastError: string | null;
+}
+
+/** Per-domain sync freshness, so stale data is visible instead of silently rendered. */
+export interface SyncDomainStatus {
+  domain: string;
+  lastSuccessAt: string | null;
+  ageSeconds: number | null;
+  stale: boolean;
+  failing: boolean;
+  lastError: string | null;
+}
+
+export interface SyncStatus {
+  status: 'OK' | 'STALE' | 'ERROR';
+  oldestSuccessAt: string | null;
+  serverTime: string;
+  domains: SyncDomainStatus[];
+}
+
+/**
+ * Identities that have failing configuration checks. Derived from posture findings —
+ * Upwind's Identities module is not reachable on our credential, so this is not a full
+ * identity inventory and carries no privilege classification.
+ */
+export interface IdentityRow {
+  resourceId: string | null;
+  name: string | null;
+  resourceType: string | null;
+  cloudProvider: string | null;
+  cloudAccountId: string | null;
+  severity: Severity | null;
+  findingCount: number;
+  checks: string[];
+  firstSeen: string | null;
+  lastSeen: string | null;
+}
+
+export interface IdentitiesSummary {
+  identities: IdentityRow[];
+  severityCounts: Record<string, number>;
+  byType: { type: string; count: number }[];
+  total: number;
+}
+
+/** One resource joined across every synced domain that references it. */
+export interface ResourceDetail {
+  identity: {
+    resourceId: string;
+    name?: string | null;
+    resourceType?: string | null;
+    assetCategory?: string | null;
+    cloudProvider?: string | null;
+    cloudAccountId?: string | null;
+    region?: string | null;
+  };
+  counts: {
+    configurations: number;
+    vulnerabilities: number;
+    detections: number;
+  };
+  topSeverity: Severity | null;
+  configurations: {
+    check: string | null;
+    severity: Severity | null;
+    framework: string | null;
+    lastSeenTime: string | null;
+  }[];
+  vulnerabilities: {
+    cveId: string | null;
+    name: string | null;
+    severity: Severity | null;
+    cvssScore: string | null;
+    epssScore: string | null;
+    exploitable: boolean | null;
+    lastScanTime: string | null;
+  }[];
+  detections: {
+    upwindId: string;
+    title: string | null;
+    severity: Severity | null;
+    status: string | null;
+    mitreTactics: string | null;
+    lastSeenTime: string | null;
+  }[];
 }
 
 export interface XamSecureSummary {

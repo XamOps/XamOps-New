@@ -93,9 +93,37 @@ public class UpwindApiClient {
         return fetchAll("/configuration-findings", maxPages);
     }
 
+    /** Paged variants that also report completeness — used by the reconciling full sync. */
+    public FetchResult fetchVulnerabilityFindingsPaged(int maxPages) {
+        return fetchAllPaged("/vulnerability-findings", maxPages);
+    }
+
+    public FetchResult fetchConfigurationFindingsPaged(int maxPages) {
+        return fetchAllPaged("/configuration-findings", maxPages);
+    }
+
     /** Compliance framework definitions (title, version, status, last_scan_time, compliance score). */
     public List<JsonNode> fetchConfigurationFrameworks(int maxPages) {
         return fetchAll("/configuration-frameworks", maxPages);
+    }
+
+    /**
+     * Outcome of a paged fetch. {@code truncated} means paging stopped at the page cap
+     * while the API still advertised a next page, so {@code items} is an INCOMPLETE view
+     * of the domain. Callers must not run mark-resolved reconciliation on a truncated
+     * result — anything not re-fetched would be wrongly archived.
+     */
+    public static final class FetchResult {
+        private final List<JsonNode> items;
+        private final boolean truncated;
+
+        FetchResult(List<JsonNode> items, boolean truncated) {
+            this.items = items;
+            this.truncated = truncated;
+        }
+
+        public List<JsonNode> items() { return items; }
+        public boolean truncated() { return truncated; }
     }
 
     /**
@@ -103,8 +131,21 @@ public class UpwindApiClient {
      * up to maxPages pages. Each page is a JSON array; items are concatenated.
      */
     public List<JsonNode> fetchAll(String path, int maxPages) {
+        return fetchAllPaged(path, maxPages).items();
+    }
+
+    /**
+     * Items per page. Upwind's default is 100 but honours up to 1000 (verified live
+     * 2026-07-31), which cuts a full configuration-findings walk (~19.4k findings) from
+     * ~196 requests to ~20 and keeps a wide margin under the caller's page cap.
+     */
+    static final int PAGE_SIZE = 1000;
+
+    /** As {@link #fetchAll}, but also reports whether the page cap cut the fetch short. */
+    public FetchResult fetchAllPaged(String path, int maxPages) {
         List<JsonNode> items = new ArrayList<>();
-        String url = apiBaseUrl + "/v1/organizations/" + orgId + path;
+        String url = apiBaseUrl + "/v1/organizations/" + orgId + path
+                + (path.contains("?") ? "&" : "?") + "per-page=" + PAGE_SIZE;
         int pages = 0;
         while (url != null && pages < maxPages) {
             HttpHeaders headers = new HttpHeaders();
@@ -126,7 +167,12 @@ public class UpwindApiClient {
             url = nextLink(resp.getHeaders());
             pages++;
         }
-        return items;
+        boolean truncated = url != null;
+        if (truncated) {
+            log.warn("[Upwind] {} hit the {}-page cap with more pages available — fetched {} items; "
+                    + "treating result as incomplete (skipping mark-resolved)", path, maxPages, items.size());
+        }
+        return new FetchResult(items, truncated);
     }
 
     /** v2 inventory search with cursor paging. conditions is the request body's "conditions" array. */
@@ -201,6 +247,38 @@ public class UpwindApiClient {
             pages++;
         }
         return items;
+    }
+
+    /**
+     * As {@link #fetchApiSecurityEndpoints}, but reports whether the page cap cut the walk
+     * short so the sync can skip mark-resolved on an incomplete result.
+     */
+    public FetchResult fetchApiSecurityEndpointsPaged(String cloudAccountId, int maxPages) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String url = apiBaseUrl + "/v1/organizations/" + orgId
+                + "/apisecurity-endpoints?cloud-account-id=" + cloudAccountId
+                + "&per-page=" + PAGE_SIZE;
+        int pages = 0;
+        while (url != null && pages < maxPages) {
+            HttpHeaders headers = authHeaders();
+            ResponseEntity<String> resp = exchangeWithRetry(
+                    URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
+            try {
+                JsonNode body = objectMapper.readTree(resp.getBody());
+                if (body.isArray()) body.forEach(items::add);
+            } catch (Exception e) {
+                throw new IllegalStateException("Upwind apisecurity response invalid", e);
+            }
+            url = nextLink(resp.getHeaders());
+            pages++;
+        }
+        boolean truncated = url != null;
+        if (truncated) {
+            log.warn("[Upwind] apisecurity-endpoints for {} hit the {}-page cap with more pages "
+                    + "available — fetched {} endpoints; treating as incomplete",
+                    cloudAccountId, maxPages, items.size());
+        }
+        return new FetchResult(items, truncated);
     }
 
     /** v1 SBOM software packages, tenant-filtered by cloud-account-id query param, Link paging. */
@@ -295,22 +373,40 @@ public class UpwindApiClient {
         return headers;
     }
 
+    /**
+     * RFC-8288 Link header: {@code <url>; rel="next", <url>; rel="first"}. Only commas
+     * OUTSIDE the angle brackets separate entries — Upwind's configuration-findings
+     * page-token embeds a RAW comma in the URL, e.g.
+     * {@code page-token=%5B1785448068963,%22fmw-…%22%5D}. Splitting the whole header on
+     * ',' therefore tore that URL in half, the rel="next" fragment lost its '<', and
+     * pagination silently stopped after page 1 (one 100-item page), which then let the
+     * full sync's mark-resolved pass archive every finding it never re-fetched.
+     * Matching {@code <…>} first keeps such URLs intact.
+     */
     private String nextLink(HttpHeaders headers) {
         List<String> links = headers.get("Link");
         if (links == null) return null;
         for (String header : links) {
-            for (String part : header.split(",")) {
-                if (part.contains("rel=\"next\"")) {
-                    int start = part.indexOf('<');
-                    int end = part.indexOf('>');
-                    if (start >= 0 && end > start) {
-                        return part.substring(start + 1, end);
-                    }
+            if (header == null) continue;
+            java.util.regex.Matcher m = LINK_ENTRY.matcher(header);
+            while (m.find()) {
+                String url = m.group(1);
+                String params = m.group(2);
+                if (REL_NEXT.matcher(params).find() && !url.isBlank()) {
+                    return url.trim();
                 }
             }
         }
         return null;
     }
+
+    /** One Link entry: the bracketed URL plus its parameters up to the next entry. */
+    private static final java.util.regex.Pattern LINK_ENTRY =
+            java.util.regex.Pattern.compile("<([^>]*)>([^<]*)");
+
+    /** {@code rel=next}, optionally quoted, as a whole token. */
+    private static final java.util.regex.Pattern REL_NEXT =
+            java.util.regex.Pattern.compile("(?i)\\brel\\s*=\\s*\"?next\"?");
 
     private synchronized String getToken() {
         if (cachedToken != null && Instant.now().isBefore(tokenExpiry.minusSeconds(60))) {

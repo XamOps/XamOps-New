@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { PageResp, ThreatDetection, ThreatPolicy } from '../../types/xamsecure';
+import type { PageResp, ThreatDetection, ThreatPolicy, ResourceDetail } from '../../types/xamsecure';
 import ThreatsTab from './ThreatsTab';
 import ThreatPoliciesTab from './ThreatPoliciesTab';
 
@@ -9,6 +9,7 @@ interface Props {
   isLoading: boolean;
   onPage: (page: number) => void;
   onArchive?: (upwindId: string) => void;
+  loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
 }
 
 /**
@@ -16,7 +17,9 @@ interface Props {
  * under one tab with Detections / Policies sub-views (Upwind nests policies here
  * rather than as a separate top-level nav item).
  */
-const ThreatsSection: React.FC<Props> = ({ threats, policies, isLoading, onPage, onArchive }) => {
+const ThreatsSection: React.FC<Props> = ({
+  threats, policies, isLoading, onPage, onArchive, loadResourceDetail,
+}) => {
   const [view, setView] = useState<'detections' | 'policies'>('detections');
   return (
     <div className="space-y-4">
@@ -25,7 +28,8 @@ const ThreatsSection: React.FC<Props> = ({ threats, policies, isLoading, onPage,
         <ViewTab label="Policies" active={view === 'policies'} onClick={() => setView('policies')} />
       </div>
       {view === 'detections'
-        ? <ThreatsTab threats={threats} isLoading={isLoading} onPage={onPage} onArchive={onArchive} />
+        ? <ThreatsTab threats={threats} isLoading={isLoading} onPage={onPage} onArchive={onArchive}
+                      loadResourceDetail={loadResourceDetail} />
         : <ThreatPoliciesTab data={policies} isLoading={isLoading} />}
     </div>
   );

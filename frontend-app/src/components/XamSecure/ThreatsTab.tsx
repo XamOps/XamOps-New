@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
-import type { PageResp, ThreatDetection } from '../../types/xamsecure';
+import type { PageResp, ThreatDetection, ResourceDetail } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
-import FindingDrawer from './FindingDrawer';
+import DetectionDrawer from './DetectionDrawer';
+import ResourceLink from './ResourceLink';
+import { useResourceDrawer } from './useResourceDrawer';
 
 interface Props {
   threats: PageResp<ThreatDetection> | null;
   isLoading: boolean;
   onPage: (page: number) => void;
   onArchive?: (upwindId: string) => void;
+  loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
 }
 
-const ThreatsTab: React.FC<Props> = ({ threats, isLoading, onPage, onArchive }) => {
+const ThreatsTab: React.FC<Props> = ({ threats, isLoading, onPage, onArchive, loadResourceDetail }) => {
   const [selected, setSelected] = useState<ThreatDetection | null>(null);
+  const { open, drawer } = useResourceDrawer(loadResourceDetail);
   const rows = threats?.content ?? [];
 
   return (
@@ -46,8 +50,8 @@ const ThreatsTab: React.FC<Props> = ({ threats, isLoading, onPage, onArchive }) 
                 <td className="px-5 py-3"><SeverityChip severity={t.severity} /></td>
                 <td className="px-5 py-3 font-medium text-gray-800 max-w-md truncate">{t.title}</td>
                 <td className="px-5 py-3 text-gray-600">
-                  {t.resourceName}
-                  <span className="block text-[10px] text-gray-400">{t.resourceType}</span>
+                  <ResourceLink resourceId={t.resourceId} label={t.resourceName}
+                                sub={t.resourceType} onOpen={open} />
                 </td>
                 <td className="px-5 py-3 text-gray-600">{t.mitreTactics ?? '—'}</td>
                 <td className="px-5 py-3 text-gray-600">{t.occurrenceCount ?? 1}</td>
@@ -75,23 +79,14 @@ const ThreatsTab: React.FC<Props> = ({ threats, isLoading, onPage, onArchive }) 
         </div>
       )}
       {selected && (
-        <FindingDrawer
-          title={selected.title ?? 'Detection'}
-          rawPayload={selected.rawPayload}
+        <DetectionDrawer
+          detection={selected}
           onClose={() => setSelected(null)}
-          actions={onArchive && (
-            <button
-              onClick={() => {
-                onArchive(selected.upwindId);
-                setSelected(null);
-              }}
-              className="px-3 py-1.5 bg-gray-900 hover:bg-black text-white text-xs font-bold rounded-xl"
-            >
-              Archive
-            </button>
-          )}
+          onArchive={onArchive}
+          onOpenResource={(id) => { setSelected(null); open(id); }}
         />
       )}
+      {drawer}
     </div>
   );
 };

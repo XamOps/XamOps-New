@@ -1,20 +1,55 @@
-import React, { useState } from 'react';
-import type { PageResp, PostureFinding } from '../../types/xamsecure';
+import React, { useMemo, useState } from 'react';
+import type { PageResp, PostureFinding, ResourceDetail } from '../../types/xamsecure';
+import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
 import PostureFindingDrawer from './PostureFindingDrawer';
+import ResourceLink from './ResourceLink';
+import FilterChips, { SEVERITY_TINT } from './FilterChips';
+import { useResourceDrawer } from './useResourceDrawer';
 
 interface Props {
   data: PageResp<PostureFinding> | null;
   isLoading: boolean;
   onPage: (page: number) => void;
+  loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
+  /** Severity distribution for the chip counts (from the Configurations dashboard). */
+  severityCounts?: Record<string, number>;
+  /** Server-side severity filter — the table is paginated, so filtering can't be local. */
+  onSeverity?: (severity: string) => void;
 }
 
-const PostureTab: React.FC<Props> = ({ data, isLoading, onPage }) => {
+const PostureTab: React.FC<Props> = ({
+  data, isLoading, onPage, loadResourceDetail, severityCounts, onSeverity,
+}) => {
   const [selected, setSelected] = useState<PostureFinding | null>(null);
+  const [severity, setSeverity] = useState<string | null>(null);
+  const { open, drawer } = useResourceDrawer(loadResourceDetail);
   const rows = data?.content ?? [];
+
+  const severityGroups = useMemo(() => {
+    const counts = severityCounts ?? {};
+    return SEVERITY_ORDER
+      .filter((s) => (counts[s] ?? 0) > 0)
+      .map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase(), count: counts[s] }));
+  }, [severityCounts]);
+
+  const totalFindings = useMemo(
+    () => Object.values(severityCounts ?? {}).reduce((a, b) => a + b, 0),
+    [severityCounts]);
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      {onSeverity && severityGroups.length > 1 && (
+        <div className="px-5 py-3 border-b border-gray-100">
+          <FilterChips
+            options={severityGroups}
+            active={severity}
+            allCount={totalFindings}
+            tint={(v) => SEVERITY_TINT[v]}
+            onChange={(v) => { setSeverity(v); onSeverity(v ?? ''); }}
+          />
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -39,8 +74,8 @@ const PostureTab: React.FC<Props> = ({ data, isLoading, onPage }) => {
                 </td>
                 <td className="px-5 py-3 font-medium text-gray-800 max-w-md truncate">{p.title}</td>
                 <td className="px-5 py-3 text-gray-600">
-                  {p.resourceName}
-                  <span className="block text-[10px] text-gray-400">{p.resourceType}</span>
+                  <ResourceLink resourceId={p.resourceId} label={p.resourceName}
+                                sub={p.resourceType} onOpen={open} />
                 </td>
                 <td className="px-5 py-3 text-gray-600">{p.cloudProvider}</td>
                 <td className="px-5 py-3 whitespace-nowrap text-gray-500">
@@ -70,8 +105,13 @@ const PostureTab: React.FC<Props> = ({ data, isLoading, onPage }) => {
         </div>
       )}
       {selected && (
-        <PostureFindingDrawer finding={selected} onClose={() => setSelected(null)} />
+        <PostureFindingDrawer
+          finding={selected}
+          onClose={() => setSelected(null)}
+          onOpenResource={(id) => { setSelected(null); open(id); }}
+        />
       )}
+      {drawer}
     </div>
   );
 };
