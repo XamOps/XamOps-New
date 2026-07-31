@@ -46,6 +46,7 @@ import {
 
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import { sanitizeHtml } from '../utils/sanitizeHtml';
 
 import cytoscape from 'cytoscape';
 // @ts-ignore
@@ -4239,7 +4240,7 @@ ${xmlEdges}
                 style={{ left: nodeTooltip.x + canvasInset, top: nodeTooltip.y + canvasInset, transform: 'translate(-50%, -100%)' }}
               >
                 <div className="bg-gray-900 text-white text-[11px] rounded-lg px-2.5 py-1.5 shadow-xl max-w-[220px] leading-relaxed">
-                  <div dangerouslySetInnerHTML={{ __html: nodeTooltip.text.replace(/\n/g, '<br/>') }} />
+                  <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(nodeTooltip.text.replace(/\n/g, '<br/>')) }} />
                 </div>
                 <div className="w-2 h-2 bg-gray-900 rotate-45 mx-auto -mt-1" />
               </div>

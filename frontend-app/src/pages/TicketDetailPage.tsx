@@ -25,6 +25,7 @@ import TicketCallButton from '../components/calls/TicketCallButton';
 import TicketCallHistory from '../components/calls/TicketCallHistory';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+import { sanitizeHtml } from '../utils/sanitizeHtml';
 
 interface AdminUser {
   id: number;
@@ -618,7 +619,7 @@ const TicketDetailPage: React.FC = () => {
                           <span className="text-[9px] font-medium text-[rgba(0,0,0,0.35)]">{formatIST(reply.createdAt)}</span>
                         </div>
                         <div className="p-4 rounded-xl rounded-tr-none shadow-sm text-sm font-medium leading-relaxed bg-amber-50 text-amber-900 border border-amber-200">
-                          <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
+                          <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(reply.message) }} className="prose-chat" />
                         </div>
                       </div>
                     </div>
@@ -711,7 +712,7 @@ const TicketDetailPage: React.FC = () => {
                           </div>
                         ) : (
                           <>
-                            <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
+                            <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(reply.message) }} className="prose-chat" />
                             {reply.edited && (
                               <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMe(reply) ? 'text-white/40' : 'text-[rgba(0,0,0,0.35)]'}`}>Edited</span>
                             )}

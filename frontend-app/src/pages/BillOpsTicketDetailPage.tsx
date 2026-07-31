@@ -25,6 +25,7 @@ import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 import '../styles/billopsTicketDetail.css';
 import { DialogRoot, DialogPanel } from '../components/ui';
+import { sanitizeHtml } from '../utils/sanitizeHtml';
 
 // ── Note panel types & constants ──────────────────────────────────────────
 interface NoteTask {
@@ -1302,7 +1303,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                               <span className="text-[10px] text-[rgba(0,0,0,0.35)] flex-shrink-0">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
                             </div>
                             <div className="p-4 rounded-xl rounded-tr-sm shadow-sm text-sm leading-relaxed overflow-hidden bg-amber-50 text-amber-900 border border-amber-200">
-                              <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat break-words" />
+                              <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(reply.message) }} className="prose-chat break-words" />
                             </div>
                           </div>
                         </div>
@@ -1452,7 +1453,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                             </div>
                           ) : (
                             <>
-                              <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0 break-words" />
+                              <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(reply.message) }} className="prose-chat !p-0 break-words" />
                               {reply.edited && (
                                 <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMine ? 'text-white/40' : 'text-[rgba(0,0,0,0.35)]'}`}>Edited</span>
                               )}
