@@ -50,6 +50,17 @@ const RECONNECT_BASE_MS = 3000;
 const RECONNECT_MAX_MS = 30000;
 
 /**
+ * How long a "your call went unanswered" toast stays up.
+ *
+ * The library gives a described toast 4s, which is fine for an acknowledgement
+ * and not fine here: this is the only place the caller is told what became of a
+ * call they waited out, and it lands right as they look away from the queue
+ * panel that just vanished. Long enough to read twice, still short enough to
+ * expire on its own.
+ */
+const NO_ANSWER_TOAST_MS = 12000;
+
+/**
  * Missed calls the user has already seen and cleared. Persisted locally because
  * the server has no per-user "read" state — a missed call stays in the record
  * forever, so without this the badge would only ever grow. Dismissal is a
@@ -148,6 +159,15 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // render; the refresh function is defined later, so it is reached through a
   // ref rather than captured directly.
   const refreshMissedRef = useRef<() => void>(() => undefined);
+  // The server pushes RINGING from inside `initiate`, so it reaches this tab
+  // before the HTTP response tells us our own call id. Parked here and applied
+  // when the room opens — it carries the ticket context and the count of agents
+  // actually being rung, which is what the waiting UI has to show.
+  const pendingRingingRef = useRef<CallSignal | null>(null);
+  // Which call we placed and are still waiting on. `phase` cannot answer this
+  // from inside a socket callback, and an unanswered outgoing call needs a
+  // different ending than a call that rang at us and we missed.
+  const outgoingIdRef = useRef<number | null>(null);
 
   const isAuthenticated = authReady && userRoles.length > 0;
 
@@ -165,6 +185,8 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setActiveMediaKind('AUDIO');
     activeCallIdRef.current = null;
     incomingIdRef.current = null;
+    outgoingIdRef.current = null;
+    pendingRingingRef.current = null;
   }, [stopRinging]);
 
   // ─── Signal handling ───────────────────────────────────────────────────────
@@ -198,6 +220,10 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         case 'RINGING':
           setOutgoing(signal);
+          // Usually arrives before we know our own call id, in which case
+          // `enterRoom` picks it up out of the ref a moment later.
+          if (activeCallIdRef.current === signal.callId) setActiveCall(signal);
+          else pendingRingingRef.current = signal;
           break;
 
         case 'ANSWERED':
@@ -205,6 +231,7 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (activeCallIdRef.current === signal.callId) {
             setPhase('in-call');
             setOutgoing(null);
+            outgoingIdRef.current = null;
             setActiveCall(signal);
             gooeyToast.success(`${signal.answeredByName ?? 'An agent'} joined the call`);
           } else if (incomingIdRef.current === signal.callId) {
@@ -263,19 +290,32 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           const wasOurs =
             activeCallIdRef.current === signal.callId || incomingIdRef.current === signal.callId;
+          // Read before clearCall wipes it: a call *we* placed that nobody
+          // answered is not a call we missed, and saying so to a customer who
+          // sat in the queue for the whole ring window reads as nonsense.
+          const wasOurUnansweredOutgoing = outgoingIdRef.current === signal.callId;
           if (!wasOurs) return;
 
           clearCall();
 
           if (signal.type === 'MISSED') {
-            gooeyToast.warning('Missed call', {
-              description: signal.ticketId ? `Ticket #${signal.ticketId}` : undefined,
-            });
+            if (wasOurUnansweredOutgoing) {
+              gooeyToast.warning('Nobody picked up', {
+                description:
+                  'The support team has been emailed about the call and will get back to you.',
+                duration: NO_ANSWER_TOAST_MS,
+              });
+            } else {
+              gooeyToast.warning('Missed call', {
+                description: signal.ticketId ? `Ticket #${signal.ticketId}` : undefined,
+              });
+            }
           } else if (signal.type === 'DECLINED') {
             gooeyToast.error('Call declined');
           } else if (signal.type === 'NO_ANSWER_AVAILABLE') {
             gooeyToast.warning('Nobody is available right now', {
               description: 'Try again shortly, or reply on the ticket.',
+              duration: NO_ANSWER_TOAST_MS,
             });
           } else if (signal.type === 'CANCELLED') {
             gooeyToast.info('Call cancelled');
@@ -484,7 +524,16 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setActiveToken(token);
       setActiveMediaKind(mediaKind);
       activeCallIdRef.current = token.callId;
-      if (signal) setActiveCall(signal);
+
+      // Our own outgoing call has no signal yet — the RINGING push that raced
+      // the initiate response is the only description of it we have, and the
+      // panel needs it to say which ticket and how many agents are being rung.
+      const ringing =
+        pendingRingingRef.current?.callId === token.callId ? pendingRingingRef.current : null;
+      pendingRingingRef.current = null;
+
+      const described = signal ?? ringing;
+      if (described) setActiveCall(described);
     },
     []
   );
@@ -512,7 +561,9 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Uses the kind we asked for, not the session echo: the caller's camera
         // has to come up now, before any signal describing the call arrives.
         enterRoom(token, null, mediaKind);
-        setPhase(session.state === 'ACTIVE' ? 'in-call' : 'outgoing');
+        const stillRinging = session.state !== 'ACTIVE';
+        outgoingIdRef.current = stillRinging ? session.id : null;
+        setPhase(stillRinging ? 'outgoing' : 'in-call');
       } catch (err) {
         setPhase('idle');
         gooeyToast.error('Call failed', {

@@ -1,0 +1,24 @@
+# LiveKit config for PROD — mounted into the container by docker-compose.livekit.prod.yml.
+#
+# Runs on a dedicated public-subnet EC2 with an Elastic IP (see the compose
+# header). API keys are supplied via the LIVEKIT_KEYS env var, not here, so no
+# secret is committed. The public IP is pinned via `--node-ip` on the command
+# line (use_external_ip is left off so ICE candidates use exactly that EIP).
+
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+rtc:
+  # TCP fallback + UDP media range. Open in the security group from 0.0.0.0/0.
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  # IP is pinned via `--node-ip <EIP>` in the compose command, so STUN discovery
+  # is unnecessary and left disabled.
+  use_external_ip: false
+turn:
+  enabled: true
+  udp_port: 3478
+logging:
+  level: info
+  json: false

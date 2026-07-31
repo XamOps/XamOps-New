@@ -79,6 +79,12 @@ function tintFor(seed: string): string {
   return TILE_TINTS[h % TILE_TINTS.length];
 }
 
+const mmss = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const secs = (seconds % 60).toString().padStart(2, '0');
+  return `${mins}:${secs}`;
+};
+
 /**
  * One participant's media. Attaching happens through refs because LiveKit hands
  * back MediaStreamTracks that must be bound to real DOM elements, which React
@@ -413,6 +419,32 @@ const CallRoom: React.FC<CallRoomProps> = ({
     return () => clearInterval(id);
   }, [hasPeer]);
 
+  /**
+   * A customer's call fans out to the whole BillOps admin pool and the first to
+   * answer wins, so from the caller's side this is a queue, not a phone ringing
+   * at one desk. Saying "Ringing…" makes an unattended wait look like a specific
+   * person is ignoring them; naming the queue and counting the agents being rung
+   * makes the same wait legible.
+   *
+   * Direction is the server's own classification of who placed the call, which
+   * is more trustworthy here than re-deriving the caller's role in the browser.
+   */
+  const inQueue = ringing && !hasPeer && call?.direction === 'USER_TO_ADMIN';
+  const agentsRinging = call?.activeParticipants ?? 0;
+
+  // How long the caller has been queued. Deliberately separate from `elapsed`,
+  // which measures the conversation and must not start before one exists.
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    if (!ringing || hasPeer) {
+      setWaited(0);
+      return;
+    }
+    const started = Date.now();
+    const id = setInterval(() => setWaited(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [ringing, hasPeer]);
+
   const toggleMic = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
@@ -511,28 +543,24 @@ const CallRoom: React.FC<CallRoomProps> = ({
     return 'grid-cols-4';
   }, [tileCount]);
 
-  const timeLabel = useMemo(() => {
-    const mins = Math.floor(elapsed / 60)
-      .toString()
-      .padStart(2, '0');
-    const secs = (elapsed % 60).toString().padStart(2, '0');
-    return `${mins}:${secs}`;
-  }, [elapsed]);
+  const timeLabel = useMemo(() => mmss(elapsed), [elapsed]);
 
   const connecting =
     connectionState === ConnectionState.Connecting ||
     connectionState === ConnectionState.Reconnecting;
   const isRingingState = (ringing && !hasPeer) || (connecting && !hasPeer);
 
-  const statusLabel = ringing && !hasPeer
-    ? 'Ringing…'
-    : connectionState === ConnectionState.Connecting
-      ? 'Connecting…'
-      : connectionState === ConnectionState.Reconnecting
-        ? 'Reconnecting…'
-        : hasPeer
-          ? timeLabel
-          : 'Waiting for others…';
+  const statusLabel = inQueue
+    ? `In queue · ${mmss(waited)}`
+    : ringing && !hasPeer
+      ? 'Ringing…'
+      : connectionState === ConnectionState.Connecting
+        ? 'Connecting…'
+        : connectionState === ConnectionState.Reconnecting
+          ? 'Reconnecting…'
+          : hasPeer
+            ? timeLabel
+            : 'Waiting for others…';
 
   const title = call?.ticketId ? `Ticket #${call.ticketId}` : 'Support call';
 
@@ -596,8 +624,14 @@ const CallRoom: React.FC<CallRoomProps> = ({
               {title}
             </div>
             <div className={`text-slate-400 truncate leading-tight flex items-center gap-1.5 ${isFull ? 'text-xs' : 'text-[11px]'}`}>
-              <span className={hasPeer ? 'tabular-nums text-teal-300 font-medium' : ''}>{statusLabel}</span>
-              {call?.initiatorName ? <span className="text-slate-500">· {call.initiatorName}</span> : null}
+              <span className={hasPeer || inQueue ? 'tabular-nums text-teal-300 font-medium' : ''}>
+                {statusLabel}
+              </span>
+              {/* While we are the one ringing out, the initiator is us — our own
+                  name next to "In queue" reads as if we were the one called. */}
+              {!ringing && call?.initiatorName ? (
+                <span className="text-slate-500">· {call.initiatorName}</span>
+              ) : null}
               {call?.ticketSubject && isFull ? <span className="text-slate-500 truncate">· {call.ticketSubject}</span> : null}
             </div>
           </div>
@@ -676,12 +710,40 @@ const CallRoom: React.FC<CallRoomProps> = ({
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2 text-slate-300">
-            {liveDot}
-            <span className={`font-medium ${isFull ? 'text-sm' : 'text-[13px]'}`}>
-              {ringing ? 'Ringing…' : connecting ? 'Connecting…' : 'Waiting for others to join'}
-            </span>
-          </div>
+          {inQueue ? (
+            <div className="flex flex-col items-center gap-1.5 text-center px-2">
+              <div className="flex items-center gap-2">
+                {liveDot}
+                <span className={`font-semibold text-white ${isFull ? 'text-base' : 'text-[13px]'}`}>
+                  You're in the queue
+                </span>
+              </div>
+              <p className={`text-slate-400 ${isFull ? 'text-sm' : 'text-[11px]'}`}>
+                {agentsRinging > 0
+                  ? `Ringing ${agentsRinging} available support agent${
+                      agentsRinging === 1 ? '' : 's'
+                    } — the first to answer picks up your call.`
+                  : 'Connecting you to the next available support agent.'}
+              </p>
+              <span
+                className={`tabular-nums font-medium text-teal-300 ${isFull ? 'text-sm' : 'text-[11px]'}`}
+              >
+                Waiting {mmss(waited)}
+              </span>
+              {/* The call is an overlay, not a route, so leaving this page does
+                  not drop it — worth saying, or people sit and stare. */}
+              <p className={`text-slate-500 ${isFull ? 'text-xs' : 'text-[10px]'}`}>
+                Keep working — the call follows you and connects as soon as someone answers.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-slate-300">
+              {liveDot}
+              <span className={`font-medium ${isFull ? 'text-sm' : 'text-[13px]'}`}>
+                {ringing ? 'Ringing…' : connecting ? 'Connecting…' : 'Waiting for others to join'}
+              </span>
+            </div>
+          )}
         </div>
       ) : (
         <div

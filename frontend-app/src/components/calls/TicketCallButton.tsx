@@ -26,9 +26,20 @@ const TicketCallButton: React.FC<TicketCallButtonProps> = ({
   compact = false,
   className = '',
 }) => {
-  const { startCall, phase, activeToken, socketConnected, callingEnabled } = useCalls();
+  const { startCall, phase, outgoing, activeToken, socketConnected, callingEnabled } = useCalls();
 
   const onCall = phase !== 'idle' || !!activeToken;
+  /**
+   * We are queued waiting for an agent on *this* ticket.
+   *
+   * The call panel already says so, but it can be minimised to a corner pill, and
+   * the place a customer looks after pressing Call is the button they pressed —
+   * leaving it merely disabled reads as "nothing happened".
+   */
+  const queuedHere =
+    phase === 'outgoing' &&
+    outgoing?.ticketId === ticketId &&
+    outgoing?.direction === 'USER_TO_ADMIN';
   // Without a live socket we would place a call and never hear the answer; with
   // no LiveKit on the environment there is no room to join at all.
   const unavailable = disabled || !socketConnected || !callingEnabled;
@@ -54,6 +65,21 @@ const TicketCallButton: React.FC<TicketCallButtonProps> = ({
   const size = compact ? 'px-1.5 py-1' : 'px-2 py-1.5';
   const skin =
     'border-[rgba(0,0,0,0.08)] dark:border-slate-700 hover:bg-[rgba(0,0,0,0.04)] dark:hover:bg-slate-800';
+
+  if (queuedHere) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 ${className}`}
+        title="Waiting for a support agent to pick up"
+      >
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        </span>
+        In queue{!compact && ' — waiting for an agent'}
+      </span>
+    );
+  }
 
   return (
     <div className={`inline-flex items-center gap-1 ${className}`} title={title}>

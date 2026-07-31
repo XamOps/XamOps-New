@@ -1,0 +1,73 @@
+version: '3.8'
+
+# LiveKit SFU for ticket calls — PRODUCTION.
+#
+# ⚠ NOT CURRENTLY IN USE. As of 2026-07-31 production shares the UAT SFU
+#   (instance i-0ef2e5d69c854f3d7, EIP 13.207.123.90, private 10.30.1.248 in
+#   10.30.0.0/16). The prod api-gateway proxies /livekit/ to that EIP over the
+#   public internet, and prod uses the same LIVEKIT_API_KEY/SECRET as UAT.
+#
+#   Consequences of that arrangement, recorded so they are not a surprise:
+#     * Restarting the UAT SFU drops live PRODUCTION calls.
+#     * One API key/secret spans both environments.
+#     * The gateway→SFU signalling hop is plaintext HTTP carrying join tokens.
+#     * A single t3.small serves both environments' media.
+#
+#   To decouple, launch an instance per the spec below in a PUBLIC subnet of the
+#   prod VPC (10.1.0.0/16), run this file on it, then change one line in the prod
+#   gateway (proxy_pass → new private IP) and LIVEKIT_API_KEY/SECRET on
+#   xamops-service. Nothing in the application needs to change.
+#
+# IMPORTANT: this runs on a DEDICATED EC2 in a PUBLIC subnet with an Elastic IP,
+# NOT on the app instance. WebRTC media (UDP) needs a host reachable directly on
+# the internet with symmetric routing. An app instance in a private subnet behind
+# a NAT gateway has inbound EIP != outbound NAT IP, so media never completes —
+# the call connects, then carries no audio. This exact mistake cost a full day in
+# UAT; do not shortcut it by running LiveKit on the app box.
+#
+# ── Host requirements (prod) ─────────────────────────────────────────────────
+#   Instance : dedicated EC2 (t3.small is enough for a handful of concurrent
+#              calls; size up for more — each call leg is ~100-300 kbps relayed)
+#   Subnet   : PUBLIC (route table has an internet gateway route)
+#   EIP      : allocate one; it is advertised to clients via --node-ip
+#   SG       : inbound from 0.0.0.0/0 →
+#                7881/tcp, 3478/tcp, 3478/udp, 50000-50100/udp   (media + TURN)
+#              inbound from the VPC CIDR only →
+#                7880/tcp                                        (signalling)
+#   Admin    : SSM Session Manager preferred (no SSH port open)
+#
+# ── Signalling path (no separate TLS cert needed) ────────────────────────────
+#   Browser → https/wss on live.xamops.com (ALB, existing cert)
+#           → api-gateway nginx  location /livekit/ → http://<livekit-private-ip>:7880/
+#   So LIVEKIT_URL on xamops-service is: wss://live.xamops.com/livekit
+#
+# ── Media path ───────────────────────────────────────────────────────────────
+#   Browser ⇄ <EIP> directly on UDP 50000-50100 (and TCP 7881 / TURN 3478)
+#
+# ── Bring up (on the LiveKit EC2) ────────────────────────────────────────────
+#   export LIVEKIT_NODE_IP=<the Elastic IP of this instance>
+#   export LIVEKIT_API_KEY=...        # must match xamops-service LIVEKIT_API_KEY
+#   export LIVEKIT_API_SECRET=...     # >= 32 chars; must match xamops-service
+#   docker compose -f docker-compose.livekit.prod.yml up -d
+#
+# Host networking is required so LiveKit binds the media ports on the host with
+# no Docker UDP NAT (which breaks WebRTC connectivity checks).
+#
+# NOTE: restarting this container drops every call in progress. Never bundle it
+# with an application deploy.
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: xamops-livekit-prod
+    restart: unless-stopped
+    network_mode: host
+    # --node-ip pins the public EIP into ICE candidates. No default on purpose:
+    # a wrong value here produces calls that connect and then stay silent, which
+    # is the hardest failure mode to diagnose, so fail fast instead.
+    command: --config /etc/livekit.yaml --node-ip ${LIVEKIT_NODE_IP:?set LIVEKIT_NODE_IP to this instance Elastic IP}
+    environment:
+      # "key: secret" — kept in env so the secret is not committed to git.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.prod.yaml:/etc/livekit.yaml:ro
