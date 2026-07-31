@@ -4,6 +4,11 @@
  * Rendered as an overlay rather than a route so a call survives navigation — an
  * agent needs to browse the ticket, the account, and the invoice while talking,
  * and dropping the call on every route change would make it useless.
+ *
+ * Visual design targets a modern video-calling feel (Meet/Zoom quality): deep
+ * navy stage, card-like tiles with gradient fallbacks, a live pulsing indicator
+ * while ringing, a grouped control capsule, and a centered pre-connect "ringing"
+ * hero that transitions into the tile grid once someone joins.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -59,15 +64,33 @@ interface CallRoomProps {
   onHangUp: () => void;
 }
 
+/** Deterministic gradient per identity so a face-less tile still has some life. */
+const TILE_TINTS = [
+  'from-cyan-500 to-blue-600',
+  'from-indigo-500 to-violet-600',
+  'from-emerald-500 to-teal-600',
+  'from-fuchsia-500 to-pink-600',
+  'from-amber-500 to-orange-600',
+];
+
+function tintFor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i += 1) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return TILE_TINTS[h % TILE_TINTS.length];
+}
+
 /**
  * One participant's media. Attaching happens through refs because LiveKit hands
  * back MediaStreamTracks that must be bound to real DOM elements, which React
  * cannot express declaratively.
  */
-const ParticipantTile: React.FC<{ participant: Participant; isLocal: boolean }> = ({
-  participant,
-  isLocal,
-}) => {
+const ParticipantTile: React.FC<{
+  participant: Participant;
+  isLocal: boolean;
+  /** Soft pulsing rings around the avatar to signal a live "ringing" state. */
+  pulse?: boolean;
+  className?: string;
+}> = ({ participant, isLocal, pulse = false, className = '' }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [hasVideo, setHasVideo] = useState(false);
@@ -126,12 +149,15 @@ const ParticipantTile: React.FC<{ participant: Participant; isLocal: boolean }> 
 
   const label = participant.name || participant.identity;
   const initial = (label || '?').charAt(0).toUpperCase();
+  const tint = tintFor(label || 'x');
 
   return (
     <div
-      className={`relative rounded-lg overflow-hidden bg-slate-800 aspect-video flex items-center justify-center ring-2 transition-colors ${
-        speaking ? 'ring-emerald-400' : 'ring-transparent'
-      }`}
+      className={`relative rounded-2xl overflow-hidden aspect-video flex items-center justify-center shadow-xl shadow-black/40 transition-all duration-300 ring-2 ${
+        speaking ? 'ring-teal-400/80' : 'ring-white/5'
+      } ${className}`}
+      // Subtle gradient so an empty video state reads as "waiting", not "broken".
+      style={{ background: 'linear-gradient(150deg,#1b2438 0%,#0d1322 100%)' }}
     >
       <video
         ref={videoRef}
@@ -143,31 +169,50 @@ const ParticipantTile: React.FC<{ participant: Participant; isLocal: boolean }> 
       {!isLocal && <audio ref={audioRef} autoPlay />}
 
       {!hasVideo && (
-        <div className="flex flex-col items-center gap-1.5 text-slate-300">
-          <div className="w-11 h-11 rounded-full bg-slate-600 flex items-center justify-center text-base font-semibold text-white">
-            {initial}
+        <div className="flex flex-col items-center gap-3">
+          <div className="relative flex items-center justify-center">
+            {pulse && (
+              <>
+                <span
+                  className={`absolute inline-flex rounded-full bg-gradient-to-br ${tint} opacity-30 animate-ping`}
+                  style={{ width: '5.5rem', height: '5.5rem', animationDuration: '1.8s' }}
+                />
+                <span
+                  className={`absolute inline-flex rounded-full bg-gradient-to-br ${tint} opacity-20 animate-ping`}
+                  style={{ width: '7.5rem', height: '7.5rem', animationDuration: '2.4s' }}
+                />
+              </>
+            )}
+            <div
+              className={`relative w-16 h-16 rounded-full bg-gradient-to-br ${tint} flex items-center justify-center text-2xl font-semibold text-white shadow-lg ring-1 ring-white/20`}
+            >
+              {initial}
+            </div>
           </div>
         </div>
       )}
 
-      <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1 text-[11px] text-white">
-        <span className="truncate bg-black/50 rounded px-1.5 py-0.5">
-          {label}
-          {isLocal ? ' (you)' : ''}
-        </span>
-        {muted && (
-          <span className="bg-black/50 rounded px-1 py-0.5 flex items-center">
-            <Icon icon="mdi:microphone-off" width={12} className="text-red-400" />
+      {/* Name chip with live mic state */}
+      <div className="absolute bottom-2 left-2 right-2 flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1.5 truncate bg-black/45 backdrop-blur-md rounded-full pl-1.5 pr-2.5 py-1 text-[11px] font-medium text-white/90 ring-1 ring-white/10">
+          <Icon
+            icon={muted ? 'mdi:microphone-off' : 'mdi:microphone'}
+            width={13}
+            className={muted ? 'text-rose-400' : 'text-teal-300'}
+          />
+          <span className="truncate">
+            {label}
+            {isLocal ? ' (you)' : ''}
           </span>
-        )}
+        </span>
         {QUALITY_WARNING[quality] && (
           <span
-            className="bg-black/50 rounded px-1 py-0.5 flex items-center"
+            className="bg-black/45 backdrop-blur-md rounded-full px-1.5 py-1 flex items-center ring-1 ring-white/10"
             title={QUALITY_WARNING[quality]!.label}
           >
             <Icon
               icon={QUALITY_WARNING[quality]!.icon}
-              width={12}
+              width={13}
               className={QUALITY_WARNING[quality]!.tone}
             />
           </span>
@@ -207,13 +252,45 @@ const ScreenShareView: React.FC<{ participant: Participant; label: string }> = (
   }, [participant]);
 
   return (
-    <div className="relative w-full h-full bg-black rounded-lg overflow-hidden flex items-center justify-center">
+    <div className="relative w-full h-full bg-black rounded-2xl overflow-hidden flex items-center justify-center ring-1 ring-white/10 shadow-xl shadow-black/40">
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
-      <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-black/60 rounded px-1.5 py-0.5 text-[11px] text-white">
-        <Icon icon="mdi:monitor-share" width={12} className="text-emerald-400" />
+      <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/55 backdrop-blur-md rounded-full px-2.5 py-1 text-[11px] font-medium text-white ring-1 ring-white/10">
+        <Icon icon="mdi:monitor-share" width={13} className="text-teal-300" />
         {label}
       </div>
     </div>
+  );
+};
+
+/** A round control button with consistent sizing, hover-lift and states. */
+const ControlButton: React.FC<{
+  onClick: () => void;
+  icon: string;
+  label: string;
+  isFull: boolean;
+  active?: boolean;
+  danger?: boolean;
+  emphasis?: boolean;
+  disabled?: boolean;
+  title?: string;
+}> = ({ onClick, icon, label, isFull, active = false, danger = false, emphasis = false, disabled = false, title }) => {
+  const size = isFull ? (emphasis ? 'p-4' : 'p-3.5') : 'p-2.5';
+  const iconSize = isFull ? (emphasis ? 24 : 22) : 18;
+  const skin = danger
+    ? 'bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/40 hover:shadow-rose-500/60'
+    : active
+      ? 'bg-teal-500/90 text-white shadow-lg shadow-teal-500/30 hover:bg-teal-500'
+      : 'bg-white/10 text-white hover:bg-white/20 ring-1 ring-white/10';
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={title ?? label}
+      className={`rounded-full transition-all duration-150 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 ${size} ${skin}`}
+    >
+      <Icon icon={icon} width={iconSize} />
+    </button>
   );
 };
 
@@ -416,6 +493,15 @@ const CallRoom: React.FC<CallRoomProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [size]);
 
+  // Recede the support-chat widget while full screen so it doesn't compete with
+  // the call controls. Cleared on exit and unmount.
+  useEffect(() => {
+    const cls = 'xamops-call-fullscreen';
+    if (size === 'full') document.body.classList.add(cls);
+    else document.body.classList.remove(cls);
+    return () => document.body.classList.remove(cls);
+  }, [size]);
+
   const tileCount = (localParticipant ? 1 : 0) + remotes.length;
   // Keeps faces as large as the count allows instead of locking to two columns.
   const fullGridCols = useMemo(() => {
@@ -433,6 +519,11 @@ const CallRoom: React.FC<CallRoomProps> = ({
     return `${mins}:${secs}`;
   }, [elapsed]);
 
+  const connecting =
+    connectionState === ConnectionState.Connecting ||
+    connectionState === ConnectionState.Reconnecting;
+  const isRingingState = (ringing && !hasPeer) || (connecting && !hasPeer);
+
   const statusLabel = ringing && !hasPeer
     ? 'Ringing…'
     : connectionState === ConnectionState.Connecting
@@ -447,22 +538,22 @@ const CallRoom: React.FC<CallRoomProps> = ({
 
   if (size === 'pill') {
     return (
-      <div className="fixed bottom-4 right-4 z-[70] flex items-center gap-2 rounded-full bg-slate-900/90 backdrop-blur-xl text-white border border-indigo-400/20 shadow-[0_16px_40px_-4px_rgba(99,102,241,0.3)] px-3 py-2">
+      <div className="fixed bottom-4 right-4 z-[70] flex items-center gap-2 rounded-full bg-slate-900/90 backdrop-blur-xl text-white border border-white/10 shadow-[0_16px_40px_-4px_rgba(0,0,0,0.5)] px-3 py-2">
         <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-400" />
         </span>
-        <span className="text-xs font-medium">{statusLabel}</span>
+        <span className="text-xs font-medium tabular-nums">{statusLabel}</span>
         <button
           onClick={() => setSize('docked')}
-          className="p-1 rounded-full hover:bg-white/10"
+          className="p-1 rounded-full hover:bg-white/10 transition-colors"
           aria-label="Expand call"
         >
           <Icon icon="mdi:arrow-expand" width={14} />
         </button>
         <button
           onClick={onHangUp}
-          className="p-1 rounded-full bg-gradient-to-r from-rose-500 to-red-600 shadow-md shadow-rose-500/30 hover:brightness-110 transition-all"
+          className="p-1 rounded-full bg-gradient-to-br from-rose-500 to-red-600 shadow-md shadow-rose-500/30 hover:brightness-110 transition-all"
           aria-label="Hang up"
         >
           <Icon icon="mdi:phone-hangup" width={14} />
@@ -473,31 +564,48 @@ const CallRoom: React.FC<CallRoomProps> = ({
 
   const isFull = size === 'full';
 
+  // Live indicator: teal pulsing dot while ringing/connecting, steady while live.
+  const liveDot = (
+    <span className="relative flex h-2 w-2">
+      {isRingingState && (
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
+      )}
+      <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-400" />
+    </span>
+  );
+
   return (
     <div
       className={
         isFull
-          ? 'fixed inset-0 z-[70] flex flex-col bg-slate-950 text-white'
-          : 'fixed bottom-4 right-4 z-[70] w-[min(94vw,380px)] rounded-2xl bg-slate-900/90 backdrop-blur-xl text-white shadow-[0_24px_48px_-8px_rgba(99,102,241,0.35)] overflow-hidden border border-indigo-400/20'
+          ? 'fixed inset-0 z-[70] flex flex-col text-white'
+          : 'fixed bottom-4 right-4 z-[70] w-[min(94vw,400px)] rounded-2xl text-white shadow-[0_24px_48px_-8px_rgba(0,0,0,0.6)] overflow-hidden border border-white/10'
       }
+      style={{ background: 'radial-gradient(120% 100% at 50% 0%, #131b2e 0%, #0a0e1a 60%, #070a12 100%)' }}
     >
+      {/* ── Status header ─────────────────────────────────────────────── */}
       <div
-        className={`flex items-center justify-between border-b border-slate-700 ${
-          isFull ? 'px-5 py-3' : 'px-3 py-2'
+        className={`flex items-center justify-between border-b border-white/5 ${
+          isFull ? 'px-5 py-3.5' : 'px-3.5 py-2.5'
         }`}
       >
-        <div className="min-w-0">
-          <div className={`font-semibold truncate ${isFull ? 'text-sm' : 'text-xs'}`}>{title}</div>
-          <div className={`text-slate-400 truncate ${isFull ? 'text-xs' : 'text-[11px]'}`}>
-            {statusLabel}
-            {call?.initiatorName ? ` · ${call.initiatorName}` : ''}
-            {call?.ticketSubject && isFull ? ` · ${call.ticketSubject}` : ''}
+        <div className="min-w-0 flex items-center gap-3">
+          {liveDot}
+          <div className="min-w-0">
+            <div className={`font-semibold truncate leading-tight ${isFull ? 'text-sm' : 'text-[13px]'}`}>
+              {title}
+            </div>
+            <div className={`text-slate-400 truncate leading-tight flex items-center gap-1.5 ${isFull ? 'text-xs' : 'text-[11px]'}`}>
+              <span className={hasPeer ? 'tabular-nums text-teal-300 font-medium' : ''}>{statusLabel}</span>
+              {call?.initiatorName ? <span className="text-slate-500">· {call.initiatorName}</span> : null}
+              {call?.ticketSubject && isFull ? <span className="text-slate-500 truncate">· {call.ticketSubject}</span> : null}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => setSize(isFull ? 'docked' : 'full')}
-            className="p-1.5 rounded hover:bg-white/10"
+            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
             aria-label={isFull ? 'Exit full screen' : 'Maximise call'}
             title={isFull ? 'Exit full screen (Esc)' : 'Maximise'}
           >
@@ -505,7 +613,7 @@ const CallRoom: React.FC<CallRoomProps> = ({
           </button>
           <button
             onClick={() => setSize('pill')}
-            className="p-1.5 rounded hover:bg-white/10"
+            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
             aria-label="Minimise call"
             title="Minimise"
           >
@@ -523,10 +631,11 @@ const CallRoom: React.FC<CallRoomProps> = ({
         </div>
       )}
 
+      {/* ── Stage ─────────────────────────────────────────────────────── */}
       {sharer ? (
         // Someone is sharing: the screen is what matters, so it takes the space
         // and the faces shrink to a strip beside it.
-        <div className={`flex-1 min-h-0 flex flex-col gap-2 ${isFull ? 'p-4' : 'p-2'}`}>
+        <div className={`flex-1 min-h-0 flex flex-col gap-2 ${isFull ? 'p-4' : 'p-2.5'}`}>
           <div className={isFull ? 'flex-1 min-h-0' : 'h-[30vh]'}>
             <ScreenShareView
               participant={sharer}
@@ -551,6 +660,29 @@ const CallRoom: React.FC<CallRoomProps> = ({
             ))}
           </div>
         </div>
+      ) : remotes.length === 0 ? (
+        // Pre-connect hero: a single centered self-view / avatar with a live
+        // pulsing ring, à la Meet/Zoom — transitions to the grid once someone joins.
+        <div className={`flex-1 min-h-0 flex flex-col items-center justify-center gap-4 ${isFull ? 'p-6' : 'p-4'}`}>
+          <div className={`w-full ${isFull ? 'max-w-2xl' : ''}`}>
+            {localParticipant ? (
+              <ParticipantTile participant={localParticipant} isLocal pulse={isRingingState} />
+            ) : (
+              <div
+                className="relative rounded-2xl overflow-hidden aspect-video flex items-center justify-center shadow-xl shadow-black/40 ring-2 ring-white/5"
+                style={{ background: 'linear-gradient(150deg,#1b2438 0%,#0d1322 100%)' }}
+              >
+                <Icon icon="mdi:loading" width={28} className="animate-spin text-slate-500" />
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-slate-300">
+            {liveDot}
+            <span className={`font-medium ${isFull ? 'text-sm' : 'text-[13px]'}`}>
+              {ringing ? 'Ringing…' : connecting ? 'Connecting…' : 'Waiting for others to join'}
+            </span>
+          </div>
+        </div>
       ) : (
         <div
           className={
@@ -558,98 +690,77 @@ const CallRoom: React.FC<CallRoomProps> = ({
               // Capped and centred: on an ultrawide monitor a single uncapped
               // tile becomes a wall of face.
               ? `flex-1 min-h-0 overflow-y-auto p-4 grid gap-3 auto-rows-min content-center mx-auto w-full max-w-[1200px] ${fullGridCols}`
-              : 'p-2 grid grid-cols-2 gap-2 max-h-[40vh] overflow-y-auto'
+              : 'p-2.5 grid grid-cols-2 gap-2.5 max-h-[42vh] overflow-y-auto'
           }
         >
-          {localParticipant && (
-            <ParticipantTile participant={localParticipant} isLocal />
-          )}
+          {localParticipant && <ParticipantTile participant={localParticipant} isLocal />}
           {remotes.map(p => (
             <ParticipantTile key={p.sid} participant={p} isLocal={false} />
           ))}
-          {remotes.length === 0 && (
-            <div
-              className={`aspect-video rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 px-2 text-center ${
-                isFull ? 'text-sm' : 'text-[11px]'
-              }`}
-            >
-              {ringing ? 'Waiting for an answer' : 'Nobody else here yet'}
-            </div>
-          )}
         </div>
       )}
 
-      <div
-        className={`flex items-center justify-center border-t border-white/10 bg-white/[0.02] ${
-          isFull ? 'gap-4 px-5 py-4 flex-shrink-0' : 'gap-2 px-3 py-2.5'
-        }`}
-      >
-        <button
-          onClick={toggleMic}
-          className={`rounded-full transition-colors ${isFull ? 'p-4' : 'p-2.5'} ${
-            micOn ? 'bg-slate-700 hover:bg-slate-600' : 'bg-red-600 hover:bg-red-700'
+      {/* ── Control capsule ───────────────────────────────────────────── */}
+      <div className={`flex justify-center flex-shrink-0 ${isFull ? 'pb-6 pt-2' : 'pb-3.5 pt-1'}`}>
+        <div
+          className={`flex items-center rounded-full bg-slate-900/70 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/40 ${
+            isFull ? 'gap-2 px-3 py-2' : 'gap-1.5 px-2 py-1.5'
           }`}
-          aria-label={micOn ? 'Mute microphone' : 'Unmute microphone'}
         >
-          <Icon icon={micOn ? 'mdi:microphone' : 'mdi:microphone-off'} width={isFull ? 24 : 18} />
-        </button>
-        <button
-          onClick={toggleCam}
-          className={`rounded-full transition-colors ${isFull ? 'p-4' : 'p-2.5'} ${
-            camOn ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-800 hover:bg-slate-700'
-          }`}
-          aria-label={camOn ? 'Turn camera off' : 'Turn camera on'}
-        >
-          <Icon icon={camOn ? 'mdi:video' : 'mdi:video-off'} width={isFull ? 24 : 18} />
-        </button>
-        {canScreenShare && (
-          <button
-            onClick={toggleScreenShare}
-            // Only blocked when someone *else* holds the stage — taking over
-            // mid-share would yank the screen out from under them.
-            disabled={!!sharer && !sharingLocally}
-            className={`rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-              isFull ? 'p-4' : 'p-2.5'
-            } ${
-              sharingLocally
-                ? 'bg-emerald-600 hover:bg-emerald-700'
-                : 'bg-slate-700 hover:bg-slate-600'
-            }`}
-            aria-label={sharingLocally ? 'Stop sharing your screen' : 'Share your screen'}
-            title={
-              sharer && !sharingLocally
-                ? `${sharer.name || sharer.identity} is already sharing`
-                : sharingLocally
-                  ? 'Stop sharing'
-                  : 'Share your screen'
-            }
-          >
-            <Icon
+          {/* Group 1 — media */}
+          <ControlButton
+            onClick={toggleMic}
+            icon={micOn ? 'mdi:microphone' : 'mdi:microphone-off'}
+            label={micOn ? 'Mute microphone' : 'Unmute microphone'}
+            isFull={isFull}
+            danger={!micOn}
+          />
+          <ControlButton
+            onClick={toggleCam}
+            icon={camOn ? 'mdi:video' : 'mdi:video-off'}
+            label={camOn ? 'Turn camera off' : 'Turn camera on'}
+            isFull={isFull}
+            active={camOn}
+          />
+          {canScreenShare && (
+            <ControlButton
+              onClick={toggleScreenShare}
               icon={sharingLocally ? 'mdi:monitor-off' : 'mdi:monitor-share'}
-              width={isFull ? 24 : 18}
+              label={sharingLocally ? 'Stop sharing your screen' : 'Share your screen'}
+              isFull={isFull}
+              active={sharingLocally}
+              disabled={!!sharer && !sharingLocally}
+              title={
+                sharer && !sharingLocally
+                  ? `${sharer.name || sharer.identity} is already sharing`
+                  : undefined
+              }
             />
-          </button>
-        )}
-        <button
-          onClick={() => setShowInvite(true)}
-          className={`rounded-full transition-colors bg-slate-700 hover:bg-slate-600 ${
-            isFull ? 'p-4' : 'p-2.5'
-          }`}
-          aria-label="Add participant"
-          title="Add participant"
-        >
-          <Icon icon="mdi:account-plus" width={isFull ? 24 : 18} />
-        </button>
-        <CallDeviceMenu room={roomRef.current} compact={!isFull} />
-        <button
-          onClick={onHangUp}
-          className={`rounded-full bg-gradient-to-r from-rose-500 to-red-600 shadow-lg shadow-rose-500/30 hover:brightness-110 transition-all ${
-            isFull ? 'px-6 py-4' : 'p-2.5'
-          }`}
-          aria-label="Hang up"
-        >
-          <Icon icon="mdi:phone-hangup" width={isFull ? 24 : 18} />
-        </button>
+          )}
+
+          <span className={`w-px bg-white/10 ${isFull ? 'h-7 mx-1' : 'h-6 mx-0.5'}`} />
+
+          {/* Group 2 — people & settings */}
+          <ControlButton
+            onClick={() => setShowInvite(true)}
+            icon="mdi:account-plus"
+            label="Add participant"
+            isFull={isFull}
+          />
+          <CallDeviceMenu room={roomRef.current} compact={!isFull} />
+
+          <span className={`w-px bg-white/10 ${isFull ? 'h-7 mx-1' : 'h-6 mx-0.5'}`} />
+
+          {/* Group 3 — end (dominant) */}
+          <ControlButton
+            onClick={onHangUp}
+            icon="mdi:phone-hangup"
+            label="Hang up"
+            isFull={isFull}
+            danger
+            emphasis
+          />
+        </div>
       </div>
 
       <AnimatePresence>

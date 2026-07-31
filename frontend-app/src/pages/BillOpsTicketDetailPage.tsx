@@ -40,6 +40,21 @@ const NOTE_COLORS = {
   pink:   { bg: 'linear-gradient(160deg,#fce7f3 0%,#fbcfe8 100%)', line: 'rgba(236,72,153,0.12)',  btn: '#f472b6', text: '#831843' },
 } as const;
 
+/**
+ * System call summaries are posted into the thread by CallService as
+ * `📞 <em>Video call ended · 2m 52s · alice, bob</em>`. They are events, not
+ * conversation, so they get their own card style instead of a chat bubble.
+ */
+function parseCallEvent(html?: string): { label: string; meta: string[] } | null {
+  if (!html) return null;
+  const text = html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text.startsWith('📞')) return null;
+  if (!/call ended/i.test(text)) return null;
+  const segments = text.replace(/^📞\s*/, '').split('·').map((s) => s.trim()).filter(Boolean);
+  if (segments.length === 0) return null;
+  return { label: segments[0], meta: segments.slice(1) };
+}
+
 const BillOpsTicketDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -76,6 +91,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
   const [editWidth, setEditWidth] = useState<number | null>(null);
+
+  // Activity feed filter — "all" shows the call history + system event cards,
+  // "messages" strips them so an agent can read the conversation without noise.
+  const [activityFilter, setActivityFilter] = useState<'all' | 'messages'>('all');
 
   // Internal note toggle (kept for submit path only)
   const [isInternalNote, setIsInternalNote] = useState(false);
@@ -1165,6 +1184,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const slaStatus = getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt);
   const responseSlaLabel = getResponseSlaLabel(ticket.createdAt, ticket.severity, ticket.chatStartedAt);
 
+  // System call summaries live in the reply list but are not conversation, so the
+  // counter and the "messages only" filter both discount them.
+  const allReplies = ticket.replies ?? [];
+  const messageCount = allReplies.filter((r) => !parseCallEvent(r.message)).length;
+
   return (
     <div className="flex flex-col overflow-hidden bg-white" style={{ height: 'calc(100dvh - 104px)' }}>
       {/* Chat Container */}
@@ -1173,10 +1197,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
         className="flex-1 min-h-0 overflow-y-auto custom-scrollbar scroll-smooth bg-[rgba(0,0,0,0.02)]"
         onScroll={handleChatScroll}
       >
-        <div className="w-full p-5 lg:p-8 space-y-6">
+        <div className="w-full p-5 lg:p-8 pb-20 space-y-6">
 
-          {/* Original Ticket + Metadata Card */}
-          <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
+          {/* Original Ticket + Metadata Card — the anchor of the page: black left
+              edge + a slightly lifted shadow so it reads above the activity feed. */}
+          <div className="bg-white border border-[#e5e7eb] border-l-[3px] border-l-[rgba(0,0,0,0.88)] rounded-xl p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-16px_rgba(0,0,0,0.18)]">
             <div className="flex gap-4">
               <div className="flex-shrink-0">
                 <div className="w-10 h-10 rounded-lg bg-[rgba(0,0,0,0.88)] flex items-center justify-center text-white">
@@ -1268,14 +1293,52 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Discussion Header */}
-          <div className="flex items-center gap-3 text-[rgba(0,0,0,0.35)]">
-            <span className="text-[11px] font-semibold uppercase tracking-widest whitespace-nowrap">Correspondence Log</span>
-            <div className="h-px bg-[rgba(0,0,0,0.08)] flex-1"></div>
-            <span className="text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap">{ticket.replies?.length || 0} msg{(ticket.replies?.length || 0) !== 1 ? 's' : ''}</span>
+          {/* Activity header — section label + "all activity vs messages only" filter */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-[11px] font-semibold uppercase tracking-widest whitespace-nowrap text-[rgba(0,0,0,0.35)]">
+              Correspondence Log
+            </span>
+            <div className="h-px bg-[#e5e7eb] flex-1 min-w-[20px]"></div>
+
+            <div className="flex items-center p-0.5 rounded-lg bg-[rgba(0,0,0,0.05)] border border-[#e5e7eb]">
+              {([
+                { key: 'all' as const, label: 'All activity', icon: 'mdi:timeline-text-outline' },
+                { key: 'messages' as const, label: 'Messages only', icon: 'mdi:message-text-outline' },
+              ]).map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setActivityFilter(opt.key)}
+                  aria-pressed={activityFilter === opt.key}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    activityFilter === opt.key
+                      ? 'bg-white text-[rgba(0,0,0,0.88)] shadow-sm'
+                      : 'text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)]'
+                  }`}
+                >
+                  <Icon icon={opt.icon} width={12} />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <span className="text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap tabular-nums">
+              {messageCount} msg{messageCount !== 1 ? 's' : ''}
+            </span>
           </div>
 
-          <TicketCallHistory ticketId={ticket.id} />
+          {/* Calls section — hidden entirely in "messages only" mode */}
+          {activityFilter === 'all' && <TicketCallHistory ticketId={ticket.id} />}
+
+          {/* Messages section label — a hard break between call history and the thread */}
+          {activityFilter === 'all' && (ticket.replies?.length ?? 0) > 0 && (
+            <div className="flex items-center gap-3 pt-1">
+              <span className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-widest text-[rgba(0,0,0,0.35)] whitespace-nowrap">
+                <Icon icon="mdi:message-text-outline" width={12} />
+                Messages
+              </span>
+              <div className="h-px bg-[#e5e7eb] flex-1"></div>
+            </div>
+          )}
 
           {/* Replies */}
           {ticket.replies && ticket.replies.length > 0 ? (
@@ -1284,6 +1347,49 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 const isMine = isMe(reply);
                 const isInternalReply = reply.isInternal;
                 const seenByOther = isMine && !isInternalReply && isReplySeen(reply);
+
+                // ── System event card (call summaries) — one consistent style, never a bubble ──
+                const callEvent = reply.deleted ? null : parseCallEvent(reply.message);
+                if (callEvent) {
+                  if (activityFilter === 'messages') return null;
+                  return (
+                    <div key={reply.id} className="flex justify-center">
+                      <div className="flex items-center gap-2.5 max-w-full px-3 py-2 rounded-lg bg-[#f7f8f9] border border-[#e5e7eb]">
+                        <span className="w-6 h-6 rounded-md bg-white border border-[#e5e7eb] flex items-center justify-center flex-shrink-0">
+                          <Icon
+                            icon={/video/i.test(callEvent.label) ? 'mdi:video-outline' : 'mdi:phone-outline'}
+                            width={12}
+                            className="text-[rgba(0,0,0,0.45)]"
+                          />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-[11.5px] font-semibold text-[rgba(0,0,0,0.6)]">
+                            {callEvent.label}
+                          </div>
+                          {callEvent.meta.length > 0 && (
+                            <div className="flex items-center gap-1.5 text-[10.5px] text-[rgba(0,0,0,0.4)] flex-wrap">
+                              {callEvent.meta.map((m, mi) => (
+                                <React.Fragment key={mi}>
+                                  {mi > 0 && <span className="text-[rgba(0,0,0,0.2)]">·</span>}
+                                  <span className="truncate">{m}</span>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <span className="ml-1 text-[10px] text-[rgba(0,0,0,0.3)] whitespace-nowrap flex-shrink-0 tabular-nums">
+                          {reply.createdAt
+                            ? new Date(reply.createdAt).toLocaleTimeString('en-IN', {
+                                timeZone: 'Asia/Kolkata',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : ''}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                }
 
                 // Internal notes: amber styling, right-aligned (admin only)
                 if (isInternalReply) {
@@ -1328,7 +1434,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   <div className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'} chat-bubble-enter`} style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
                     <div className={`flex max-w-[85%] md:max-w-[72%] gap-3 min-w-0 ${isMine ? 'flex-row-reverse' : ''}`}>
                       <div className="flex-shrink-0 mt-auto">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold ${reply.admin ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'bg-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)]'}`}>
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold ${reply.admin ? 'bg-[#1e293b] text-white' : 'bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.5)] border border-[#e5e7eb]'}`}>
                           {reply.admin ? <Icon icon="mdi:shield-account" width={16} /> : <span>{getInitials(reply.authorUsername)}</span>}
                         </div>
                       </div>
@@ -1341,14 +1447,14 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           {isMine && (
                             <span
                               title={seenByOther ? 'Seen' : 'Delivered, not yet seen'}
-                              style={{
-                                letterSpacing: '-1px',
-                                fontSize: '13px',
-                                lineHeight: 1,
-                                color: seenByOther ? '#38bdf8' : 'rgba(148,163,184,0.7)',
-                                fontWeight: seenByOther ? 700 : 400,
-                              }}
-                            >✓✓</span>
+                              className="flex items-center leading-none"
+                            >
+                              <Icon
+                                icon={seenByOther ? 'mdi:check-all' : 'mdi:check'}
+                                width={13}
+                                className={seenByOther ? 'text-sky-500' : 'text-[rgba(0,0,0,0.28)]'}
+                              />
+                            </span>
                           )}
                           {isMine && (
                             <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)]">
@@ -1357,7 +1463,9 @@ const BillOpsTicketDetailPage: React.FC = () => {
                           )}
                         </div>
 
-                        <div className={`group/msg relative p-4 rounded-xl shadow-sm text-sm leading-relaxed overflow-visible ${isMine ? 'bg-[rgba(0,0,0,0.88)] text-white rounded-tr-none' : 'bg-white text-[rgba(0,0,0,0.88)] border border-[rgba(0,0,0,0.08)] rounded-tl-none'}`}>
+                        {/* Outgoing bubbles use deep slate rather than solid black —
+                            same hierarchy, far easier on the eyes over a long thread. */}
+                        <div className={`group/msg relative p-4 rounded-xl text-sm leading-relaxed overflow-visible ${isMine ? 'bg-[#1e293b] text-white rounded-tr-none shadow-[0_1px_2px_rgba(15,23,42,0.18)]' : 'bg-white text-[rgba(0,0,0,0.88)] border border-[#e5e7eb] rounded-tl-none shadow-[0_1px_2px_rgba(0,0,0,0.04)]'}`}>
 
                           {/* ── Edit / Delete hover buttons ── */}
                           {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
@@ -1454,7 +1562,17 @@ const BillOpsTicketDetailPage: React.FC = () => {
                             <>
                               <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0 break-words" />
                               {reply.edited && (
-                                <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMine ? 'text-white/40' : 'text-[rgba(0,0,0,0.35)]'}`}>Edited</span>
+                                <span
+                                  title={
+                                    reply.editedAt
+                                      ? `Edited ${new Date(reply.editedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`
+                                      : 'This message was edited after it was sent'
+                                  }
+                                  className={`inline-flex items-center gap-1 mt-1.5 px-1.5 py-0.5 rounded text-[9.5px] font-medium cursor-help ${isMine ? 'bg-white/10 text-white/55' : 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.4)]'}`}
+                                >
+                                  <Icon icon="mdi:pencil-outline" width={9} />
+                                  Edited
+                                </span>
                               )}
                             </>
                           )}
@@ -1532,6 +1650,22 @@ const BillOpsTicketDetailPage: React.FC = () => {
             </div>
           )}
 
+          {/* "Messages only" with nothing but system events left to show */}
+          {activityFilter === 'messages' && allReplies.length > 0 && messageCount === 0 && (
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <Icon icon="mdi:message-outline" width={22} className="text-[rgba(0,0,0,0.2)]" />
+              <p className="text-[12.5px] text-[rgba(0,0,0,0.4)]">
+                No messages yet — only call activity on this ticket.
+              </p>
+              <button
+                onClick={() => setActivityFilter('all')}
+                className="text-[11.5px] font-medium text-[rgba(0,0,0,0.55)] underline underline-offset-2 hover:text-[rgba(0,0,0,0.88)] transition-colors"
+              >
+                Show all activity
+              </button>
+            </div>
+          )}
+
           {/* Closed banner — shown inline at bottom of chat */}
           {isClosed && (
             <div className="flex items-center justify-between gap-3 px-5 py-3.5 bg-[rgba(0,0,0,0.03)] rounded-xl border border-[rgba(0,0,0,0.08)] text-[12px] text-[rgba(0,0,0,0.5)]">
@@ -1553,15 +1687,16 @@ const BillOpsTicketDetailPage: React.FC = () => {
           )}
         </div>
 
-        {/* Scroll-to-bottom floating button */}
+        {/* Scroll-to-bottom pill — fades in only when scrolled up. The feed carries
+            pb-20 so this never lands on top of a row. */}
         {showScrollBtn && (
-          <div className="sticky bottom-2 flex justify-end pointer-events-none px-5">
+          <div className="sticky bottom-4 z-30 flex justify-center pointer-events-none px-5 chat-bubble-enter">
             <button
               onClick={scrollToBottom}
-              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-[11px] font-medium rounded-md shadow-md transition-colors"
+              className="pointer-events-auto flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 bg-white/95 backdrop-blur-sm border border-[#e5e7eb] text-[rgba(0,0,0,0.7)] hover:text-[rgba(0,0,0,0.88)] hover:border-[rgba(0,0,0,0.35)] text-[11px] font-medium rounded-full shadow-[0_4px_16px_-4px_rgba(0,0,0,0.25)] transition-colors"
             >
-              <Icon icon="mdi:chevron-down" width={14} />
-              Latest
+              <Icon icon="mdi:arrow-down" width={13} />
+              Jump to latest
             </button>
           </div>
         )}

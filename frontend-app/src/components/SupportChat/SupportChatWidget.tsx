@@ -74,8 +74,14 @@ const SupportChatWidget: React.FC = () => {
       setShowGreeting(false);
       return;
     }
-    const timer = setTimeout(() => setShowGreeting(true), 1200);
-    return () => clearTimeout(timer);
+    const showTimer = setTimeout(() => setShowGreeting(true), 1200);
+    // Auto-dismiss after ~5s so the bubble never permanently obscures page content
+    // (e.g. the last rows of the tickets list).
+    const hideTimer = setTimeout(() => setShowGreeting(false), 6200);
+    return () => {
+      clearTimeout(showTimer);
+      clearTimeout(hideTimer);
+    };
   }, [isOpen, greetingDismissed]);
 
   const dismissGreeting = useCallback((e?: React.MouseEvent) => {

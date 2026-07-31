@@ -13,6 +13,15 @@
 import { getDemoRole } from './demoConfig';
 import * as xamops from './xamopsMockData';
 import * as billops from './billopsAdminMockData';
+import * as xamsecure from './xamsecureMockData';
+import * as soc2 from './soc2MockData';
+
+/** Reads a query-string value off a URL that may be relative. */
+function param(url: string, name: string): string {
+  const q = url.indexOf('?');
+  if (q === -1) return '';
+  return new URLSearchParams(url.slice(q + 1)).get(name) ?? '';
+}
 
 function makeNotFound(): Response {
   return new Response('null', { status: 404, headers: { 'Content-Type': 'application/json' } });
@@ -242,9 +251,15 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamops/waste'))
     return makeResponse(xamops.demoWasteData);
 
-  // Security — prowler status before generic security catch-all
+  // Security — every prowler sub-path before the generic security catch-all.
+  // ComplianceOps reads prowler/findings (not /security/findings) and expects the
+  // OCSF-ish array; the catch-all's object shape would leave the page empty.
   if (url.includes('/api/xamops/security/prowler/status'))
-    return makeResponse({ status: 'COMPLETED', findingsCount: 6 });
+    return makeResponse(xamops.demoAwsProwlerStatus);
+  if (url.includes('/api/xamops/security/prowler/findings'))
+    return makeResponse(xamops.demoAwsProwlerFindings);
+  if (url.includes('/api/xamops/security/prowler/scan'))
+    return makeResponse({ status: 'STARTED', message: 'Scan initiated' });
   if (url.includes('/api/xamops/security'))
     return makeResponse(xamops.demoSecurityData);
 
@@ -403,6 +418,22 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse([]);
   if (url.includes('/api/xamops/labels'))
     return makeResponse([]);
+
+  // Ticket calls — must be listed explicitly: the {} fallback below is not a
+  // valid payload for these, and CallProvider sits above the app's error
+  // boundary, so a bad shape here blanks the whole page rather than one panel.
+  // callingEnabled:false with no token keeps the demo off the ring socket and
+  // greys out the call buttons instead of offering controls that cannot work.
+  if (url.includes('/api/xamops/calls/ws-token'))
+    return makeResponse({ token: '', ttlSeconds: 0, userId: 0, callingEnabled: false });
+  if (url.includes('/api/xamops/calls/missed'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/calls/ticket/'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/calls/') && url.includes('/invitable-users'))
+    return makeResponse([]);
+  if (url.includes('/api/xamops/calls'))
+    return makeResponse({});
 
   // Any other /api/xamops/* — empty fallback
   if (url.includes('/api/xamops/'))
@@ -574,6 +605,99 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse({ count: 0 });
   if (url.includes('/api/sre/'))
     return makeResponse([]);
+
+  // XamSecure (Upwind) — one entry per tab. Sub-paths first: /vulnerabilities,
+  // /inventory and /issues all have children that would otherwise be swallowed
+  // by their own parent route.
+  if (url.includes('/api/xamsecure/summary'))
+    return makeResponse(xamsecure.demoXamSecureSummary);
+  if (url.includes('/api/xamsecure/issues/detail'))
+    return makeResponse(xamsecure.demoIssueDetail(param(url, 'check')));
+  if (url.includes('/api/xamsecure/issues'))
+    return makeResponse(xamsecure.demoIssues);
+  if (url.includes('/api/xamsecure/attack-surface'))
+    return makeResponse(xamsecure.demoAttackSurface);
+  if (url.includes('/api/xamsecure/stories'))
+    return makeResponse(xamsecure.demoThreatStories);
+  if (url.includes('/api/xamsecure/threat-policies'))
+    return makeResponse(xamsecure.demoThreatPolicies);
+  // Archive/status POST — must precede the threat feed route
+  if (url.includes('/api/xamsecure/threats/') && url.includes('/status'))
+    return makeResponse({ success: true });
+  // Paged tables read ?page/&size (inventory also &category) off the URL, so the
+  // Prev/Next controls and the category rail actually move through the data.
+  if (url.includes('/api/xamsecure/threats'))
+    return makeResponse(xamsecure.demoThreatsPage(url));
+  if (url.includes('/api/xamsecure/vulnerabilities/dashboard'))
+    return makeResponse(xamsecure.demoVulnDashboard);
+  if (url.includes('/api/xamsecure/vulnerabilities/by-cve'))
+    return makeResponse(xamsecure.demoVulnByCvePage(url));
+  if (url.includes('/api/xamsecure/vulnerabilities/cve/findings'))
+    return makeResponse(xamsecure.demoCveFindings(param(url, 'cveId')));
+  if (url.includes('/api/xamsecure/vulnerabilities'))
+    return makeResponse(xamsecure.demoVulnerabilitiesPage(url));
+  if (url.includes('/api/xamsecure/posture'))
+    return makeResponse(xamsecure.demoPosturePage(url));
+  if (url.includes('/api/xamsecure/inventory/categories'))
+    return makeResponse(xamsecure.demoInventoryCategories);
+  if (url.includes('/api/xamsecure/inventory/network'))
+    return makeResponse(xamsecure.demoNetworkTopology);
+  if (url.includes('/api/xamsecure/inventory'))
+    return makeResponse(xamsecure.demoInventoryPage(url));
+  if (url.includes('/api/xamsecure/compliance'))
+    return makeResponse(xamsecure.demoCompliance);
+  if (url.includes('/api/xamsecure/configurations/dashboard'))
+    return makeResponse(xamsecure.demoConfigDashboard);
+  if (url.includes('/api/xamsecure/api-security'))
+    return makeResponse(xamsecure.demoApiSecurity);
+  if (url.includes('/api/xamsecure/components'))
+    return makeResponse(xamsecure.demoComponents);
+  if (url.includes('/api/xamsecure/workflows'))
+    return makeResponse(xamsecure.demoWorkflows);
+  if (url.includes('/api/xamsecure/onboarding'))
+    return makeResponse(xamsecure.demoOnboarding);
+  // Anything else under XamSecure — {} is safe, every remaining consumer is a
+  // POST action whose response is ignored.
+  if (url.includes('/api/xamsecure/'))
+    return makeResponse({});
+
+  // SOC 2 Program. useSoc2ProgramData loads all eleven in one Promise.all, so a
+  // single gap would blank the Program page and every detail page under it.
+  if (url.includes('/api/soc2/overview'))
+    return makeResponse(soc2.demoSoc2Overview);
+  if (url.includes('/api/soc2/frameworks'))
+    return makeResponse(soc2.demoSoc2Frameworks);
+  if (url.includes('/api/soc2/controls'))
+    return makeResponse(soc2.demoSoc2Controls);
+  // Publish/archive sub-paths first — they must not return the whole list
+  if (url.includes('/api/soc2/policies/'))
+    return makeResponse(soc2.demoSoc2Policies[0]);
+  if (url.includes('/api/soc2/policies'))
+    return makeResponse(soc2.demoSoc2Policies);
+  if (url.includes('/api/soc2/tasks/'))
+    return makeResponse(soc2.demoSoc2Tasks[0]);
+  if (url.includes('/api/soc2/tasks'))
+    return makeResponse(soc2.demoSoc2Tasks);
+  if (url.includes('/api/soc2/personnel/'))
+    return makeResponse(soc2.demoSoc2Personnel[0]);
+  if (url.includes('/api/soc2/personnel'))
+    return makeResponse(soc2.demoSoc2Personnel);
+  if (url.includes('/api/soc2/vendors/'))
+    return makeResponse(soc2.demoSoc2Vendors[0]);
+  if (url.includes('/api/soc2/vendors'))
+    return makeResponse(soc2.demoSoc2Vendors);
+  if (url.includes('/api/soc2/risks/'))
+    return makeResponse(soc2.demoSoc2Risks[0]);
+  if (url.includes('/api/soc2/risks'))
+    return makeResponse(soc2.demoSoc2Risks);
+  if (url.includes('/api/soc2/cloud-tests'))
+    return makeResponse(soc2.demoSoc2CloudTests);
+  if (url.includes('/api/soc2/integrations'))
+    return makeResponse(soc2.demoSoc2Integrations);
+  if (url.includes('/api/soc2/documents'))
+    return makeResponse(soc2.demoSoc2Documents);
+  if (url.includes('/api/soc2/'))
+    return makeResponse({});
 
   // Workspace Licenses (Google Workspace integration)
   if (url.includes('/api/workspace/licenses/summary'))

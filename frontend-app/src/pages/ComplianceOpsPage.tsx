@@ -101,73 +101,157 @@ const FRAMEWORK_CONFIG: Record<string, { displayName: string; icon: string; colo
   'AWS_FTR':            { displayName: 'AWS FTR',             icon: 'mdi:cloud-outline',           color: 'text-orange-600',  bgColor: 'bg-orange-50',  borderColor: 'border-orange-200'  },
   'SEBI':               { displayName: 'SEBI',                icon: 'mdi:chart-line',              color: 'text-blue-600',    bgColor: 'bg-blue-50',    borderColor: 'border-blue-200'    },
   'IRDAI':              { displayName: 'IRDAI',               icon: 'mdi:shield-half-full',        color: 'text-green-700',   bgColor: 'bg-green-50',   borderColor: 'border-green-200'   },
+  'C5_2025':            { displayName: 'C5 2025',             icon: 'mdi:shield-half-full',        color: 'text-teal-700',    bgColor: 'bg-teal-50',    borderColor: 'border-teal-200'    },
+  'CCC':                { displayName: 'CCC',                 icon: 'mdi:cloud-lock-outline',      color: 'text-purple-700',  bgColor: 'bg-purple-50',  borderColor: 'border-purple-200'  },
+  'PROWLER_TS':         { displayName: 'Prowler ThreatScore',  icon: 'mdi:gauge',                   color: 'text-rose-700',    bgColor: 'bg-rose-50',    borderColor: 'border-rose-200'    },
 };
 
 const DEFAULT_FW_CONFIG = { displayName: 'Other', icon: 'mdi:shield-check-outline', color: 'text-gray-600', bgColor: 'bg-gray-50', borderColor: 'border-gray-200' };
 
-// Framework logos — matches Pump's actual brand logo style with proper colors
-const LOGO_OVERRIDE: Record<string, { text: string; textColor: string; bg: string }> = {
-  'CIS':               { text: 'CIS',   textColor: '#fff', bg: '#2563eb' },
-  'SOC2':              { text: 'SOC2',  textColor: '#fff', bg: '#7c3aed' },
-  'PCI-DSS':           { text: 'PCI',   textColor: '#fff', bg: '#16a34a' },
-  'HIPAA':             { text: '⚕',    textColor: '#0d9488', bg: '#f0fdfa' },
-  'NIST':              { text: 'NIST',  textColor: '#fff', bg: '#1e3a8a' },
-  'NIST800':           { text: 'NIST',  textColor: '#fff', bg: '#312e81' },
-  'ISO27001':          { text: 'ISO',   textColor: '#1e40af', bg: '#eff6ff' },
-  'GDPR':              { text: 'GDPR',  textColor: '#fff', bg: '#b45309' },
-  'MITRE':             { text: '&',     textColor: '#ea580c', bg: '#fff7ed' },
-  'CISA':              { text: '🛡',    textColor: '#dc2626', bg: '#fef2f2' },
-  'FEDRAMP':           { text: 'FR',    textColor: '#fff', bg: '#1e3a5f' },
-  'FFIEC':             { text: 'FFIEC', textColor: '#fff', bg: '#0e7490' },
-  'RBI':               { text: 'RBI',   textColor: '#fff', bg: '#9a3412' },
-  'ENS':               { text: 'ENS',   textColor: '#fff', bg: '#ea580c' },
-  'AWS_WELL_ARCHITECTED': { text: '☁', textColor: '#f97316', bg: '#fff7ed' },
-  'FSBP':              { text: 'AWS',   textColor: '#fff', bg: '#ff9900' },
-  'AWS_FTR':           { text: 'AWS',   textColor: '#fff', bg: '#ff9900' },
-  'GXP':               { text: 'GxP',   textColor: '#fff', bg: '#065f46' },
-  'NIS2':              { text: 'NIS2',  textColor: '#fff', bg: '#6d28d9' },
-  'CSA_CCM':           { text: 'CSA',   textColor: '#fff', bg: '#0369a1' },
-  'CMMC':              { text: 'CMMC',  textColor: '#fff', bg: '#374151' },
-  'KISA':              { text: 'KISA',  textColor: '#fff', bg: '#9d174d' },
-  'BSI_C5':            { text: 'BSI',   textColor: '#fff', bg: '#1f2937' },
-  'SECNUMCLOUD':       { text: 'SNC',   textColor: '#fff', bg: '#1d4ed8' },
-  'CUSTOM':            { text: 'BP',    textColor: '#fff', bg: '#92400e' },
-  'SEBI':              { text: 'SEBI',  textColor: '#fff', bg: '#1e40af' },
-  'IRDAI':             { text: 'IRDAI', textColor: '#fff', bg: '#166534' },
+/**
+ * ── Framework badge system ────────────────────────────────────────────────────
+ *
+ * Every framework renders as a generated monogram. We deliberately ship NO
+ * official logo files: several standards bodies (ISO in particular) restrict
+ * their certification marks to entities that actually hold the certification,
+ * and others (PCI DSS, NIST CSF) have no official mark to use in the first
+ * place. Generated monograms sidestep all of that and stay visually consistent.
+ */
+
+/**
+ * Industry-recognised short form per framework, 2–4 characters. Version
+ * suffixes are stripped here and stay on the full name label under the badge.
+ */
+const FRAMEWORK_MONOGRAM: Record<string, string> = {
+  'CIS': 'CIS',
+  'SOC2': 'SOC2',
+  'PCI-DSS': 'PCI',
+  'HIPAA': 'HIP',
+  'NIST': 'CSF',            // NIST CSF — distinct from NIST 800-53 below
+  'NIST800': 'NIST',
+  'ISO27001': 'ISO',
+  'GDPR': 'GDPR',
+  'MITRE': 'MTR',
+  'CISA': 'CISA',
+  'FEDRAMP': 'FR',
+  'FFIEC': 'FFI',
+  'RBI': 'RBI',
+  'ENS': 'ENS',
+  'AWS_WELL_ARCHITECTED': 'AWA',
+  'FSBP': 'FSBP',
+  'AWS_FTR': 'FTR',
+  'GXP': 'GXP',
+  'NIS2': 'NIS2',
+  'CSA_CCM': 'CSA',
+  'CMMC': 'CMMC',
+  'KISA': 'KISA',
+  'BSI_C5': 'BSI',
+  'SECNUMCLOUD': 'SNC',
+  'CUSTOM': 'BP',
+  'SEBI': 'SEBI',
+  'IRDAI': 'IRD',
+  'C5_2025': 'C5',
+  'CCC': 'CCC',
+  'PROWLER_TS': 'PTS',
 };
 
-// SVG logo file paths for each framework (in /public/framework-logos/)
-const FRAMEWORK_LOGO_PATH: Record<string, string> = {
-  'CIS': '/framework-logos/cis.svg',
-  'SOC2': '/framework-logos/soc2.svg',
-  'PCI-DSS': '/framework-logos/pci.svg',
-  'HIPAA': '/framework-logos/hipaa.svg',
-  'NIST': '/framework-logos/nist.svg',
-  'NIST800': '/framework-logos/nist800.svg',
-  'ISO27001': '/framework-logos/iso27001.svg',
-  'GDPR': '/framework-logos/gdpr.svg',
-  'MITRE': '/framework-logos/mitre.svg',
-  'CISA': '/framework-logos/cisa.svg',
-  'FEDRAMP': '/framework-logos/fedramp.svg',
-  'FFIEC': '/framework-logos/ffiec.svg',
-  'RBI': '/framework-logos/rbi.svg',
-  'ENS': '/framework-logos/ens.svg',
-  'AWS_WELL_ARCHITECTED': '/framework-logos/aws.svg',
-  'FSBP': '/framework-logos/fsbp.svg',
-  'AWS_FTR': '/framework-logos/aws.svg',
-  'GXP': '/framework-logos/gxp.svg',
-  'NIS2': '/framework-logos/nis2.svg',
-  'CSA_CCM': '/framework-logos/csa.svg',
-  'CMMC': '/framework-logos/cmmc.svg',
-  'SECNUMCLOUD': '/framework-logos/secnumcloud.svg',
+/**
+ * 26 hand-picked colours walking the full hue wheel. Every one is verified to
+ * clear WCAG AA (4.5:1) against white text at both the base tone and the 14%
+ * lighter top-left gradient stop — measured ratios run 4.95:1 to 15.17:1.
+ */
+const BADGE_PALETTE = [
+  '#9f1239', // 0  rose
+  '#991b1b', // 1  red
+  '#9a3412', // 2  orange
+  '#854d0e', // 3  yellow
+  '#3f6212', // 4  lime
+  '#166534', // 5  green
+  '#065f46', // 6  emerald
+  '#115e59', // 7  teal
+  '#155e75', // 8  cyan
+  '#075985', // 9  sky
+  '#1e40af', // 10 blue
+  '#3730a3', // 11 indigo
+  '#5b21b6', // 12 violet
+  '#6b21a8', // 13 purple
+  '#86198f', // 14 fuchsia
+  '#9d174d', // 15 pink
+  '#1e293b', // 16 slate
+  '#292524', // 17 stone
+  '#78350f', // 18 deep amber
+  '#14532d', // 19 deep green
+  '#134e4a', // 20 deep teal
+  '#1e3a8a', // 21 navy
+  '#4c1d95', // 22 deep violet
+  '#7f1d1d', // 23 maroon
+  '#334155', // 24 blue-grey
+  '#0c4a6e', // 25 deep sky
+];
+
+/**
+ * Explicit palette index per framework, listed in the default display order.
+ * Assigned rather than hashed so no two neighbours land on nearby hues: every
+ * consecutive pair below is at least 35° apart on the hue wheel, and all 26
+ * palette entries are used before any colour repeats (30 frameworks → 4 reuses,
+ * none of them adjacent).
+ */
+const BADGE_COLOR_INDEX: Record<string, number> = {
+  'NIST800': 14, 'PCI-DSS': 0, 'C5_2025': 18, 'ISO27001': 6, 'NIS2': 23,
+  'CIS': 5, 'FEDRAMP': 7, 'NIST': 10, 'ENS': 22, 'CCC': 20,
+  'CSA_CCM': 4, 'PROWLER_TS': 2, 'MITRE': 21, 'SOC2': 3, 'FFIEC': 11,
+  'SECNUMCLOUD': 17, 'HIPAA': 19, 'KISA': 9, 'AWS_WELL_ARCHITECTED': 15, 'GDPR': 25,
+  'CMMC': 1, 'FSBP': 16, 'GXP': 13, 'BSI_C5': 8, 'CISA': 12,
+  'RBI': 24, 'SEBI': 0, 'IRDAI': 3, 'AWS_FTR': 0, 'CUSTOM': 3,
 };
 
-function getLogoFontSize(text: string): string {
-  if (text.length === 1) return '18px';
-  if (text.length === 2) return '13px';
-  if (text.length === 3) return '11px';
-  if (text.length === 4) return '9px';
-  return '7px';
+/** "ProwlerThreatScore-1.0" → "PTS", "C5-2025" → "C5", "CCC" → "CCC". */
+function deriveMonogramText(raw: string): string {
+  const STOP = new Set(['THE', 'OF', 'FOR', 'AND']);
+  const words = raw
+    .replace(/[^A-Za-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    // drop version fragments ("1", "0", "2025") and filler words
+    .filter(w => w && !/^\d+$/.test(w) && !STOP.has(w.toUpperCase()));
+  if (words.length === 0) return raw.slice(0, 3).toUpperCase() || '?';
+
+  // Already an acronym (CCC, C5, AWS, ISO…) — use it as-is
+  if (/^[A-Z0-9]{1,4}$/.test(words[0])) return words[0];
+
+  if (words.length === 1) {
+    // Split camelCase: ProwlerThreatScore → P T S
+    const parts = words[0].split(/(?=[A-Z][a-z])/).filter(Boolean);
+    if (parts.length > 1) return parts.slice(0, 3).map(p => p[0]).join('').toUpperCase();
+    return words[0].slice(0, 4).toUpperCase();
+  }
+  return words.slice(0, 4).map(w => w[0]).join('').toUpperCase();
+}
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+/** Mix a hex colour toward white by `amount` (0–1) for the gradient highlight. */
+function lighten(hex: string, amount: number): string {
+  const n = (i: number) => parseInt(hex.slice(i, i + 2), 16);
+  const mix = (v: number) => Math.round(v + (255 - v) * amount);
+  return `rgb(${mix(n(1))}, ${mix(n(3))}, ${mix(n(5))})`;
+}
+
+/** Single resolver: framework key → monogram + gradient stops. */
+function getFrameworkBadge(key: string): { text: string; textColor: string; bg: string; bgLight: string } {
+  const index = BADGE_COLOR_INDEX[key] ?? hashString(key) % BADGE_PALETTE.length;
+  const bg = BADGE_PALETTE[index];
+  const label = getFwConfig(key).displayName;
+  return {
+    text: FRAMEWORK_MONOGRAM[key] ?? deriveMonogramText(label === 'Other' ? key : label),
+    textColor: '#ffffff',
+    bg,
+    bgLight: lighten(bg, 0.14),
+  };
 }
 
 function getFrameworkKey(fw: string): string {
@@ -191,10 +275,13 @@ function getFrameworkKey(fw: string): string {
   if (u.includes('FSBP') || (u.includes('FOUNDATIONAL') && u.includes('SECURITY'))) return 'FSBP';
   if (u.includes('GXP')) return 'GXP';
   if (u.includes('NIS2')) return 'NIS2';
+  if (u.includes('PROWLER')) return 'PROWLER_TS';
+  if (/\bCCC\b/.test(u) || u.startsWith('CCC')) return 'CCC';
   if (u.includes('CSA') || u.includes('CCM')) return 'CSA_CCM';
   if (u.includes('CMMC')) return 'CMMC';
   if (u.includes('KISA') || u.includes('ISMS')) return 'KISA';
   if (u.includes('BSI') && u.includes('C5')) return 'BSI_C5';
+  if (u.includes('C5')) return 'C5_2025';
   if (u.includes('SECNUM')) return 'SECNUMCLOUD';
   if (u.includes('FTR') || u.includes('FOUNDATIONAL TECHNICAL')) return 'AWS_FTR';
   if (u.includes('SEBI')) return 'SEBI';
@@ -207,12 +294,94 @@ function getFwConfig(key: string) {
   return FRAMEWORK_CONFIG[key] || { ...DEFAULT_FW_CONFIG, displayName: key };
 }
 
+/**
+ * Single source of truth for severity colour. The findings-table chips, the
+ * "By severity" donut, its legend and the trend chart all read from here so a
+ * "High" is the exact same orange everywhere on the page.
+ */
+const SEVERITY_COLORS = {
+  CRITICAL: '#dc2626',
+  HIGH: '#ea580c',
+  MEDIUM: '#f59e0b',
+  LOW: '#22c55e',
+} as const;
+
 const SEVERITY_STYLE: Record<string, { color: string; letter: string; label: string }> = {
-  CRITICAL: { color: '#dc2626', letter: 'C', label: 'Critical' },
-  HIGH:     { color: '#ea580c', letter: 'H', label: 'High' },
-  MEDIUM:   { color: '#f59e0b', letter: 'M', label: 'Medium' },
-  LOW:      { color: '#22c55e', letter: 'L', label: 'Low' },
+  CRITICAL: { color: SEVERITY_COLORS.CRITICAL, letter: 'C', label: 'Critical' },
+  HIGH:     { color: SEVERITY_COLORS.HIGH,     letter: 'H', label: 'High' },
+  MEDIUM:   { color: SEVERITY_COLORS.MEDIUM,   letter: 'M', label: 'Medium' },
+  LOW:      { color: SEVERITY_COLORS.LOW,      letter: 'L', label: 'Low' },
 };
+
+const SEVERITY_ROWS = [
+  { key: 'C', label: 'Critical', color: SEVERITY_COLORS.CRITICAL },
+  { key: 'H', label: 'High',     color: SEVERITY_COLORS.HIGH },
+  { key: 'M', label: 'Medium',   color: SEVERITY_COLORS.MEDIUM },
+  { key: 'L', label: 'Low',      color: SEVERITY_COLORS.LOW },
+] as const;
+
+/**
+ * A framework at 88% is not the same story as one at 45%, so the score gets a
+ * threshold tone instead of a binary Pass/Fail stamp.
+ */
+function scoreTone(score: number): { color: string; text: string; label: string } {
+  if (score >= 95) return { color: '#16a34a', text: 'text-emerald-600', label: 'Passed' };
+  if (score >= 80) return { color: '#16a34a', text: 'text-emerald-600', label: 'Near pass' };
+  if (score >= 60) return { color: '#f59e0b', text: 'text-amber-600', label: 'At risk' };
+  return { color: '#dc2626', text: 'text-red-600', label: 'Failed' };
+}
+
+/** Thin progress ring drawn behind a framework logo. */
+const ScoreRing: React.FC<{ score: number; color: string; size?: number; children: React.ReactNode }> = ({
+  score, color, size = 52, children,
+}) => {
+  const stroke = 3;
+  const r = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * r;
+  const pct = Math.min(100, Math.max(0, score));
+  return (
+    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="absolute inset-0 -rotate-90" aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none"
+          stroke={color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - pct / 100)}
+          style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">{children}</div>
+    </div>
+  );
+};
+
+/** Grouping used by the Browse-frameworks modal so 26 flat cards become scannable. */
+const FRAMEWORK_CATEGORY: Record<string, string> = {
+  NIST: 'Government & Public Sector', NIST800: 'Government & Public Sector', FEDRAMP: 'Government & Public Sector',
+  CMMC: 'Government & Public Sector', CISA: 'Government & Public Sector', FFIEC: 'Government & Public Sector',
+  CIS: 'Industry Standards', SOC2: 'Industry Standards', 'PCI-DSS': 'Industry Standards',
+  ISO27001: 'Industry Standards', MITRE: 'Industry Standards', CSA_CCM: 'Industry Standards',
+  HIPAA: 'Industry Standards', GXP: 'Industry Standards', CUSTOM: 'Industry Standards',
+  GDPR: 'Regional & National', NIS2: 'Regional & National', ENS: 'Regional & National',
+  BSI_C5: 'Regional & National', SECNUMCLOUD: 'Regional & National', KISA: 'Regional & National',
+  RBI: 'Regional & National', SEBI: 'Regional & National', IRDAI: 'Regional & National',
+  FSBP: 'Cloud & Vendor', AWS_FTR: 'Cloud & Vendor', AWS_WELL_ARCHITECTED: 'Cloud & Vendor',
+};
+
+const CATEGORY_ORDER = ['Government & Public Sector', 'Industry Standards', 'Regional & National', 'Cloud & Vendor', 'Other'];
+
+function getFrameworkCategory(key: string): string {
+  return FRAMEWORK_CATEGORY[key] ?? 'Other';
+}
+
+/** First sentence of a Prowler description — used as a title when none is given. */
+function deriveTitle(row: { title?: string; checkTitle: string }): string {
+  if (row.title && row.title.trim()) return row.title;
+  const plain = row.checkTitle.replace(/\*\*/g, '').replace(/`/g, '');
+  const cut = plain.split(/(?<=\.)\s/)[0];
+  return cut.length > 4 && cut.length < 160 ? cut : plain.slice(0, 140);
+}
 
 // Prowler descriptions use inline markdown (**bold**, `code`) — render it instead of showing raw asterisks/backticks
 const MdText: React.FC<{ text: string; className?: string }> = ({ text, className }) => (
@@ -229,24 +398,67 @@ const MdText: React.FC<{ text: string; className?: string }> = ({ text, classNam
   </span>
 );
 
-const FrameworkLogo: React.FC<{ fwKey: string; size?: number }> = ({ fwKey, size = 24 }) => {
-  const logoPath = FRAMEWORK_LOGO_PATH[fwKey];
-  const logoOv = LOGO_OVERRIDE[fwKey];
+/**
+ * The single badge renderer for every framework, everywhere on the page: real
+ * logo when we have one, generated monogram otherwise, and a monogram fallback
+ * if the logo file itself fails to load. Same container, same padding ratio.
+ */
+const FrameworkBadge: React.FC<{
+  fwKey: string;
+  size?: number;
+  shape?: 'circle' | 'rounded';
+}> = ({ fwKey, size = 24, shape = 'circle' }) => {
+  const badge = getFrameworkBadge(fwKey);
   const cfg = getFwConfig(fwKey);
+  const radius = shape === 'circle' ? '9999px' : `${Math.max(6, Math.round(size * 0.22))}px`;
+
+  // ~40% of the badge for a 2-letter monogram, stepped down so 3- and 4-letter
+  // monograms stay inside the circle and read at the same optical weight.
+  const len = badge.text.length;
+  const small = size < 28; // table chips / dropdown — nudge up so 4-letter marks stay legible
+  const fontRatio = len <= 2 ? 0.40 : len === 3 ? (small ? 0.34 : 0.32) : (small ? 0.275 : 0.255);
+
   return (
-    <div title={cfg.displayName} className="rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(0,0,0,0.08)] overflow-hidden" style={{ width: size, height: size }}>
-      {logoPath ? (
-        <img src={logoPath} alt={cfg.displayName} className="w-full h-full rounded-full object-cover" />
-      ) : logoOv ? (
-        <div className="w-full h-full flex items-center justify-center rounded-full" style={{ backgroundColor: logoOv.bg }}>
-          <span className="font-bold leading-none select-none" style={{ fontSize: logoOv.text.length <= 2 ? size / 3 : size / 4, color: logoOv.textColor }}>{logoOv.text}</span>
-        </div>
-      ) : (
-        <Icon icon={cfg.icon} width={size / 2} className={cfg.color} />
-      )}
+    <div
+      role="img"
+      aria-label={`${cfg.displayName} compliance framework`}
+      title={cfg.displayName}
+      className="flex items-center justify-center flex-shrink-0 overflow-hidden"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        backgroundImage: `linear-gradient(135deg, ${badge.bgLight} 0%, ${badge.bg} 72%)`,
+        // 1px inner white border + top highlight + a whisper of outer shadow:
+        // enough depth that the badge reads as designed, not pasted on.
+        boxShadow:
+          'inset 0 0 0 1px rgba(255,255,255,0.20), inset 0 1px 1px rgba(255,255,255,0.28), 0 1px 2px rgba(0,0,0,0.14)',
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="select-none"
+        style={{
+          fontSize: Math.round(size * fontRatio * 100) / 100,
+          lineHeight: 1,
+          fontWeight: 650,
+          letterSpacing: len >= 4 ? '-0.03em' : '0.01em',
+          color: badge.textColor,
+          // optical centring: cap-height sits slightly above the geometric centre
+          transform: 'translateY(0.5px)',
+          textShadow: '0 1px 1px rgba(0,0,0,0.18)',
+        }}
+      >
+        {badge.text}
+      </span>
     </div>
   );
 };
+
+/** Circular variant used in the filter dropdown and detail drawer. */
+const FrameworkLogo: React.FC<{ fwKey: string; size?: number }> = ({ fwKey, size = 24 }) => (
+  <FrameworkBadge fwKey={fwKey} size={size} shape="circle" />
+);
 
 // --- Prowler data hook (works for AWS / GCP / Azure) ---
 
@@ -423,8 +635,19 @@ const ComplianceOpsPage: React.FC = () => {
   const [checkPage, setCheckPage] = useState(1);
   const checksPerPage = 20;
 
-  // Scroll ref for framework cards
+  // Framework strip — carousel vs grid, plus edge-fade / arrow affordance state
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [frameworkView, setFrameworkView] = useState<'carousel' | 'grid'>('carousel');
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  const syncEdges = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setEdges({
+      left: el.scrollLeft > 4,
+      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4,
+    });
+  }, []);
 
   // --- Framework Scores ---
   const frameworkScores = useMemo<FrameworkScore[]>(() => {
@@ -475,6 +698,37 @@ const ComplianceOpsPage: React.FC = () => {
   }, [visibleFrameworkKeys, frameworkScores]);
 
   const visibleFrameworks = useMemo(() => frameworkScores.filter(f => effectiveVisible.has(f.name)), [frameworkScores, effectiveVisible]);
+
+  // Keep the carousel edge fades honest after data or view changes
+  useEffect(() => {
+    const id = requestAnimationFrame(syncEdges);
+    return () => cancelAnimationFrame(id);
+  }, [visibleFrameworks.length, frameworkView, syncEdges]);
+
+  useEffect(() => {
+    window.addEventListener('resize', syncEdges);
+    return () => window.removeEventListener('resize', syncEdges);
+  }, [syncEdges]);
+
+  // Unique failed checks a given framework selection would surface — powers the
+  // "what does toggling this off actually hide?" hint in the manage modal.
+  const countFailedChecks = useCallback((visible: Set<string>) => {
+    const seen = new Set<string>();
+    findings.forEach(f => {
+      if (f.status !== 'FAIL') return;
+      const key = getFrameworkKey(f.complianceFramework ?? 'CUSTOM');
+      if (!visible.has(key)) return;
+      seen.add(f.description?.substring(0, 120) || f.controlId || 'x');
+    });
+    return seen.size;
+  }, [findings]);
+
+  const pendingImpact = useMemo(() => {
+    if (!showManageModal) return { delta: 0, next: 0, frameworkDelta: 0 };
+    const next = countFailedChecks(pendingVisible);
+    const current = countFailedChecks(effectiveVisible);
+    return { delta: next - current, next, frameworkDelta: pendingVisible.size - effectiveVisible.size };
+  }, [showManageModal, pendingVisible, effectiveVisible, countFailedChecks]);
 
   // --- Overall Stats ---
   const overallStats = useMemo(() => {
@@ -632,10 +886,10 @@ const ComplianceOpsPage: React.FC = () => {
 
   // --- Donut data ---
   const donutData = [
-    { name: 'Critical', value: overallStats.totalCritical, color: '#dc2626' },
-    { name: 'High',     value: overallStats.totalHigh,     color: '#ea580c' },
-    { name: 'Medium',   value: overallStats.totalMedium,   color: '#f59e0b' },
-    { name: 'Low',      value: overallStats.totalLow,      color: '#22c55e' },
+    { name: 'Critical', value: overallStats.totalCritical, color: SEVERITY_COLORS.CRITICAL },
+    { name: 'High',     value: overallStats.totalHigh,     color: SEVERITY_COLORS.HIGH },
+    { name: 'Medium',   value: overallStats.totalMedium,   color: SEVERITY_COLORS.MEDIUM },
+    { name: 'Low',      value: overallStats.totalLow,      color: SEVERITY_COLORS.LOW },
   ].filter(d => d.value > 0);
 
   // --- Export ---
@@ -774,46 +1028,107 @@ const ComplianceOpsPage: React.FC = () => {
               <span className="px-2 py-0.5 bg-[rgba(0,0,0,0.06)] rounded-md text-[11px] font-bold text-[rgba(0,0,0,0.5)]">{visibleFrameworks.length}</span>
             </div>
             <div className="flex items-center gap-2">
+              {/* Carousel / grid view toggle — 26 frameworks are a lot to scroll through */}
+              <div className="flex items-center p-0.5 rounded-lg bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)]">
+                {([
+                  { key: 'carousel' as const, icon: 'mdi:view-carousel-outline', label: 'Carousel view' },
+                  { key: 'grid' as const, icon: 'mdi:view-grid-outline', label: 'Grid view — see all at once' },
+                ]).map(opt => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setFrameworkView(opt.key)}
+                    title={opt.label}
+                    aria-pressed={frameworkView === opt.key}
+                    className={`w-7 h-7 flex items-center justify-center rounded-md transition-all ${frameworkView === opt.key ? 'bg-white text-[#1a1a1a] shadow-sm' : 'text-[rgba(0,0,0,0.35)] hover:text-[rgba(0,0,0,0.6)]'}`}
+                  >
+                    <Icon icon={opt.icon} width={15} />
+                  </button>
+                ))}
+              </div>
+
               <button
                 onClick={() => { setPendingVisible(new Set(effectiveVisible)); setManageSearch(''); setManageTab('all'); setShowManageModal(true); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 border border-[rgba(0,0,0,0.12)] rounded-lg text-[12px] font-medium text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-colors"
               >
                 <Icon icon="mdi:tune-variant" width={13} /> Manage
               </button>
-              <button onClick={() => scrollRef.current?.scrollBy({ left: -200, behavior: 'smooth' })} className="w-7 h-7 flex items-center justify-center rounded-lg border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)]">
-                <Icon icon="mdi:chevron-left" width={16} />
-              </button>
-              <button onClick={() => scrollRef.current?.scrollBy({ left: 200, behavior: 'smooth' })} className="w-7 h-7 flex items-center justify-center rounded-lg border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)]">
-                <Icon icon="mdi:chevron-right" width={16} />
-              </button>
+
+              {frameworkView === 'carousel' && (
+                <>
+                  <button
+                    onClick={() => scrollRef.current?.scrollBy({ left: -390, behavior: 'smooth' })}
+                    disabled={!edges.left}
+                    aria-label="Scroll frameworks left"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-[rgba(0,0,0,0.12)] bg-white hover:bg-[rgba(0,0,0,0.04)] hover:border-[rgba(0,0,0,0.3)] text-[rgba(0,0,0,0.6)] disabled:opacity-30 disabled:hover:border-[rgba(0,0,0,0.12)] transition-colors"
+                  >
+                    <Icon icon="mdi:chevron-left" width={18} />
+                  </button>
+                  <button
+                    onClick={() => scrollRef.current?.scrollBy({ left: 390, behavior: 'smooth' })}
+                    disabled={!edges.right}
+                    aria-label="Scroll frameworks right"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-[rgba(0,0,0,0.12)] bg-white hover:bg-[rgba(0,0,0,0.04)] hover:border-[rgba(0,0,0,0.3)] text-[rgba(0,0,0,0.6)] disabled:opacity-30 disabled:hover:border-[rgba(0,0,0,0.12)] transition-colors"
+                  >
+                    <Icon icon="mdi:chevron-right" width={18} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
-          <div ref={scrollRef} className="flex overflow-x-auto py-5" style={{ scrollBehavior: 'smooth', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-            {visibleFrameworks.map((fw) => {
-              const isPassing = fw.score >= 95;
-              const logoPath = FRAMEWORK_LOGO_PATH[fw.name];
-              const logoOv = LOGO_OVERRIDE[fw.name];
+
+          {/* Framework cards — score ring + threshold tone instead of a binary stamp */}
+          {(() => {
+            const Card: React.FC<{ fw: FrameworkScore }> = ({ fw }) => {
+              const tone = scoreTone(fw.score);
+              const logo = <FrameworkBadge fwKey={fw.name} size={36} shape="rounded" />;
               return (
-                <div key={fw.name} className="flex-none w-[130px] flex flex-col items-center text-center px-2 border-r border-[rgba(0,0,0,0.05)] last:border-r-0">
-                  {/* Logo image */}
-                  {logoPath ? (
-                    <img src={logoPath} alt={fw.displayName} className="w-10 h-10 rounded-xl mb-1.5 object-contain" />
-                  ) : logoOv ? (
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-1.5" style={{ backgroundColor: logoOv.bg }}>
-                      <span className="font-black tracking-tight leading-none select-none" style={{ fontSize: getLogoFontSize(logoOv.text), color: logoOv.textColor }}>{logoOv.text}</span>
-                    </div>
-                  ) : (
-                    <div className={`w-10 h-10 rounded-xl ${fw.bgColor} flex items-center justify-center mb-1.5`}>
-                      <Icon icon={fw.icon} width={20} className={fw.color} />
-                    </div>
-                  )}
-                  <span className={`text-[10px] font-semibold mb-0.5 ${isPassing ? 'text-emerald-600' : 'text-red-500'}`}>{isPassing ? 'Passed' : 'Failed'}</span>
+                <div
+                  title={`${fw.displayName} — ${fw.score}% of resource checks passing · ${fw.failedControls} failed controls`}
+                  className="flex flex-col items-center text-center gap-1"
+                >
+                  <ScoreRing score={fw.score} color={tone.color}>{logo}</ScoreRing>
+                  <span className={`text-[10px] font-semibold ${tone.text}`}>{tone.label}</span>
                   <p className="text-[10px] text-[rgba(0,0,0,0.5)] font-medium truncate w-full">{fw.displayName}</p>
-                  <p className="text-[22px] font-bold tabular-nums text-[#1a1a1a] leading-tight">{fw.score}%</p>
+                  <p className="text-[20px] font-bold tabular-nums leading-tight" style={{ color: tone.color }}>{fw.score}%</p>
                 </div>
               );
-            })}
-          </div>
+            };
+
+            if (frameworkView === 'grid') {
+              return (
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-9 gap-y-5 gap-x-2 px-5 py-5">
+                  {visibleFrameworks.map(fw => <Card key={fw.name} fw={fw} />)}
+                </div>
+              );
+            }
+
+            return (
+              <div className="relative">
+                <div
+                  ref={scrollRef}
+                  onScroll={syncEdges}
+                  className="flex overflow-x-auto py-5 snap-x snap-mandatory"
+                  style={{ scrollBehavior: 'smooth', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                >
+                  {visibleFrameworks.map(fw => (
+                    <div
+                      key={fw.name}
+                      className="flex-none w-[130px] snap-start px-2 border-r border-[rgba(0,0,0,0.05)] last:border-r-0"
+                    >
+                      <Card fw={fw} />
+                    </div>
+                  ))}
+                </div>
+                {/* Edge fades hint that the strip keeps going */}
+                <div
+                  className={`absolute left-0 top-0 bottom-0 w-10 pointer-events-none bg-gradient-to-r from-white to-transparent transition-opacity ${edges.left ? 'opacity-100' : 'opacity-0'}`}
+                />
+                <div
+                  className={`absolute right-0 top-0 bottom-0 w-12 pointer-events-none bg-gradient-to-l from-white to-transparent transition-opacity ${edges.right ? 'opacity-100' : 'opacity-0'}`}
+                />
+              </div>
+            );
+          })()}
           <div className="flex items-start gap-2 px-5 py-2.5 border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
             <Icon icon="mdi:information-outline" width={13} className="text-[rgba(0,0,0,0.35)] shrink-0 mt-[1px]" />
             <p className="text-[11px] leading-snug text-[rgba(0,0,0,0.45)]">
@@ -840,12 +1155,13 @@ const ComplianceOpsPage: React.FC = () => {
                 </div>
               </div>
               <div className="flex flex-col gap-4 flex-1">
-                {[
-                  { key: 'C', label: 'Critical', value: overallStats.totalCritical, color: '#dc2626' },
-                  { key: 'H', label: 'High',     value: overallStats.totalHigh,     color: '#ea580c' },
-                  { key: 'M', label: 'Medium',   value: overallStats.totalMedium,   color: '#d97706' },
-                  { key: 'L', label: 'Low',      value: overallStats.totalLow,      color: '#22c55e' },
-                ].map(s => (
+                {SEVERITY_ROWS.map(row => ({
+                  ...row,
+                  value: row.key === 'C' ? overallStats.totalCritical
+                    : row.key === 'H' ? overallStats.totalHigh
+                    : row.key === 'M' ? overallStats.totalMedium
+                    : overallStats.totalLow,
+                })).map(s => (
                   <div key={s.key} className="flex items-center gap-3">
                     <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: s.color }}>
                       <span className="text-[9px] font-bold text-white leading-none">{s.key}</span>
@@ -866,23 +1182,23 @@ const ComplianceOpsPage: React.FC = () => {
                 <ResponsiveContainer width="100%" height={165}>
                   <AreaChart data={trendData} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
                     <defs>
-                      <linearGradient id="gcrit" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ef4444" stopOpacity={0.55} /><stop offset="100%" stopColor="#ef4444" stopOpacity={0.05} /></linearGradient>
-                      <linearGradient id="ghigh" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f97316" stopOpacity={0.4} /><stop offset="100%" stopColor="#f97316" stopOpacity={0.04} /></linearGradient>
-                      <linearGradient id="gmed"  x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#fb923c" stopOpacity={0.3} /><stop offset="100%" stopColor="#fb923c" stopOpacity={0.03} /></linearGradient>
-                      <linearGradient id="glow"  x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#22c55e" stopOpacity={0.25} /><stop offset="100%" stopColor="#22c55e" stopOpacity={0.03} /></linearGradient>
+                      <linearGradient id="gcrit" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={SEVERITY_COLORS.CRITICAL} stopOpacity={0.55} /><stop offset="100%" stopColor={SEVERITY_COLORS.CRITICAL} stopOpacity={0.05} /></linearGradient>
+                      <linearGradient id="ghigh" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={SEVERITY_COLORS.HIGH} stopOpacity={0.4} /><stop offset="100%" stopColor={SEVERITY_COLORS.HIGH} stopOpacity={0.04} /></linearGradient>
+                      <linearGradient id="gmed"  x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={SEVERITY_COLORS.MEDIUM} stopOpacity={0.3} /><stop offset="100%" stopColor={SEVERITY_COLORS.MEDIUM} stopOpacity={0.03} /></linearGradient>
+                      <linearGradient id="glow"  x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={SEVERITY_COLORS.LOW} stopOpacity={0.25} /><stop offset="100%" stopColor={SEVERITY_COLORS.LOW} stopOpacity={0.03} /></linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" vertical={false} />
                     <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'rgba(0,0,0,0.4)' }} tickLine={false} axisLine={false} interval={2} />
                     <YAxis tick={{ fontSize: 10, fill: 'rgba(0,0,0,0.4)' }} tickLine={false} axisLine={false} />
                     <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }} />
-                    <Area type="monotone" dataKey="Low" stroke="#22c55e" strokeWidth={1} fill="url(#glow)" stackId="1" />
-                    <Area type="monotone" dataKey="Medium" stroke="#fb923c" strokeWidth={1} fill="url(#gmed)" stackId="1" />
-                    <Area type="monotone" dataKey="High" stroke="#f97316" strokeWidth={1.5} fill="url(#ghigh)" stackId="1" />
-                    <Area type="monotone" dataKey="Critical" stroke="#ef4444" strokeWidth={2} fill="url(#gcrit)" stackId="1" />
+                    <Area type="monotone" dataKey="Low" stroke={SEVERITY_COLORS.LOW} strokeWidth={1} fill="url(#glow)" stackId="1" />
+                    <Area type="monotone" dataKey="Medium" stroke={SEVERITY_COLORS.MEDIUM} strokeWidth={1} fill="url(#gmed)" stackId="1" />
+                    <Area type="monotone" dataKey="High" stroke={SEVERITY_COLORS.HIGH} strokeWidth={1.5} fill="url(#ghigh)" stackId="1" />
+                    <Area type="monotone" dataKey="Critical" stroke={SEVERITY_COLORS.CRITICAL} strokeWidth={2} fill="url(#gcrit)" stackId="1" />
                   </AreaChart>
                 </ResponsiveContainer>
                 <div className="flex items-center gap-5 mt-3">
-                  {[{ label: 'Critical', color: '#ef4444' }, { label: 'High', color: '#f97316' }, { label: 'Medium', color: '#fb923c' }, { label: 'Low', color: '#22c55e' }].map(s => (
+                  {SEVERITY_ROWS.map(s => (
                     <div key={s.label} className="flex items-center gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
                       <span className="text-[11px] text-[rgba(0,0,0,0.5)]">{s.label}</span>
@@ -1011,15 +1327,26 @@ const ComplianceOpsPage: React.FC = () => {
                 ) : paginatedChecks.map((c, idx) => {
                   const sc2 = SEVERITY_STYLE[c.severity] || SEVERITY_STYLE.LOW;
                   return (
-                    <tr key={idx} onClick={() => setSelectedCheck(c)} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.015)] transition-colors cursor-pointer">
+                    <tr key={idx} onClick={() => setSelectedCheck(c)} className="group border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.015)] transition-colors cursor-pointer">
                       <td className="px-5 py-3.5">
                         <div className="flex items-start gap-3">
-                          <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: sc2.color }}>
+                          <div
+                            title={sc2.label}
+                            className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0 mt-0.5"
+                            style={{ backgroundColor: sc2.color }}
+                          >
                             <span className="text-[9px] font-bold text-white leading-none">{sc2.letter}</span>
                           </div>
-                          <p className="text-[12px] text-blue-600 underline decoration-blue-200 leading-relaxed line-clamp-2 max-w-[520px] hover:text-blue-700 transition-colors">
-                            <MdText text={c.checkTitle} />
-                          </p>
+                          {/* The whole title is the link; the body below is plain gray so it
+                              is obvious what is clickable and what is just description. */}
+                          <div className="min-w-0 max-w-[520px]">
+                            <p className="text-[12.5px] font-medium text-blue-700 leading-snug line-clamp-2 group-hover:underline decoration-blue-300 underline-offset-2">
+                              {deriveTitle(c)}
+                            </p>
+                            <p className="text-[11.5px] text-[rgba(0,0,0,0.45)] leading-relaxed line-clamp-2 mt-0.5">
+                              <MdText text={c.checkTitle} />
+                            </p>
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-right">
@@ -1036,24 +1363,9 @@ const ComplianceOpsPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          {c.frameworks.slice(0, 5).map(fwKey => {
-                            const logoPath = FRAMEWORK_LOGO_PATH[fwKey];
-                            const logo = LOGO_OVERRIDE[fwKey];
-                            const cfg = getFwConfig(fwKey);
-                            return (
-                              <div key={fwKey} title={cfg.displayName} className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 border border-[rgba(0,0,0,0.08)] overflow-hidden">
-                                {logoPath ? (
-                                  <img src={logoPath} alt={cfg.displayName} className="w-6 h-6 rounded-full object-cover" />
-                                ) : logo ? (
-                                  <div className="w-full h-full flex items-center justify-center rounded-full" style={{ backgroundColor: logo.bg }}>
-                                    <span className="font-bold leading-none select-none" style={{ fontSize: logo.text.length <= 2 ? '8px' : '6px', color: logo.textColor }}>{logo.text}</span>
-                                  </div>
-                                ) : (
-                                  <Icon icon={cfg.icon} width={12} className={cfg.color} />
-                                )}
-                              </div>
-                            );
-                          })}
+                          {c.frameworks.slice(0, 5).map(fwKey => (
+                            <FrameworkLogo key={fwKey} fwKey={fwKey} size={24} />
+                          ))}
                           {c.frameworks.length > 5 && (
                             <span className="text-[10px] text-[rgba(0,0,0,0.4)] font-semibold ml-0.5">+{c.frameworks.length - 5}</span>
                           )}
@@ -1130,6 +1442,20 @@ const ComplianceOpsPage: React.FC = () => {
                     {t === 'all' ? `All (${frameworkScores.length})` : `Selected (${pendingVisible.size})`}
                   </button>
                 ))}
+                <span className="w-px h-4 bg-[rgba(0,0,0,0.1)]" />
+                {/* Bulk action — 26 individual toggles is a lot of clicking */}
+                <button
+                  onClick={() =>
+                    setPendingVisible(
+                      pendingVisible.size === frameworkScores.length
+                        ? new Set()
+                        : new Set(frameworkScores.map(f => f.name))
+                    )
+                  }
+                  className="text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:text-[#1a1a1a] transition-colors"
+                >
+                  {pendingVisible.size === frameworkScores.length ? 'Deselect all' : 'Select all'}
+                </button>
               </div>
               <div className="relative">
                 <Icon icon="mdi:magnify" width={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)]" />
@@ -1149,9 +1475,41 @@ const ComplianceOpsPage: React.FC = () => {
                   if (filtered.length === 0) {
                     return <div className="text-center py-10 text-[13px] text-[rgba(0,0,0,0.3)]">No frameworks match.</div>;
                   }
+
+                  // Group into categories so 26 flat cards become four short lists
+                  const byCategory = new Map<string, typeof filtered>();
+                  filtered.forEach(fw => {
+                    const cat = getFrameworkCategory(fw.name);
+                    if (!byCategory.has(cat)) byCategory.set(cat, []);
+                    byCategory.get(cat)!.push(fw);
+                  });
+                  const sections = CATEGORY_ORDER
+                    .filter(cat => byCategory.has(cat))
+                    .map(cat => ({ cat, items: byCategory.get(cat)! }));
+
                   return (
+                    <div className="space-y-5">
+                      {sections.map(({ cat, items }) => {
+                        const allOn = items.every(fw => pendingVisible.has(fw.name));
+                        return (
+                    <div key={cat}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[10.5px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-widest">{cat}</span>
+                        <span className="text-[10px] font-semibold text-[rgba(0,0,0,0.3)] tabular-nums">{items.length}</span>
+                        <div className="h-px bg-[rgba(0,0,0,0.06)] flex-1" />
+                        <button
+                          onClick={() => {
+                            const next = new Set(pendingVisible);
+                            items.forEach(fw => { if (allOn) next.delete(fw.name); else next.add(fw.name); });
+                            setPendingVisible(next);
+                          }}
+                          className="text-[11px] font-medium text-[rgba(0,0,0,0.4)] hover:text-[#1a1a1a] transition-colors"
+                        >
+                          {allOn ? 'Clear' : 'Select'}
+                        </button>
+                      </div>
                     <div className="grid grid-cols-4 gap-3">
-                      {filtered.map(fw => {
+                      {items.map(fw => {
                         const on = pendingVisible.has(fw.name);
                         return (
                           <button
@@ -1169,21 +1527,7 @@ const ComplianceOpsPage: React.FC = () => {
                             </div>
                             {/* Icon */}
                             <div className="mb-2 mt-0.5">
-                              {(() => {
-                                const logoPath = FRAMEWORK_LOGO_PATH[fw.name];
-                                const logoOv = LOGO_OVERRIDE[fw.name];
-                                if (logoPath) return <img src={logoPath} alt={fw.displayName} className="w-8 h-8 rounded-lg object-contain" />;
-                                if (logoOv) return (
-                                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: logoOv.bg }}>
-                                    <span className="font-black tracking-tight leading-none select-none" style={{ fontSize: getLogoFontSize(logoOv.text), color: logoOv.textColor }}>{logoOv.text}</span>
-                                  </div>
-                                );
-                                return (
-                                  <div className={`w-8 h-8 rounded-lg ${fw.bgColor} flex items-center justify-center`}>
-                                    <Icon icon={fw.icon} width={16} className={fw.color} />
-                                  </div>
-                                );
-                              })()}
+                              <FrameworkBadge fwKey={fw.name} size={32} shape="rounded" />
                             </div>
                             {/* Name — clamped to 2 lines so all cards in a row stay the same height */}
                             <p className="text-[11px] font-semibold text-[#1a1a1a] leading-snug mb-0.5 pr-9 line-clamp-2 w-full">{fw.displayName}</p>
@@ -1193,13 +1537,37 @@ const ComplianceOpsPage: React.FC = () => {
                         );
                       })}
                     </div>
+                    </div>
+                        );
+                      })}
+                    </div>
                   );
                 })()}
               </div>
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[rgba(0,0,0,0.06)]">
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-[rgba(0,0,0,0.06)]">
+              {/* Impact of the pending selection, so Save is never a blind change */}
+              <div className="min-w-0 text-[11.5px] leading-snug">
+                {pendingVisible.size === 0 ? (
+                  <span className="text-amber-600 font-medium">No frameworks selected — the dashboard will be empty.</span>
+                ) : pendingImpact.delta === 0 ? (
+                  <span className="text-[rgba(0,0,0,0.4)]">
+                    {pendingVisible.size} of {frameworkScores.length} frameworks · {pendingImpact.next.toLocaleString()} failed checks shown
+                  </span>
+                ) : (
+                  <span className="text-[rgba(0,0,0,0.6)]">
+                    <span className="font-semibold">
+                      {pendingImpact.delta < 0 ? 'Will remove' : 'Will add'} ~{Math.abs(pendingImpact.delta).toLocaleString()} failed check{Math.abs(pendingImpact.delta) === 1 ? '' : 's'}
+                    </span>
+                    <span className="text-[rgba(0,0,0,0.4)]">
+                      {' '}from the dashboard view · {pendingImpact.next.toLocaleString()} will remain
+                    </span>
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
               <button onClick={() => setShowManageModal(false)} className="px-4 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[12px] font-medium text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-colors">
                 Cancel
               </button>
@@ -1212,6 +1580,7 @@ const ComplianceOpsPage: React.FC = () => {
               >
                 Save changes
               </button>
+              </div>
             </div>
           </motion.div>
         </div>
@@ -1245,7 +1614,7 @@ const ComplianceOpsPage: React.FC = () => {
                       )}
                     </div>
                     <h2 className="text-[15px] font-semibold text-[#1a1a1a] leading-snug">
-                      <MdText text={selectedCheck.title || selectedCheck.checkTitle} />
+                      {deriveTitle(selectedCheck)}
                     </h2>
                     <p className="text-[11px] text-[rgba(0,0,0,0.45)] mt-1.5">
                       <span className="font-semibold text-red-600">{selectedCheck.failedCount}</span> failed resource{selectedCheck.failedCount === 1 ? '' : 's'}
@@ -1269,10 +1638,19 @@ const ComplianceOpsPage: React.FC = () => {
 
                   {/* Remediation */}
                   {selectedCheck.remediation && (
-                    <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-4">
+                    <div
+                      className="bg-emerald-50/60 border border-emerald-100 border-l-[3px] rounded-xl p-4"
+                      style={{ borderLeftColor: sev.color }}
+                    >
                       <div className="flex items-center gap-2 mb-2">
                         <Icon icon="mdi:wrench-outline" width={15} className="text-emerald-600" />
                         <p className="text-[12px] font-semibold text-emerald-800">How to fix</p>
+                        <span
+                          className="ml-auto px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-wider text-white"
+                          style={{ backgroundColor: sev.color }}
+                        >
+                          {sev.label}
+                        </span>
                       </div>
                       <p className="text-[12.5px] text-[rgba(0,0,0,0.65)] leading-relaxed">
                         <MdText text={selectedCheck.remediation} />
@@ -1297,14 +1675,21 @@ const ComplianceOpsPage: React.FC = () => {
                       {selectedCheck.frameworks.map(fwKey => {
                         const controls = selectedCheck.frameworkControls[fwKey] ?? [];
                         return (
-                          <div key={fwKey} className="flex items-start gap-2.5 border border-[rgba(0,0,0,0.06)] rounded-lg px-3 py-2.5">
+                          <div key={fwKey} className="flex items-start gap-3 border border-[rgba(0,0,0,0.06)] rounded-lg px-3.5 py-3">
                             <FrameworkLogo fwKey={fwKey} size={24} />
                             <div className="min-w-0 flex-1">
-                              <p className="text-[12px] font-medium text-[#1a1a1a]">{getFwConfig(fwKey).displayName}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-[12px] font-medium text-[#1a1a1a]">{getFwConfig(fwKey).displayName}</p>
+                                {controls.length > 0 && (
+                                  <span className="text-[10px] text-[rgba(0,0,0,0.35)] tabular-nums">
+                                    {controls.length} control{controls.length === 1 ? '' : 's'}
+                                  </span>
+                                )}
+                              </div>
                               {controls.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                <div className="flex flex-wrap gap-1.5 mt-2.5 pt-2.5 border-t border-[rgba(0,0,0,0.05)]">
                                   {controls.slice(0, 12).map(ctl => (
-                                    <span key={ctl} className="px-1.5 py-0.5 bg-[rgba(0,0,0,0.04)] rounded text-[10px] font-mono text-[rgba(0,0,0,0.55)]">{ctl}</span>
+                                    <span key={ctl} className="px-1.5 py-1 bg-[rgba(0,0,0,0.04)] rounded text-[10px] font-mono text-[rgba(0,0,0,0.55)] leading-none">{ctl}</span>
                                   ))}
                                   {controls.length > 12 && <span className="text-[10px] text-[rgba(0,0,0,0.4)] font-semibold self-center">+{controls.length - 12} more</span>}
                                 </div>

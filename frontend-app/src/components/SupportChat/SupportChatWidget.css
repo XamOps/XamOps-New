@@ -752,3 +752,12 @@ html.dark .support-chat-greeting-close:hover {
     bottom: 70px;
   }
 }
+
+/* Recede the support chat while a call is in full screen — the call is the
+   primary task, and the greeting bubble/FAB otherwise competes with the call
+   controls in the bottom-right. Toggled by CallRoom via a body class. */
+body.xamops-call-fullscreen .support-chat-widget {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}

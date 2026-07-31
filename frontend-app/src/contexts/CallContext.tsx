@@ -322,6 +322,13 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Fetched fresh on every attempt: the token is short-lived, so a socket
       // that drops for longer than its TTL must not retry with a stale one.
       const issued = await fetchWsToken();
+      // No token means the environment cannot ring anyone — nothing to retry, so
+      // stand down instead of entering the reconnect loop below.
+      if (!issued?.token) {
+        setCallingEnabled(false);
+        connectingRef.current = false;
+        return;
+      }
       token = issued.token;
       // Older builds of the service omit the flag; assume calling works rather
       // than hiding the feature on a version skew during a rolling deploy.
@@ -430,7 +437,9 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const refreshMissedCalls = useCallback(async () => {
     try {
       const list = await fetchMissedCalls();
-      if (mountedRef.current) setMissedRaw(list);
+      // This provider wraps the whole app and sits above its error boundary, so
+      // a non-array body here would blank the page rather than drop a badge.
+      if (mountedRef.current) setMissedRaw(Array.isArray(list) ? list : []);
     } catch {
       // The badge is supplementary; a failed fetch just leaves the last known set.
     }
