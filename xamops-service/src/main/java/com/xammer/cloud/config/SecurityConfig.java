@@ -241,9 +241,6 @@ public class SecurityConfig {
                                                                 new AntPathRequestMatcher("/api/eks/autoscaling/**"),
                                                                 new AntPathRequestMatcher("/api/karpenter/**"),
 
-                                                                new AntPathRequestMatcher("/api/autospotting/**"),
-                                                                new AntPathRequestMatcher("/api/azure/autospotting/**"),
-                                                                new AntPathRequestMatcher("/api/gcp/autospotting/**"),
                                                                 new AntPathRequestMatcher("/api/flexcompute/**"),
                                                                 new AntPathRequestMatcher("/api/dev_ops_script/**"),
                                                                 // ✅ TEAM CODE: Preserved AWS Calculator API
