@@ -26,6 +26,7 @@ class UpwindSyncServiceTest {
     private UpwindPostureFindingRepository postureRepo;
     private UpwindSyncStateRepository syncStateRepo;
     private UpwindInventoryAssetRepository inventoryRepo;
+    private UpwindApiEndpointRepository apiEndpointRepo;
     private UpwindSyncService service;
 
     private static final String DETECTION_JSON =
@@ -46,8 +47,11 @@ class UpwindSyncServiceTest {
         postureRepo = mock(UpwindPostureFindingRepository.class);
         syncStateRepo = mock(UpwindSyncStateRepository.class);
         inventoryRepo = mock(UpwindInventoryAssetRepository.class);
+        apiEndpointRepo = mock(UpwindApiEndpointRepository.class);
         when(syncStateRepo.findByDomain(any())).thenReturn(Optional.empty());
-        service = new UpwindSyncService(apiClient, detectionRepo, vulnRepo, postureRepo, syncStateRepo, inventoryRepo);
+        when(apiEndpointRepo.findByUpwindId(any())).thenReturn(Optional.empty());
+        service = new UpwindSyncService(apiClient, detectionRepo, vulnRepo, postureRepo,
+                syncStateRepo, inventoryRepo, apiEndpointRepo);
     }
 
     private JsonNode parse(String json) {
@@ -120,12 +124,19 @@ class UpwindSyncServiceTest {
     private static final String POSTURE_JSON =
         "{\"id\":\"fnd-1\",\"status\":\"FAIL\",\"resource\":{\"cloud_account_id\":\"111\"}}";
 
+    /** Reflection-free builder for the client's package-private FetchResult constructor. */
+    private static UpwindApiClient.FetchResult result(java.util.List<JsonNode> items, boolean truncated) {
+        return new UpwindApiClient.FetchResult(items, truncated);
+    }
+
     @Test
     void syncAllMarksStaleVulnsResolved() {
         when(apiClient.isConfigured()).thenReturn(true);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
-        when(apiClient.fetchVulnerabilityFindings(anyInt())).thenReturn(List.of(parse(VULN_JSON)));
-        when(apiClient.fetchConfigurationFindings(anyInt())).thenReturn(List.of(parse(POSTURE_JSON)));
+        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
+                .thenReturn(result(List.of(parse(VULN_JSON)), false));
+        when(apiClient.fetchConfigurationFindingsPaged(anyInt()))
+                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
 
         service.syncAll();
 
@@ -137,8 +148,73 @@ class UpwindSyncServiceTest {
     void syncAllSkipsResolveWhenFetchEmpty() {
         when(apiClient.isConfigured()).thenReturn(true);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
-        when(apiClient.fetchVulnerabilityFindings(anyInt())).thenReturn(Collections.emptyList());
-        when(apiClient.fetchConfigurationFindings(anyInt())).thenReturn(Collections.emptyList());
+        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
+                .thenReturn(result(Collections.emptyList(), false));
+        when(apiClient.fetchConfigurationFindingsPaged(anyInt()))
+                .thenReturn(result(Collections.emptyList(), false));
+
+        service.syncAll();
+
+        verify(vulnRepo, never()).markResolvedNotSyncedSince(any());
+        verify(postureRepo, never()).markResolvedNotSyncedSince(any());
+    }
+
+    @Test
+    void syncApiEndpointsUpsertsPerAccountAndReconciles() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
+        JsonNode ep = parse("{\"id\":\"rt-1\",\"method\":\"GET\",\"uri\":\"/version\","
+                + "\"resource_id\":\"ep-1\","
+                + "\"risk_overview\":{\"internet_exposure\":{\"ingress\":"
+                + "{\"last_seen_time\":\"2026-07-28T08:00:20Z\"}},"
+                + "\"authentication\":{\"state\":\"UNAUTHENTICATED\"}}}");
+        when(apiClient.fetchApiSecurityEndpointsPaged(eq("111"), anyInt()))
+                .thenReturn(result(List.of(ep), false));
+
+        service.syncApiEndpoints();
+
+        ArgumentCaptor<com.xammer.cloud.domain.UpwindApiEndpoint> cap =
+                ArgumentCaptor.forClass(com.xammer.cloud.domain.UpwindApiEndpoint.class);
+        verify(apiEndpointRepo).save(cap.capture());
+        assertEquals("rt-1", cap.getValue().getUpwindId());
+        assertEquals("111", cap.getValue().getCloudAccountId());
+        assertTrue(cap.getValue().isInternetExposed());
+        assertEquals("UNAUTHENTICATED", cap.getValue().getAuthState());
+        verify(apiEndpointRepo).markResolvedNotSyncedSince(eq("111"), any());
+    }
+
+    @Test
+    void syncApiEndpointsSkipsReconcileWhenTruncated() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
+        when(apiClient.fetchApiSecurityEndpointsPaged(eq("111"), anyInt()))
+                .thenReturn(result(List.of(parse("{\"id\":\"rt-1\"}")), true));
+
+        service.syncApiEndpoints();
+
+        verify(apiEndpointRepo, never()).markResolvedNotSyncedSince(any(), any());
+    }
+
+    @Test
+    void syncApiEndpointsNoOpsWithoutKnownAccounts() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(Collections.emptyList());
+
+        service.syncApiEndpoints();
+
+        verify(apiClient, never()).fetchApiSecurityEndpointsPaged(any(), anyInt());
+    }
+
+    @Test
+    void syncAllSkipsResolveWhenFetchTruncated() {
+        // A partial page walk must never archive findings it simply never re-read —
+        // that is what collapsed Issues/Attack Surface to a single page of S3 findings.
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
+        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
+                .thenReturn(result(List.of(parse(VULN_JSON)), true));
+        when(apiClient.fetchConfigurationFindingsPaged(anyInt()))
+                .thenReturn(result(List.of(parse(POSTURE_JSON)), true));
 
         service.syncAll();
 

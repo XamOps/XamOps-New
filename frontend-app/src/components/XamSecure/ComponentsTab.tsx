@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { SbomComponent } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
+import ComponentDrawer from './ComponentDrawer';
 
 interface Props {
   data: SbomComponent[] | null;
@@ -13,6 +14,7 @@ const ComponentsTab: React.FC<Props> = ({ data, isLoading }) => {
   const [query, setQuery] = useState('');
   const [inUseOnly, setInUseOnly] = useState(false);
   const [vulnOnly, setVulnOnly] = useState(false);
+  const [selected, setSelected] = useState<SbomComponent | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -76,7 +78,9 @@ const ComponentsTab: React.FC<Props> = ({ data, isLoading }) => {
             </thead>
             <tbody>
               {rows.map((c, i) => (
-                <tr key={`${c.name}-${c.version}-${i}`} className="border-b border-gray-50 hover:bg-gray-50">
+                <tr key={`${c.name}-${c.version}-${i}`}
+                    className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
+                    onClick={() => setSelected(c)}>
                   <td className="px-5 py-3 font-medium text-gray-800 max-w-xs truncate">{c.name ?? '—'}</td>
                   <td className="px-5 py-3 font-mono text-gray-600">{c.version ?? '—'}</td>
                   <td className="px-5 py-3 text-gray-500">{c.packageManager ?? '—'}</td>
@@ -100,6 +104,9 @@ const ComponentsTab: React.FC<Props> = ({ data, isLoading }) => {
         </div>
         <Pager page={page} totalPages={totalPages} total={total} unit="packages" onPage={setPage} />
       </div>
+      {selected && (
+        <ComponentDrawer component={selected} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 };

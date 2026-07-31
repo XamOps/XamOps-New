@@ -4,6 +4,7 @@ import { Icon } from '@iconify/react';
 import type { IssueDetail } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
 import SecurityMarkup from './SecurityMarkup';
+import ResourceLink from './ResourceLink';
 import { FrameworkLogo, hasFrameworkLogo } from '../../utils/frameworkBranding';
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
   detail: IssueDetail | null;
   isLoading: boolean;
   onClose: () => void;
+  /** Opens the cross-domain resource view for an affected resource. */
+  onOpenResource?: (resourceId: string) => void;
 }
 
 const fmt = (iso: string | null): string =>
@@ -21,7 +24,7 @@ const fmt = (iso: string | null): string =>
  * layout: header with severity, finding details, remediation, framework badges,
  * first-seen / last-evaluation, and the affected-resources table. Read-only.
  */
-const IssueDrawer: React.FC<Props> = ({ title, detail, isLoading, onClose }) => {
+const IssueDrawer: React.FC<Props> = ({ title, detail, isLoading, onClose, onOpenResource }) => {
   return createPortal((
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-black/30" />
@@ -107,10 +110,19 @@ const IssueDrawer: React.FC<Props> = ({ title, detail, isLoading, onClose }) => 
                     <tbody>
                       {detail.resources.map((r, i) => (
                         <tr key={`${r.resourceId ?? 'res'}-${i}`} className="border-b border-gray-50 last:border-0">
-                          <td className="px-3 py-2 text-gray-800 font-medium max-w-[220px] truncate">
-                            {r.resourceName ?? r.resourceId ?? '—'}
-                            {r.cloudProvider && (
-                              <span className="block text-[10px] text-gray-400">{r.cloudProvider}</span>
+                          <td className="px-3 py-2 text-gray-800 max-w-[220px]">
+                            {onOpenResource ? (
+                              <ResourceLink resourceId={r.resourceId} label={r.resourceName ?? r.resourceId}
+                                            sub={r.cloudProvider} onOpen={onOpenResource} />
+                            ) : (
+                              <>
+                                <span className="font-medium truncate block">
+                                  {r.resourceName ?? r.resourceId ?? '—'}
+                                </span>
+                                {r.cloudProvider && (
+                                  <span className="block text-[10px] text-gray-400">{r.cloudProvider}</span>
+                                )}
+                              </>
                             )}
                           </td>
                           <td className="px-3 py-2 text-gray-600">{r.resourceType ?? '—'}</td>

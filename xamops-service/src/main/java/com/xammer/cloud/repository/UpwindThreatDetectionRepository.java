@@ -37,4 +37,11 @@ public interface UpwindThreatDetectionRepository extends JpaRepository<UpwindThr
            "WHERE d.cloudAccountId IN :accountIds AND d.status = 'OPEN' " +
            "AND d.upwindId <> 'uwnd-smoke' GROUP BY d.severity")
     List<Object[]> countOpenBySeverity(@Param("accountIds") List<String> accountIds);
+
+    /** Detections against one resource — powers the unified resource view. */
+    @Query("SELECT d FROM UpwindThreatDetection d WHERE d.cloudAccountId IN :accountIds " +
+           "AND d.resourceId = :resourceId AND d.upwindId <> 'uwnd-smoke' " +
+           "ORDER BY d.lastSeenTime DESC")
+    List<UpwindThreatDetection> findByResource(@Param("accountIds") List<String> accountIds,
+                                              @Param("resourceId") String resourceId);
 }

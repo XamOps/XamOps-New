@@ -6,6 +6,7 @@ import type {
 } from '../../types/xamsecure';
 import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
+import TrendDelta from './TrendDelta';
 
 /** Upwind severity palette (matches the Vulnerabilities tab). */
 const SEV_COLOR = { CRITICAL: '#dc2626', HIGH: '#f97316', OTHER: '#3b82f6' } as const;
@@ -79,6 +80,16 @@ const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, vulnD
   const days = useMemo(() => last7Days(), []);
   const activeStories = stories?.activeCount ?? 0;
 
+  // 7-day change in total vulnerability findings, taken from the same cumulative series the
+  // chart plots so the number and the shape can never disagree. Needs both ends to exist.
+  const vulnTrend = useMemo(() => {
+    const series = vulnDashboard?.severityOverTime ?? [];
+    if (series.length < 2) return null;
+    const sum = (row: Record<string, number | string>) =>
+      ['CRITICAL', 'HIGH', 'OTHER'].reduce((a, k) => a + (Number(row[k]) || 0), 0);
+    return { from: sum(series[0]), to: sum(series[series.length - 1]) };
+  }, [vulnDashboard]);
+
   // Findings-by-severity from the grouped Issues (sums to total issues, like Upwind).
   const findingsBySeverity = useMemo(() => {
     const acc: Record<string, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
@@ -113,6 +124,16 @@ const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, vulnD
       return { label: d.label, value: count };
     });
   }, [issues, days]);
+
+  // 7-day change in the open-issue backlog, read off the same cumulative series the chart
+  // plots so the delta and the bars always agree.
+  const issuesTrend = useMemo(() => {
+    if (findingsOverTime.length < 2) return null;
+    return {
+      from: findingsOverTime[0].value,
+      to: findingsOverTime[findingsOverTime.length - 1].value,
+    };
+  }, [findingsOverTime]);
 
   const threatFeed = useMemo(() => (threats?.content ?? []).slice(0, 3), [threats]);
 
@@ -186,7 +207,10 @@ const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, vulnD
         </Panel>
 
         <Panel title="Vulnerability findings by severity">
-          <p className="text-[10px] text-gray-400 mb-2">Last 7 days</p>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-[10px] text-gray-400">Last 7 days</p>
+            {vulnTrend && <TrendDelta from={vulnTrend.from} to={vulnTrend.to} />}
+          </div>
           {(vulnDashboard?.severityOverTime ?? []).length === 0 ? (
             <div className="py-10 text-center text-xs text-gray-400">No vulnerability data.</div>
           ) : (
@@ -209,7 +233,10 @@ const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, vulnD
 
       {/* Row 3 — Findings over time · New issues · Threat feed */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Panel title="Findings over time">
+        <Panel title="Findings over time"
+               action={issuesTrend
+                 ? <TrendDelta from={issuesTrend.from} to={issuesTrend.to} label="over 7 days" />
+                 : undefined}>
           <p className="text-[10px] text-gray-400 mb-2">Cumulative open issues · last 7 days</p>
           <BarChart data={findingsOverTime} />
         </Panel>

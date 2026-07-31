@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,6 +25,7 @@ class XamSecureServiceTest {
     private UpwindAccountConnectionRepository connectionRepo;
     private RedisCacheService redisCacheService;
     private UpwindInventoryAssetRepository inventoryRepo;
+    private UpwindApiEndpointRepository apiEndpointRepo;
     private UpwindApiClient apiClient;
     private XamSecureService service;
 
@@ -47,13 +49,109 @@ class XamSecureServiceTest {
         when(redisCacheService.get(any(String.class), any(com.fasterxml.jackson.core.type.TypeReference.class)))
                 .thenReturn(Optional.empty());
         inventoryRepo = mock(UpwindInventoryAssetRepository.class);
+        apiEndpointRepo = mock(UpwindApiEndpointRepository.class);
         apiClient = mock(UpwindApiClient.class);
         service = new XamSecureService(cloudAccountRepo, detectionRepo, vulnRepo,
-                postureRepo, syncStateRepo, connectionRepo, redisCacheService, inventoryRepo, apiClient);
+                postureRepo, syncStateRepo, connectionRepo, redisCacheService, inventoryRepo,
+                apiEndpointRepo, apiClient);
+    }
+
+    @Test
+    void identitiesGroupChecksPerIdentityAndKeepWorstSeverity() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        java.time.Instant t1 = java.time.Instant.parse("2026-07-01T00:00:00Z");
+        java.time.Instant t2 = java.time.Instant.parse("2026-07-20T00:00:00Z");
+        // Two findings on the same IAM user, plus one on a role.
+        when(postureRepo.findIdentityFailings(List.of("111"))).thenReturn(List.of(
+                new Object[]{"arn:iam::user/kartik", "kartik", "AWS_IAM_USER", "MFA should be enabled",
+                        null, "MEDIUM", "AWS", "111", t2, t1},
+                new Object[]{"arn:iam::user/kartik", "kartik", "AWS_IAM_USER", "Access keys not rotated",
+                        null, "HIGH", "AWS", "111", t2, t1},
+                new Object[]{"arn:iam::role/deploy", "deploy", "AWS_IAM_ROLE", "Role assumable by other accounts",
+                        null, "HIGH", "AWS", "111", t2, t1}));
+
+        var out = service.getIdentities(1L, null);
+
+        assertEquals(2, out.get("total"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<Map<String, Object>>) out.get("identities");
+        var kartik = rows.stream().filter(r -> "kartik".equals(r.get("name"))).findFirst().orElseThrow();
+        // Both checks collapse onto one identity, and the worst severity wins.
+        assertEquals(2, kartik.get("findingCount"));
+        assertEquals("HIGH", kartik.get("severity"));
+        @SuppressWarnings("unchecked")
+        var counts = (Map<String, Long>) out.get("severityCounts");
+        assertEquals(2L, counts.get("HIGH"));
+        assertNull(counts.get("MEDIUM"), "MEDIUM was superseded on that identity");
+        @SuppressWarnings("unchecked")
+        var byType = (List<Map<String, Object>>) out.get("byType");
+        assertEquals(2, byType.size());
+    }
+
+    @Test
+    void syncStatusFlagsStaleAndFailingDomains() {
+        com.xammer.cloud.domain.UpwindSyncState fresh = new com.xammer.cloud.domain.UpwindSyncState();
+        fresh.setDomain("DETECTIONS");
+        fresh.setLastSuccessAt(java.time.Instant.now());
+        when(syncStateRepo.findByDomain("DETECTIONS")).thenReturn(Optional.of(fresh));
+
+        com.xammer.cloud.domain.UpwindSyncState broken = new com.xammer.cloud.domain.UpwindSyncState();
+        broken.setDomain("POSTURE");
+        broken.setLastSuccessAt(java.time.Instant.now().minusSeconds(86_400));
+        broken.setLastErrorAt(java.time.Instant.now());
+        broken.setLastError("connection reset");
+        when(syncStateRepo.findByDomain("POSTURE")).thenReturn(Optional.of(broken));
+        when(syncStateRepo.findByDomain("VULNERABILITIES")).thenReturn(Optional.empty());
+        when(syncStateRepo.findByDomain("INVENTORY")).thenReturn(Optional.empty());
+        when(syncStateRepo.findByDomain("API_ENDPOINTS")).thenReturn(Optional.empty());
+
+        var status = service.getSyncStatus();
+
+        assertEquals("ERROR", status.get("status"));
+        @SuppressWarnings("unchecked")
+        var domains = (List<Map<String, Object>>) status.get("domains");
+        assertEquals(5, domains.size());
+        var detections = domains.stream().filter(d -> "DETECTIONS".equals(d.get("domain"))).findFirst().orElseThrow();
+        assertEquals(false, detections.get("stale"));
+        assertEquals(false, detections.get("failing"));
+        var posture = domains.stream().filter(d -> "POSTURE".equals(d.get("domain"))).findFirst().orElseThrow();
+        assertEquals(true, posture.get("stale"));
+        assertEquals(true, posture.get("failing"));
+        assertEquals("connection reset", posture.get("lastError"));
+        // Never synced at all must read as stale, not as healthy.
+        var never = domains.stream().filter(d -> "INVENTORY".equals(d.get("domain"))).findFirst().orElseThrow();
+        assertEquals(true, never.get("stale"));
+        assertNull(never.get("lastSuccessAt"));
+    }
+
+    @Test
+    void getApiSecurityReadsSyncedEndpointsWithoutCallingUpwind() {
+        // The tab used to walk ~6.8k endpoints inline (~20s). It now reads the synced table.
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        com.xammer.cloud.domain.UpwindApiEndpoint e = new com.xammer.cloud.domain.UpwindApiEndpoint();
+        e.setUpwindId("rt-1");
+        e.setCloudAccountId("111");
+        e.setMethod("GET");
+        e.setUri("/version");
+        e.setInternetExposed(true);
+        e.setAuthState("UNAUTHENTICATED");
+        e.setDomains("a.example,b.example");
+        when(apiEndpointRepo.findByCloudAccountIdInAndStatusOrderByUriAsc(List.of("111"), "ACTIVE"))
+                .thenReturn(List.of(e));
+
+        var rows = service.getApiSecurity(1L, null);
+
+        assertEquals(1, rows.size());
+        assertEquals("/version", rows.get(0).get("uri"));
+        assertEquals(true, rows.get(0).get("internetExposed"));
+        assertEquals(false, rows.get(0).get("authenticated"));
+        assertEquals(List.of("a.example", "b.example"), rows.get(0).get("domains"));
+        verify(apiClient, never()).fetchApiSecurityEndpoints(any(), anyInt());
     }
 
     @Test
     void getApiSecurityFetchesPerOwnedAccountAndFlattens() throws Exception {
+        // Fallback path: nothing synced yet, so the live read-through still serves the tab.
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
         com.fasterxml.jackson.databind.JsonNode ep = new com.fasterxml.jackson.databind.ObjectMapper()
             .readTree("{\"id\":\"rt-1\",\"method\":\"GET\",\"uri\":\"/version\",\"resource_id\":\"ep-1\"}");

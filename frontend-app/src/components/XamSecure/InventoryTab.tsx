@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
 import type {
-  PageResp, InventoryAsset, InventoryCategory, NetworkTopology,
+  PageResp, InventoryAsset, InventoryCategory, NetworkTopology, ResourceDetail,
 } from '../../types/xamsecure';
 import InventoryAssetDrawer from './InventoryAssetDrawer';
+import ResourceLink from './ResourceLink';
+import { useResourceDrawer } from './useResourceDrawer';
 
 interface Props {
   data: PageResp<InventoryAsset> | null;
@@ -11,6 +13,7 @@ interface Props {
   network: NetworkTopology | null;
   isLoading: boolean;
   onLoad: (page: number, category: string) => void;
+  loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
 }
 
 /** Readable labels + icons for networking sub-categories in the network view. */
@@ -43,7 +46,10 @@ const catLabel = (c: string | null): string =>
 const catIcon = (c: string | null): string =>
   (c && CATEGORY_META[c]?.icon) || 'mdi:cube-outline';
 
-const InventoryTab: React.FC<Props> = ({ data, categories, network, isLoading, onLoad }) => {
+const InventoryTab: React.FC<Props> = ({
+  data, categories, network, isLoading, onLoad, loadResourceDetail,
+}) => {
+  const { open, drawer } = useResourceDrawer(loadResourceDetail);
   const [selected, setSelected] = useState<InventoryAsset | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>(''); // '' = all
   const [view, setView] = useState<'catalog' | 'network'>('catalog');
@@ -117,7 +123,9 @@ const InventoryTab: React.FC<Props> = ({ data, categories, network, isLoading, o
                 <tr key={a.upwindId}
                     className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
                     onClick={() => setSelected(a)}>
-                  <td className="px-5 py-3 font-medium text-gray-800 max-w-xs truncate">{a.name}</td>
+                  <td className="px-5 py-3 text-gray-800 max-w-xs">
+                    <ResourceLink resourceId={a.cloudResourceId} label={a.name} onOpen={open} />
+                  </td>
                   <td className="px-5 py-3 text-gray-600">{a.label}</td>
                   <td className="px-5 py-3 text-gray-600">{a.assetSubCategory}</td>
                   <td className="px-5 py-3 text-gray-600">{a.cloudProvider}</td>
@@ -151,8 +159,13 @@ const InventoryTab: React.FC<Props> = ({ data, categories, network, isLoading, o
       )}
 
       {selected && (
-        <InventoryAssetDrawer asset={selected} onClose={() => setSelected(null)} />
+        <InventoryAssetDrawer
+          asset={selected}
+          onClose={() => setSelected(null)}
+          onOpenResource={(id) => { setSelected(null); open(id); }}
+        />
       )}
+      {drawer}
     </div>
   );
 };

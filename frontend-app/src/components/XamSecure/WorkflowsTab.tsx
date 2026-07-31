@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { Workflow } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
+import WorkflowDrawer from './WorkflowDrawer';
 
 interface Props {
   data: Workflow[] | null;
@@ -10,6 +11,7 @@ interface Props {
 /** Response automation workflows — mirrors Upwind's automation rules. */
 const WorkflowsTab: React.FC<Props> = ({ data, isLoading }) => {
   const all = data ?? [];
+  const [selected, setSelected] = useState<Workflow | null>(null);
   const { page, setPage, pageItems: rows, totalPages, total } = usePaged(all, 50);
 
   const totals = useMemo(() => ({
@@ -45,7 +47,9 @@ const WorkflowsTab: React.FC<Props> = ({ data, isLoading }) => {
             </thead>
             <tbody>
               {rows.map((w) => (
-                <tr key={w.id} className="border-b border-gray-50 hover:bg-gray-50">
+                <tr key={w.id}
+                    className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
+                    onClick={() => setSelected(w)}>
                   <td className="px-5 py-3 font-medium text-gray-800 max-w-md truncate">{w.name ?? '—'}</td>
                   <td className="px-5 py-3">
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700">
@@ -74,6 +78,9 @@ const WorkflowsTab: React.FC<Props> = ({ data, isLoading }) => {
         </div>
         <Pager page={page} totalPages={totalPages} total={total} unit="workflows" onPage={setPage} />
       </div>
+      {selected && (
+        <WorkflowDrawer workflow={selected} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type {
   PageResp, PostureFinding, ComplianceFramework, ConfigurationsDashboard as Dashboard,
+  ResourceDetail, IssueSummary,
 } from '../../types/xamsecure';
 import PostureTab from './PostureTab';
 import ComplianceTab from './ComplianceTab';
@@ -12,6 +13,11 @@ interface Props {
   compliance: ComplianceFramework[] | null;
   isLoading: boolean;
   onPage: (page: number) => void;
+  loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
+  /** Applies a server-side severity filter to the findings list. */
+  onSeverity?: (severity: string) => void;
+  /** Forwarded to the frameworks view to list each framework's failing controls. */
+  issues?: IssueSummary[] | null;
 }
 
 /**
@@ -21,7 +27,9 @@ interface Props {
  *   Frameworks & rules — compliance frameworks (Upwind has no separate "Compliance" nav item).
  * Upwind's "Rules" list has no data via the API, so it is not shown.
  */
-const ConfigurationsTab: React.FC<Props> = ({ dashboard, posture, compliance, isLoading, onPage }) => {
+const ConfigurationsTab: React.FC<Props> = ({
+  dashboard, posture, compliance, isLoading, onPage, loadResourceDetail, onSeverity, issues,
+}) => {
   const [view, setView] = useState<'dashboard' | 'findings' | 'frameworks'>('dashboard');
   return (
     <div className="space-y-4">
@@ -31,8 +39,15 @@ const ConfigurationsTab: React.FC<Props> = ({ dashboard, posture, compliance, is
         <ViewTab label="Frameworks & rules" active={view === 'frameworks'} onClick={() => setView('frameworks')} />
       </div>
       {view === 'dashboard' && <ConfigurationsDashboard data={dashboard} isLoading={isLoading} />}
-      {view === 'findings' && <PostureTab data={posture} isLoading={isLoading} onPage={onPage} />}
-      {view === 'frameworks' && <ComplianceTab data={compliance} isLoading={isLoading} />}
+      {view === 'findings' && (
+        <PostureTab data={posture} isLoading={isLoading} onPage={onPage}
+                    loadResourceDetail={loadResourceDetail}
+                    severityCounts={dashboard?.severityCounts}
+                    onSeverity={onSeverity} />
+      )}
+      {view === 'frameworks' && (
+        <ComplianceTab data={compliance} isLoading={isLoading} issues={issues} />
+      )}
     </div>
   );
 };
