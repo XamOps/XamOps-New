@@ -213,6 +213,7 @@ const Sidebar: React.FC = () => {
         onClick={toggleMobileMenu}
         className="lg:hidden fixed top-3 left-3 z-50 p-2 rounded-md border border-[rgba(0,0,0,0.06)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] transition-colors"
         aria-label="Toggle sidebar menu"
+        aria-expanded={mobileMenuOpen}
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
