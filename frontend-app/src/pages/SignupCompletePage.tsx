@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, FormEvent } from 'react';
+import React, { useEffect, useMemo, useState, FormEvent, useId } from 'react';
 
 interface CompleteResponse {
   redirectUrl?: string;
@@ -22,6 +22,12 @@ const inputClass =
 const labelClass = 'block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5';
 
 const SignupCompletePage: React.FC = () => {
+  const companyInputId = useId();
+  const nameInputId = useId();
+  const phoneInputId = useId();
+  const addressInputId = useId();
+  const emailInputId = useId();
+
   const token = useMemo(() => new URLSearchParams(window.location.search).get('token') || '', []);
   const claims = useMemo(() => decodeToken(token), [token]);
 
@@ -109,9 +115,9 @@ const SignupCompletePage: React.FC = () => {
             {/* Email (verified, read-only) */}
             {claims.email && (
               <div>
-                <label className={labelClass}>Email Address</label>
+                <label htmlFor={emailInputId} className={labelClass}>Email Address</label>
                 <div className="relative">
-                  <input type="email" value={claims.email} readOnly disabled className={`${inputClass} pr-9 opacity-80 cursor-not-allowed`} />
+                  <input id={emailInputId} type="email" value={claims.email} readOnly disabled className={`${inputClass} pr-9 opacity-80 cursor-not-allowed`} />
                   <i className="fas fa-circle-check text-green-500 text-xs absolute right-3 top-1/2 -translate-y-1/2" title={`Verified by ${providerLabel}`} />
                 </div>
               </div>
@@ -119,10 +125,11 @@ const SignupCompletePage: React.FC = () => {
 
             {/* Company Name */}
             <div>
-              <label className={labelClass}>
+              <label htmlFor={companyInputId} className={labelClass}>
                 Company Name <span className="text-red-500">*</span>
               </label>
               <input
+                id={companyInputId}
                 type="text" value={companyName} autoFocus
                 onChange={(e) => setCompanyName(e.target.value)}
                 placeholder="Acme Corp" className={inputClass}
@@ -131,8 +138,9 @@ const SignupCompletePage: React.FC = () => {
 
             {/* Full Name */}
             <div>
-              <label className={labelClass}>Full Name</label>
+              <label htmlFor={nameInputId} className={labelClass}>Full Name</label>
               <input
+                id={nameInputId}
                 type="text" value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="John Smith" className={inputClass}
@@ -141,10 +149,11 @@ const SignupCompletePage: React.FC = () => {
 
             {/* Phone */}
             <div>
-              <label className={labelClass}>
+              <label htmlFor={phoneInputId} className={labelClass}>
                 Phone Number <span className="ml-1.5 text-[10px] font-normal text-gray-400">(optional)</span>
               </label>
               <input
+                id={phoneInputId}
                 type="tel" value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+1 (555) 000-0000" className={inputClass}
@@ -153,10 +162,11 @@ const SignupCompletePage: React.FC = () => {
 
             {/* Address */}
             <div>
-              <label className={labelClass}>
+              <label htmlFor={addressInputId} className={labelClass}>
                 Business Address <span className="ml-1.5 text-[10px] font-normal text-gray-400">(optional)</span>
               </label>
               <input
+                id={addressInputId}
                 type="text" value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="123 Main St, City, Country" className={inputClass}
