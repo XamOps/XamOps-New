@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useId } from 'react';
 import apiClient from '../utils/apiClient';
 
 interface AccountIdEntry {
@@ -24,6 +24,13 @@ interface Props {
 type Step = 'billing-question' | 'form' | 'success';
 
 const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
+  const nameId = useId();
+  const companyId = useId();
+  const emailId = useId();
+  const phoneId = useId();
+  const addressId = useId();
+  const notesId = useId();
+
   const [step, setStep] = useState<Step>('billing-question');
   const [submitting, setSubmitting] = useState(false);
   const [optingOut, setOptingOut] = useState(false);
@@ -186,10 +193,11 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
 
               {/* Name */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor={nameId} className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   Full Name <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id={nameId}
                   type="text"
                   value={form.name}
                   onChange={e => handleFieldChange('name', e.target.value)}
@@ -200,10 +208,11 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
 
               {/* Company Name */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor={companyId} className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   Company Name <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id={companyId}
                   type="text"
                   value={form.companyName}
                   onChange={e => handleFieldChange('companyName', e.target.value)}
@@ -214,10 +223,11 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
 
               {/* Email */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor={emailId} className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   Email Address
                 </label>
                 <input
+                  id={emailId}
                   type="email"
                   value={form.email}
                   onChange={e => handleFieldChange('email', e.target.value)}
@@ -228,10 +238,11 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
 
               {/* Phone */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor={phoneId} className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   Phone Number
                 </label>
                 <input
+                  id={phoneId}
                   type="tel"
                   value={form.phone}
                   onChange={e => handleFieldChange('phone', e.target.value)}
@@ -242,10 +253,11 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
 
               {/* Address */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor={addressId} className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   Business Address
                 </label>
                 <input
+                  id={addressId}
                   type="text"
                   value={form.address}
                   onChange={e => handleFieldChange('address', e.target.value)}
@@ -281,12 +293,14 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
                         value={entry.value}
                         onChange={e => updateAccountId(entry.key, e.target.value)}
                         placeholder="e.g. 123456789012 or my-gcp-project"
+                        aria-label={`Cloud Account ID ${idx + 1}`}
                         className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all font-mono"
                       />
                       {accountIds.length > 1 && (
                         <button
                           type="button"
                           onClick={() => removeAccountId(entry.key)}
+                          aria-label={`Remove Cloud Account ID ${idx + 1}`}
                           className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-all flex-shrink-0"
                         >
                           <i className="fas fa-times text-xs" />
@@ -299,11 +313,12 @@ const OnboardingModal: React.FC<Props> = ({ userEmail, userName, onClose }) => {
 
               {/* Notes */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor={notesId} className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   Additional Notes
                   <span className="ml-1.5 text-[10px] font-normal text-gray-400">(optional)</span>
                 </label>
                 <textarea
+                  id={notesId}
                   value={form.notes}
                   onChange={e => handleFieldChange('notes', e.target.value)}
                   placeholder="Any additional information..."
