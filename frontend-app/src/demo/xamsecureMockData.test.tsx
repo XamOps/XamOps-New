@@ -74,7 +74,8 @@ describe('XamSecure demo data renders in every tab', () => {
   it('Inventory lists assets and categories', () => {
     draw(
       <InventoryTab data={demo.demoInventoryPage('?page=0&size=50')} categories={demo.demoInventoryCategories}
-                    network={demo.demoNetworkTopology} isLoading={false} onLoad={noop} />
+                    risk={demo.demoInventoryRisk} network={demo.demoNetworkTopology}
+                    isLoading={false} onLoad={noop} />
     );
     expect(screen.getByText(demo.demoInventoryAll[0].name!)).toBeInTheDocument();
     // Category rail is rendered from the derived counts

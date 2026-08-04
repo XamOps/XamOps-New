@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Icon } from '@iconify/react';
+import { Link, useParams } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useXamSecureData } from '../hooks/useXamSecureData';
 import {
@@ -33,8 +34,11 @@ export const XAMSECURE_TABS: { id: XamSecureTab; label: string }[] = [
 const VALID_TABS = new Set<string>(XAMSECURE_TABS.map((t) => t.id));
 
 const XamSecurePage: React.FC = () => {
-  const { selectedAccountIds } = useAccounts();
-  const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+  const { selectedAccountIds, accounts, isLoading: accountsLoading } = useAccounts();
+  // Send EVERY selected account, not just the first. Taking [0] meant that in
+  // multi-account mode, selecting two accounts showed less data than selecting none
+  // (no selection falls through to "all accounts I own" on the server).
+  const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds.join(',') : null;
   const { tab } = useParams<{ tab?: string }>();
 
   const activeTab = useMemo<XamSecureTab>(
@@ -48,12 +52,58 @@ const XamSecurePage: React.FC = () => {
 
   const {
     summary, issues, attackSurface, threats, vulnDashboard, vulnByCve, posture, inventory,
-    inventoryCategories, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
+    inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, identities,
+    noAccountSelected,
     isLoading, refresh, loadIssueDetail, loadResourceDetail,
     loadThreats, loadVulnByCve, loadCveFindings, loadPosture, loadInventory,
     archiveThreat,
   } = useXamSecureData({ selectedAccountId, activeTab });
+
+  // An account must be chosen before anything is shown. Falling through to "all accounts I
+  // own" would put an unselected account's findings on screen, which for a security view is
+  // the wrong default.
+  //
+  // Three distinct states, because telling someone to pick an account when they have none is
+  // a dead end: AccountContext only auto-selects when at least one account exists
+  // (`filtered.length > 0`), so a client with zero accounts would otherwise sit on a prompt
+  // asking them to use an empty sidebar.
+  if (noAccountSelected) {
+    const stillLoadingAccounts = accountsLoading && accounts.length === 0;
+    return (
+      <main className="flex-1 flex flex-col min-h-screen bg-white">
+        <XamSecureHeader isLoading={stillLoadingAccounts} onRefresh={refresh} />
+        <div className="flex-1 flex items-center justify-center p-6">
+          {stillLoadingAccounts ? (
+            <p className="text-sm text-gray-400">Loading accounts...</p>
+          ) : accounts.length === 0 ? (
+            <div className="text-center max-w-sm">
+              <Icon icon="mdi:cloud-off-outline" width={40} className="mx-auto text-gray-300" />
+              <p className="mt-3 text-sm font-semibold text-gray-900">No cloud accounts connected</p>
+              <p className="mt-1 text-xs text-gray-500">
+                XamSecure reports on connected cloud accounts. Add one to get started.
+              </p>
+              <Link to="/account-manager"
+                    className="mt-4 inline-block rounded-lg bg-gray-900 px-4 py-2 text-xs font-semibold
+                               text-white hover:bg-gray-800 focus:outline-none
+                               focus-visible:ring-2 focus-visible:ring-gray-900">
+                Go to Account Manager
+              </Link>
+            </div>
+          ) : (
+            <div className="text-center max-w-sm">
+              <Icon icon="mdi:shield-search" width={40} className="mx-auto text-gray-300" />
+              <p className="mt-3 text-sm font-semibold text-gray-900">Select an account</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Choose a cloud account from the sidebar to see its security findings.
+                XamSecure only ever shows data for the accounts you have selected.
+              </p>
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-white">
@@ -92,7 +142,8 @@ const XamSecurePage: React.FC = () => {
                              issues={issues} />
         )}
         {activeTab === 'inventory' && (
-          <InventoryTab data={inventory} categories={inventoryCategories} network={networkTopology}
+          <InventoryTab data={inventory} categories={inventoryCategories} risk={inventoryRisk}
+                        network={networkTopology}
                         isLoading={isLoading} onLoad={(page, category) => loadInventory(page, category)}
                         loadResourceDetail={loadResourceDetail} />
         )}

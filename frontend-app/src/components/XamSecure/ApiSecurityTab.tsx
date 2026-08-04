@@ -17,17 +17,22 @@ const methodColor = (m: string) => METHOD_COLOR[m?.toUpperCase()] ?? '#64748b';
 /**
  * APIs — mirrors Upwind's API Security dashboard using only real endpoint data:
  * an endpoints funnel (total / internet-exposed / authenticated / unauthenticated),
- * a breakdown by HTTP method, top domains, and the endpoint inventory table.
- * Upwind's sensitive-data classification and API-vulnerability panels are omitted —
- * that data is not exposed by the API.
+ * a breakdown by HTTP method, top domains, the sensitive-data classification observed on
+ * each endpoint, and the endpoint inventory table.
+ *
+ * Sensitive data comes from the v2 endpoint payload's risk_overview.sensitive_data — the v1
+ * endpoint list we previously read carried none, which is why this panel used to be absent.
+ * Upwind's per-endpoint OWASP/CWE mapping is still not exposed by any endpoint, so no
+ * vulnerability-class panel is shown.
  */
 const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
   const all = useMemo(() => data ?? [], [data]);
 
   const stats = useMemo(() => {
-    let exposed = 0, authed = 0, unauth = 0;
+    let exposed = 0, authed = 0, unauth = 0, sensitive = 0, exposedSensitive = 0;
     const byMethod: Record<string, number> = {};
     const byDomain: Record<string, number> = {};
+    const bySensitive: Record<string, number> = {};
     for (const e of all) {
       if (e.internetExposed) exposed += 1;
       if (e.authenticated) authed += 1;
@@ -36,12 +41,20 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
       const m = (e.method ?? 'OTHER').toUpperCase();
       byMethod[m] = (byMethod[m] ?? 0) + 1;
       (e.domains ?? []).forEach((d) => { if (d) byDomain[d] = (byDomain[d] ?? 0) + 1; });
+      const kinds = e.sensitiveData ?? [];
+      if (kinds.length > 0) {
+        sensitive += 1;
+        if (e.internetExposed) exposedSensitive += 1;
+        kinds.forEach((k) => { bySensitive[k] = (bySensitive[k] ?? 0) + 1; });
+      }
     }
     const methods = Object.entries(byMethod).sort((a, b) => b[1] - a[1]);
     const domains = Object.entries(byDomain).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const sensitiveKinds = Object.entries(bySensitive).sort((a, b) => b[1] - a[1]);
     // Endpoints Upwind hasn't classified an auth state for (not observed enough traffic).
     const unclassified = Math.max(0, all.length - authed - unauth);
-    return { total: all.length, exposed, authed, unauth, unclassified, methods, domains };
+    return { total: all.length, exposed, authed, unauth, unclassified, methods, domains,
+             sensitive, exposedSensitive, sensitiveKinds };
   }, [all]);
 
   const { page, setPage, pageItems: rows, totalPages, total } = usePaged(all, 50);
@@ -55,14 +68,33 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
   return (
     <div className="space-y-4">
       {/* Funnel stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <Stat icon="mdi:api" label="Endpoints" value={stats.total} accent="text-gray-900" />
         <Stat icon="mdi:earth" label="Internet exposed" value={stats.exposed} accent="text-red-600" />
         <Stat icon="mdi:lock-check" label="Authenticated" value={stats.authed} accent="text-emerald-600" />
         <Stat icon="mdi:lock-open-alert" label="Unauthenticated" value={stats.unauth} accent="text-orange-600" />
+        <Stat icon="mdi:shield-account-outline" label="Sensitive data" value={stats.sensitive}
+              accent="text-purple-600"
+              hint="Endpoints where Upwind observed PII, PHI, PCI or secrets in traffic" />
         <Stat icon="mdi:help-circle-outline" label="Unclassified" value={stats.unclassified} accent="text-gray-500"
               hint="Upwind hasn't observed enough traffic to classify auth state" />
       </div>
+
+      {/* The intersection worth acting on first, called out only when it is non-zero. */}
+      {stats.exposedSensitive > 0 && (
+        <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-4">
+          <Icon icon="mdi:alert-octagon" width={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-red-800">
+              {stats.exposedSensitive.toLocaleString()} internet-exposed{' '}
+              {stats.exposedSensitive === 1 ? 'endpoint carries' : 'endpoints carry'} sensitive data
+            </p>
+            <p className="text-xs text-red-700 mt-0.5">
+              Reachable from the internet and observed transmitting PII, PHI, PCI or secrets.
+            </p>
+          </div>
+        </div>
+      )}
 
       <EndpointsFunnel total={stats.total} exposed={stats.exposed}
                        authed={stats.authed} unauth={stats.unauth} />
@@ -105,6 +137,34 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
         </div>
       </div>
 
+      {/* Sensitive data observed in endpoint traffic, by category and type. */}
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">
+          Sensitive data in API traffic
+        </p>
+        {stats.sensitiveKinds.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {stats.sensitiveKinds.map(([kind, n]) => {
+              const [category, type] = kind.split(':');
+              return (
+                <span key={kind}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px]
+                                 border border-purple-200 bg-purple-50 text-purple-800">
+                  <Icon icon="mdi:shield-account-outline" width={12} className="flex-shrink-0" />
+                  <span className="font-semibold">{type ?? category}</span>
+                  {type && <span className="text-purple-500">{category}</span>}
+                  <span className="font-bold">{n}</span>
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400">
+            Upwind has not observed PII, PHI, PCI or secrets on these endpoints.
+          </p>
+        )}
+      </div>
+
       {/* Endpoint inventory */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100">
@@ -121,6 +181,8 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                 <th className="px-5 py-2.5">Served by</th>
                 <th className="px-5 py-2.5">Auth</th>
                 <th className="px-5 py-2.5">Internet Exposed</th>
+                <th className="px-5 py-2.5">Sensitive data</th>
+                <th className="px-5 py-2.5">Status codes</th>
                 <th className="px-5 py-2.5">First Seen</th>
                 <th className="px-5 py-2.5">Last Seen</th>
               </tr>
@@ -157,6 +219,23 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                       {e.internetExposed ? 'Exposed' : 'Internal'}
                     </span>
                   </td>
+                  <td className="px-5 py-3">
+                    {(e.sensitiveData ?? []).length > 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                                       text-[10px] font-bold bg-purple-100 text-purple-700"
+                            title={e.sensitiveData.join(' · ')}>
+                        <Icon icon="mdi:shield-account-outline" width={11} />
+                        {/* Show the first type and a count, so a wide list doesn't blow out the row. */}
+                        {e.sensitiveData[0].split(':').slice(-1)[0]}
+                        {e.sensitiveData.length > 1 ? ` +${e.sensitiveData.length - 1}` : ''}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 font-mono text-[10px] text-gray-500 whitespace-nowrap">
+                    {(e.statusCodes ?? []).length > 0 ? e.statusCodes.join(' ') : '—'}
+                  </td>
                   <td className="px-5 py-3 whitespace-nowrap text-gray-500">
                     {e.firstSeenTime ? new Date(e.firstSeenTime).toLocaleDateString() : '—'}
                   </td>
@@ -166,7 +245,7 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">
+                <tr><td colSpan={9} className="px-5 py-12 text-center text-gray-400">
                   No API endpoints discovered for the selected account.</td></tr>
               )}
             </tbody>

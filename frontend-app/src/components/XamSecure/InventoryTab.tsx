@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
 import type {
-  PageResp, InventoryAsset, InventoryCategory, NetworkTopology, ResourceDetail,
+  PageResp, InventoryAsset, InventoryCategory, InventoryRisk, NetworkTopology, ResourceDetail,
 } from '../../types/xamsecure';
 import InventoryAssetDrawer from './InventoryAssetDrawer';
 import ResourceLink from './ResourceLink';
@@ -10,6 +10,7 @@ import { useResourceDrawer } from './useResourceDrawer';
 interface Props {
   data: PageResp<InventoryAsset> | null;
   categories: InventoryCategory[] | null;
+  risk: InventoryRisk | null;
   network: NetworkTopology | null;
   isLoading: boolean;
   onLoad: (page: number, category: string) => void;
@@ -47,7 +48,7 @@ const catIcon = (c: string | null): string =>
   (c && CATEGORY_META[c]?.icon) || 'mdi:cube-outline';
 
 const InventoryTab: React.FC<Props> = ({
-  data, categories, network, isLoading, onLoad, loadResourceDetail,
+  data, categories, risk, network, isLoading, onLoad, loadResourceDetail,
 }) => {
   const { open, drawer } = useResourceDrawer(loadResourceDetail);
   const [selected, setSelected] = useState<InventoryAsset | null>(null);
@@ -69,6 +70,21 @@ const InventoryTab: React.FC<Props> = ({
         <ViewTab label="Catalog" active={view === 'catalog'} onClick={() => setView('catalog')} />
         <ViewTab label="Network map" active={view === 'network'} onClick={() => setView('network')} />
       </div>
+
+      {/* Classification rollup, above the catalog: which assets carry regulated data, run
+          with elevated privilege, run unsupported software, or are internet-reachable. */}
+      {view === 'catalog' && risk && risk.assets > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <RiskStat icon="mdi:cube-outline" label="Assets" value={risk.assets} accent="text-gray-900" />
+          <RiskStat icon="mdi:shield-account-outline" label="PII" value={risk.pii} accent="text-purple-600" />
+          <RiskStat icon="mdi:medical-bag" label="PHI" value={risk.phi} accent="text-purple-600" />
+          <RiskStat icon="mdi:credit-card-outline" label="PCI" value={risk.pci} accent="text-purple-600" />
+          <RiskStat icon="mdi:account-key" label="Elevated privilege"
+                    value={risk.elevatedPrivilege} accent="text-orange-600" />
+          <RiskStat icon="mdi:clock-alert-outline" label="End-of-life software"
+                    value={risk.eolTechnology} accent="text-red-600" />
+        </div>
+      )}
 
       {view === 'network' ? (
         <NetworkView network={network} isLoading={isLoading} />
@@ -225,6 +241,18 @@ const NetworkView: React.FC<{ network: NetworkTopology | null; isLoading: boolea
     </div>
   );
 };
+
+/** Compact rollup tile for the classification strip. */
+const RiskStat: React.FC<{ icon: string; label: string; value: number; accent: string }> =
+  ({ icon, label, value, accent }) => (
+  <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
+    <div className="flex items-center gap-1.5 mb-0.5">
+      <Icon icon={icon} width={13} className="text-gray-400 flex-shrink-0" />
+      <p className="text-[10px] text-gray-500 truncate" title={label}>{label}</p>
+    </div>
+    <p className={`text-xl font-bold ${accent}`}>{value.toLocaleString()}</p>
+  </div>
+);
 
 const ViewTab: React.FC<{ label: string; active: boolean; onClick: () => void }> = ({ label, active, onClick }) => (
   <button

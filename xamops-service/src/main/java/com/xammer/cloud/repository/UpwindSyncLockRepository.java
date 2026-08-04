@@ -40,4 +40,17 @@ public interface UpwindSyncLockRepository extends JpaRepository<UpwindSyncLock, 
             + "WHERE name = :name AND holder = :holder", nativeQuery = true)
     int release(@Param("name") String name, @Param("holder") String holder,
                 @Param("now") Instant now);
+
+    /**
+     * Whether {@code holder} still owns an unexpired lease.
+     *
+     * Checked before destructive reconciliation. A long sync can outlive its TTL, letting a
+     * second instance start while the first is still working; if both then archive findings
+     * relative to their own start time, the later run wipes rows the earlier one just wrote.
+     */
+    @Query(value = "SELECT count(*) FROM upwind_sync_lock "
+            + "WHERE name = :name AND holder = :holder AND expires_at > :now",
+            nativeQuery = true)
+    long countHeldBy(@Param("name") String name, @Param("holder") String holder,
+                     @Param("now") Instant now);
 }

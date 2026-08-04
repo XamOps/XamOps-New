@@ -127,6 +127,12 @@ export interface PostureFinding {
   resourceId: string | null;
   resourceName: string | null;
   resourceType: string | null;
+  /**
+   * Kubernetes context, present only when the finding's resource is a workload rather than
+   * a cloud resource. Available from v1 all along; we simply weren't mapping it.
+   */
+  clusterId: string | null;
+  namespace: string | null;
   firstSeenTime: string | null;
   lastSeenTime: string | null;
   rawPayload: string | null;
@@ -145,6 +151,33 @@ export interface InventoryAsset {
   region: string | null;
   status: string | null;
   rawPayload: string | null;
+  // From Upwind's inventory CATALOG asset. null means Upwind didn't report the signal,
+  // which is deliberately distinct from false.
+  hasElevatedPrivilege: boolean | null;
+  sensitivePiiAtRest: boolean | null;
+  sensitivePhiAtRest: boolean | null;
+  sensitivePciAtRest: boolean | null;
+  sensitivePiiInTransit: boolean | null;
+  sensitivePhiInTransit: boolean | null;
+  sensitivePciInTransit: boolean | null;
+  vulnCriticalCount: number | null;
+  vulnHighCount: number | null;
+  vulnTotalCount: number | null;
+  detectionTotalCount: number | null;
+  internetExposureType: string | null;
+  technologies: string | null;
+  hasEolTechnology: boolean | null;
+}
+
+/** Classification / privilege / EOL / exposure rollup over the synced asset catalog. */
+export interface InventoryRisk {
+  assets: number;
+  pii: number;
+  phi: number;
+  pci: number;
+  elevatedPrivilege: number;
+  eolTechnology: number;
+  internetExposed: number;
 }
 
 export interface InventoryCategory {
@@ -175,6 +208,11 @@ export interface ApiEndpoint {
   authenticated: boolean;
   domains: string[];
   cloudAccountId: string | null;
+  /** "CATEGORY:Type" entries observed on the endpoint, e.g. "PII:Email". */
+  sensitiveData: string[];
+  hasSensitiveData: boolean;
+  /** Observed HTTP status codes, e.g. ["200", "401"]. */
+  statusCodes: string[];
 }
 
 export interface ThreatPolicy {
@@ -325,8 +363,10 @@ export interface SyncStatus {
 
 /**
  * Identities that have failing configuration checks. Derived from posture findings —
- * Upwind's Identities module is not reachable on our credential, so this is not a full
- * identity inventory and carries no privilege classification.
+ * The roster is every identity in Upwind's inventory catalog — IAM users, roles, groups and
+ * policies plus Kubernetes service accounts, roles and bindings — annotated with failing
+ * checks and Upwind's own high_privilege_risk flag. Upwind's CIEM module (entitlement
+ * analysis, human vs non-human split, role-trust graph) has no API and is absent.
  */
 export interface IdentityRow {
   resourceId: string | null;
@@ -337,8 +377,27 @@ export interface IdentityRow {
   severity: Severity | null;
   findingCount: number;
   checks: string[];
+  region: string | null;
   firstSeen: string | null;
   lastSeen: string | null;
+  /** Upwind flagged the underlying asset as holding elevated privilege. */
+  elevatedPrivilege: boolean;
+  /** False for identities that fail a check but are absent from the latest inventory walk. */
+  inInventory: boolean;
+}
+
+/** An asset Upwind flagged as privileged, whether or not it currently fails a check. */
+export interface PrivilegedIdentity {
+  resourceId: string | null;
+  name: string | null;
+  resourceType: string | null;
+  category: string | null;
+  cloudProvider: string | null;
+  cloudAccountId: string | null;
+  region: string | null;
+  internetExposureType: string | null;
+  sensitivePii: boolean;
+  hasFindings: boolean;
 }
 
 export interface IdentitiesSummary {
@@ -346,6 +405,10 @@ export interface IdentitiesSummary {
   severityCounts: Record<string, number>;
   byType: { type: string; count: number }[];
   total: number;
+  /** Identities with at least one failing check; the rest are clean. */
+  withFindings: number;
+  privilegedTotal: number;
+  privileged: PrivilegedIdentity[];
 }
 
 /** One resource joined across every synced domain that references it. */

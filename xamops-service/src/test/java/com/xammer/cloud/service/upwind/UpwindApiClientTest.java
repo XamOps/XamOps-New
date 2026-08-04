@@ -48,6 +48,17 @@ class UpwindApiClientTest {
                 + "?per-page=" + UpwindApiClient.PAGE_SIZE);
     }
 
+    /**
+     * Configuration findings are fetched per status, so the status lands in the query string
+     * ahead of per-page. Without an explicit status the endpoint silently defaults to FAIL,
+     * which is how PASS findings went unsynced.
+     */
+    private static URI findingsPage(String status) {
+        return URI.create("https://api.example/v1/organizations/org_test"
+                + "/configuration-findings?status=" + status
+                + "&per-page=" + UpwindApiClient.PAGE_SIZE);
+    }
+
     @Test
     void isConfiguredFalseWhenNoCredentials() {
         client.setClientId("");
@@ -122,14 +133,14 @@ class UpwindApiClientTest {
                 "[{\"id\":\"a\"}]", page1Headers, org.springframework.http.HttpStatus.OK);
         ResponseEntity<String> page2 = ResponseEntity.ok("[{\"id\":\"b\"}]");
 
-        when(restTemplate.exchange(eq(firstPage("/configuration-findings")),
+        when(restTemplate.exchange(eq(findingsPage("FAIL")),
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
                 .thenReturn(page1);
         when(restTemplate.exchange(eq(URI.create(commaNext)),
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
                 .thenReturn(page2);
 
-        UpwindApiClient.FetchResult res = client.fetchConfigurationFindingsPaged(10);
+        UpwindApiClient.FetchResult res = client.fetchConfigurationFindingsPaged("FAIL", 10);
         assertEquals(2, res.items().size(), "next page must be followed despite the raw comma");
         assertEquals("b", res.items().get(1).get("id").asText());
         assertFalse(res.truncated(), "walk ended because no next link remained");
@@ -143,9 +154,9 @@ class UpwindApiClientTest {
         when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET),
                 any(HttpEntity.class), eq(String.class))).thenReturn(ResponseEntity.ok("[]"));
 
-        client.fetchConfigurationFindings(1);
+        client.fetchConfigurationFindingsPaged("FAIL", 1);
 
-        verify(restTemplate).exchange(eq(firstPage("/configuration-findings")),
+        verify(restTemplate).exchange(eq(findingsPage("FAIL")),
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
     }
 
@@ -160,7 +171,7 @@ class UpwindApiClientTest {
         when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
                 .thenReturn(looping);
 
-        UpwindApiClient.FetchResult res = client.fetchConfigurationFindingsPaged(2);
+        UpwindApiClient.FetchResult res = client.fetchConfigurationFindingsPaged("FAIL", 2);
         assertEquals(2, res.items().size());
         assertTrue(res.truncated(), "hitting the cap with a next link left must flag incompleteness");
     }
@@ -221,7 +232,7 @@ class UpwindApiClientTest {
                 any(HttpEntity.class), eq(String.class))).thenReturn(page);
 
         client.fetchThreatDetections(1);
-        client.fetchConfigurationFindings(1);
+        client.fetchConfigurationFindingsPaged("FAIL", 1);
 
         verify(restTemplate, times(1)).exchange(eq("https://oauth.example/token"),
                 eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class));

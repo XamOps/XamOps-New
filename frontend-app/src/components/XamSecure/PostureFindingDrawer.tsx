@@ -41,6 +41,10 @@ const PostureFindingDrawer: React.FC<Props> = ({ finding, onClose, onOpenResourc
   const resourceName = finding.resourceName ?? resource.name ?? null;
   const resourceType = finding.resourceType ?? resource.type ?? null;
   const region = finding.region ?? resource.region ?? null;
+  // Kubernetes workloads: cluster + namespace are what locate the resource, since its
+  // resource id is a composite string rather than an ARN.
+  const clusterId = finding.clusterId ?? resource.cluster_id ?? null;
+  const namespace = finding.namespace ?? resource.namespace ?? null;
   const accountName: string | null = resource.cloud_account_name ?? null;
   const accountId = finding.cloudAccountId ?? resource.cloud_account_id ?? null;
   const arn: string | null = resource.arn ?? resource.id ?? null;
@@ -105,6 +109,8 @@ const PostureFindingDrawer: React.FC<Props> = ({ finding, onClose, onOpenResourc
                 <Row label="Name" value={resourceName} />
                 <Row label="Type" value={resourceType} />
                 <Row label="Region" value={region} />
+                {namespace && <Row label="Namespace" value={namespace} />}
+                {clusterId && <Row label="Cluster" value={clusterId} mono />}
                 <Row label="Account" value={accountName ? `${accountName}${accountId ? ` (${accountId})` : ''}` : accountId} />
                 {arn && <Row label="ARN" value={arn} mono />}
               </div>

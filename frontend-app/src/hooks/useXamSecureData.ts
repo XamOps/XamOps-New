@@ -4,7 +4,7 @@ import type {
   XamSecureSummary, ThreatDetection, VulnerabilityFinding, PostureFinding,
   ComplianceFramework, OnboardingAccount, PageResp, InventoryAsset, ApiEndpoint, SbomComponent,
   ThreatPolicy, Workflow,
-  IssueSummary, IssueDetail, ThreatStoriesSummary, InventoryCategory, NetworkTopology,
+  IssueSummary, IssueDetail, ThreatStoriesSummary, InventoryCategory, InventoryRisk, NetworkTopology,
   AttackSurfaceSummary, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
   ConfigurationsDashboard, ResourceDetail, SyncStatus, IdentitiesSummary,
 } from '../types/xamsecure';
@@ -52,6 +52,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [posture, setPosture] = useState<PageResp<PostureFinding> | null>(null);
   const [inventory, setInventory] = useState<PageResp<InventoryAsset> | null>(null);
   const [inventoryCategories, setInventoryCategories] = useState<InventoryCategory[] | null>(null);
+  const [inventoryRisk, setInventoryRisk] = useState<InventoryRisk | null>(null);
   const [networkTopology, setNetworkTopology] = useState<NetworkTopology | null>(null);
   const [compliance, setCompliance] = useState<ComplianceFramework[] | null>(null);
   const [configDashboard, setConfigDashboard] = useState<ConfigurationsDashboard | null>(null);
@@ -220,6 +221,17 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     saveCache(key, data);
   }, [acct, selectedAccountId]);
 
+  const loadInventoryRisk = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('inventory_risk', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<InventoryRisk>(key);
+      if (cached) { setInventoryRisk(cached); return; }
+    }
+    const data = await apiClient.get<InventoryRisk>(`/api/xamsecure/inventory/risk?${acct}`);
+    setInventoryRisk(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
   const loadNetworkTopology = useCallback(async (force = false) => {
     const key = xamSecureCacheKey('inventory_network', selectedAccountId);
     if (!force) {
@@ -307,10 +319,25 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     await loadThreats(threatPageRef.current);
   }, [loadThreats]);
 
+  /**
+   * True when the sidebar has no account selected.
+   *
+   * XamSecure must never show an account's data unless that account is selected. Omitting
+   * accountId makes the server fall back to "every account this client owns", so rather than
+   * issue an unscoped request we load nothing and let the page prompt for a selection.
+   * The selection is briefly empty on first load and whenever stale ids are cleared, so this
+   * is a reachable state, not a theoretical one.
+   */
+  const noAccountSelected = !selectedAccountId;
+
   // Load the active tab's data; Threats tab also polls every 60s.
   useEffect(() => {
     let cancelled = false;
-    const tabKey = `${activeTab}:${selectedAccountId ?? 'all'}`;
+    if (noAccountSelected) {
+      setIsLoading(false);
+      return;
+    }
+    const tabKey = `${activeTab}:${selectedAccountId}`;
     const run = async () => {
       // Threats polls on its own; every other tab, once loaded for this account, serves
       // in-memory data on revisit (no refetch, no loading flash). Refresh forces a reload.
@@ -332,7 +359,8 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
           await Promise.all([loadConfigDashboard(), loadPosture(), loadCompliance(), loadIssues()]);
         }
         else if (activeTab === 'inventory') {
-          await Promise.all([loadInventory(), loadInventoryCategories(), loadNetworkTopology()]);
+          await Promise.all([loadInventory(), loadInventoryCategories(), loadInventoryRisk(),
+            loadNetworkTopology()]);
         }
         else if (activeTab === 'compliance') await loadCompliance();
         else if (activeTab === 'api-security') await loadApiSecurity();
@@ -360,8 +388,10 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       cancelled = true;
       if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
     };
-  }, [activeTab, selectedAccountId, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories,
+  }, [activeTab, selectedAccountId, noAccountSelected,
+      loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories,
       loadVulnerabilities, loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
+      loadInventoryRisk,
       loadNetworkTopology, loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents,
       loadIdentities, loadThreatPolicies, loadWorkflows, loadOnboarding]);
 
@@ -382,7 +412,8 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
                            loadIssues('', true)]);
       }
       else if (activeTab === 'inventory') {
-        await Promise.all([loadInventory(0, '', true), loadInventoryCategories(true), loadNetworkTopology(true)]);
+        await Promise.all([loadInventory(0, '', true), loadInventoryCategories(true),
+          loadInventoryRisk(true), loadNetworkTopology(true)]);
       }
       else if (activeTab === 'compliance') await loadCompliance(true);
       else if (activeTab === 'api-security') await loadApiSecurity(true);
@@ -397,13 +428,15 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       setIsLoading(false);
     }
   }, [activeTab, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories, loadVulnerabilities,
-      loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories, loadNetworkTopology,
+      loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
+      loadInventoryRisk, loadNetworkTopology,
       loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents, loadIdentities,
       loadThreatPolicies, loadWorkflows, loadOnboarding]);
 
   return {
     summary, issues, attackSurface, threats, vulnerabilities, vulnDashboard, vulnByCve, posture, inventory,
-    inventoryCategories, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
+    noAccountSelected,
+    inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, identities,
     isLoading, refresh,
     loadIssues, loadIssueDetail, loadResourceDetail, loadSyncStatus,

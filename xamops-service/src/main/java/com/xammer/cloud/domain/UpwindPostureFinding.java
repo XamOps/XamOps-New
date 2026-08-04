@@ -50,6 +50,18 @@ public class UpwindPostureFinding {
     @Column(name = "resource_type")
     private String resourceType;
 
+    /**
+     * Kubernetes context, when the finding's resource is a workload rather than a cloud
+     * resource. Both come from the v1 payload's {@code resource.cluster_id} /
+     * {@code resource.namespace} — we simply never mapped them, which is why K8s findings
+     * showed an opaque composite resource id and no cluster or namespace.
+     */
+    @Column(name = "cluster_id")
+    private String clusterId;
+
+    @Column(name = "namespace")
+    private String namespace;
+
     @Column(name = "first_seen_time")
     private Instant firstSeenTime;
 

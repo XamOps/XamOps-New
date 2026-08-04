@@ -31,12 +31,18 @@ public class UpwindSyncScheduler {
     private final UpwindSyncLease lease;
 
     /**
-     * Lease TTLs must exceed the worst-case run time, or a second instance could start
-     * while the first is still working. Detections are a few pages; the full sync walks
-     * ~20 pages per domain plus inventory.
+     * Lease TTLs should exceed the worst-case run time, or a second instance could start
+     * while the first is still working. Detections are a few pages.
+     *
+     * The full sync is now materially longer than when 45m was chosen: posture walks every
+     * status (FAIL then PASS, roughly doubling it) and API endpoints moved to a v2 search
+     * capped at 100 items per page instead of 1000. Hence 90m, and configurable — with the
+     * mark-resolved guard below as the actual safety net rather than a hopeful TTL.
      */
     private static final Duration DETECTION_LEASE = Duration.ofMinutes(5);
-    private static final Duration FULL_LEASE = Duration.ofMinutes(45);
+
+    @org.springframework.beans.factory.annotation.Value("${upwind.sync.full-lease-minutes:90}")
+    private long fullLeaseMinutes;
 
     @Scheduled(fixedDelayString = "${upwind.sync.detection-interval-ms:60000}",
                initialDelayString = "15000")
@@ -47,9 +53,12 @@ public class UpwindSyncScheduler {
     @Scheduled(fixedDelayString = "${upwind.sync.full-interval-ms:3600000}",
                initialDelayString = "60000")
     public void fullSync() {
-        lease.runIfLeader("FULL", FULL_LEASE, () -> {
+        lease.runIfLeader("FULL", Duration.ofMinutes(fullLeaseMinutes), stillLeader -> {
             log.info("[Upwind] Starting full sync (vulnerabilities + posture + inventory + APIs)");
-            syncService.syncAll();
+            // stillLeader is re-checked before each mark-resolved pass: if this run outlives
+            // its lease, another instance may already be syncing, and two runs archiving
+            // against their own start times would each wipe the other's fresh rows.
+            syncService.syncAll(stillLeader);
         });
     }
 }

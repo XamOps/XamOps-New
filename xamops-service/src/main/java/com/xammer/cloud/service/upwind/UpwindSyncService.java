@@ -30,8 +30,9 @@ public class UpwindSyncService {
     // same walk needed 196 of 200 pages — effectively at the cap.
     static final int FULL_SYNC_MAX_PAGES = 200;
     static final int INVENTORY_MAX_ITEMS = 20000;
-    // ~6.8k endpoints measured 2026-07-31; 20 pages of 1000 leaves comfortable headroom.
-    static final int APISEC_MAX_PAGES = 20;
+    // ~6.8k endpoints measured 2026-07-31. The v2 search caps limit at 100 per page, so this
+    // is an ITEM cap (~300 requests worst case) rather than the old page cap.
+    static final int APISEC_MAX_ITEMS = 30000;
 
     private final UpwindApiClient apiClient;
     private final UpwindThreatDetectionRepository detectionRepo;
@@ -40,6 +41,7 @@ public class UpwindSyncService {
     private final UpwindSyncStateRepository syncStateRepo;
     private final UpwindInventoryAssetRepository inventoryRepo;
     private final UpwindApiEndpointRepository apiEndpointRepo;
+    private final UpwindAccountConnectionRepository connectionRepo;
 
     public UpwindSyncService(UpwindApiClient apiClient,
                              UpwindThreatDetectionRepository detectionRepo,
@@ -47,7 +49,8 @@ public class UpwindSyncService {
                              UpwindPostureFindingRepository postureRepo,
                              UpwindSyncStateRepository syncStateRepo,
                              UpwindInventoryAssetRepository inventoryRepo,
-                             UpwindApiEndpointRepository apiEndpointRepo) {
+                             UpwindApiEndpointRepository apiEndpointRepo,
+                             UpwindAccountConnectionRepository connectionRepo) {
         this.apiClient = apiClient;
         this.detectionRepo = detectionRepo;
         this.vulnRepo = vulnRepo;
@@ -55,6 +58,7 @@ public class UpwindSyncService {
         this.syncStateRepo = syncStateRepo;
         this.inventoryRepo = inventoryRepo;
         this.apiEndpointRepo = apiEndpointRepo;
+        this.connectionRepo = connectionRepo;
     }
 
     public void syncDetections() {
@@ -72,7 +76,21 @@ public class UpwindSyncService {
         }
     }
 
+    /**
+     * Full sync with an always-true reconciliation guard. For callers with no lease to lose
+     * (tests, single-instance/manual runs).
+     */
     public void syncAll() {
+        syncAll(() -> true);
+    }
+
+    /**
+     * @param canReconcile consulted immediately before each mark-resolved pass. The full sync
+     *        can outlive its lease TTL, at which point a second ASG instance may already be
+     *        running; two overlapping runs archiving against their own start times would each
+     *        wipe rows the other just wrote. Archiving is therefore skipped rather than risked.
+     */
+    public void syncAll(java.util.function.BooleanSupplier canReconcile) {
         if (!apiClient.isConfigured()) return;
         syncDetections();
         Instant runStart = Instant.now();
@@ -83,8 +101,8 @@ public class UpwindSyncService {
                 upsertVulnerability(item, Instant.now());
             }
             // Reconcile only on a COMPLETE fetch: a truncated page walk would archive
-            // every finding we simply never re-read.
-            if (!res.items().isEmpty() && !res.truncated()) {
+            // every finding we simply never re-read. And only while we still hold the lease.
+            if (!res.items().isEmpty() && !res.truncated() && mayReconcile(canReconcile, "vulnerabilities")) {
                 vulnRepo.markResolvedNotSyncedSince(runStart);
             }
             log.info("[Upwind] Vulnerability sync upserted {} findings (complete={})",
@@ -94,38 +112,92 @@ public class UpwindSyncService {
             log.error("[Upwind] Vulnerability sync failed: {}", e.getMessage());
             recordError("VULNERABILITIES", e);
         }
-        runStart = Instant.now();
+        syncPosture(canReconcile);
+        syncInventory(canReconcile);
+        syncApiEndpoints(canReconcile);
+    }
+
+    /**
+     * Whether a destructive mark-resolved pass may run. Logs the refusal, because "findings
+     * silently stopped being archived" is otherwise very hard to notice.
+     */
+    private static boolean mayReconcile(java.util.function.BooleanSupplier canReconcile, String domain) {
+        if (canReconcile.getAsBoolean()) return true;
+        log.warn("[Upwind] skipping {} mark-resolved — sync lease no longer held, so another "
+                + "instance may be mid-run; stale rows will be archived on the next clean run", domain);
+        return false;
+    }
+
+    /**
+     * Statuses fetched for configuration findings, in order.
+     *
+     * FAIL alone was the old behaviour, and it was an accident: the endpoint DEFAULTS to
+     * FAIL when no status is supplied, so PASS findings were never fetched and every
+     * per-framework pass count in the Compliance tab was structurally zero. PASS volume is
+     * comparable to FAIL (both exceed a thousand rows on this org), so this roughly doubles
+     * the table and the sync duration — accepted, because pass/fail ratios are meaningless
+     * without it, and a check moving FAIL → PASS is now visible as PASS rather than being
+     * silently archived as RESOLVED.
+     */
+    static final List<String> POSTURE_STATUSES = List.of("FAIL", "PASS");
+
+    /**
+     * Full posture sync: one page walk per status, then a single reconciliation pass.
+     *
+     * Reconciliation is all-or-nothing across statuses. {@code runStart} is captured before
+     * the first walk and mark-resolved only runs when EVERY status fetched completely —
+     * archiving after a partial walk is exactly the failure that left production showing
+     * 100 FAIL against 12,613 RESOLVED.
+     */
+    public void syncPosture() {
+        syncPosture(() -> true);
+    }
+
+    public void syncPosture(java.util.function.BooleanSupplier canReconcile) {
+        if (!apiClient.isConfigured()) return;
+        Instant runStart = Instant.now();
         try {
-            UpwindApiClient.FetchResult res =
-                    apiClient.fetchConfigurationFindingsPaged(FULL_SYNC_MAX_PAGES);
-            for (JsonNode item : res.items()) {
-                upsertPosture(item, Instant.now());
+            int upserted = 0;
+            boolean allComplete = true;
+            for (String status : POSTURE_STATUSES) {
+                UpwindApiClient.FetchResult res =
+                        apiClient.fetchConfigurationFindingsPaged(status, FULL_SYNC_MAX_PAGES);
+                for (JsonNode item : res.items()) {
+                    upsertPosture(item, Instant.now());
+                    upserted++;
+                }
+                allComplete &= !res.truncated();
+                log.info("[Upwind] Posture sync fetched {} {} findings (complete={})",
+                        res.items().size(), status, !res.truncated());
             }
-            if (!res.items().isEmpty() && !res.truncated()) {
-                postureRepo.markResolvedNotSyncedSince(runStart);
+            if (upserted > 0 && allComplete && mayReconcile(canReconcile, "posture")) {
+                int resolved = postureRepo.markResolvedNotSyncedSince(runStart);
+                log.info("[Upwind] Posture sync archived {} findings no longer reported", resolved);
             }
-            log.info("[Upwind] Posture sync upserted {} findings (complete={})",
-                    res.items().size(), !res.truncated());
+            log.info("[Upwind] Posture sync upserted {} findings across {} (complete={})",
+                    upserted, POSTURE_STATUSES, allComplete);
             recordSuccess("POSTURE");
         } catch (Exception e) {
             log.error("[Upwind] Posture sync failed: {}", e.getMessage());
             recordError("POSTURE", e);
         }
-        syncInventory();
-        syncApiEndpoints();
     }
 
     /**
-     * Syncs API-security endpoints per connected account. The endpoint payload has no
-     * cloud_account_id — tenancy comes from the request parameter — so we iterate the
-     * accounts Upwind has inventory for and stamp the id on each row.
+     * Syncs API-security endpoints per connected account via the documented v2 search. The
+     * endpoint payload has no cloud_account_id — tenancy comes from the request filter — so
+     * we iterate the known accounts and stamp the id on each row.
      *
      * This exists so the APIs tab reads locally: fetching ~6.8k endpoints inline made the
      * request block ~20s on every 10-minute cache miss.
      */
     public void syncApiEndpoints() {
+        syncApiEndpoints(() -> true);
+    }
+
+    public void syncApiEndpoints(java.util.function.BooleanSupplier canReconcile) {
         if (!apiClient.isConfigured()) return;
-        List<String> accountIds = inventoryRepo.findDistinctCloudAccountIds();
+        List<String> accountIds = knownCloudAccountIds();
         if (accountIds.isEmpty()) {
             log.info("[Upwind] API endpoint sync skipped — no known cloud accounts yet");
             return;
@@ -136,12 +208,13 @@ public class UpwindSyncService {
             for (String accountId : accountIds) {
                 Instant runStart = Instant.now();
                 UpwindApiClient.FetchResult res =
-                        apiClient.fetchApiSecurityEndpointsPaged(accountId, APISEC_MAX_PAGES);
+                        apiClient.searchApiEndpoints(accountId, APISEC_MAX_ITEMS);
                 for (JsonNode ep : res.items()) {
                     upsertApiEndpoint(ep, accountId, Instant.now());
                     synced++;
                 }
-                if (!res.items().isEmpty() && !res.truncated()) {
+                if (!res.items().isEmpty() && !res.truncated()
+                        && mayReconcile(canReconcile, "API endpoints")) {
                     apiEndpointRepo.markResolvedNotSyncedSince(accountId, runStart);
                 }
                 allComplete &= !res.truncated();
@@ -174,25 +247,62 @@ public class UpwindSyncService {
         e.setDomains(domains.length() > 0 ? domains.toString() : null);
         e.setFirstSeenTime(instant(ep, "first_seen_time"));
         e.setLastSeenTime(instant(ep, "last_seen_time"));
+
+        // v2-only: sensitive-data findings and observed status codes.
+        JsonNode sensitive = ep.path("risk_overview").path("sensitive_data");
+        if (sensitive.isArray() && !sensitive.isEmpty()) {
+            StringJoiner sj = new StringJoiner(",");
+            for (JsonNode s : sensitive) {
+                String category = text(s, "category");
+                String type = text(s, "type");
+                if (category == null && type == null) continue;
+                sj.add(category == null ? type : (type == null ? category : category + ":" + type));
+            }
+            e.setSensitiveData(truncate(sj.toString(), 1024));
+            e.setHasSensitiveData(sj.length() > 0);
+        } else {
+            e.setSensitiveData(null);
+            e.setHasSensitiveData(false);
+        }
+        StringJoiner codes = new StringJoiner(",");
+        ep.path("status_codes").forEach(c -> codes.add(c.asText()));
+        e.setStatusCodes(codes.length() > 0 ? truncate(codes.toString(), 256) : null);
+
         e.setStatus("ACTIVE");
         e.setRawPayload(ep.toString());
         e.setSyncedAt(now);
         apiEndpointRepo.save(e);
     }
 
+    private static String truncate(String s, int max) {
+        if (s == null || s.length() <= max) return s == null || s.isEmpty() ? null : s;
+        return s.substring(0, max - 3) + "...";
+    }
+
     public void syncInventory() {
+        syncInventory(() -> true);
+    }
+
+    public void syncInventory(java.util.function.BooleanSupplier canReconcile) {
         if (!apiClient.isConfigured()) return;
+        List<String> accountIds = knownCloudAccountIds();
+        if (accountIds.isEmpty()) {
+            log.info("[Upwind] Inventory sync skipped — no connected cloud accounts registered");
+            return;
+        }
         Instant runStart = Instant.now();
         try {
-            // cloud_account_id alone 500s, so pair with a cloud_provider gate per provider.
-            // Track ids already upserted this run: a per-provider query should be disjoint in
-            // practice, but guard against overlap/duplicate pages returning the same asset twice.
+            // The catalog search filters on cloud_account_id, so we walk account by account.
+            // cloud_provider is NOT a supported catalog filter — it returns 200 with an empty
+            // items[] (verified live 2026-08-03), which is how the old per-provider loop would
+            // have silently produced an empty inventory after the endpoint switch.
+            // Track ids already upserted this run to stay idempotent if pages overlap.
             java.util.Set<String> seenThisRun = new java.util.HashSet<>();
             int syncedCount = 0;
-            for (String provider : new String[]{"AWS", "GCP", "Azure"}) {
+            for (String accountId : accountIds) {
                 java.util.List<java.util.Map<String, Object>> conditions = java.util.List.of(
-                        java.util.Map.of("field", "cloud_provider", "operator", "eq",
-                                "value", java.util.List.of(provider)));
+                        java.util.Map.of("field", "cloud_account_id", "operator", "eq",
+                                "value", java.util.List.of(accountId)));
                 for (JsonNode item : apiClient.searchInventory(conditions, INVENTORY_MAX_ITEMS)) {
                     String upwindId = text(item, "id");
                     if (upwindId != null && !seenThisRun.add(upwindId)) continue;
@@ -200,9 +310,11 @@ public class UpwindSyncService {
                     syncedCount++;
                 }
             }
-            if (syncedCount > 0) {
+            if (syncedCount > 0 && mayReconcile(canReconcile, "inventory")) {
                 inventoryRepo.markResolvedNotSyncedSince(runStart);
             }
+            log.info("[Upwind] Inventory sync upserted {} assets across {} account(s)",
+                    syncedCount, accountIds.size());
             recordSuccess("INVENTORY");
         } catch (Exception e) {
             log.error("[Upwind] Inventory sync failed: {}", e.getMessage());
@@ -210,24 +322,119 @@ public class UpwindSyncService {
         }
     }
 
+    /**
+     * Cloud accounts to sync, as the union of the accounts registered as Upwind connections
+     * and the accounts we already hold assets for. The connection table is the bootstrap
+     * source: on a fresh database the inventory table is empty, so keying only off previously
+     * synced assets would never start.
+     */
+    private List<String> knownCloudAccountIds() {
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        for (UpwindAccountConnection c : connectionRepo.findAll()) {
+            if (c.getCloudAccountId() != null && !c.getCloudAccountId().isBlank()) {
+                ids.add(c.getCloudAccountId());
+            }
+        }
+        ids.addAll(inventoryRepo.findDistinctCloudAccountIds());
+        ids.remove(null);
+        return new java.util.ArrayList<>(ids);
+    }
+
+    /**
+     * Maps an Upwind asset onto our row.
+     *
+     * Reads BOTH field spellings because two payload shapes reach this method: the inventory
+     * catalog search uses {@code category}/{@code sub_category}/{@code resource_type}, while
+     * the older flat search and the webhook events use
+     * {@code asset_category}/{@code asset_sub_category}/{@code label}.
+     */
     private void upsertAsset(JsonNode item, Instant now) {
         String upwindId = text(item, "id");
         if (upwindId == null) return;
         UpwindInventoryAsset a = inventoryRepo.findByUpwindId(upwindId)
                 .orElseGet(UpwindInventoryAsset::new);
         a.setUpwindId(upwindId);
-        a.setAssetCategory(text(item, "asset_category"));
-        a.setAssetSubCategory(text(item, "asset_sub_category"));
-        a.setLabel(text(item, "label"));
+        a.setAssetCategory(firstNonBlank(text(item, "category"), text(item, "asset_category")));
+        a.setAssetSubCategory(firstNonBlank(text(item, "sub_category"), text(item, "asset_sub_category")));
+        a.setLabel(firstNonBlank(text(item, "label"), text(item, "resource_type")));
         a.setCloudProvider(text(item, "cloud_provider"));
         a.setCloudAccountId(text(item, "cloud_account_id"));
         a.setCloudResourceId(text(item, "cloud_resource_id"));
         a.setName(text(item, "name"));
         a.setRegion(text(item, "region"));
         a.setStatus("ACTIVE");
+
+        // Catalog-only risk rollups. Absent objects leave the columns null rather than 0, so
+        // "Upwind didn't tell us" stays distinguishable from "Upwind says none".
+        JsonNode priv = item.path("high_privilege_risk");
+        a.setHasElevatedPrivilege(bool(priv, "has_elevated_privilege"));
+
+        JsonNode rest = item.path("sensitive_data_at_rest");
+        a.setSensitivePiiAtRest(bool(rest, "has_pii"));
+        a.setSensitivePhiAtRest(bool(rest, "has_phi"));
+        a.setSensitivePciAtRest(bool(rest, "has_pci"));
+
+        JsonNode transit = item.path("sensitive_data_in_transit");
+        a.setSensitivePiiInTransit(bool(transit, "has_pii"));
+        a.setSensitivePhiInTransit(bool(transit, "has_phi"));
+        a.setSensitivePciInTransit(bool(transit, "has_pci"));
+
+        JsonNode vuln = item.path("vulnerability_risk");
+        a.setVulnCriticalCount(integer(vuln, "critical_count"));
+        a.setVulnHighCount(integer(vuln, "high_count"));
+        a.setVulnMediumCount(integer(vuln, "medium_count"));
+        a.setVulnLowCount(integer(vuln, "low_count"));
+        a.setVulnTotalCount(integer(vuln, "total_count"));
+
+        JsonNode det = item.path("detection_risk");
+        a.setDetectionCriticalCount(integer(det, "critical_count"));
+        a.setDetectionHighCount(integer(det, "high_count"));
+        a.setDetectionTotalCount(integer(det, "total_count"));
+
+        JsonNode net = item.path("network_risk");
+        a.setInternetExposureType(text(net, "internet_exposure_type"));
+        a.setLastInternetCommunication(instant(net, "last_communication_with_internet_time"));
+
+        applyTechnologies(a, item.path("technologies"), now);
+
         a.setRawPayload(item.toString());
         a.setSyncedAt(now);
         inventoryRepo.save(a);
+    }
+
+    /** Column cap for the denormalised technology list (see UpwindInventoryAsset). */
+    private static final int TECHNOLOGIES_MAX_LEN = 2048;
+
+    /**
+     * Flattens technologies[] to a display list and flags end-of-life/support. An asset
+     * running unsupported software is a finding in its own right, so the EOL flag is derived
+     * here rather than recomputed on every read.
+     */
+    private static void applyTechnologies(UpwindInventoryAsset a, JsonNode technologies, Instant now) {
+        if (technologies == null || !technologies.isArray() || technologies.isEmpty()) {
+            a.setTechnologies(null);
+            a.setHasEolTechnology(null);
+            return;
+        }
+        StringJoiner sj = new StringJoiner(", ");
+        boolean eol = false;
+        for (JsonNode t : technologies) {
+            String name = text(t, "name");
+            if (name == null) continue;
+            String version = text(t, "version");
+            Instant endOfLife = instant(t, "end_of_life_time");
+            Instant endOfSupport = instant(t, "end_of_support_time");
+            boolean expired = (endOfLife != null && endOfLife.isBefore(now))
+                    || (endOfSupport != null && endOfSupport.isBefore(now));
+            eol |= expired;
+            sj.add(name + (version == null ? "" : " " + version) + (expired ? " (EOL)" : ""));
+        }
+        String flat = sj.toString();
+        if (flat.length() > TECHNOLOGIES_MAX_LEN) {
+            flat = flat.substring(0, TECHNOLOGIES_MAX_LEN - 3) + "...";
+        }
+        a.setTechnologies(flat.isEmpty() ? null : flat);
+        a.setHasEolTechnology(eol);
     }
 
     @Transactional
@@ -367,6 +574,9 @@ public class UpwindSyncService {
         p.setResourceId(text(res, "id"));
         p.setResourceName(text(res, "name"));
         p.setResourceType(text(res, "type"));
+        // Kubernetes context, populated only when the resource is a workload.
+        p.setClusterId(text(res, "cluster_id"));
+        p.setNamespace(text(res, "namespace"));
         p.setFirstSeenTime(instant(item, "first_seen_time"));
         p.setLastSeenTime(instant(item, "last_seen_time"));
         p.setRawPayload(item.toString());
@@ -399,6 +609,15 @@ public class UpwindSyncService {
 
     private static String text(JsonNode node, String field) {
         return node != null && node.hasNonNull(field) ? node.get(field).asText() : null;
+    }
+
+    /** null when the field is absent, so "unknown" and "false" stay distinguishable. */
+    private static Boolean bool(JsonNode node, String field) {
+        return node != null && node.hasNonNull(field) ? node.get(field).asBoolean() : null;
+    }
+
+    private static Integer integer(JsonNode node, String field) {
+        return node != null && node.hasNonNull(field) ? node.get(field).asInt() : null;
     }
 
     private static Instant instant(JsonNode node, String field) {

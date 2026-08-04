@@ -21,7 +21,7 @@
 
 import type {
   ApiEndpoint, AttackSurfaceSummary, ComplianceFramework, ConfigurationsDashboard,
-  CveGroupRow, CveResourceFinding, InventoryAsset, InventoryCategory, IssueDetail,
+  CveGroupRow, CveResourceFinding, InventoryAsset, InventoryCategory, InventoryRisk, IssueDetail,
   IssueSummary, NetworkTopology, NetworkNode, OnboardingAccount, PageResp, PostureFinding,
   SbomComponent, Severity, ThreatDetection, ThreatPolicy, ThreatStoriesSummary,
   VulnerabilityDashboard, VulnerabilityFinding, Workflow, XamSecureSummary,
@@ -678,6 +678,10 @@ export const demoPostureAll: PostureFinding[] = demoIssues.flatMap((iss, issueIn
       region: at(REGIONS, seed),
       resourceName: r === 0 ? name : `${name}-${r}`,
       resourceType: type,
+      // A slice of the estate is Kubernetes, so the cluster/namespace column has something
+      // to show. Cloud resources keep these null, as the real payload does.
+      clusterId: seed % 9 === 0 ? '4122e4ce-1ca2-408a-8fb9-fff348a8c525' : null,
+      namespace: seed % 9 === 0 ? at(['prod', 'staging', 'analytics'], seed) : null,
       firstSeenTime: iss.firstSeen,
       lastSeenTime: hoursAgo(4),
       rawPayload: null,
@@ -743,8 +747,35 @@ export const demoInventoryAll: InventoryAsset[] = Array.from({ length: 224 }, (_
     region: at(REGIONS, i),
     status: i % 23 === 0 ? 'STOPPED' : 'ACTIVE',
     rawPayload: null,
+    // Catalog risk signals. Sparse on purpose: most assets carry none, which is what makes
+    // the ones that do worth surfacing.
+    hasElevatedPrivilege: assetCategory === 'identity' && i % 3 === 0,
+    sensitivePiiAtRest: assetCategory === 'storage' && i % 5 === 0,
+    sensitivePhiAtRest: false,
+    sensitivePciAtRest: assetCategory === 'database' && i % 9 === 0,
+    sensitivePiiInTransit: assetCategory === 'compute_platform' && i % 13 === 0,
+    sensitivePhiInTransit: false,
+    sensitivePciInTransit: false,
+    vulnCriticalCount: i % 7 === 0 ? (i % 4) : 0,
+    vulnHighCount: i % 5 === 0 ? (i % 9) : 0,
+    vulnTotalCount: i % 3 === 0 ? (i % 24) : 0,
+    detectionTotalCount: i % 11 === 0 ? (i % 5) : 0,
+    internetExposureType: i % 8 === 0 ? 'direct' : null,
+    technologies: i % 6 === 0 ? `openssl 1.0.2 (EOL), nginx 1.${i % 26}` : null,
+    hasEolTechnology: i % 6 === 0,
   };
 });
+
+/** Rollup derived from the assets above, so the strip agrees with the table. */
+export const demoInventoryRisk: InventoryRisk = {
+  assets: demoInventoryAll.length,
+  pii: demoInventoryAll.filter((a) => a.sensitivePiiAtRest || a.sensitivePiiInTransit).length,
+  phi: 0,
+  pci: demoInventoryAll.filter((a) => a.sensitivePciAtRest).length,
+  elevatedPrivilege: demoInventoryAll.filter((a) => a.hasElevatedPrivilege).length,
+  eolTechnology: demoInventoryAll.filter((a) => a.hasEolTechnology).length,
+  internetExposed: demoInventoryAll.filter((a) => a.internetExposureType !== null).length,
+};
 
 /** Counts come from the assets themselves, so the rail agrees with the table. */
 export const demoInventoryCategories: InventoryCategory[] = Object.entries(
@@ -893,6 +924,16 @@ export const demoApiSecurity: ApiEndpoint[] = API_ROUTES.map(
       ? [uri.startsWith('/api/v2') ? 'analytics.xammer.in' : 'api.xammer.in']
       : ['internal.xammer.in'],
     cloudAccountId: at(ACCOUNT_IDS, i),
+    // Sensitive data is what Upwind observed in the traffic, so it clusters on the
+    // routes that actually carry user records rather than being spread evenly.
+    sensitiveData: uri.includes('/users') || uri.includes('/profile') || uri.includes('/support')
+      ? ['PII:Email', 'PII:Name']
+      : uri.includes('/payments') || uri.includes('/billing')
+        ? ['PCI:CardNumber']
+        : [],
+    hasSensitiveData: uri.includes('/users') || uri.includes('/profile')
+      || uri.includes('/support') || uri.includes('/payments') || uri.includes('/billing'),
+    statusCodes: authenticated ? ['200', '401'] : ['200'],
   })
 );
 

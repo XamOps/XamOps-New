@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Icon } from '@iconify/react';
 import type { PageResp, PostureFinding, ResourceDetail } from '../../types/xamsecure';
 import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
@@ -76,6 +77,16 @@ const PostureTab: React.FC<Props> = ({
                 <td className="px-5 py-3 text-gray-600">
                   <ResourceLink resourceId={p.resourceId} label={p.resourceName}
                                 sub={p.resourceType} onOpen={open} />
+                  {/* Kubernetes workloads have a composite resource id that reads as noise
+                      on its own; cluster/namespace is what actually locates them. */}
+                  {p.namespace && (
+                    <span className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-400">
+                      <Icon icon="mdi:kubernetes" width={11} className="flex-shrink-0" />
+                      <span className="truncate" title={p.clusterId ?? undefined}>
+                        {p.namespace}
+                      </span>
+                    </span>
+                  )}
                 </td>
                 <td className="px-5 py-3 text-gray-600">{p.cloudProvider}</td>
                 <td className="px-5 py-3 whitespace-nowrap text-gray-500">

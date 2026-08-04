@@ -9,6 +9,7 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
@@ -42,7 +43,12 @@ public class UpwindApiClient {
     @Setter @Value("${upwind.org-id:}")
     private String orgId;
 
-    @Setter @Value("${upwind.token-url:https://oauth.upwind.io/oauth/token}")
+    /**
+     * Documented token host is auth.upwind.io (Management REST API v2 §1). oauth.upwind.io
+     * also answers — both were verified live 2026-08-03 — but we follow the published host
+     * so we don't depend on an alias Upwind never documented.
+     */
+    @Setter @Value("${upwind.token-url:https://auth.upwind.io/oauth/token}")
     private String tokenUrl;
 
     @Setter @Value("${upwind.api-base-url:https://api.upwind.io}")
@@ -89,17 +95,22 @@ public class UpwindApiClient {
         return fetchAll("/vulnerability-findings", maxPages);
     }
 
-    public List<JsonNode> fetchConfigurationFindings(int maxPages) {
-        return fetchAll("/configuration-findings", maxPages);
+    /**
+     * Configuration findings for ONE status.
+     *
+     * The endpoint defaults to {@code status=FAIL} when no status is given, which is what we
+     * were doing — so PASS findings were never fetched and every per-framework pass count was
+     * structurally zero. It rejects multiple statuses in one request (HTTP 400 for both
+     * {@code status=FAIL&status=PASS} and {@code status=FAIL,PASS}), so each status needs its
+     * own walk. Verified live 2026-08-04.
+     */
+    public FetchResult fetchConfigurationFindingsPaged(String status, int maxPages) {
+        return fetchAllPaged("/configuration-findings?status=" + status, maxPages);
     }
 
     /** Paged variants that also report completeness — used by the reconciling full sync. */
     public FetchResult fetchVulnerabilityFindingsPaged(int maxPages) {
         return fetchAllPaged("/vulnerability-findings", maxPages);
-    }
-
-    public FetchResult fetchConfigurationFindingsPaged(int maxPages) {
-        return fetchAllPaged("/configuration-findings", maxPages);
     }
 
     /** Compliance framework definitions (title, version, status, last_scan_time, compliance score). */
@@ -175,10 +186,32 @@ public class UpwindApiClient {
         return new FetchResult(items, truncated);
     }
 
-    /** v2 inventory search with cursor paging. conditions is the request body's "conditions" array. */
+    /** Documented ceiling for inventory catalog search (v2 spec: min 1, max 200, default 20). */
+    static final int CATALOG_PAGE_SIZE = 200;
+
+    /**
+     * v2 inventory CATALOG search with cursor paging. {@code conditions} is the request
+     * body's "conditions" array (which must be non-empty — the API rejects {@code []} with
+     * 400 InvalidParameter).
+     *
+     * We call {@code /inventory/catalog/assets/search}, not {@code /inventory/assets/search}.
+     * Both return 200, which is why the thinner one went unnoticed: it yields only
+     * id/label/name/region/provider/account/resource-id, while the catalog adds
+     * {@code vulnerability_risk}, {@code detection_risk}, {@code network_risk},
+     * {@code high_privilege_risk.has_elevated_privilege}, {@code sensitive_data_at_rest},
+     * {@code sensitive_data_in_transit} and {@code technologies} (with EOL/EOS dates) —
+     * i.e. the privilege and data-classification signals the UI needs. Verified live
+     * 2026-08-03.
+     *
+     * Field names differ between the two: the catalog uses {@code category}/
+     * {@code sub_category}/{@code resource_type} where the flat search used
+     * {@code asset_category}/{@code asset_sub_category}/{@code label}, so callers must read
+     * both spellings.
+     */
     public List<JsonNode> searchInventory(java.util.List<java.util.Map<String, Object>> conditions, int maxItems) {
         java.util.List<JsonNode> items = new java.util.ArrayList<>();
-        String base = apiBaseUrl + "/v2/organizations/" + orgId + "/inventory/assets/search?limit=100";
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/inventory/catalog/assets/search?limit=" + CATALOG_PAGE_SIZE;
         String url = base;
         try {
             String body = objectMapper.writeValueAsString(java.util.Map.of("conditions", conditions));
@@ -192,7 +225,7 @@ public class UpwindApiClient {
                 url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
             }
         } catch (Exception e) {
-            throw new IllegalStateException("Upwind inventory search failed", e);
+            throw new IllegalStateException("Upwind inventory catalog search failed", e);
         }
         return items;
     }
@@ -225,60 +258,94 @@ public class UpwindApiClient {
         return items;
     }
 
-    /** v1 API-security endpoints, tenant-filtered by cloud-account-id query param, Link paging.
-     *  per-page=1000 keeps the full-endpoint fetch (thousands of endpoints) to a handful of
-     *  round-trips so the APIs dashboard counts are complete without dozens of requests. */
-    public List<JsonNode> fetchApiSecurityEndpoints(String cloudAccountId, int maxPages) {
-        java.util.List<JsonNode> items = new java.util.ArrayList<>();
-        String url = apiBaseUrl + "/v1/organizations/" + orgId
-                + "/apisecurity-endpoints?cloud-account-id=" + cloudAccountId + "&per-page=1000";
-        int pages = 0;
-        while (url != null && pages < maxPages) {
-            HttpHeaders headers = authHeaders();
-            ResponseEntity<String> resp = exchangeWithRetry(
-                    URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
-            try {
-                JsonNode body = objectMapper.readTree(resp.getBody());
-                if (body.isArray()) body.forEach(items::add);
-            } catch (Exception e) {
-                throw new IllegalStateException("Upwind apisecurity response invalid", e);
-            }
-            url = nextLink(resp.getHeaders());
-            pages++;
-        }
-        return items;
-    }
+    // NOTE: the v1 GET /apisecurity-endpoints fetchers were removed in favour of
+    // searchApiEndpoints (v2). The v1 payload carries no sensitive_data or status_codes, so
+    // keeping it around only invited a silent regression back to the thinner shape.
+
+    /** Documented ceiling for the v2 search operations that cap at 100 (spec: min 1, max 100). */
+    static final int SEARCH_PAGE_SIZE = 100;
 
     /**
-     * As {@link #fetchApiSecurityEndpoints}, but reports whether the page cap cut the walk
-     * short so the sync can skip mark-resolved on an incomplete result.
+     * v2 API-security endpoints search, cursor-paged, filtered to one cloud account.
+     *
+     * Replaces the v1 {@code /apisecurity-endpoints} GET. The v1 shape is not in the
+     * published v2 reference and, more importantly, the v2 payload carries
+     * {@code risk_overview.sensitive_data[]} (category + type, e.g. PII/Email) and
+     * {@code status_codes[]} — the PII/secret exposure signals Upwind's own APIs dashboard
+     * shows. Verified live 2026-08-03: 100 endpoints/page with a working next_cursor.
+     *
+     * @return items plus a truncation flag, so an incomplete walk can skip mark-resolved.
      */
-    public FetchResult fetchApiSecurityEndpointsPaged(String cloudAccountId, int maxPages) {
+    public FetchResult searchApiEndpoints(String cloudAccountId, int maxItems) {
         java.util.List<JsonNode> items = new java.util.ArrayList<>();
-        String url = apiBaseUrl + "/v1/organizations/" + orgId
-                + "/apisecurity-endpoints?cloud-account-id=" + cloudAccountId
-                + "&per-page=" + PAGE_SIZE;
-        int pages = 0;
-        while (url != null && pages < maxPages) {
-            HttpHeaders headers = authHeaders();
-            ResponseEntity<String> resp = exchangeWithRetry(
-                    URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
-            try {
-                JsonNode body = objectMapper.readTree(resp.getBody());
-                if (body.isArray()) body.forEach(items::add);
-            } catch (Exception e) {
-                throw new IllegalStateException("Upwind apisecurity response invalid", e);
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/api-security/endpoints/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        boolean truncated = false;
+        try {
+            String body = objectMapper.writeValueAsString(java.util.Map.of("conditions",
+                    java.util.List.of(java.util.Map.of("field", "cloud_account_id",
+                            "operator", "eq", "value", java.util.List.of(cloudAccountId)))));
+            while (url != null) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+                if (url != null && items.size() >= maxItems) {
+                    truncated = true;
+                    break;
+                }
             }
-            url = nextLink(resp.getHeaders());
-            pages++;
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind API endpoint search failed", e);
         }
-        boolean truncated = url != null;
         if (truncated) {
-            log.warn("[Upwind] apisecurity-endpoints for {} hit the {}-page cap with more pages "
-                    + "available — fetched {} endpoints; treating as incomplete",
-                    cloudAccountId, maxPages, items.size());
+            log.warn("[Upwind] api-security/endpoints for {} hit the {}-item cap with more pages "
+                    + "available — fetched {}; treating as incomplete",
+                    cloudAccountId, maxItems, items.size());
         }
         return new FetchResult(items, truncated);
+    }
+
+    // NOTE: v2 also documents POST /configurations/frameworks/search. It is deliberately not
+    // used: it returns state/rollout-state/platforms but NOT compliance score or
+    // last_scan_time, which the Compliance tab needs, whereas the v1
+    // /configuration-frameworks list carries both. Migrating would lose data, not gain it.
+
+    /** Registered webhook integrations, so registration can be made idempotent. */
+    public List<JsonNode> searchWebhooks(int maxItems) {
+        return searchAll("/integrations/webhooks/search",
+                java.util.List.of(java.util.Map.of("field", "status", "operator", "in",
+                        "value", java.util.List.of("enabled", "disabled"))),
+                maxItems, "webhook search");
+    }
+
+    /** Shared cursor-paged POST /search walk for the v2 operations that cap limit at 100. */
+    private List<JsonNode> searchAll(String path,
+                                     java.util.List<java.util.Map<String, Object>> conditions,
+                                     int maxItems, String what) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId + path
+                + "?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(java.util.Map.of("conditions", conditions));
+            while (url != null && items.size() < maxItems) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind " + what + " failed", e);
+        }
+        return items;
     }
 
     /** v1 SBOM software packages, tenant-filtered by cloud-account-id query param, Link paging. */
@@ -303,16 +370,55 @@ public class UpwindApiClient {
         return items;
     }
 
-    /** v1 create webhook integration. Returns the created object. */
+    /**
+     * v2 create webhook integration ({@code POST /v2/{org}/integrations/webhooks}).
+     *
+     * We previously posted to the v1 {@code /integration-webhooks} path with
+     * {@code vendor: "CUSTOM"}. The documented contract is v2 with a LOWERCASE vendor
+     * ({@code custom}) and the vendor-specific fields nested under {@code config}, whose
+     * {@code authentication.type} is likewise lowercase ({@code bearer}).
+     *
+     * Returns the created object. The v2 response wraps it in {@code items[]}, so the first
+     * element is unwrapped for callers that just want the new webhook's id.
+     */
     public JsonNode createWebhook(JsonNode body) {
-        String url = apiBaseUrl + "/v1/organizations/" + orgId + "/integration-webhooks";
+        String url = apiBaseUrl + "/v2/organizations/" + orgId + "/integrations/webhooks";
         try {
             HttpHeaders headers = authHeaders();
             ResponseEntity<String> resp = exchangeWithRetry(URI.create(url),
                     HttpMethod.POST, new HttpEntity<>(objectMapper.writeValueAsString(body), headers));
-            return objectMapper.readTree(resp.getBody());
+            JsonNode json = objectMapper.readTree(resp.getBody());
+            JsonNode items = json.path("items");
+            return items.isArray() && items.size() > 0 ? items.get(0) : json;
         } catch (Exception e) {
             throw new IllegalStateException("Upwind webhook create failed", e);
+        }
+    }
+
+    /** v2 PATCH a webhook's name/status ({@code enabled}/{@code disabled}). */
+    public JsonNode updateWebhook(String webhookId, java.util.Map<String, Object> patch) {
+        String url = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/integrations/webhooks/" + webhookId;
+        try {
+            HttpHeaders headers = authHeaders();
+            ResponseEntity<String> resp = exchangeWithRetry(URI.create(url), HttpMethod.PATCH,
+                    new HttpEntity<>(objectMapper.writeValueAsString(patch), headers));
+            JsonNode json = objectMapper.readTree(resp.getBody());
+            JsonNode items = json.path("items");
+            return items.isArray() && items.size() > 0 ? items.get(0) : json;
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind webhook update failed", e);
+        }
+    }
+
+    /** v2 DELETE a webhook (204 No Content on success). */
+    public void deleteWebhook(String webhookId) {
+        String url = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/integrations/webhooks/" + webhookId;
+        try {
+            exchangeWithRetry(URI.create(url), HttpMethod.DELETE, new HttpEntity<>(authHeaders()));
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind webhook delete failed", e);
         }
     }
 
@@ -336,33 +442,55 @@ public class UpwindApiClient {
 
     /**
      * Wraps restTemplate.exchange with retry-with-backoff for transient failures within a
-     * single sync run: HTTP 5xx (e.g. Upwind's "503 upstream connect error") and I/O errors
-     * (connection refused/reset). 4xx (auth/bad request) are NOT retried — they won't fix
-     * themselves. Backoff starts at retryBackoffMs and doubles each attempt.
+     * single sync run: HTTP 5xx (e.g. Upwind's "503 upstream connect error"), HTTP 429
+     * (every v2 operation documents a 429 "Rate Limit Exceeded" response) and I/O errors
+     * (connection refused/reset). Other 4xx (auth/bad request) are NOT retried — they won't
+     * fix themselves. Backoff starts at retryBackoffMs and doubles each attempt; on a 429 a
+     * {@code Retry-After} header takes precedence over our own backoff, since the server
+     * knows when the window reopens and guessing shorter just burns another rejection.
      */
     private ResponseEntity<String> exchangeWithRetry(URI uri, HttpMethod method, HttpEntity<?> entity) {
         int attempts = Math.max(1, maxAttempts);
         long backoff = Math.max(0, retryBackoffMs);
         RuntimeException last = null;
         for (int attempt = 1; attempt <= attempts; attempt++) {
+            long wait = backoff;
             try {
                 return restTemplate.exchange(uri, method, entity, String.class);
+            } catch (HttpClientErrorException.TooManyRequests e) {
+                last = e;
+                Long retryAfter = retryAfterMs(e.getResponseHeaders());
+                if (retryAfter != null) wait = retryAfter;
             } catch (HttpServerErrorException | ResourceAccessException e) {
                 last = e;
-                if (attempt < attempts) {
-                    log.warn("[Upwind] {} {} failed (attempt {}/{}): {} — retrying in {}ms",
-                            method, uri, attempt, attempts, e.getMessage(), backoff);
-                    try {
-                        Thread.sleep(backoff);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                    backoff *= 2;
+            }
+            if (attempt < attempts) {
+                log.warn("[Upwind] {} {} failed (attempt {}/{}): {} — retrying in {}ms",
+                        method, uri, attempt, attempts, last.getMessage(), wait);
+                try {
+                    Thread.sleep(wait);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
                 }
+                backoff *= 2;
             }
         }
         throw last != null ? last : new IllegalStateException("Upwind request failed: " + uri);
+    }
+
+    /** {@code Retry-After} as milliseconds. Supports the delay-seconds form only. */
+    private static Long retryAfterMs(HttpHeaders headers) {
+        if (headers == null) return null;
+        String v = headers.getFirst(HttpHeaders.RETRY_AFTER);
+        if (v == null || v.isBlank()) return null;
+        try {
+            long seconds = Long.parseLong(v.trim());
+            // Cap so a hostile/absurd value can't wedge the sync thread for hours.
+            return Math.min(Math.max(seconds, 0) * 1000L, 60_000L);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private HttpHeaders authHeaders() {

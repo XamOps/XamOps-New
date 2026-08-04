@@ -17,25 +17,30 @@ public interface UpwindPostureFindingRepository extends JpaRepository<UpwindPost
 
     Optional<UpwindPostureFinding> findByUpwindId(String upwindId);
 
-    Page<UpwindPostureFinding> findByCloudAccountIdInOrderByLastSeenTimeDesc(
-            List<String> accountIds, Pageable pageable);
-
-    Page<UpwindPostureFinding> findByCloudAccountIdInAndSeverityOrderByLastSeenTimeDesc(
-            List<String> accountIds, String severity, Pageable pageable);
-
     /**
-     * Distinct findings for the Configurations → Findings list. A finding is stored once per
-     * framework it maps to (same check on the same resource → many rows), so this collapses
-     * to one row per (check, resource) via DISTINCT ON, keeping the most recently seen copy.
-     * Severity is optional (pass null for all). Uses cast(:severity as text) — NOT ::text —
-     * so Hibernate's native-query parser doesn't misread the PostgreSQL cast operator.
-     * Pass an UNSORTED Pageable: ordering is baked in; Spring only appends LIMIT/OFFSET.
+     * NOTE ON STATUS FILTERING — read before adding a query here.
+     *
+     * This table holds FAIL, PASS and RESOLVED rows. PASS rows exist because the sync now
+     * requests them explicitly (the Upwind endpoint defaults to FAIL, which is why per-
+     * framework pass counts used to be zero). Any query that surfaces findings AS PROBLEMS
+     * must therefore filter {@code status = 'FAIL'} — otherwise passing checks appear in the
+     * Configurations list, Issues, and Attack Surface as if they were failures.
+     * {@link #countByFrameworkAndStatus} is the deliberate exception: it groups BY status.
+     */
+    /**
+     * Distinct FAILING findings for the Configurations → Findings list. A finding is stored
+     * once per framework it maps to (same check on the same resource → many rows), so this
+     * collapses to one row per (check, resource) via DISTINCT ON, keeping the most recently
+     * seen copy. Severity is optional (pass null for all). Uses cast(:severity as text) —
+     * NOT ::text — so Hibernate's native-query parser doesn't misread the PostgreSQL cast
+     * operator. Pass an UNSORTED Pageable: ordering is baked in; Spring only appends
+     * LIMIT/OFFSET.
      */
     @Query(value =
             "SELECT * FROM (" +
             "  SELECT DISTINCT ON (coalesce(p.check_title, p.title), p.resource_id) p.* " +
             "  FROM upwind_posture_finding p " +
-            "  WHERE p.cloud_account_id IN (:accountIds) " +
+            "  WHERE p.cloud_account_id IN (:accountIds) AND p.status = 'FAIL' " +
             "  AND (cast(:severity as text) IS NULL OR p.severity = cast(:severity as text)) " +
             "  ORDER BY coalesce(p.check_title, p.title), p.resource_id, p.last_seen_time DESC" +
             ") t ORDER BY t.last_seen_time DESC",
@@ -43,13 +48,15 @@ public interface UpwindPostureFindingRepository extends JpaRepository<UpwindPost
             "SELECT count(*) FROM (" +
             "  SELECT DISTINCT coalesce(p.check_title, p.title) ct, p.resource_id " +
             "  FROM upwind_posture_finding p " +
-            "  WHERE p.cloud_account_id IN (:accountIds) " +
+            "  WHERE p.cloud_account_id IN (:accountIds) AND p.status = 'FAIL' " +
             "  AND (cast(:severity as text) IS NULL OR p.severity = cast(:severity as text))" +
             ") x",
            nativeQuery = true)
     Page<UpwindPostureFinding> findDistinctFindings(@Param("accountIds") List<String> accountIds,
                                                     @Param("severity") String severity,
                                                     Pageable pageable);
+
+
 
     @Query("SELECT p.severity, COUNT(p) FROM UpwindPostureFinding p " +
            "WHERE p.cloudAccountId IN :accountIds AND p.status = 'FAIL' GROUP BY p.severity")
@@ -105,6 +112,22 @@ public interface UpwindPostureFindingRepository extends JpaRepository<UpwindPost
            "AND (p.resourceType LIKE '%IAM%' OR p.resourceType LIKE '%IDENTITY%' " +
            "     OR p.resourceType LIKE '%ROLE%' OR p.resourceType LIKE '%USER%')")
     List<Object[]> findIdentityFailings(@Param("accountIds") List<String> accountIds);
+
+    /**
+     * Failing findings for an explicit set of resource ids.
+     *
+     * Used to annotate the identity roster, which is now driven off the inventory catalog's
+     * {@code category = 'identity'} assets. That is exact, unlike {@link #findIdentityFailings},
+     * whose resource-type LIKE heuristic cannot reliably catch Kubernetes service accounts
+     * and role bindings.
+     * Columns: resourceId, checkTitle, title, severity, lastSeenTime, firstSeenTime
+     */
+    @Query("SELECT p.resourceId, p.checkTitle, p.title, p.severity, p.lastSeenTime, p.firstSeenTime " +
+           "FROM UpwindPostureFinding p " +
+           "WHERE p.cloudAccountId IN :accountIds AND p.status = 'FAIL' " +
+           "AND p.resourceId IN :resourceIds")
+    List<Object[]> findFailingByResourceIds(@Param("accountIds") List<String> accountIds,
+                                            @Param("resourceIds") List<String> resourceIds);
 
     /** Failing findings against one resource — powers the unified resource view. */
     @Query("SELECT p FROM UpwindPostureFinding p WHERE p.cloudAccountId IN :accountIds " +

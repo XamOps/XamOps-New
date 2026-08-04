@@ -88,6 +88,173 @@ class XamSecureServiceTest {
         assertEquals(2, byType.size());
     }
 
+    /**
+     * The roster is the inventory catalog's identity assets, not just the subjects of failing
+     * checks. A clean identity must still be listed — that is the difference between an
+     * inventory and a findings list.
+     */
+    @Test
+    void identitiesRosterComesFromInventoryIncludingCleanIdentities() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        var deploy = identityAsset("arn:aws:iam::111:role/deploy", "deploy", "aws_iam_role", true);
+        when(inventoryRepo.findIdentityAssets(List.of("111")))
+                .thenReturn(List.of(
+                        deploy,
+                        identityAsset("arn:aws:iam::111:user/clean", "clean", "aws_iam_user", false),
+                        identityAsset("k8s/sa/builder", "builder", "kubernetes_service_account", false)));
+        // Privilege list is sourced separately, so it can span non-identity assets too.
+        when(inventoryRepo.findElevatedPrivilegeAssets(List.of("111"))).thenReturn(List.of(deploy));
+        when(postureRepo.findFailingByResourceIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.<Object[]>of(new Object[]{
+                        "arn:aws:iam::111:role/deploy", "Role assumable by other accounts", null,
+                        "HIGH", java.time.Instant.parse("2026-08-01T00:00:00Z"),
+                        java.time.Instant.parse("2026-07-01T00:00:00Z")}));
+
+        var out = service.getIdentities(1L, null);
+
+        assertEquals(3, out.get("total"), "clean identities are part of the roster");
+        assertEquals(1, out.get("withFindings"));
+        assertEquals(1, out.get("privilegedTotal"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<Map<String, Object>>) out.get("identities");
+        // Worst severity leads.
+        assertEquals("deploy", rows.get(0).get("name"));
+        assertEquals("HIGH", rows.get(0).get("severity"));
+        assertEquals(1, rows.get(0).get("findingCount"));
+        assertEquals(true, rows.get(0).get("elevatedPrivilege"));
+        // A clean identity is present with no severity and no findings.
+        var clean = rows.stream().filter(r -> "clean".equals(r.get("name"))).findFirst().orElseThrow();
+        assertNull(clean.get("severity"));
+        assertEquals(0, clean.get("findingCount"));
+        // Kubernetes identities are included, which the old resource-type LIKE guess missed.
+        assertTrue(rows.stream().anyMatch(r -> "kubernetes_service_account".equals(r.get("resourceType"))));
+    }
+
+    /** An identity failing a check but missing from the last inventory walk must not vanish. */
+    @Test
+    void identitiesKeepFindingOnlyOrphansNotInInventory() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(inventoryRepo.findIdentityAssets(List.of("111"))).thenReturn(List.of());
+        java.time.Instant t = java.time.Instant.parse("2026-07-01T00:00:00Z");
+        when(postureRepo.findIdentityFailings(List.of("111"))).thenReturn(List.<Object[]>of(
+                new Object[]{"arn:aws:iam::111:user/ghost", "ghost", "AWS_IAM_USER",
+                        "MFA should be enabled", null, "MEDIUM", "AWS", "111", t, t}));
+
+        var out = service.getIdentities(1L, null);
+
+        assertEquals(1, out.get("total"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<Map<String, Object>>) out.get("identities");
+        assertEquals("ghost", rows.get(0).get("name"));
+        assertEquals(false, rows.get(0).get("inInventory"));
+    }
+
+    private static com.xammer.cloud.domain.UpwindInventoryAsset identityAsset(
+            String resourceId, String name, String label, boolean privileged) {
+        var a = new com.xammer.cloud.domain.UpwindInventoryAsset();
+        a.setCloudResourceId(resourceId);
+        a.setName(name);
+        a.setLabel(label);
+        a.setAssetCategory("identity");
+        a.setCloudProvider("AWS");
+        a.setCloudAccountId("111");
+        a.setHasElevatedPrivilege(privileged);
+        return a;
+    }
+
+    /**
+     * high_privilege_risk.has_elevated_privilege comes from the inventory catalog, so
+     * Identities can now show privilege both as its own roster and as a per-row flag —
+     * previously the view had to state that privilege data was unobtainable.
+     */
+    @Test
+    void identitiesJoinElevatedPrivilegeFromInventoryCatalog() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        java.time.Instant t = java.time.Instant.parse("2026-07-01T00:00:00Z");
+        when(postureRepo.findIdentityFailings(List.of("111"))).thenReturn(List.<Object[]>of(
+                new Object[]{"arn:iam::role/deploy", "deploy", "AWS_IAM_ROLE", "Role assumable",
+                        null, "HIGH", "AWS", "111", t, t}));
+
+        com.xammer.cloud.domain.UpwindInventoryAsset privileged =
+                new com.xammer.cloud.domain.UpwindInventoryAsset();
+        privileged.setCloudResourceId("arn:iam::role/deploy");
+        privileged.setName("deploy");
+        privileged.setLabel("aws_iam_role");
+        privileged.setHasElevatedPrivilege(true);
+        com.xammer.cloud.domain.UpwindInventoryAsset cleanButPrivileged =
+                new com.xammer.cloud.domain.UpwindInventoryAsset();
+        cleanButPrivileged.setCloudResourceId("arn:iam::role/admin");
+        cleanButPrivileged.setName("admin");
+        cleanButPrivileged.setHasElevatedPrivilege(true);
+        when(inventoryRepo.findElevatedPrivilegeAssets(List.of("111")))
+                .thenReturn(List.of(privileged, cleanButPrivileged));
+
+        var out = service.getIdentities(1L, null);
+
+        @SuppressWarnings("unchecked")
+        var rows = (List<Map<String, Object>>) out.get("identities");
+        assertEquals(true, rows.get(0).get("elevatedPrivilege"));
+        // The privileged roster is not an intersection: a privileged asset with no failing
+        // check is exactly the case worth surfacing, so it must still be listed.
+        assertEquals(2, out.get("privilegedTotal"));
+        @SuppressWarnings("unchecked")
+        var priv = (List<Map<String, Object>>) out.get("privileged");
+        var admin = priv.stream().filter(p -> "admin".equals(p.get("name"))).findFirst().orElseThrow();
+        assertEquals(false, admin.get("hasFindings"));
+    }
+
+    @Test
+    void inventoryRiskRollupMapsClassificationCounts() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(inventoryRepo.riskRollup(List.of("111"))).thenReturn(List.<Object[]>of(
+                new Object[]{2058L, 31L, 0L, 4L, 12L, 7L, 96L}));
+
+        var out = service.getInventoryRisk(1L, null);
+
+        assertEquals(2058L, out.get("assets"));
+        assertEquals(31L, out.get("pii"));
+        assertEquals(0L, out.get("phi"));
+        assertEquals(12L, out.get("elevatedPrivilege"));
+        assertEquals(7L, out.get("eolTechnology"));
+        assertEquals(96L, out.get("internetExposed"));
+    }
+
+    /** No synced assets yet must read as zeroes, not as a null-laden payload. */
+    @Test
+    void inventoryRiskRollupDefaultsToZeroWhenNothingSynced() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(inventoryRepo.riskRollup(List.of("111"))).thenReturn(List.<Object[]>of(
+                new Object[]{0L, null, null, null, null, null, null}));
+
+        var out = service.getInventoryRisk(1L, null);
+
+        assertEquals(0L, out.get("assets"));
+        assertEquals(0L, out.get("pii"));
+        assertEquals(0L, out.get("elevatedPrivilege"));
+    }
+
+    /** v2-only endpoint fields must reach the read model the APIs tab consumes. */
+    @Test
+    void apiSecurityRowsExposeSensitiveDataAndStatusCodes() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        com.xammer.cloud.domain.UpwindApiEndpoint e = new com.xammer.cloud.domain.UpwindApiEndpoint();
+        e.setUpwindId("rt-1");
+        e.setCloudAccountId("111");
+        e.setMethod("GET");
+        e.setUri("/api/profile");
+        e.setSensitiveData("PII:Email,PII:Phone");
+        e.setHasSensitiveData(true);
+        e.setStatusCodes("200,401");
+        when(apiEndpointRepo.findByCloudAccountIdInAndStatusOrderByUriAsc(List.of("111"), "ACTIVE"))
+                .thenReturn(List.of(e));
+
+        var rows = service.getApiSecurity(1L, null);
+
+        assertEquals(List.of("PII:Email", "PII:Phone"), rows.get(0).get("sensitiveData"));
+        assertEquals(true, rows.get(0).get("hasSensitiveData"));
+        assertEquals(List.of("200", "401"), rows.get(0).get("statusCodes"));
+    }
+
     @Test
     void syncStatusFlagsStaleAndFailingDomains() {
         com.xammer.cloud.domain.UpwindSyncState fresh = new com.xammer.cloud.domain.UpwindSyncState();
@@ -146,7 +313,7 @@ class XamSecureServiceTest {
         assertEquals(true, rows.get(0).get("internetExposed"));
         assertEquals(false, rows.get(0).get("authenticated"));
         assertEquals(List.of("a.example", "b.example"), rows.get(0).get("domains"));
-        verify(apiClient, never()).fetchApiSecurityEndpoints(any(), anyInt());
+        verify(apiClient, never()).searchApiEndpoints(any(), anyInt());
     }
 
     @Test
@@ -156,7 +323,8 @@ class XamSecureServiceTest {
         com.fasterxml.jackson.databind.JsonNode ep = new com.fasterxml.jackson.databind.ObjectMapper()
             .readTree("{\"id\":\"rt-1\",\"method\":\"GET\",\"uri\":\"/version\",\"resource_id\":\"ep-1\"}");
         when(apiClient.isConfigured()).thenReturn(true);
-        when(apiClient.fetchApiSecurityEndpoints("111", 12)).thenReturn(List.of(ep));
+        when(apiClient.searchApiEndpoints(eq("111"), anyInt()))
+                .thenReturn(new UpwindApiClient.FetchResult(List.of(ep), false));
 
         var rows = service.getApiSecurity(1L, null);
         assertEquals(1, rows.size());
@@ -170,6 +338,34 @@ class XamSecureServiceTest {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111"), aws("222")));
         List<String> ids = service.resolveAccountIds(1L, null);
         assertEquals(List.of("111", "222"), ids);
+    }
+
+    @Test
+    void resolveAccountIdsNarrowsToASingleSelectedAccount() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111"), aws("222")));
+        assertEquals(List.of("222"), service.resolveAccountIds(1L, "222"));
+    }
+
+    /**
+     * The picker supports multi-select. Before this, only the first id was sent, so choosing
+     * two accounts showed ONE account's data — less than choosing none.
+     */
+    @Test
+    void resolveAccountIdsAcceptsAMultiAccountSelection() {
+        when(cloudAccountRepo.findByClientId(1L))
+                .thenReturn(List.of(aws("111"), aws("222"), aws("333")));
+        assertEquals(List.of("111", "333"), service.resolveAccountIds(1L, "111,333"));
+        assertEquals(List.of("111", "222"), service.resolveAccountIds(1L, " 111 , 222 "));
+    }
+
+    /** Tenancy: an unowned account must be refused even when bundled with owned ones. */
+    @Test
+    void resolveAccountIdsRejectsAnyUnownedAccountInTheSelection() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.resolveAccountIds(1L, "111,999"));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.resolveAccountIds(1L, "999"));
     }
 
     @Test

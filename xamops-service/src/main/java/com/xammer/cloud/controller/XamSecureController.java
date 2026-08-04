@@ -103,6 +103,13 @@ public class XamSecureController {
         return ResponseEntity.ok(xamSecureService.getInventoryCategories(user.getClientId(), accountId));
     }
 
+    /** Data-classification / privilege / EOL / exposure rollup over the synced asset catalog. */
+    @GetMapping("/inventory/risk")
+    public ResponseEntity<?> inventoryRisk(@AuthenticationPrincipal ClientUserDetails user,
+                                           @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getInventoryRisk(user.getClientId(), accountId));
+    }
+
     @GetMapping("/inventory/network")
     public ResponseEntity<?> inventoryNetwork(@AuthenticationPrincipal ClientUserDetails user,
                                               @RequestParam(required = false) String accountId) {
