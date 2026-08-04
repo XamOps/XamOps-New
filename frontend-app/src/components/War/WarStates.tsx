@@ -8,7 +8,10 @@ import { BTN_PRIMARY, CARD } from './warTokens';
  * Shape-matched to the real layout — anchor card, path grid, then list rows — so the
  * page does not visibly reflow when data lands.
  */
-export const WarLoadingState: React.FC<{ isRefreshing?: boolean }> = ({ isRefreshing }) => (
+export const WarLoadingState: React.FC<{
+  isRefreshing?: boolean;
+  baselineSize?: number;
+}> = ({ isRefreshing, baselineSize = 86 }) => (
   <div className="space-y-3">
     <div className={`${CARD} p-6`}>
       <div className="flex items-center gap-2.5 mb-5">
@@ -18,8 +21,8 @@ export const WarLoadingState: React.FC<{ isRefreshing?: boolean }> = ({ isRefres
             {isRefreshing ? 'Re-scanning your infrastructure' : 'Reviewing your attack surface'}
           </p>
           <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">
-            Evaluating 86 controls across every active region. A first scan can take up to
-            two minutes.
+            Evaluating {baselineSize} controls across your infrastructure. A first scan
+            can take up to two minutes.
           </p>
         </div>
       </div>
@@ -124,10 +127,33 @@ export const WarErrorState: React.FC<{ message: string; onRetry: () => void }> =
 );
 
 /**
- * Shown when the selected account is not AWS.
+ * Shown when the selected account's provider does not match the route.
  *
- * The GCP and Azure baselines are not transcribed yet, and silently showing an empty
- * report would read as "no problems found" — the opposite of the truth.
+ * Each provider has its own baseline and its own route, so running an AWS review against
+ * a GCP project would be meaningless. Saying so beats an empty report, which would read
+ * as "no problems found" — the opposite of the truth.
+ */
+export const WarProviderMismatchState: React.FC<{
+  expected: string;
+  actual: string;
+}> = ({ expected, actual }) => (
+  <EmptyShell
+    icon="mdi:swap-horizontal"
+    title={`This page reviews ${expected} accounts`}
+    body={
+      <>
+        The selected account is {actual}. Switch to {expected} in the account selector, or
+        open the {actual} review from the SecOps menu — each provider has its own control
+        baseline.
+      </>
+    }
+  />
+);
+
+/**
+ * Shown for a provider whose baseline has not been transcribed yet.
+ *
+ * Azure is the remaining gap. An empty report would look like an all-clear.
  */
 export const WarProviderNotReadyState: React.FC<{ provider: string }> = ({ provider }) => (
   <EmptyShell
@@ -135,8 +161,8 @@ export const WarProviderNotReadyState: React.FC<{ provider: string }> = ({ provi
     title={`WAR for ${provider} is not available yet`}
     body={
       <>
-        The AWS baseline covers 86 controls today. The {provider} equivalent is being built
-        from the same advisory format. Select an AWS account to run a review now.
+        AWS and GCP baselines are live. The {provider} equivalent is being built from the
+        same advisory format.
       </>
     }
   />

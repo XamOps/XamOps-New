@@ -24,6 +24,21 @@ const CAUSES: Array<{ match: RegExp; title: string; action: string }> = [
       + 'WAR. Refresh the platform credentials, then re-scan.',
   },
   {
+    match: /invalid_grant|could not create GoogleCredentials|credentials.*missing|PERMISSION_DENIED|caller does not have permission/i,
+    title: 'XamOps could not authenticate to this Google Cloud project',
+    action:
+      'The service account key stored for this project is invalid, revoked, or missing '
+      + 'the roles these checks need. Re-upload the key or grant the missing roles, then '
+      + 're-scan.',
+  },
+  {
+    match: /has not been used in project|API has not been enabled|SERVICE_DISABLED/i,
+    title: 'Required Google Cloud APIs are not enabled',
+    action:
+      'The checks call APIs that are disabled on this project. Enable the services named '
+      + 'below in the Cloud Console, then re-scan.',
+  },
+  {
     match: /is not authorized to perform|AccessDenied|not authorized/i,
     title: 'The XamOps role is missing read permissions',
     action:
@@ -67,7 +82,10 @@ const WarBlockedBanner: React.FC<Props> = ({ report, onRetry }) => {
 
         <div className="min-w-0 flex-1">
           <h2 className="text-[13.5px] font-semibold text-[rgba(0,0,0,0.88)]">
-            {cause?.title ?? 'This scan could not read your AWS account'}
+            {cause?.title
+              ?? `This scan could not read your ${
+                report.provider === 'GCP' ? 'Google Cloud project' : 'AWS account'
+              }`}
           </h2>
 
           <p className="mt-1 text-[12.5px] text-[rgba(0,0,0,0.6)] leading-relaxed max-w-3xl">
@@ -78,7 +96,7 @@ const WarBlockedBanner: React.FC<Props> = ({ report, onRetry }) => {
 
           <div className="mt-3 flex items-start gap-2 flex-wrap">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-[rgba(0,0,0,0.35)] shrink-0 mt-1">
-              AWS said
+              {report.provider === 'GCP' ? 'Google Cloud said' : 'AWS said'}
             </span>
             <code className="text-[11px] font-mono text-[rgba(0,0,0,0.7)] bg-[#fafafa] border border-[#e5e7eb] rounded px-2 py-1 leading-relaxed break-words">
               {report.blockedReason}

@@ -18,8 +18,18 @@ export type WarSeverity = 'Critical' | 'High' | 'Medium' | 'Low';
 /** UNKNOWN means the scan could not verify anything, not that risk is unmeasured-but-low. */
 export type WarRiskLevel = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 
-/** State of an attack path across all the controls that feed it. */
-export type WarPathState = 'OPEN' | 'PARTIAL' | 'CONTAINED' | 'UNVERIFIED';
+/**
+ * State of an attack path across all the controls that feed it.
+ *
+ * NEEDS_REVIEW means every control on the path is manual-review or not applicable, so
+ * nothing was verified — distinct from CONTAINED, which means checks ran and passed.
+ */
+export type WarPathState =
+  | 'OPEN'
+  | 'PARTIAL'
+  | 'CONTAINED'
+  | 'UNVERIFIED'
+  | 'NEEDS_REVIEW';
 
 export interface WarFinding {
   // Control identity, from the security advisory

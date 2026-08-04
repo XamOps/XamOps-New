@@ -104,6 +104,9 @@ export const PATH_STATE_TOKENS: Record<WarPathState, { label: string; classes: s
   OPEN: { label: 'Open', classes: 'bg-red-500/85 text-white' },
   PARTIAL: { label: 'Partial', classes: 'bg-amber-500/85 text-white' },
   UNVERIFIED: { label: 'Unverified', classes: 'bg-[rgba(0,0,0,0.32)] text-white' },
+  // Deliberately not green. Nothing on this path was verified, so a success colour
+  // would be an assurance the scan never earned.
+  NEEDS_REVIEW: { label: 'Needs review', classes: 'bg-sky-500/85 text-white' },
   CONTAINED: { label: 'Contained', classes: 'bg-emerald-500/85 text-white' },
 };
 

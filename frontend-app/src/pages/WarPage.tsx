@@ -13,7 +13,7 @@ import {
   WarFindingsTable,
   WarLoadingState,
   WarNoAccountState,
-  WarProviderNotReadyState,
+  WarProviderMismatchState,
   WarScoreHeader,
   WarTopRisks,
 } from '../components/War';
@@ -21,6 +21,16 @@ import { CARD } from '../components/War/warTokens';
 
 /** Standard content-swap transition used across the app. */
 const SWAP = { duration: 0.2, ease: 'easeInOut' } as const;
+
+interface WarPageProps {
+  /**
+   * Which cloud this route serves. The report shape is provider-neutral, so the whole
+   * page is shared; only the expected provider and the baseline size differ.
+   */
+  provider: 'AWS' | 'GCP';
+  /** Controls in this provider's baseline, shown while a first scan is running. */
+  baselineSize: number;
+}
 
 /**
  * WAR — Workload Attack-surface Review.
@@ -34,10 +44,12 @@ const SWAP = { duration: 0.2, ease: 'easeInOut' } as const;
  * table. Someone who reads the top third should already know whether to page the
  * on-call.
  */
-const WarPage: React.FC = () => {
+const WarPage: React.FC<WarPageProps> = ({ provider, baselineSize }) => {
   const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
-  const provider = selectedAccountDisplay?.provider ?? 'AWS';
+  // The route fixes which provider this page serves; the selector decides whether the
+  // chosen account actually matches it.
+  const selectedProvider = selectedAccountDisplay?.provider ?? 'AWS';
 
   const {
     report,
@@ -79,14 +91,11 @@ const WarPage: React.FC = () => {
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
-        <div className="hidden lg:block min-w-0 pr-3 border-r border-[rgba(0,0,0,0.12)]">
-          <h1 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] leading-none">
-            WAR
-          </h1>
-          <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-0.5 whitespace-nowrap">
-            Workload Attack-surface Review
-          </p>
-        </div>
+        {/* The Topbar already renders the page title from the route, so this block
+            carries only the subtitle and the actions. */}
+        <span className="hidden lg:block text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap pr-3 border-r border-[rgba(0,0,0,0.12)]">
+          Workload Attack-surface Review
+        </span>
 
         {report && (
           <span className="hidden xl:flex items-center gap-1.5 text-[11px] text-[rgba(0,0,0,0.35)]">
@@ -119,15 +128,16 @@ const WarPage: React.FC = () => {
       </div>,
     );
     return () => clearActions();
-  }, [report, isRefreshing, isLoading, exportCsv, loadReport, setActions, clearActions]);
+  }, [report, provider, isRefreshing, isLoading, exportCsv, loadReport,
+      setActions, clearActions]);
 
   return (
     <main className="flex-1 px-6 pt-4 pb-28 bg-[#fafafa] min-h-screen">
       <div className="space-y-3">
         {!selectedAccountId ? (
           <WarNoAccountState />
-        ) : provider !== 'AWS' ? (
-          <WarProviderNotReadyState provider={provider} />
+        ) : selectedProvider !== provider ? (
+          <WarProviderMismatchState expected={provider} actual={selectedProvider} />
         ) : (
           <AnimatePresence mode="wait">
             {isLoading && !report ? (
@@ -138,7 +148,7 @@ const WarPage: React.FC = () => {
                 exit={{ opacity: 0, y: -12 }}
                 transition={SWAP}
               >
-                <WarLoadingState isRefreshing={isRefreshing} />
+                <WarLoadingState isRefreshing={isRefreshing} baselineSize={baselineSize} />
               </motion.div>
             ) : error && !report ? (
               <motion.div

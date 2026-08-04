@@ -85,8 +85,10 @@ const GrafanaDashboardPage = lazy(() => import('./pages/GrafanaDashboardPage'));
 
 // AWS — Security & Monitoring
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
-// WAR — Workload Attack-surface Review (attacker/crypto-miner exposure)
-const WarPage = lazy(() => import('./pages/WarPage'));
+// WAR — Workload Attack-surface Review (attacker/crypto-miner exposure).
+// One shared implementation, one thin entry point per provider baseline.
+const AwsWarPage = lazy(() => import('./pages/AwsWarPage'));
+const GcpWarPage = lazy(() => import('./pages/GcpWarPage'));
 const XamSecurePage = lazy(() => import('./pages/XamSecurePage'));
 const PerformancePage = lazy(() => import('./pages/PerformancePage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
@@ -551,7 +553,8 @@ const AppContent: React.FC = () => {
                             <Route path="/xamsecure/:tab" element={<XamSecurePage />} />
                             <Route path="/gcp-security" element={<GcpSecurityPage />} />
                             <Route path="/azure-security" element={<AzureSecurityPage />} />
-                            <Route path="/war" element={<WarPage />} />
+                            <Route path="/war" element={<AwsWarPage />} />
+                            <Route path="/gcp-war" element={<GcpWarPage />} />
                             <Route path="/performance" element={<PerformancePage />} />
                             <Route path="/gcp-performance" element={<GcpPerformancePage />} />
                             <Route path="/azure-performance" element={<AzurePerformancePage />} />

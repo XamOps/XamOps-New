@@ -9,5 +9,6 @@ export {
   WarLoadingState,
   WarNoAccountState,
   WarErrorState,
+  WarProviderMismatchState,
   WarProviderNotReadyState,
 } from './WarStates';

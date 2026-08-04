@@ -17,7 +17,6 @@ import { Link } from 'react-router-dom';
 import Chart from 'chart.js/auto';
 import { Icon } from '@iconify/react';
 import { useBillOpsAdminDashboard } from '../hooks/useBillOpsAdminDashboard';
-import { useAuth } from '../contexts/AuthContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import type { TopSpendingAccount, AdminInvoice, AdminTicket, SpendingTrendItem } from '../types/billopsAdminDashboard';
 import { apiFetch } from '../utils/apiClient';
@@ -73,9 +72,7 @@ const NUM_STYLE: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 };
 
-// Spend figures live only as long as the server-side clients cache (5 min).
-const CLIENTS_CACHE_TTL_MS = 5 * 60 * 1000;
-// Written by earlier builds: not keyed by user, never expired, never refreshed.
+// Legacy cache key - removed during caching optimization
 const LEGACY_CLIENTS_CACHE_KEY = 'billops_admin_clients_data';
 
 const splitCurrency = (str: string): { main: string; cents: string } => {
@@ -85,7 +82,6 @@ const splitCurrency = (str: string): { main: string; cents: string } => {
 
 const BillOpsAdminDashboardPage: React.FC = () => {
   const { data, loading, isRefreshing, isRefreshingTopSpending, error, refreshDashboard, refreshTopSpending } = useBillOpsAdminDashboard();
-  const { userProfile } = useAuth();
   const { setActions, clearActions } = useTopbar();
   const { loadRates, convert } = useCurrency();
 
@@ -102,12 +98,6 @@ const BillOpsAdminDashboardPage: React.FC = () => {
   const [clientsError, setClientsError] = useState<string | null>(null);
   const [clientsStale, setClientsStale] = useState(false);
 
-  // Keyed by username so two admins sharing a browser never see each other's spend,
-  // and stamped with a timestamp so a copy expires instead of living forever.
-  const clientsCacheKeyRef = useRef(`${LEGACY_CLIENTS_CACHE_KEY}:${userProfile?.username ?? 'unknown'}`);
-  useEffect(() => {
-    clientsCacheKeyRef.current = `${LEGACY_CLIENTS_CACHE_KEY}:${userProfile?.username ?? 'unknown'}`;
-  }, [userProfile?.username]);
 
   const fetchClients = useCallback(async (silent = false) => {
     if (silent) setClientsRefreshing(true); else setClientsLoading(true);
@@ -118,7 +108,6 @@ const BillOpsAdminDashboardPage: React.FC = () => {
       setClientsData(d);
       setClientsError(null);
       setClientsStale(false);
-      localStorage.setItem(clientsCacheKeyRef.current, JSON.stringify({ data: d, ts: Date.now() }));
     } catch (err) {
       console.error('Failed to load clients data for spend total', err);
       setClientsError(err instanceof Error ? err.message : 'Failed to load spend data');
@@ -128,55 +117,21 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     }
   }, []);
 
+  // Fetch clients data on component mount (like AWS Cost page)
+  // Backend caching via Redis + Database ensures instant response
   useEffect(() => {
     localStorage.removeItem(LEGACY_CLIENTS_CACHE_KEY);
-
-    const cached = localStorage.getItem(clientsCacheKeyRef.current);
-    let hasLocalData = false;
-
-    if (cached) {
-      try {
-        const { data: d, ts } = JSON.parse(cached) as { data: ClientsApiData[]; ts: number };
-        if (Array.isArray(d)) {
-          setClientsData(d);
-          setClientsStale(Date.now() - ts > CLIENTS_CACHE_TTL_MS);
-          setClientsLoading(false);
-          hasLocalData = true;
-        }
-      } catch (e) { /* ignore corrupt cache */ }
-    }
-
-    // Fetch fresh data in background (silent if we have local data, otherwise show loading)
-    if (!hasLocalData) {
-      fetchClients(false);
-    } else {
-      fetchClients(true);
-    }
+    fetchClients(false);
   }, [fetchClients]);
 
+  // Fetch customer savings (backend caching ensures instant response like AWS Cost page)
   useEffect(() => {
-    const savingsCacheKey = `billops_admin_customer_savings:${userProfile?.username ?? 'unknown'}`;
-    const cached = localStorage.getItem(savingsCacheKey);
-
-    if (cached) {
-      try {
-        const { data: d } = JSON.parse(cached) as { data: CustomerSpotSavings[]; ts: number };
-        if (Array.isArray(d)) {
-          setCustomerSavings(d);
-          setCustomerSavingsLoading(false);
-        }
-      } catch (e) { /* ignore corrupt cache */ }
-    }
-
     apiFetch('/api/admin/autospotting/customer-savings', { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then((d: CustomerSpotSavings[]) => {
-        setCustomerSavings(d);
-        localStorage.setItem(savingsCacheKey, JSON.stringify({ data: d, ts: Date.now() }));
-      })
+      .then((d: CustomerSpotSavings[]) => setCustomerSavings(d))
       .catch(err => console.error('Failed to load customer spot savings', err))
       .finally(() => setCustomerSavingsLoading(false));
-  }, [userProfile?.username]);
+  }, []);
 
   // Chart refs
   const providerChartRef = useRef<HTMLCanvasElement>(null);

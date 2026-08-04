@@ -61,6 +61,7 @@ const COMMANDS: RouteCommand[] = [
   { path: '/cloudshell',          label: 'Cloud Shell',               group: 'AWS',              icon: HiOutlineTerminal, keywords: 'terminal' },
   { path: '/security',            label: 'AWS Security',              group: 'AWS',              icon: HiOutlineShieldCheck },
   { path: '/war',                 label: 'WAR — Attack-surface Review', group: 'AWS',            icon: HiOutlineShieldCheck, keywords: 'war attack surface crypto mining miner exposure hardening' },
+  { path: '/gcp-war',             label: 'GCP WAR — Attack-surface Review', group: 'GCP',        icon: HiOutlineShieldCheck, keywords: 'war attack surface crypto mining miner exposure hardening' },
   { path: '/performance',         label: 'AWS Performance',           group: 'AWS',              icon: HiOutlineTrendingUp },
   { path: '/alerts',              label: 'AWS Alerts',                group: 'AWS',              icon: HiOutlineBell },
   { path: '/grafana-dashboard',   label: 'Grafana Dashboard',         group: 'AWS',              icon: HiOutlineTrendingUp },

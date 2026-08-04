@@ -104,11 +104,15 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
               <div className="mt-2 h-1 w-full bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
                 <div
                   className={
-                    openCount === 0
-                      ? 'h-full bg-emerald-500'
-                      : confirmedOpen > 0
-                        ? 'h-full bg-red-400'
-                        : 'h-full bg-[rgba(0,0,0,0.2)]'
+                    // A manual-review-only path has nothing open, but a full green bar
+                    // would claim it was checked and cleared.
+                    path.state === 'NEEDS_REVIEW'
+                      ? 'h-full bg-sky-300'
+                      : openCount === 0
+                        ? 'h-full bg-emerald-500'
+                        : confirmedOpen > 0
+                          ? 'h-full bg-red-400'
+                          : 'h-full bg-[rgba(0,0,0,0.2)]'
                   }
                   style={{ width: `${coverage}%` }}
                 />
@@ -125,6 +129,10 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
                 ) : path.unverified > 0 ? (
                   <span className="text-[10.5px] text-[rgba(0,0,0,0.4)] uppercase tracking-wide">
                     {path.unverified} unverified
+                  </span>
+                ) : path.state === 'NEEDS_REVIEW' ? (
+                  <span className="text-[10.5px] font-medium text-sky-600 uppercase tracking-wide">
+                    Manual review only
                   </span>
                 ) : (
                   <span className="text-[10.5px] font-medium text-emerald-600 uppercase tracking-wide">

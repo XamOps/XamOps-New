@@ -471,6 +471,14 @@
             <artifactId>kafka</artifactId>
         </dependency>
 
+        <!-- WAR: GCP organization policy constraints are the GCP equivalent of AWS
+             SCPs and drive the no-external-IP and machine-type guardrails that bound
+             a mining incident. Version comes from the libraries-bom import above. -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-orgpolicy</artifactId>
+        </dependency>
+
         <!-- WAR (Workload Attack-surface Review) threat-detection checks.
              GuardDuty carries the CryptoCurrency finding type, which is the single
              most direct signal that an account is already mining for someone else.

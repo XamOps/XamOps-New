@@ -26,9 +26,32 @@ class WarScanContextTest {
 
     private WarScanContext context() {
         CloudAccount account = new CloudAccount();
+        account.setProvider("AWS");
         account.setAwsAccountId("605134457560");
         account.setAccountName("test");
         return new WarScanContext(account, List.of("ap-south-1", "us-east-1"));
+    }
+
+    @Test
+    void accountId_resolvesPerProvider() {
+        CloudAccount aws = new CloudAccount();
+        aws.setProvider("AWS");
+        aws.setAwsAccountId("605134457560");
+        assertThat(new WarScanContext(aws, List.of()).accountId()).isEqualTo("605134457560");
+
+        // Regression: this returned getAwsAccountId() for every provider, which is null
+        // on a GCP account. Passing null to the client provider made every GCP check look
+        // up credentials for "no project", matching every row with a null project id and
+        // failing with a non-unique-result error that looked like a data problem.
+        CloudAccount gcp = new CloudAccount();
+        gcp.setProvider("GCP");
+        gcp.setGcpProjectId("xamops");
+        assertThat(new WarScanContext(gcp, List.of()).accountId()).isEqualTo("xamops");
+
+        CloudAccount azure = new CloudAccount();
+        azure.setProvider("Azure");
+        azure.setAzureSubscriptionId("sub-123");
+        assertThat(new WarScanContext(azure, List.of()).accountId()).isEqualTo("sub-123");
     }
 
     @Test

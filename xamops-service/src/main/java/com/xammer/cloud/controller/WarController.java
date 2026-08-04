@@ -5,6 +5,7 @@ import com.xammer.cloud.dto.war.WarReport;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.CloudListService;
 import com.xammer.cloud.service.war.AwsWarService;
+import com.xammer.cloud.service.war.GcpWarService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -55,13 +57,16 @@ public class WarController {
             "ap-south-1", "us-east-1", "ap-southeast-1");
 
     private final AwsWarService awsWarService;
+    private final GcpWarService gcpWarService;
     private final CloudAccountRepository cloudAccountRepository;
     private final CloudListService cloudListService;
 
     public WarController(AwsWarService awsWarService,
+            GcpWarService gcpWarService,
             CloudAccountRepository cloudAccountRepository,
             CloudListService cloudListService) {
         this.awsWarService = awsWarService;
+        this.gcpWarService = gcpWarService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cloudListService = cloudListService;
     }
@@ -78,8 +83,7 @@ public class WarController {
             return CompletableFuture.completedFuture(ResponseEntity.notFound().build());
         }
 
-        return resolveRegions(account, forceRefresh)
-                .thenCompose(regions -> awsWarService.getReport(account, regions, forceRefresh))
+        return scan(account, forceRefresh)
                 .orTimeout(SCAN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> {
@@ -96,6 +100,25 @@ public class WarController {
     }
 
     /**
+     * Dispatches to the provider's scanner.
+     *
+     * <p>
+     * AWS needs its active-region list resolved first because most of its resources are
+     * regional. GCP resources are global or aggregated across zones in one call, so the
+     * project id is all its scanner needs.
+     */
+    private CompletableFuture<WarReport> scan(CloudAccount account, boolean forceRefresh) {
+        String provider = account.getProvider() == null ? "AWS" : account.getProvider();
+        return switch (provider) {
+            case "GCP" -> gcpWarService.getReport(account, forceRefresh);
+            case "AWS" -> resolveRegions(account, forceRefresh)
+                    .thenCompose(regions -> awsWarService.getReport(account, regions, forceRefresh));
+            default -> CompletableFuture.failedFuture(new UnsupportedOperationException(
+                    "WAR does not have a baseline for provider " + provider + " yet"));
+        };
+    }
+
+    /**
      * Kicks off a fresh scan without waiting for it. Lets the UI show "scanning" and
      * poll {@code /report} rather than holding a request open for two minutes.
      */
@@ -106,22 +129,31 @@ public class WarController {
             return ResponseEntity.notFound().build();
         }
         log.info("[WAR] background scan requested for account {}", accountId);
-        resolveRegions(account, true)
-                .thenCompose(regions -> awsWarService.getReport(account, regions, true))
-                .exceptionally(ex -> {
-                    log.error("[WAR] background scan failed for account {}", accountId, ex);
-                    return null;
-                });
+        scan(account, true).exceptionally(ex -> {
+            log.error("[WAR] background scan failed for account {}", accountId, ex);
+            return null;
+        });
         return ResponseEntity.accepted().build();
     }
 
+    /**
+     * Resolves the account by whichever provider id matches.
+     *
+     * <p>
+     * The frontend sends one {@code accountId} regardless of provider — for GCP that is
+     * the project id, which lives in a different column than the AWS account number.
+     */
     private CloudAccount resolve(String accountId) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
-        if (accounts.isEmpty()) {
-            log.warn("[WAR] no cloud account registered for accountId {}", accountId);
-            return null;
+        if (!accounts.isEmpty()) {
+            return accounts.get(0);
         }
-        return accounts.get(0);
+        Optional<CloudAccount> gcpAccount = cloudAccountRepository.findByGcpProjectId(accountId);
+        if (gcpAccount.isPresent()) {
+            return gcpAccount.get();
+        }
+        log.warn("[WAR] no cloud account registered for accountId {}", accountId);
+        return null;
     }
 
     private CompletableFuture<List<String>> resolveRegions(CloudAccount account, boolean forceRefresh) {

@@ -38,26 +38,9 @@ interface ClientDetails {
 const CACHE_KEY = 'billops_clients_cache';
 const PAGE_SIZE = 10;
 
-function readCache(): ClientDetails[] | null {
-    try {
-        const raw = localStorage.getItem(CACHE_KEY);
-        if (!raw) return null;
-        const { data } = JSON.parse(raw);
-        return data as ClientDetails[];
-    } catch {
-        return null;
-    }
-}
-
-function writeCache(data: ClientDetails[]) {
-    try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
-    } catch { }
-}
-
 const ClientDetailsPage: React.FC = () => {
-    const [clients, setClients] = useState<ClientDetails[]>(() => readCache() ?? []);
-    const [isLoading, setIsLoading] = useState(() => readCache() === null);
+    const [clients, setClients] = useState<ClientDetails[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [expandedClient, setExpandedClient] = useState<number | null>(null);
@@ -99,7 +82,6 @@ const ClientDetailsPage: React.FC = () => {
         try {
             const data = await apiClient.get<ClientDetails[]>('/api/xamops/billops-admin/clients');
             setClients(data);
-            writeCache(data);
         } catch (err: any) {
             console.error('Failed to fetch clients:', err);
             if (!silent) setError(err.message || 'Failed to load client details');
@@ -120,7 +102,7 @@ const ClientDetailsPage: React.FC = () => {
                     </span>
                 )}
                 <button
-                    onClick={async () => { localStorage.removeItem(CACHE_KEY); await evictServerCache(); fetchClients(true); }}
+                    onClick={async () => { await evictServerCache(); fetchClients(true); }}
                     disabled={isLoading || isRefreshing}
                     className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
                 >
@@ -132,13 +114,10 @@ const ClientDetailsPage: React.FC = () => {
         return () => clearActions();
     }, [setActions, clearActions, isLoading, isRefreshing, evictServerCache, fetchClients]);
 
+    // Fetch clients on component mount (backend caching ensures instant response)
     useEffect(() => {
-        const cached = readCache();
-        if (cached) {
-            fetchClients(true);
-        } else {
-            fetchClients(false);
-        }
+        localStorage.removeItem(CACHE_KEY);
+        fetchClients(false);
     }, [fetchClients]);
 
     // Listen for new client/user creation events so the list updates instantly

@@ -62,8 +62,18 @@ public class WarScanContext {
         return account;
     }
 
+    /**
+     * The provider's own identifier for this account: AWS account number, GCP project
+     * id, or Azure subscription id.
+     *
+     * <p>
+     * This must not be {@code getAwsAccountId()}. That column is null on a GCP account,
+     * and passing null down to the client provider made every GCP check look up
+     * credentials for "no project" — which matched every account with a null project id
+     * and failed with a non-unique-result error that looked like a data problem.
+     */
     public String accountId() {
-        return account.getAwsAccountId();
+        return account.getProviderAccountId();
     }
 
     public List<String> regions() {

@@ -50,6 +50,8 @@ import com.google.cloud.redis.v1.CloudRedisClient;
 import com.google.cloud.redis.v1.CloudRedisSettings;
 import com.google.cloud.resourcemanager.v3.ProjectsClient;
 import com.google.cloud.resourcemanager.v3.ProjectsSettings;
+import com.google.cloud.orgpolicy.v2.OrgPolicyClient;
+import com.google.cloud.orgpolicy.v2.OrgPolicySettings;
 import com.google.cloud.scheduler.v1.CloudSchedulerSettings;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceSettings;
@@ -452,6 +454,27 @@ public class GcpClientProvider {
                 return ProjectsClient.create(settings);
             } catch (IOException e) {
                 log.error("Failed to create ProjectsClient for project ID: {}", gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
+    /**
+     * Organization Policy Service — the GCP equivalent of AWS SCPs.
+     *
+     * <p>
+     * Used by WAR to check the constraints that bound a mining incident:
+     * {@code compute.vmExternalIpAccess} and {@code compute.restrictMachineTypes}.
+     */
+    public Optional<OrgPolicyClient> getOrgPolicyClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                OrgPolicySettings settings = OrgPolicySettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return OrgPolicyClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create OrgPolicyClient for project ID: {}", gcpProjectId, e);
                 return null;
             }
         });
@@ -976,6 +999,28 @@ public class GcpClientProvider {
     }
 
     // VM Manager (OS Config) Client
+    /**
+     * Cloud Monitoring alert policies.
+     *
+     * <p>
+     * Used by WAR to check whether anything actually pages a human while an attack is
+     * running — sustained CPU/GPU utilisation and IAM or firewall changes.
+     */
+    public Optional<AlertPolicyServiceClient> getAlertPolicyClient(String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                AlertPolicyServiceSettings settings = AlertPolicyServiceSettings.newBuilder()
+                        .setCredentialsProvider(() -> credentials)
+                        .build();
+                return AlertPolicyServiceClient.create(settings);
+            } catch (IOException e) {
+                log.error("Failed to create AlertPolicyServiceClient for project ID: {}",
+                        gcpProjectId, e);
+                return null;
+            }
+        });
+    }
+
     public Optional<OsConfigServiceClient> getOsConfigClient(String gcpProjectId) {
         try {
             Optional<GoogleCredentials> credentialsOpt = getCredentials(gcpProjectId);
