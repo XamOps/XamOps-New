@@ -89,6 +89,7 @@ const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 // One shared implementation, one thin entry point per provider baseline.
 const AwsWarPage = lazy(() => import('./pages/AwsWarPage'));
 const GcpWarPage = lazy(() => import('./pages/GcpWarPage'));
+const AzureWarPage = lazy(() => import('./pages/AzureWarPage'));
 const XamSecurePage = lazy(() => import('./pages/XamSecurePage'));
 const PerformancePage = lazy(() => import('./pages/PerformancePage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
@@ -555,6 +556,7 @@ const AppContent: React.FC = () => {
                             <Route path="/azure-security" element={<AzureSecurityPage />} />
                             <Route path="/war" element={<AwsWarPage />} />
                             <Route path="/gcp-war" element={<GcpWarPage />} />
+                            <Route path="/azure-war" element={<AzureWarPage />} />
                             <Route path="/performance" element={<PerformancePage />} />
                             <Route path="/gcp-performance" element={<GcpPerformancePage />} />
                             <Route path="/azure-performance" element={<AzurePerformancePage />} />

@@ -119,6 +119,7 @@ const Topbar: React.FC = () => {
         // WAR is an acronym; the kebab-case fallback would render it "Gcp War".
         if (path === '/war') return 'WAR';
         if (path === '/gcp-war') return 'GCP WAR';
+        if (path === '/azure-war') return 'Azure WAR';
 
         const segments = path.split('/').filter(Boolean);
         if (segments.length === 0) return 'Unified Command Center';

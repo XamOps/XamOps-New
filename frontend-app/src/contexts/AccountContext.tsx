@@ -71,8 +71,7 @@ const PROVIDER_PAGE_MAP: ProviderRoutes[] = [
   { AWS: '/ebs-rightsizing', GCP: '/gcp-disk-rightsizing', Azure: '/azure-disk-rightsizing' },
   { AWS: '/cloudk8s', GCP: '/gcp-cloudk8s', Azure: '/azure-cloudk8s' },
   { AWS: '/xamsecure', GCP: '/gcp-security', Azure: '/azure-security' },
-  // Azure has no WAR baseline yet, so switching to it falls back to the dashboard.
-  { AWS: '/war', GCP: '/gcp-war' },
+  { AWS: '/war', GCP: '/gcp-war', Azure: '/azure-war' },
   { AWS: '/performance', GCP: '/gcp-performance', Azure: '/azure-performance' },
   { AWS: '/alerts', GCP: '/gcp-alerts', Azure: '/azure-alerts' },
   { AWS: '/cloudmap', GCP: '/gcp-cloudmap' },

@@ -27,7 +27,7 @@ interface WarPageProps {
    * Which cloud this route serves. The report shape is provider-neutral, so the whole
    * page is shared; only the expected provider and the baseline size differ.
    */
-  provider: 'AWS' | 'GCP';
+  provider: 'AWS' | 'GCP' | 'Azure';
   /** Controls in this provider's baseline, shown while a first scan is running. */
   baselineSize: number;
 }

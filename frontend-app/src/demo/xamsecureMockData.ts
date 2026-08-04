@@ -334,6 +334,9 @@ export const demoThreatsAll: ThreatDetection[] = Array.from({ length: 64 }, (_, 
     title,
     cloudProvider: 'AWS',
     cloudAccountId: at(ACCOUNT_IDS, i),
+    // Matches the id shape resourcesFor() builds, so the resource drawer joins
+    // threats to configurations on the same key in demo mode.
+    resourceId: `${resourceName}-${(i * 7) % 97}`,
     resourceName,
     resourceType,
     mitreTactics,
@@ -493,6 +496,7 @@ export const demoCveFindings = (cveId: string): CveResourceFinding[] => {
     const packageCount = 1 + ((seed + i) % 4);
     const fixAvailable = (seed + i) % 4 !== 0;
     return {
+      resourceId: `${resourceName}-${((seed + i) * 7) % 97}`,
       resourceName,
       resourceType,
       region: at(REGIONS, seed + i),
@@ -663,6 +667,7 @@ export const demoPostureAll: PostureFinding[] = demoIssues.flatMap((iss, issueIn
     return {
       id: seed + 1,
       upwindId: `pst-${(seed + 1).toString().padStart(5, '0')}`,
+      resourceId: `${name}-${(seed * 7) % 97}`,
       severity: iss.severity,
       status: 'OPEN',
       title: iss.title,

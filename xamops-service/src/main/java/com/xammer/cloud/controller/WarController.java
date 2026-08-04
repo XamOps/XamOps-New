@@ -5,6 +5,7 @@ import com.xammer.cloud.dto.war.WarReport;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.CloudListService;
 import com.xammer.cloud.service.war.AwsWarService;
+import com.xammer.cloud.service.war.AzureWarService;
 import com.xammer.cloud.service.war.GcpWarService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,15 +59,18 @@ public class WarController {
 
     private final AwsWarService awsWarService;
     private final GcpWarService gcpWarService;
+    private final AzureWarService azureWarService;
     private final CloudAccountRepository cloudAccountRepository;
     private final CloudListService cloudListService;
 
     public WarController(AwsWarService awsWarService,
             GcpWarService gcpWarService,
+            AzureWarService azureWarService,
             CloudAccountRepository cloudAccountRepository,
             CloudListService cloudListService) {
         this.awsWarService = awsWarService;
         this.gcpWarService = gcpWarService;
+        this.azureWarService = azureWarService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cloudListService = cloudListService;
     }
@@ -104,13 +108,14 @@ public class WarController {
      *
      * <p>
      * AWS needs its active-region list resolved first because most of its resources are
-     * regional. GCP resources are global or aggregated across zones in one call, so the
-     * project id is all its scanner needs.
+     * regional. GCP and Azure enumerate subscription- or project-wide in one call, so the
+     * provider id is all their scanners need.
      */
     private CompletableFuture<WarReport> scan(CloudAccount account, boolean forceRefresh) {
         String provider = account.getProvider() == null ? "AWS" : account.getProvider();
         return switch (provider) {
             case "GCP" -> gcpWarService.getReport(account, forceRefresh);
+            case "Azure" -> azureWarService.getReport(account, forceRefresh);
             case "AWS" -> resolveRegions(account, forceRefresh)
                     .thenCompose(regions -> awsWarService.getReport(account, regions, forceRefresh));
             default -> CompletableFuture.failedFuture(new UnsupportedOperationException(
@@ -151,6 +156,11 @@ public class WarController {
         Optional<CloudAccount> gcpAccount = cloudAccountRepository.findByGcpProjectId(accountId);
         if (gcpAccount.isPresent()) {
             return gcpAccount.get();
+        }
+        Optional<CloudAccount> azureAccount =
+                cloudAccountRepository.findByAzureSubscriptionId(accountId);
+        if (azureAccount.isPresent()) {
+            return azureAccount.get();
         }
         log.warn("[WAR] no cloud account registered for accountId {}", accountId);
         return null;
