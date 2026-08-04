@@ -26,6 +26,8 @@
 
     <modules>
         <module>service-registry</module>
+        <!-- Shared: cloud permission-gap detection used by xamops, billops and mediaops -->
+        <module>permissions-common</module>
         <module>xamops-service</module>
         <module>billops</module>
         <module>media-ops-service</module>

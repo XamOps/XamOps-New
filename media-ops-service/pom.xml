@@ -23,6 +23,14 @@
     </properties>
 
     <dependencies>
+        <!-- Records which customer IAM actions are being denied, so pages can explain
+             empty data instead of silently showing nothing. -->
+        <dependency>
+            <groupId>com.xammer</groupId>
+            <artifactId>permissions-common</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
         <!-- AWS Secrets Manager integration: loads DB credentials into the Spring Environment
              (in-memory, never as OS env vars) via spring.config.import. -->
         <dependency>

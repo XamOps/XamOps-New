@@ -19,6 +19,7 @@ import { queryClient } from './lib/queryClient';
 import clsx from 'clsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
+import { PermissionGapProvider } from './contexts/PermissionGapContext';
 import { MaintenanceProvider, useMaintenanceMode } from './contexts/MaintenanceContext';
 import MaintenancePage from './pages/MaintenancePage';
 import { VPCProvider } from './contexts/VPCContext';
@@ -35,6 +36,7 @@ import AdminSupportNotificationListener from './components/Shared/AdminSupportNo
 import UserSupportNotificationListener from './components/Shared/UserSupportNotificationListener';
 import ErrorBoundary from './components/Shared/ErrorBoundary';
 import UpdateBanner from './components/Shared/UpdateBanner';
+import PermissionGapBanner from './components/Shared/PermissionGapBanner';
 import RouteChangeHandler from './components/Shared/RouteChangeHandler';
 import { CommandPalette } from './components/Shared/CommandPalette';
 import OnboardingModal from './components/OnboardingModal';
@@ -83,6 +85,8 @@ const GrafanaDashboardPage = lazy(() => import('./pages/GrafanaDashboardPage'));
 
 // AWS — Security & Monitoring
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
+// WAR — Workload Attack-surface Review (attacker/crypto-miner exposure)
+const WarPage = lazy(() => import('./pages/WarPage'));
 const XamSecurePage = lazy(() => import('./pages/XamSecurePage'));
 const PerformancePage = lazy(() => import('./pages/PerformancePage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
@@ -414,6 +418,7 @@ const AuthenticatedLayout: React.FC = () => {
 
     return (
         <ErrorBoundary>
+          <PermissionGapProvider>
             <div className={clsx(
                 'flex h-screen overflow-hidden',
                 theme === 'dark' ? 'bg-[#020617] text-slate-100' : 'bg-white text-gray-900'
@@ -431,6 +436,8 @@ const AuthenticatedLayout: React.FC = () => {
                 >
                     <Topbar />
                     <TrialBanner />
+                    {/* Permission gap alert: explains why data is missing when IAM policies are restricted */}
+                    <PermissionGapBanner />
                     <AnimatePresence mode="wait" initial={false}>
                         <motion.div
                             key={location.key}
@@ -468,6 +475,7 @@ const AuthenticatedLayout: React.FC = () => {
             </div>
             <GooeyToaster position="bottom-right" />
             <UpdateBanner />
+          </PermissionGapProvider>
         </ErrorBoundary>
     );
 };
@@ -543,6 +551,7 @@ const AppContent: React.FC = () => {
                             <Route path="/xamsecure/:tab" element={<XamSecurePage />} />
                             <Route path="/gcp-security" element={<GcpSecurityPage />} />
                             <Route path="/azure-security" element={<AzureSecurityPage />} />
+                            <Route path="/war" element={<WarPage />} />
                             <Route path="/performance" element={<PerformancePage />} />
                             <Route path="/gcp-performance" element={<GcpPerformancePage />} />
                             <Route path="/azure-performance" element={<AzurePerformancePage />} />

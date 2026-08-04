@@ -1,11 +1,15 @@
 package com.xammer.mediaops.service;
 
+import com.xammer.cloud.permissions.AwsPermissionCatalog;
+import com.xammer.cloud.permissions.AwsPermissionInterceptor;
+import com.xammer.cloud.permissions.XamOpsExecutionAttributes;
 import com.xammer.mediaops.domain.CloudAccount;
 import com.xammer.mediaops.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -47,15 +51,18 @@ public class AccountS3Service {
 
     private final CloudAccountRepository accountRepo;
     private final StsClient stsClient;
+    private final AwsPermissionInterceptor permissionInterceptor;
 
     // Cache assume-role S3 clients by account:region (credentials auto-refresh) and
     // resolved bucket regions by account:bucket — HLS playback fetches many segments.
     private final Map<String, S3Client> clientCache = new ConcurrentHashMap<>();
     private final Map<String, String> bucketRegionCache = new ConcurrentHashMap<>();
 
-    public AccountS3Service(CloudAccountRepository accountRepo, StsClient stsClient) {
+    public AccountS3Service(CloudAccountRepository accountRepo, StsClient stsClient,
+            AwsPermissionInterceptor permissionInterceptor) {
         this.accountRepo = accountRepo;
         this.stsClient = stsClient;
+        this.permissionInterceptor = permissionInterceptor;
     }
 
     // ─── Output storage ─────────────────────────────────────────────────────────
@@ -200,7 +207,26 @@ public class AccountS3Service {
                                 .externalId(account.getExternalId())
                                 .roleSessionName("xamops-mediaops-" + account.getAwsAccountId()))
                         .build())
+                // If the customer trims s3: actions off the onboarding role, MediaOps
+                // storage silently empties. Recording the denial here is what lets the
+                // UI say which action is missing instead of showing an empty bucket.
+                .overrideConfiguration(permissionTracking(account, region))
                 .build());
+    }
+
+    /** Stamps the account onto the client so denials land in the shared permission-gap store. */
+    private ClientOverrideConfiguration permissionTracking(CloudAccount account, String region) {
+        ClientOverrideConfiguration.Builder builder = ClientOverrideConfiguration.builder();
+        if (account.getAwsAccountId() == null) {
+            return builder.build();
+        }
+        return builder
+                .putExecutionAttribute(XamOpsExecutionAttributes.ACCOUNT_ID, account.getAwsAccountId())
+                .putExecutionAttribute(XamOpsExecutionAttributes.IAM_SERVICE_PREFIX,
+                        AwsPermissionCatalog.iamPrefixForClient("S3Client", null))
+                .putExecutionAttribute(XamOpsExecutionAttributes.REGION, region)
+                .addExecutionInterceptor(permissionInterceptor)
+                .build();
     }
 
     /**

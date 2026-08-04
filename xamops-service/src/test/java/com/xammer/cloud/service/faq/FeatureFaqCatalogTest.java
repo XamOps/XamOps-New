@@ -20,7 +20,7 @@ class FeatureFaqCatalogTest {
             "finops-flex-compute", "finops-autospotting",
             "cloudops-cloudk8s", "cloudops-code-quality", "cloudops-cicd",
             "cloudops-devops-box", "cloudops-aiops", "cloudops-dbops",
-            "secops-security-center", "secops-xamsecure", "secops-compliance",
+            "secops-security-center", "secops-war", "secops-xamsecure", "secops-compliance",
             "secops-performance", "secops-alerts",
             "obs-overview", "obs-logs", "obs-metrics", "obs-traces", "obs-alerts",
             "obs-setup", "obs-grafana",

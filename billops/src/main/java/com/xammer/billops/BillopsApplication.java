@@ -6,6 +6,7 @@ import org.springframework.boot.autoconfigure.domain.EntityScan; // 1. IMPORT TH
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 
 @SpringBootApplication
@@ -13,6 +14,9 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 @EnableScheduling
 @EnableCaching
 @EnableMethodSecurity(prePostEnabled = true)
+// com.xammer.cloud.permissions is the shared permission-gap tracker; without it
+// BillOps would record nothing when a customer's IAM role loses cost access.
+@ComponentScan(basePackages = { "com.xammer.billops", "com.xammer.cloud.permissions" })
 @EntityScan(basePackages = { "com.xammer.billops", "com.xammer.cloud.domain" }) // 2. ADD THIS LINE
 public class BillopsApplication {
 

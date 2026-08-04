@@ -155,6 +155,9 @@ public class CloudAccount {
 
     // This helper method returns the correct account ID based on the provider.
     public String getProviderAccountId() {
+        if (this.provider == null) {
+            return null;
+        }
         switch (this.provider) {
             case "AWS":
                 return this.awsAccountId;

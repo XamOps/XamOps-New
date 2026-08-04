@@ -117,6 +117,17 @@ public final class FeatureFaqCatalog {
                     "Security Center shows security findings from Prowler scans, filterable by severity " +
                     "and compliance framework."),
 
+            new FeatureFaqEntry("secops-war", "SecOps", "WAR",
+                    List.of("war", "attack surface review", "crypto mining", "cryptomining", "miner",
+                            "attacker access", "exposure", "hardening", "war score", "attack path",
+                            "workload attack surface review"),
+                    "WAR (Workload Attack-surface Review) answers what in your infrastructure would let " +
+                    "an attacker or crypto-miner into the account, and what stops the bill from growing " +
+                    "once they are in. It scores the account against 86 controls from the cloud security " +
+                    "advisory baseline, groups failures by attack path (credential theft, public exposure, " +
+                    "crypto mining, data exfiltration, detection blind spots), lists the affected " +
+                    "resources as evidence, and ranks an ordered fix list."),
+
             new FeatureFaqEntry("secops-xamsecure", "SecOps", "XamSecure",
                     List.of("xamsecure", "xam secure", "cnapp", "attack surface", "cve", "vulnerabilities", "posture",
                             "exposed resources", "api security"),

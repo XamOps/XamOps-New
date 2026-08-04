@@ -1,6 +1,9 @@
 package com.xammer.cloud.service;
 
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.permissions.AwsPermissionCatalog;
+import com.xammer.cloud.permissions.AwsPermissionInterceptor;
+import com.xammer.cloud.permissions.XamOpsExecutionAttributes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -80,6 +83,11 @@ import software.amazon.awssdk.services.memorydb.MemoryDbClient;
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
 import software.amazon.awssdk.services.opensearch.OpenSearchClient;
 import software.amazon.awssdk.services.kafka.KafkaClient;
+import software.amazon.awssdk.services.accessanalyzer.AccessAnalyzerClient;
+import software.amazon.awssdk.services.guardduty.GuardDutyClient;
+import software.amazon.awssdk.services.inspector2.Inspector2Client;
+import software.amazon.awssdk.services.macie2.Macie2Client;
+import software.amazon.awssdk.services.networkfirewall.NetworkFirewallClient;
 
 @Service
 public class AwsClientProvider {
@@ -91,11 +99,13 @@ public class AwsClientProvider {
     private static final Duration FINOPS_API_ATTEMPT_TIMEOUT = Duration.ofSeconds(10);
 
     private final StsClient stsClient;
+    private final AwsPermissionInterceptor permissionInterceptor;
     private final Map<String, Object> clientCache = new ConcurrentHashMap<>();
 
-    public AwsClientProvider(StsClient stsClient) {
+    public AwsClientProvider(StsClient stsClient, AwsPermissionInterceptor permissionInterceptor) {
         this.stsClient = stsClient;
-        logger.info("AwsClientProvider initialized with Client Caching enabled");
+        this.permissionInterceptor = permissionInterceptor;
+        logger.info("AwsClientProvider initialized with Client Caching and permission tracking enabled");
     }
 
     public void evictAccount(String awsAccountId) {
@@ -127,9 +137,33 @@ public class AwsClientProvider {
      * Timeout enforcement is handled by orTimeout() guards in CloudListService and
      * .get(90, SECONDS) in DashboardDataService.
      */
-    private ClientOverrideConfiguration getClientOverrideConfig() {
-        return ClientOverrideConfiguration.builder()
+    private ClientOverrideConfiguration getClientOverrideConfig(CloudAccount account, String clientSimpleName,
+            String region) {
+        return withPermissionTracking(ClientOverrideConfiguration.builder(), account, clientSimpleName, region)
                 .build();
+    }
+
+    /**
+     * Stamps the account/service/region onto the client and attaches the permission
+     * interceptor.
+     *
+     * Doing it here — once, where clients are built — is what lets XamOps tell a
+     * customer "Rightsizing is empty because compute-optimizer:GetEc2InstanceRecommendations
+     * is denied" without every service having to catch AccessDenied itself.
+     */
+    private ClientOverrideConfiguration.Builder withPermissionTracking(ClientOverrideConfiguration.Builder builder,
+            CloudAccount account, String clientSimpleName, String region) {
+
+        String accountId = account != null ? account.getAwsAccountId() : null;
+        if (accountId == null) {
+            return builder;
+        }
+        return builder
+                .putExecutionAttribute(XamOpsExecutionAttributes.ACCOUNT_ID, accountId)
+                .putExecutionAttribute(XamOpsExecutionAttributes.IAM_SERVICE_PREFIX,
+                        AwsPermissionCatalog.iamPrefixForClient(clientSimpleName, null))
+                .putExecutionAttribute(XamOpsExecutionAttributes.REGION, region)
+                .addExecutionInterceptor(permissionInterceptor);
     }
 
     /**
@@ -138,8 +172,8 @@ public class AwsClientProvider {
      * from the EC2 host. If unreachable, calls should fail fast so the FinOps page
      * returns empty data (HTTP 200) rather than hanging 55s and returning 503.
      */
-    private ClientOverrideConfiguration getFinOpsClientOverrideConfig() {
-        return ClientOverrideConfiguration.builder()
+    private ClientOverrideConfiguration getFinOpsClientOverrideConfig(CloudAccount account, String clientSimpleName) {
+        return withPermissionTracking(ClientOverrideConfiguration.builder(), account, clientSimpleName, "us-east-1")
                 .apiCallTimeout(FINOPS_API_TIMEOUT)
                 .apiCallAttemptTimeout(FINOPS_API_ATTEMPT_TIMEOUT)
                 .build();
@@ -156,7 +190,7 @@ public class AwsClientProvider {
             return builder
                     .credentialsProvider(getCredentialsProvider(account))
                     .region(Region.of(region))
-                    .overrideConfiguration(getClientOverrideConfig())
+                    .overrideConfiguration(getClientOverrideConfig(account, clientClass.getSimpleName(), region))
                     .build();
         });
     }
@@ -290,9 +324,11 @@ public class AwsClientProvider {
     // ================= Standard client methods =================
 
     public EksClient getEksClientForTokenGeneration(CloudAccount account) {
+        String region = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
         return EksClient.builder()
                 .credentialsProvider(getCredentialsProvider(account))
-                .region(Region.of(System.getenv().getOrDefault("AWS_REGION", "us-east-1")))
+                .region(Region.of(region))
+                .overrideConfiguration(getClientOverrideConfig(account, "EksClient", region))
                 .build();
     }
 
@@ -316,7 +352,7 @@ public class AwsClientProvider {
             return CostExplorerClient.builder()
                     .credentialsProvider(getCredentialsProvider(account))
                     .region(Region.of("us-east-1"))
-                    .overrideConfiguration(getFinOpsClientOverrideConfig())
+                    .overrideConfiguration(getFinOpsClientOverrideConfig(account, "CostExplorerClient"))
                     .build();
         });
     }
@@ -341,7 +377,7 @@ public class AwsClientProvider {
             return BudgetsClient.builder()
                     .credentialsProvider(getCredentialsProvider(account))
                     .region(Region.of("us-east-1"))
-                    .overrideConfiguration(getFinOpsClientOverrideConfig())
+                    .overrideConfiguration(getFinOpsClientOverrideConfig(account, "BudgetsClient"))
                     .build();
         });
     }
@@ -532,6 +568,7 @@ public class AwsClientProvider {
         return SavingsplansClient.builder()
                 .credentialsProvider(getCredentialsProvider(account))
                 .region(Region.of(region))
+                .overrideConfiguration(getClientOverrideConfig(account, "SavingsplansClient", region))
                 .build();
     }
 
@@ -561,5 +598,30 @@ public class AwsClientProvider {
 
     public KafkaClient getKafkaClient(CloudAccount account, String region) {
         return getClient(KafkaClient.class, KafkaClient.builder(), account, region);
+    }
+
+    // ================= WAR (Workload Attack-surface Review) clients =================
+    // Threat-detection services. These answer "is this account already compromised?"
+    // rather than "is this account configured correctly", which is why they live
+    // behind their own comment block.
+
+    public GuardDutyClient getGuardDutyClient(CloudAccount account, String region) {
+        return getClient(GuardDutyClient.class, GuardDutyClient.builder(), account, region);
+    }
+
+    public AccessAnalyzerClient getAccessAnalyzerClient(CloudAccount account, String region) {
+        return getClient(AccessAnalyzerClient.class, AccessAnalyzerClient.builder(), account, region);
+    }
+
+    public Inspector2Client getInspector2Client(CloudAccount account, String region) {
+        return getClient(Inspector2Client.class, Inspector2Client.builder(), account, region);
+    }
+
+    public Macie2Client getMacie2Client(CloudAccount account, String region) {
+        return getClient(Macie2Client.class, Macie2Client.builder(), account, region);
+    }
+
+    public NetworkFirewallClient getNetworkFirewallClient(CloudAccount account, String region) {
+        return getClient(NetworkFirewallClient.class, NetworkFirewallClient.builder(), account, region);
     }
 }

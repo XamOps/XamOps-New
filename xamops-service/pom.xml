@@ -56,6 +56,14 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- Records which customer IAM actions are being denied, so pages can explain
+             empty data instead of silently showing nothing. -->
+        <dependency>
+            <groupId>com.xammer</groupId>
+            <artifactId>permissions-common</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
         <!-- AWS Secrets Manager integration: loads secrets into the Spring Environment
              (in-memory, never as OS env vars) via spring.config.import. Matches Spring Boot 2.7 / Spring Cloud 2021.0.x -->
         <dependency>
@@ -461,6 +469,31 @@
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>kafka</artifactId>
+        </dependency>
+
+        <!-- WAR (Workload Attack-surface Review) threat-detection checks.
+             GuardDuty carries the CryptoCurrency finding type, which is the single
+             most direct signal that an account is already mining for someone else.
+             Versions come from the software.amazon.awssdk:bom import above. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>guardduty</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>accessanalyzer</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>inspector2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>macie2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>networkfirewall</artifactId>
         </dependency>
 
         <dependency>
