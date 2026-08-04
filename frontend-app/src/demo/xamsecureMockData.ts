@@ -512,6 +512,14 @@ export const demoCveFindings = (cveId: string): CveResourceFinding[] => {
       image: resourceType === 'AWS_ECS_TASK' ? `xammer/${resourceName.split('-')[0]}:1.${i % 30}.0` : null,
       fixAvailable,
       fixedInVersion: fixAvailable ? `${1 + (i % 4)}.${((i * 3) % 20) + 1}.0` : null,
+      // Reachability tiers, deliberately sparse: exposure is common, executing functions rare.
+      internetExposed: (seed + i) % 3 === 0,
+      activeCommunication: (seed + i) % 6 === 0,
+      functionsInUse: (seed + i) % 23 === 0,
+      // A slice of the estate is Kubernetes, so the namespace hint has something to show.
+      namespace: resourceType === 'AWS_ECS_TASK' ? at(['prod', 'staging'], seed + i) : null,
+      clusterName: resourceType === 'AWS_ECS_TASK' ? 'xammer-prod-cluster' : null,
+      imageTag: `1.${(seed + i) % 30}.0`,
       ...(framework ? {} : {}),
     };
   });
@@ -626,7 +634,17 @@ export const demoVulnDashboard: VulnerabilityDashboard = {
     ['Fix available',     Math.round(totalCveFindings * 0.08)],
     ['NIST critical sev', cveSeverityCounts.CRITICAL ?? 0],
     ['EPSS-prioritized',  epssPrioritized],
+    ['Functions in Use',  Math.max(1, Math.round(totalCveFindings * 0.004))],
   ]),
+  // Ratios mirror what was measured against the live API on 2026-08-04, so the demo
+  // narrowing is as steep as the real thing: most CVEs are installed but unreachable.
+  runtimeExposure: {
+    packageInUse: Math.round(demoCveRowsAll.length * 0.93),
+    internetExposed: Math.round(demoCveRowsAll.length * 0.379),
+    exposedAndInUse: Math.round(demoCveRowsAll.length * 0.364),
+    activeCommunication: Math.round(demoCveRowsAll.length * 0.162),
+    functionsInUse: Math.max(1, Math.round(demoCveRowsAll.length * 0.004)),
+  },
 };
 
 // ─── /api/xamsecure/posture ──────────────────────────────────────────────────

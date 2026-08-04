@@ -56,6 +56,18 @@ export interface VulnerabilityDashboard {
   criticalWorkloadOverTime: Array<Record<string, number | string>>;
   workloadLabels: string[];
   funnel: FunnelStage[];
+  /**
+   * Runtime narrowing: how the installed total reduces to what is actually reachable and
+   * executing. Counts are distinct CVEs. Previously unavailable because the sync discarded
+   * package.in_use, internet_exposure.ingress.* and exploitable_functions_in_use.
+   */
+  runtimeExposure?: {
+    internetExposed: number;
+    exposedAndInUse: number;
+    activeCommunication: number;
+    functionsInUse: number;
+    packageInUse: number;
+  } | null;
 }
 
 /** One row in the group-by-CVE Findings view. */
@@ -88,6 +100,15 @@ export interface CveResourceFinding {
   packageVersion?: string | null;
   inUse?: boolean | null;
   image?: string | null;
+  imageTag?: string | null;
+  /** Kubernetes context, present when the resource is a workload. */
+  namespace?: string | null;
+  clusterName?: string | null;
+  /** Runtime exposure of the hosting resource. */
+  internetExposed?: boolean | null;
+  activeCommunication?: boolean | null;
+  /** Upwind observed the vulnerable functions actually executing. */
+  functionsInUse?: boolean | null;
   fixAvailable?: boolean | null;
   fixedInVersion?: string | null;
 }

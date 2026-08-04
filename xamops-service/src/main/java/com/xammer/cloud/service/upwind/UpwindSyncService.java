@@ -551,6 +551,54 @@ public class UpwindSyncService {
         v.setResourceType(text(res, "type"));
         v.setFirstSeenTime(instant(item, "first_seen_time"));
         v.setLastScanTime(instant(item, "last_scan_time"));
+
+        // Runtime exposure. These decide whether a finding is theoretical or live, and were
+        // previously discarded on every finding — leaving the UI with installed counts only.
+        JsonNode pkg = item.path("package");
+        v.setPackageInUse(bool(pkg, "in_use"));
+        JsonNode ingress = res.path("internet_exposure").path("ingress");
+        v.setInternetExposed(bool(ingress, "exposed"));
+        v.setActiveCommunication(bool(ingress, "active_communication"));
+
+        JsonNode fns = vuln.path("exploitable_functions_in_use");
+        if (fns.isArray()) {
+            StringJoiner sj = new StringJoiner(",");
+            fns.forEach(f -> sj.add(f.asText()));
+            v.setExploitableFunctionsInUse(!fns.isEmpty());
+            v.setExploitableFunctions(sj.length() > 0 ? truncate(sj.toString(), 1024) : null);
+        } else {
+            v.setExploitableFunctionsInUse(null);
+            v.setExploitableFunctions(null);
+        }
+
+        v.setPackageName(text(pkg, "name"));
+        v.setPackageVersion(text(pkg, "version"));
+        v.setPackageType(text(pkg, "type"));
+        v.setPackageFramework(text(pkg, "framework"));
+
+        JsonNode image = item.path("image");
+        v.setImageName(text(image, "name"));
+        v.setImageTag(text(image, "tag"));
+        v.setImageUri(truncate(text(image, "uri"), 512));
+        v.setImageOsName(text(image, "os_name"));
+        v.setImageOsVersion(text(image, "os_version"));
+
+        // Kubernetes context — the same fields that were unmapped for posture findings.
+        v.setClusterId(text(res, "cluster_id"));
+        v.setClusterName(text(res, "cluster_name"));
+        v.setNamespace(text(res, "namespace"));
+
+        v.setEpssSeverity(text(vuln, "epss_severity"));
+        v.setCvssV2Score(text(vuln, "nvd_cvss_v2_score"));
+        v.setCvssV2Severity(text(vuln, "nvd_cvss_v2_severity"));
+        v.setCvssV4Score(text(vuln, "nvd_cvss_v4_score"));
+        v.setCvssV4Severity(text(vuln, "nvd_cvss_v4_severity"));
+        StringJoiner sources = new StringJoiner(",");
+        vuln.path("known_exploit_sources").forEach(s -> sources.add(s.asText()));
+        v.setKnownExploitSources(sources.length() > 0 ? truncate(sources.toString(), 256) : null);
+        v.setCveFirstSeenTime(instant(vuln, "cve_first_seen_time"));
+        v.setSource(text(item, "source"));
+
         v.setRawPayload(item.toString());
         v.setSyncedAt(now);
         vulnRepo.save(v);

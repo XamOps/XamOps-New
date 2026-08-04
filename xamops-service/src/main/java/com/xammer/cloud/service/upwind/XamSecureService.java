@@ -951,20 +951,41 @@ public class XamSecureService {
                 .sorted(Comparator.comparingInt(m -> -((Integer) m.get("count"))))
                 .collect(Collectors.toList());
 
-        // Runtime exploit funnel (Upwind order). Stages we can source from data; the rest
-        // (internet exposure, NIST critical, functions-in-use) need runtime signal we don't have → 0.
+        // Runtime exploit funnel (Upwind order). "Internet exposure" and "Functions in Use"
+        // used to be hardcoded to unavailable because the sync discarded the fields that
+        // carry them; both are real now. "NIST critical sev" remains unsourced — it needs
+        // NVD's own severity banding rather than the CVSS v3 severity we store.
         int totalCves = byCve.size();
         long packageInUse = vulnRepo.countCvesPackageInUse(ids);
         long fixAvailable = vulnRepo.countCvesFixAvailable(ids);
+        long internetExposed = 0, exposedAndInUse = 0, functionsInUse = 0, activeComm = 0;
+        List<Object[]> runtime = vulnRepo.countRuntimeExposure(ids);
+        if (!runtime.isEmpty() && runtime.get(0) != null) {
+            Object[] r = runtime.get(0);
+            internetExposed = r[0] == null ? 0 : ((Number) r[0]).longValue();
+            exposedAndInUse = r[1] == null ? 0 : ((Number) r[1]).longValue();
+            functionsInUse = r[2] == null ? 0 : ((Number) r[2]).longValue();
+            activeComm = r[3] == null ? 0 : ((Number) r[3]).longValue();
+        }
         List<Map<String, Object>> funnel = new ArrayList<>();
         funnel.add(funnelStage("Total", totalCves, true));
         funnel.add(funnelStage("Package in use", (int) packageInUse, true));
-        funnel.add(funnelStage("Internet exposure", 0, false));
+        funnel.add(funnelStage("Internet exposure", (int) internetExposed, true));
         funnel.add(funnelStage("Known exploit", exploitable, true));
         funnel.add(funnelStage("Fix available", (int) fixAvailable, true));
         funnel.add(funnelStage("NIST critical sev", 0, false));
         funnel.add(funnelStage("EPSS-prioritized", epssPrioritized, true));
-        funnel.add(funnelStage("Functions in Use", 0, false));
+        funnel.add(funnelStage("Functions in Use", (int) functionsInUse, true));
+
+        // Headline runtime narrowing, surfaced separately from the funnel so the tab can lead
+        // with "what is actually reachable and running" instead of the installed total.
+        Map<String, Object> runtimeExposure = new LinkedHashMap<>();
+        runtimeExposure.put("internetExposed", internetExposed);
+        runtimeExposure.put("exposedAndInUse", exposedAndInUse);
+        runtimeExposure.put("activeCommunication", activeComm);
+        runtimeExposure.put("functionsInUse", functionsInUse);
+        runtimeExposure.put("packageInUse", packageInUse);
+        out.put("runtimeExposure", runtimeExposure);
 
         out.put("totalCves", totalCves);
         out.put("totalFindings", totalFindings);
@@ -1118,14 +1139,24 @@ public class XamSecureService {
             agg.firstSeen = earliest(agg.firstSeen, v.getFirstSeenTime());
             agg.lastScan = latest(agg.lastScan, v.getLastScanTime());
 
+            // Package / image / in-use now come from promoted columns instead of
+            // re-parsing raw_payload for every finding on every drawer open.
+            if (v.getPackageName() != null) agg.packages.add(v.getPackageName());
+            if (Boolean.TRUE.equals(v.getPackageInUse())) agg.anyInUse = true;
+            if (v.getImageName() != null) agg.images.add(v.getImageName());
+            if (Boolean.TRUE.equals(v.getInternetExposed())) agg.internetExposed = true;
+            if (Boolean.TRUE.equals(v.getActiveCommunication())) agg.activeCommunication = true;
+            if (Boolean.TRUE.equals(v.getExploitableFunctionsInUse())) agg.functionsInUse = true;
+            if (agg.namespace == null) {
+                agg.namespace = v.getNamespace();
+                agg.clusterName = v.getClusterName();
+                agg.packageVersion = v.getPackageVersion();
+                agg.imageTag = v.getImageTag();
+            }
+
+            // remediation has no promoted column, so it still needs the payload.
             JsonNode root = parseJson(v.getRawPayload());
             if (root != null) {
-                JsonNode pkg = root.path("package");
-                String pkgName = textOrNull(pkg, "name");
-                if (pkgName != null) agg.packages.add(pkgName);
-                if (pkg.path("in_use").asBoolean(false)) agg.anyInUse = true;
-                String img = textOrNull(root.path("image"), "name");
-                if (img != null) agg.images.add(img);
                 if (agg.fixedInVersion == null) {
                     JsonNode rem = root.path("remediation");
                     if (rem.isArray()) {
@@ -1156,6 +1187,13 @@ public class XamSecureService {
             m.put("image", a.images.size() == 1 ? a.images.iterator().next()
                     : (a.images.isEmpty() ? null : a.images.size() + " images"));
             m.put("inUse", a.anyInUse);
+            m.put("packageVersion", a.packageVersion);
+            m.put("imageTag", a.imageTag);
+            m.put("namespace", a.namespace);
+            m.put("clusterName", a.clusterName);
+            m.put("internetExposed", a.internetExposed);
+            m.put("activeCommunication", a.activeCommunication);
+            m.put("functionsInUse", a.functionsInUse);
             m.put("fixAvailable", a.fixedInVersion != null);
             m.put("fixedInVersion", a.fixedInVersion);
             return m;
@@ -1165,7 +1203,8 @@ public class XamSecureService {
     private static final class CveResourceAgg {
         String resourceId;
         String resourceName, resourceType, region, cloudProvider, cvssScore, fixedInVersion;
-        boolean exploitable, anyInUse;
+        String packageVersion, imageTag, namespace, clusterName;
+        boolean exploitable, anyInUse, internetExposed, activeCommunication, functionsInUse;
         Instant firstSeen, lastScan;
         final Set<String> packages = new LinkedHashSet<>();
         final Set<String> images = new LinkedHashSet<>();

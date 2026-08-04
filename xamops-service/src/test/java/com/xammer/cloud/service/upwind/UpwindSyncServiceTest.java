@@ -375,6 +375,101 @@ class UpwindSyncServiceTest {
         verify(apiClient, never()).searchInventory(anyList(), anyInt());
     }
 
+    // --- Vulnerabilities: runtime exposure and package/image/K8s context ---
+
+    /**
+     * Every one of these fields was arriving in the payload and being discarded on all
+     * ~126k findings, which is why the Vulnerabilities tab could only show installed counts.
+     */
+    @Test
+    void syncVulnerabilitiesPersistsRuntimeExposureAndContext() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        String json = "{\"id\":\"uvf-1\",\"source\":\"SENSOR\","
+                + "\"first_seen_time\":\"2026-08-01T12:08:31Z\","
+                + "\"last_scan_time\":\"2026-08-03T18:36:32Z\","
+                + "\"vulnerability\":{\"nvd_cve_id\":\"CVE-2025-1148\","
+                + "\"nvd_cvss_v3_severity\":\"LOW\",\"nvd_cvss_v3_score\":\"3.1\","
+                + "\"nvd_cvss_v2_score\":\"2.6\",\"nvd_cvss_v2_severity\":\"LOW\","
+                + "\"nvd_cvss_v4_score\":\"2.3\",\"nvd_cvss_v4_severity\":\"LOW\","
+                + "\"epss_score\":\"0.00628\",\"epss_severity\":\"LOW\",\"exploitable\":true,"
+                + "\"known_exploit_sources\":[\"nist\",\"cisa\"],"
+                + "\"exploitable_functions_in_use\":[\"link_or_copy\"],"
+                + "\"cve_first_seen_time\":\"2026-08-01T10:52:34Z\"},"
+                + "\"package\":{\"name\":\"binutils\",\"version\":\"2.44-3\","
+                + "\"type\":\"IMAGE\",\"framework\":\"os\",\"in_use\":true},"
+                + "\"image\":{\"name\":\"inv-v2-file-use\",\"tag\":\"uat-085ab6e\","
+                + "\"uri\":\"598515435126.dkr.ecr.ap-south-1.amazonaws.com/inv-v2:uat-085\","
+                + "\"os_name\":\"Debian GNU/Linux\",\"os_version\":\"13\"},"
+                + "\"resource\":{\"id\":\"ep-cf7a\",\"name\":\"inv-v2-file-use\","
+                + "\"type\":\"KUBERNETES_DEPLOYMENT\",\"cloud_account_id\":\"598515435126\","
+                + "\"cluster_id\":\"4122e4ce\",\"cluster_name\":\"final-onfi-infra\","
+                + "\"namespace\":\"investigation-uat\","
+                + "\"internet_exposure\":{\"ingress\":{\"exposed\":true,"
+                + "\"active_communication\":false}}}}";
+        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
+                .thenReturn(result(List.of(parse(json)), false));
+        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
+                .thenReturn(result(Collections.emptyList(), false));
+        when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
+        when(vulnRepo.findByUpwindId("uvf-1")).thenReturn(Optional.empty());
+
+        service.syncAll();
+
+        ArgumentCaptor<com.xammer.cloud.domain.UpwindVulnerabilityFinding> cap =
+                ArgumentCaptor.forClass(com.xammer.cloud.domain.UpwindVulnerabilityFinding.class);
+        verify(vulnRepo).save(cap.capture());
+        var v = cap.getValue();
+        // Runtime exposure — the signals that separate a live risk from an installed package.
+        assertEquals(Boolean.TRUE, v.getPackageInUse());
+        assertEquals(Boolean.TRUE, v.getInternetExposed());
+        assertEquals(Boolean.FALSE, v.getActiveCommunication());
+        assertEquals(Boolean.TRUE, v.getExploitableFunctionsInUse());
+        assertEquals("link_or_copy", v.getExploitableFunctions());
+        // Package / image context.
+        assertEquals("binutils", v.getPackageName());
+        assertEquals("2.44-3", v.getPackageVersion());
+        assertEquals("IMAGE", v.getPackageType());
+        assertEquals("os", v.getPackageFramework());
+        assertEquals("inv-v2-file-use", v.getImageName());
+        assertEquals("uat-085ab6e", v.getImageTag());
+        assertEquals("Debian GNU/Linux", v.getImageOsName());
+        // Kubernetes context.
+        assertEquals("4122e4ce", v.getClusterId());
+        assertEquals("final-onfi-infra", v.getClusterName());
+        assertEquals("investigation-uat", v.getNamespace());
+        // Scoring / provenance.
+        assertEquals("LOW", v.getEpssSeverity());
+        assertEquals("2.6", v.getCvssV2Score());
+        assertEquals("2.3", v.getCvssV4Score());
+        assertEquals("nist,cisa", v.getKnownExploitSources());
+        assertNotNull(v.getCveFirstSeenTime());
+        assertEquals("SENSOR", v.getSource());
+    }
+
+    /** An empty functions array means "observed, none in use" — false, not null. */
+    @Test
+    void syncVulnerabilitiesDistinguishesEmptyFunctionsFromAbsent() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
+        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
+                .thenReturn(result(Collections.emptyList(), false));
+        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt())).thenReturn(result(List.of(parse(
+                "{\"id\":\"uvf-2\",\"vulnerability\":{\"nvd_cve_id\":\"CVE-1\","
+                + "\"exploitable_functions_in_use\":[]},\"resource\":{},\"package\":{}}")), false));
+        when(vulnRepo.findByUpwindId("uvf-2")).thenReturn(Optional.empty());
+
+        service.syncAll();
+
+        ArgumentCaptor<com.xammer.cloud.domain.UpwindVulnerabilityFinding> cap =
+                ArgumentCaptor.forClass(com.xammer.cloud.domain.UpwindVulnerabilityFinding.class);
+        verify(vulnRepo).save(cap.capture());
+        assertEquals(Boolean.FALSE, cap.getValue().getExploitableFunctionsInUse());
+        assertNull(cap.getValue().getExploitableFunctions());
+        // Absent objects stay null rather than reading as a definite "no".
+        assertNull(cap.getValue().getPackageInUse());
+        assertNull(cap.getValue().getInternetExposed());
+    }
+
     // --- Posture: PASS findings and Kubernetes context ---
 
     /**

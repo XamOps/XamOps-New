@@ -80,6 +80,8 @@ const VulnerabilitiesTab: React.FC<Props> = ({
             <Stat value={dashboard?.exploitableCves ?? 0} label="Exploitable CVEs" />
             <Stat value={dashboard?.totalFindings ?? 0} label="Total findings" />
           </div>
+
+          <RuntimeExposure data={dashboard?.runtimeExposure} totalCves={totalCves} />
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Panel title={`Unique CVEs by severity (${totalCves})`}>
               <div className="flex items-center gap-4">
@@ -344,6 +346,7 @@ const CveDrill: React.FC<{
             <th className="px-3 py-2">Type</th>
             <th className="px-3 py-2">Affected packages</th>
             <th className="px-3 py-2">In use</th>
+            <th className="px-3 py-2">Runtime</th>
             <th className="px-3 py-2">Fix available</th>
             <th className="px-3 py-2">Region</th>
             <th className="px-3 py-2">Last scan</th>
@@ -355,6 +358,12 @@ const CveDrill: React.FC<{
               <td className="px-3 py-2 text-gray-800 max-w-[160px]">
                 <ResourceLink resourceId={r.resourceId} label={r.resourceName}
                               sub={r.cloudProvider} onOpen={onOpenResource} />
+                {r.namespace && (
+                  <span className="mt-0.5 flex items-center gap-1 text-[9px] text-gray-400">
+                    <Icon icon="mdi:kubernetes" width={10} className="flex-shrink-0" />
+                    <span className="truncate" title={r.clusterName ?? undefined}>{r.namespace}</span>
+                  </span>
+                )}
               </td>
               <td className="px-3 py-2 text-gray-600">{r.resourceType ?? '—'}</td>
               <td className="px-3 py-2 text-gray-700">
@@ -368,6 +377,27 @@ const CveDrill: React.FC<{
                   {r.inUse ? 'Yes' : 'No'}
                 </span>
               </td>
+              {/* Reachability, worst-first: executing functions beats mere exposure. */}
+              <td className="px-3 py-2 whitespace-nowrap">
+                {r.functionsInUse ? (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500 text-white"
+                        title="Upwind observed the vulnerable functions executing">
+                    Functions running
+                  </span>
+                ) : r.activeCommunication ? (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700"
+                        title="Live inbound internet traffic observed">
+                    Active traffic
+                  </span>
+                ) : r.internetExposed ? (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-100 text-orange-700"
+                        title="Reachable from the internet">
+                    Exposed
+                  </span>
+                ) : (
+                  <span className="text-[9px] text-gray-300">Internal</span>
+                )}
+              </td>
               <td className="px-3 py-2">
                 {r.fixAvailable
                   ? <span className="text-emerald-600 font-medium">{r.fixedInVersion ?? 'Yes'}</span>
@@ -378,7 +408,7 @@ const CveDrill: React.FC<{
             </tr>
           ))}
           {findings.length === 0 && (
-            <tr><td colSpan={7} className="px-3 py-3 text-center text-gray-400">No affected resources.</td></tr>
+            <tr><td colSpan={8} className="px-3 py-3 text-center text-gray-400">No affected resources.</td></tr>
           )}
         </tbody>
       </table>
@@ -396,6 +426,64 @@ const FUNNEL_ICON: Record<string, string> = {
   'NIST critical sev': 'mdi:alpha-c-circle-outline',
   'EPSS-prioritized': 'mdi:chart-line-variant',
   'Functions in Use': 'mdi:function-variant',
+};
+
+/**
+ * Runtime exposure — the number that actually matters.
+ *
+ * A CVE count of tens of thousands is mostly installed-but-unreachable packages. Upwind's own
+ * console leads with saved views that narrow to what is running and reachable; this is the
+ * equivalent, and it exists only because the sync now persists package.in_use,
+ * internet_exposure.ingress.* and exploitable_functions_in_use rather than discarding them.
+ *
+ * Ordered widest to narrowest, with the share of total CVEs, so the drop-off is the message.
+ */
+const RuntimeExposure: React.FC<{
+  data?: VulnerabilityDashboard['runtimeExposure']; totalCves: number;
+}> = ({ data, totalCves }) => {
+  if (!data) return null;
+  const rows = [
+    { label: 'Package loaded at runtime', value: data.packageInUse,
+      hint: 'The vulnerable package is loaded by a running process' },
+    { label: 'Internet exposed', value: data.internetExposed,
+      hint: 'The hosting resource accepts traffic from the internet' },
+    { label: 'Exposed and running', value: data.exposedAndInUse,
+      hint: 'Both of the above — reachable and actually loaded' },
+    { label: 'Active communication', value: data.activeCommunication,
+      hint: 'Upwind observed live inbound traffic' },
+    { label: 'Vulnerable functions executing', value: data.functionsInUse,
+      hint: 'The vulnerable code paths themselves were observed running' },
+  ];
+  const pct = (n: number) => (totalCves === 0 ? 0 : Math.round((n / totalCves) * 1000) / 10);
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+      <div className="flex items-baseline justify-between gap-3 mb-1">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          Runtime exposure
+        </p>
+        <p className="text-[10px] text-gray-400">of {totalCves.toLocaleString()} CVEs</p>
+      </div>
+      <p className="text-[10px] text-gray-400 mb-4">
+        Narrowing from everything installed to what is reachable and executing.
+      </p>
+      <div className="space-y-2.5">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center gap-3" title={r.hint}>
+            <span className="w-52 text-[11px] text-gray-600 truncate">{r.label}</span>
+            <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full bg-red-500"
+                   style={{ width: `${Math.min(100, pct(r.value))}%` }} />
+            </div>
+            <span className="w-24 text-right text-xs font-semibold text-gray-700">
+              {r.value.toLocaleString()}
+              <span className="ml-1 text-[10px] font-normal text-gray-400">{pct(r.value)}%</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 /** Upwind-style horizontal runtime exploit funnel: stage headers + narrowing red ribbon. */

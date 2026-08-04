@@ -203,6 +203,58 @@ class XamSecureServiceTest {
         assertEquals(false, admin.get("hasFindings"));
     }
 
+    /**
+     * "Internet exposure" and "Functions in Use" were hardcoded to unavailable because the
+     * sync discarded the fields behind them. Both now come from promoted columns.
+     */
+    @Test
+    void vulnDashboardFunnelSourcesRuntimeExposureStages() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(vulnRepo.countCvesPackageInUse(List.of("111"))).thenReturn(930L);
+        when(vulnRepo.countCvesFixAvailable(List.of("111"))).thenReturn(400L);
+        when(vulnRepo.countRuntimeExposure(List.of("111")))
+                .thenReturn(List.<Object[]>of(new Object[]{379L, 364L, 5L, 162L}));
+
+        var out = service.getVulnerabilityDashboard(1L, null);
+
+        @SuppressWarnings("unchecked")
+        var funnel = (List<Map<String, Object>>) out.get("funnel");
+        var exposure = funnel.stream()
+                .filter(s -> "Internet exposure".equals(s.get("label"))).findFirst().orElseThrow();
+        assertEquals(379, exposure.get("value"));
+        assertEquals(true, exposure.get("available"), "no longer a hardcoded zero");
+        var fns = funnel.stream()
+                .filter(s -> "Functions in Use".equals(s.get("label"))).findFirst().orElseThrow();
+        assertEquals(5, fns.get("value"));
+        assertEquals(true, fns.get("available"));
+        // NIST critical severity still has no honest source, so it stays marked unavailable.
+        var nist = funnel.stream()
+                .filter(s -> "NIST critical sev".equals(s.get("label"))).findFirst().orElseThrow();
+        assertEquals(false, nist.get("available"));
+
+        @SuppressWarnings("unchecked")
+        var runtime = (Map<String, Object>) out.get("runtimeExposure");
+        assertEquals(379L, runtime.get("internetExposed"));
+        assertEquals(364L, runtime.get("exposedAndInUse"));
+        assertEquals(162L, runtime.get("activeCommunication"));
+        assertEquals(5L, runtime.get("functionsInUse"));
+    }
+
+    /** No rows yet must read as zeroes, not blow up on a null aggregate row. */
+    @Test
+    void vulnDashboardRuntimeExposureToleratesNoData() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(vulnRepo.countRuntimeExposure(List.of("111")))
+                .thenReturn(List.<Object[]>of(new Object[]{null, null, null, null}));
+
+        var out = service.getVulnerabilityDashboard(1L, null);
+
+        @SuppressWarnings("unchecked")
+        var runtime = (Map<String, Object>) out.get("runtimeExposure");
+        assertEquals(0L, runtime.get("internetExposed"));
+        assertEquals(0L, runtime.get("functionsInUse"));
+    }
+
     @Test
     void inventoryRiskRollupMapsClassificationCounts() {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
