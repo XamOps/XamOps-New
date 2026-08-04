@@ -120,8 +120,6 @@ const BillOpsAdminDashboardPage: React.FC = () => {
       setClientsStale(false);
       localStorage.setItem(clientsCacheKeyRef.current, JSON.stringify({ data: d, ts: Date.now() }));
     } catch (err) {
-      // Never substitute another spend source here — a failed fetch has to look failed,
-      // otherwise the tile silently renders a different backend's total.
       console.error('Failed to load clients data for spend total', err);
       setClientsError(err instanceof Error ? err.message : 'Failed to load spend data');
     } finally {
@@ -134,6 +132,8 @@ const BillOpsAdminDashboardPage: React.FC = () => {
     localStorage.removeItem(LEGACY_CLIENTS_CACHE_KEY);
 
     const cached = localStorage.getItem(clientsCacheKeyRef.current);
+    let hasLocalData = false;
+
     if (cached) {
       try {
         const { data: d, ts } = JSON.parse(cached) as { data: ClientsApiData[]; ts: number };
@@ -141,20 +141,42 @@ const BillOpsAdminDashboardPage: React.FC = () => {
           setClientsData(d);
           setClientsStale(Date.now() - ts > CLIENTS_CACHE_TTL_MS);
           setClientsLoading(false);
+          hasLocalData = true;
         }
       } catch (e) { /* ignore corrupt cache */ }
     }
 
-    fetchClients(true);
+    // Fetch fresh data in background (silent if we have local data, otherwise show loading)
+    if (!hasLocalData) {
+      fetchClients(false);
+    } else {
+      fetchClients(true);
+    }
   }, [fetchClients]);
 
   useEffect(() => {
+    const savingsCacheKey = `billops_admin_customer_savings:${userProfile?.username ?? 'unknown'}`;
+    const cached = localStorage.getItem(savingsCacheKey);
+
+    if (cached) {
+      try {
+        const { data: d } = JSON.parse(cached) as { data: CustomerSpotSavings[]; ts: number };
+        if (Array.isArray(d)) {
+          setCustomerSavings(d);
+          setCustomerSavingsLoading(false);
+        }
+      } catch (e) { /* ignore corrupt cache */ }
+    }
+
     apiFetch('/api/admin/autospotting/customer-savings', { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then((d: CustomerSpotSavings[]) => setCustomerSavings(d))
+      .then((d: CustomerSpotSavings[]) => {
+        setCustomerSavings(d);
+        localStorage.setItem(savingsCacheKey, JSON.stringify({ data: d, ts: Date.now() }));
+      })
       .catch(err => console.error('Failed to load customer spot savings', err))
       .finally(() => setCustomerSavingsLoading(false));
-  }, []);
+  }, [userProfile?.username]);
 
   // Chart refs
   const providerChartRef = useRef<HTMLCanvasElement>(null);
