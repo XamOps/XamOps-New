@@ -26,6 +26,7 @@ const XAMSECURE_SUBTABS: { id: string; label: string; icon: string }[] = [
   { id: 'vulnerabilities', label: 'Vulnerabilities', icon: 'fas fa-bug' },
   { id: 'posture', label: 'Configurations', icon: 'fas fa-clipboard-check' },
   { id: 'api-security', label: 'APIs', icon: 'fas fa-plug' },
+  { id: 'identities', label: 'Identities', icon: 'fas fa-user-shield' },
   { id: 'threats', label: 'Threats', icon: 'fas fa-bolt' },
   { id: 'components', label: 'Components', icon: 'fas fa-cubes' },
 ];

@@ -1,14 +1,18 @@
-import React, { useState } from 'react';
-import type { IssueSummary, IssueDetail } from '../../types/xamsecure';
+import React, { useMemo, useState } from 'react';
+import type { IssueSummary, IssueDetail, ResourceDetail } from '../../types/xamsecure';
+import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
 import IssueDrawer from './IssueDrawer';
 import Pager, { usePaged } from './Pager';
+import FilterChips, { SEVERITY_TINT } from './FilterChips';
+import { useResourceDrawer } from './useResourceDrawer';
 import { FrameworkLogo, hasFrameworkLogo } from '../../utils/frameworkBranding';
 
 interface Props {
   data: IssueSummary[] | null;
   isLoading: boolean;
   loadDetail: (check: string) => Promise<IssueDetail>;
+  loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
 }
 
 /**
@@ -16,11 +20,33 @@ interface Props {
  * into one actionable row each (grouped by check across all affected resources).
  * Clicking a row opens the read-only detail drawer.
  */
-const IssuesTab: React.FC<Props> = ({ data, isLoading, loadDetail }) => {
+const IssuesTab: React.FC<Props> = ({ data, isLoading, loadDetail, loadResourceDetail }) => {
   const [selected, setSelected] = useState<IssueSummary | null>(null);
   const [detail, setDetail] = useState<IssueDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const allRows = data ?? [];
+  const { open, drawer } = useResourceDrawer(loadResourceDetail);
+  const [severity, setSeverity] = useState<string | null>(null);
+  const unfiltered = data ?? [];
+
+  // Severity distribution, ordered by seriousness rather than by count, so the chips
+  // always read Critical → Low regardless of which bucket happens to be largest.
+  const severityGroups = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of unfiltered) {
+      const key = (r.severity ?? 'LOW').toUpperCase();
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return SEVERITY_ORDER
+      .filter((s) => counts.has(s))
+      .map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase(), count: counts.get(s)! }));
+  }, [unfiltered]);
+
+  const allRows = useMemo(
+    () => (severity === null
+      ? unfiltered
+      : unfiltered.filter((r) => (r.severity ?? 'LOW').toUpperCase() === severity)),
+    [unfiltered, severity]);
+
   const { page, setPage, pageItems: rows, totalPages, total } = usePaged(allRows, 25);
 
   const openIssue = async (issue: IssueSummary) => {
@@ -42,12 +68,23 @@ const IssuesTab: React.FC<Props> = ({ data, isLoading, loadDetail }) => {
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Issues</p>
-        {allRows.length > 0 && (
+        {unfiltered.length > 0 && (
           <span className="text-[10px] font-semibold text-gray-500">
-            {allRows.length} {allRows.length === 1 ? 'issue' : 'issues'} · {totalResources} affected resources
+            {unfiltered.length} {unfiltered.length === 1 ? 'issue' : 'issues'} · {totalResources} affected resources
           </span>
         )}
       </div>
+      {severityGroups.length > 1 && (
+        <div className="px-5 py-3 border-b border-gray-100">
+          <FilterChips
+            options={severityGroups}
+            active={severity}
+            allCount={unfiltered.length}
+            tint={(v) => SEVERITY_TINT[v]}
+            onChange={(v) => { setSeverity(v); setPage(0); }}
+          />
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -98,7 +135,11 @@ const IssuesTab: React.FC<Props> = ({ data, isLoading, loadDetail }) => {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-5 py-12 text-center text-gray-400">
-                  {isLoading ? 'Loading issues...' : 'No open issues for the selected account.'}
+                  {isLoading
+                    ? 'Loading issues...'
+                    : severity !== null
+                      ? `No ${severity.toLowerCase()}-severity issues. Clear the filter to see all issues.`
+                      : 'No open issues for the selected account.'}
                 </td>
               </tr>
             )}
@@ -112,8 +153,10 @@ const IssuesTab: React.FC<Props> = ({ data, isLoading, loadDetail }) => {
           detail={detail}
           isLoading={detailLoading}
           onClose={() => { setSelected(null); setDetail(null); }}
+          onOpenResource={(id) => { setSelected(null); setDetail(null); open(id); }}
         />
       )}
+      {drawer}
     </div>
   );
 };

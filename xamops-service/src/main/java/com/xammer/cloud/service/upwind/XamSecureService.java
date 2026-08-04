@@ -40,6 +40,7 @@ public class XamSecureService {
     private final UpwindAccountConnectionRepository connectionRepo;
     private final RedisCacheService redisCacheService;
     private final UpwindInventoryAssetRepository inventoryRepo;
+    private final UpwindApiEndpointRepository apiEndpointRepo;
     private final UpwindApiClient apiClient;
 
     public XamSecureService(CloudAccountRepository cloudAccountRepository,
@@ -50,6 +51,7 @@ public class XamSecureService {
                             UpwindAccountConnectionRepository connectionRepo,
                             RedisCacheService redisCacheService,
                             UpwindInventoryAssetRepository inventoryRepo,
+                            UpwindApiEndpointRepository apiEndpointRepo,
                             UpwindApiClient apiClient) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.detectionRepo = detectionRepo;
@@ -59,6 +61,7 @@ public class XamSecureService {
         this.connectionRepo = connectionRepo;
         this.redisCacheService = redisCacheService;
         this.inventoryRepo = inventoryRepo;
+        this.apiEndpointRepo = apiEndpointRepo;
         this.apiClient = apiClient;
     }
 
@@ -120,6 +123,17 @@ public class XamSecureService {
                 List<String> actions = new ArrayList<>();
                 w.path("config").path("actions").forEach(a -> actions.add(a.path("type").asText()));
                 m.put("actions", actions);
+                // Action audience and report type live deeper in config; the table can't show
+                // them but the detail panel can, so pass them through rather than dropping them.
+                List<Map<String, Object>> actionDetails = new ArrayList<>();
+                w.path("config").path("actions").forEach(a -> {
+                    Map<String, Object> ad = new LinkedHashMap<>();
+                    ad.put("type", textOrNull(a, "type"));
+                    ad.put("targetAudience", textOrNull(a, "target_audience"));
+                    actionDetails.add(ad);
+                });
+                m.put("actionDetails", actionDetails);
+                m.put("reportType", textOrNull(w.path("config").path("config"), "type"));
                 rows.add(m);
             }
         } catch (Exception e) {
@@ -185,9 +199,45 @@ public class XamSecureService {
         return rows;
     }
 
+    /**
+     * APIs tab data. Reads the locally synced endpoints so the request returns immediately —
+     * walking Upwind inline blocked the tab for ~20s on every cache miss.
+     *
+     * Falls back to a live fetch only when nothing has been synced yet (fresh deploy before
+     * the first full sync), so the tab isn't empty in the interim.
+     */
     public List<Map<String, Object>> getApiSecurity(Long clientId, String accountId) {
         List<String> ids = resolveAccountIds(clientId, accountId);
-        if (ids.isEmpty() || !apiClient.isConfigured()) return List.of();
+        if (ids.isEmpty()) return List.of();
+
+        List<UpwindApiEndpoint> synced =
+                apiEndpointRepo.findByCloudAccountIdInAndStatusOrderByUriAsc(ids, "ACTIVE");
+        if (!synced.isEmpty()) {
+            return synced.stream().map(this::toApiEndpointRow).collect(Collectors.toList());
+        }
+        return fetchApiSecurityLive(clientId, accountId, ids);
+    }
+
+    private Map<String, Object> toApiEndpointRow(UpwindApiEndpoint e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", e.getUpwindId());
+        m.put("method", e.getMethod());
+        m.put("uri", e.getUri());
+        m.put("resourceId", e.getResourceId());
+        m.put("firstSeenTime", e.getFirstSeenTime() == null ? null : e.getFirstSeenTime().toString());
+        m.put("lastSeenTime", e.getLastSeenTime() == null ? null : e.getLastSeenTime().toString());
+        m.put("internetExposed", e.isInternetExposed());
+        m.put("authState", e.getAuthState());
+        m.put("authenticated", "AUTHENTICATED".equalsIgnoreCase(e.getAuthState()));
+        m.put("domains", e.getDomains() == null || e.getDomains().isEmpty()
+                ? List.of() : Arrays.asList(e.getDomains().split(",")));
+        m.put("cloudAccountId", e.getCloudAccountId());
+        return m;
+    }
+
+    /** Pre-first-sync fallback: the original live read-through, still Redis-cached. */
+    private List<Map<String, Object>> fetchApiSecurityLive(Long clientId, String accountId, List<String> ids) {
+        if (!apiClient.isConfigured()) return List.of();
         String cacheKey = "xamsecure:apisec:" + clientId + ":" + (accountId == null ? "all" : accountId);
         Optional<List<Map<String, Object>>> cached =
                 redisCacheService.get(cacheKey, new TypeReference<List<Map<String, Object>>>() {});
@@ -223,6 +273,281 @@ public class XamSecureService {
         }
         if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
+    }
+
+    /**
+     * Everything XamSecure knows about a single resource, joined across the synced domains
+     * on {@code resource_id}: its inventory identity, failing configuration checks, open
+     * CVEs, threat detections, and served API endpoints.
+     *
+     * This is the join the UI was missing. Each tab already stored resource_id, but nothing
+     * connected them, so a user could see a failing check without seeing that the same
+     * machine also had exploitable CVEs and live detections.
+     */
+    public Map<String, Object> getResourceDetail(Long clientId, String accountId, String resourceId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty() || resourceId == null || resourceId.isBlank()) return out;
+
+        List<UpwindPostureFinding> posture = postureRepo.findFailingByResource(ids, resourceId);
+        List<UpwindVulnerabilityFinding> vulns = vulnRepo.findOpenByResource(ids, resourceId);
+        List<UpwindThreatDetection> detections = detectionRepo.findByResource(ids, resourceId);
+        // NOTE: API endpoints are deliberately NOT joined here. Upwind stamps endpoints with an
+        // internal API-resource id (ep-…), not the cloud resource id that findings use, so the
+        // join can never match. Surfacing it would show a permanent zero. Revisit if Upwind
+        // exposes a cloud resource reference on apisecurity-endpoints.
+
+        // Identity: prefer the inventory asset, else fall back to whichever finding we have.
+        Map<String, Object> identity = new LinkedHashMap<>();
+        identity.put("resourceId", resourceId);
+        inventoryRepo.findByCloudResourceId(resourceId).ifPresentOrElse(a -> {
+            identity.put("name", a.getName());
+            identity.put("resourceType", a.getLabel());
+            identity.put("assetCategory", a.getAssetCategory());
+            identity.put("cloudProvider", a.getCloudProvider());
+            identity.put("cloudAccountId", a.getCloudAccountId());
+            identity.put("region", a.getRegion());
+        }, () -> {
+            if (!posture.isEmpty()) {
+                UpwindPostureFinding f = posture.get(0);
+                identity.put("name", f.getResourceName());
+                identity.put("resourceType", f.getResourceType());
+                identity.put("cloudProvider", f.getCloudProvider());
+                identity.put("cloudAccountId", f.getCloudAccountId());
+                identity.put("region", f.getRegion());
+            } else if (!vulns.isEmpty()) {
+                UpwindVulnerabilityFinding v = vulns.get(0);
+                identity.put("name", v.getResourceName());
+                identity.put("resourceType", v.getResourceType());
+                identity.put("cloudProvider", v.getCloudProvider());
+                identity.put("cloudAccountId", v.getCloudAccountId());
+                identity.put("region", v.getRegion());
+            } else if (!detections.isEmpty()) {
+                UpwindThreatDetection d = detections.get(0);
+                identity.put("name", d.getResourceName());
+                identity.put("resourceType", d.getResourceType());
+                identity.put("cloudProvider", d.getCloudProvider());
+                identity.put("cloudAccountId", d.getCloudAccountId());
+            }
+        });
+
+        out.put("identity", identity);
+        out.put("counts", Map.of(
+                "configurations", posture.size(),
+                "vulnerabilities", vulns.size(),
+                "detections", detections.size()));
+        out.put("topSeverity", highestSeverity(posture, vulns, detections));
+
+        out.put("configurations", posture.stream().map(f -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("check", f.getCheckTitle() != null ? f.getCheckTitle() : f.getTitle());
+            m.put("severity", f.getSeverity());
+            m.put("framework", f.getFrameworkTitle());
+            m.put("lastSeenTime", f.getLastSeenTime());
+            return m;
+        }).collect(Collectors.toList()));
+
+        out.put("vulnerabilities", vulns.stream().map(v -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("cveId", v.getCveId());
+            m.put("name", v.getVulnerabilityName());
+            m.put("severity", v.getSeverity());
+            m.put("cvssScore", v.getCvssScore());
+            m.put("epssScore", v.getEpssScore());
+            m.put("exploitable", v.getExploitable());
+            m.put("lastScanTime", v.getLastScanTime());
+            return m;
+        }).collect(Collectors.toList()));
+
+        out.put("detections", detections.stream().map(d -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("upwindId", d.getUpwindId());
+            m.put("title", d.getTitle());
+            m.put("severity", d.getSeverity());
+            m.put("status", d.getStatus());
+            m.put("mitreTactics", d.getMitreTactics());
+            m.put("lastSeenTime", d.getLastSeenTime());
+            return m;
+        }).collect(Collectors.toList()));
+
+        return out;
+    }
+
+    /** Worst severity across every domain touching the resource, for the drawer header. */
+    private static String highestSeverity(List<UpwindPostureFinding> posture,
+                                         List<UpwindVulnerabilityFinding> vulns,
+                                         List<UpwindThreatDetection> detections) {
+        String best = null;
+        for (UpwindPostureFinding f : posture) best = worse(best, f.getSeverity());
+        for (UpwindVulnerabilityFinding v : vulns) best = worse(best, v.getSeverity());
+        for (UpwindThreatDetection d : detections) best = worse(best, d.getSeverity());
+        return best;
+    }
+
+    private static String worse(String current, String candidate) {
+        if (candidate == null) return current;
+        if (current == null) return candidate.toUpperCase();
+        int ci = SEVERITY_ORDER.indexOf(candidate.toUpperCase());
+        int cu = SEVERITY_ORDER.indexOf(current.toUpperCase());
+        if (ci < 0) return current;
+        if (cu < 0 || ci < cu) return candidate.toUpperCase();
+        return current;
+    }
+
+    /**
+     * Identities view, derived from configuration findings on identity resources.
+     *
+     * Upwind's Identities module is not reachable for us: every v1 identity path returns 404
+     * and the v2 inventory search exposes exactly one identity asset (an OIDC provider), so
+     * IAM users and roles only appear to us as the subjects of failing checks. This therefore
+     * reports identities that HAVE findings — it is not a complete identity inventory, and it
+     * cannot reproduce Upwind's high-privilege classification, which no endpoint exposes.
+     */
+    public Map<String, Object> getIdentities(Long clientId, String accountId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("identities", List.of());
+        out.put("severityCounts", Map.of());
+        out.put("byType", List.of());
+        out.put("total", 0);
+
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty()) return out;
+
+        // One entry per identity resource, accumulating its failing checks.
+        Map<String, IdentityAgg> byResource = new LinkedHashMap<>();
+        for (Object[] r : postureRepo.findIdentityFailings(ids)) {
+            String resourceId = (String) r[0];
+            String key = resourceId != null ? resourceId : (String) r[1];
+            if (key == null) continue;
+            IdentityAgg a = byResource.computeIfAbsent(key, k -> new IdentityAgg());
+            if (a.resourceId == null) {
+                a.resourceId = resourceId;
+                a.name = (String) r[1];
+                a.resourceType = (String) r[2];
+                a.cloudProvider = (String) r[6];
+                a.cloudAccountId = (String) r[7];
+            }
+            String check = (String) r[3];
+            a.checks.add(check != null ? check : (String) r[4]);
+            a.severity = worse(a.severity, (String) r[5]);
+            a.lastSeen = latest(a.lastSeen, toInstant(r[8]));
+            a.firstSeen = earliest(a.firstSeen, toInstant(r[9]));
+        }
+
+        List<Map<String, Object>> identities = byResource.values().stream()
+                .sorted(Comparator
+                        .comparingInt((IdentityAgg a) -> {
+                            int i = SEVERITY_ORDER.indexOf(a.severity == null ? "" : a.severity);
+                            return i < 0 ? Integer.MAX_VALUE : i;
+                        })
+                        .thenComparing(a -> -a.checks.size()))
+                .map(a -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("resourceId", a.resourceId);
+                    m.put("name", a.name);
+                    m.put("resourceType", a.resourceType);
+                    m.put("cloudProvider", a.cloudProvider);
+                    m.put("cloudAccountId", a.cloudAccountId);
+                    m.put("severity", a.severity);
+                    m.put("findingCount", a.checks.size());
+                    m.put("checks", new ArrayList<>(a.checks));
+                    m.put("firstSeen", a.firstSeen);
+                    m.put("lastSeen", a.lastSeen);
+                    return m;
+                })
+                .collect(Collectors.toList());
+
+        Map<String, Long> severityCounts = new LinkedHashMap<>();
+        for (String sev : SEVERITY_ORDER) {
+            long n = byResource.values().stream()
+                    .filter(a -> sev.equals(a.severity)).count();
+            if (n > 0) severityCounts.put(sev, n);
+        }
+
+        Map<String, Long> typeCounts = new LinkedHashMap<>();
+        for (IdentityAgg a : byResource.values()) {
+            String t = a.resourceType == null ? "OTHER" : a.resourceType;
+            typeCounts.merge(t, 1L, Long::sum);
+        }
+        List<Map<String, Object>> byType = typeCounts.entrySet().stream()
+                .sorted((x, y) -> Long.compare(y.getValue(), x.getValue()))
+                .map(e -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("type", e.getKey());
+                    m.put("count", e.getValue());
+                    return m;
+                })
+                .collect(Collectors.toList());
+
+        out.put("identities", identities);
+        out.put("severityCounts", severityCounts);
+        out.put("byType", byType);
+        out.put("total", identities.size());
+        return out;
+    }
+
+    /** Mutable per-identity aggregate for the Identities view. */
+    private static final class IdentityAgg {
+        String resourceId, name, resourceType, cloudProvider, cloudAccountId, severity;
+        final Set<String> checks = new LinkedHashSet<>();
+        Instant firstSeen, lastSeen;
+    }
+
+    /** Domains the full/incremental syncs report state for, in display order. */
+    private static final List<String> SYNC_DOMAINS = List.of(
+            "DETECTIONS", "VULNERABILITIES", "POSTURE", "INVENTORY", "API_ENDPOINTS");
+
+    /**
+     * Per-domain sync freshness for the UI. Without this, a stalled or failing sync is
+     * invisible in the product — the tabs simply render older data with no indication.
+     *
+     * Staleness thresholds are generous multiples of each cadence (detections poll every
+     * 60s, the rest reconcile hourly) so normal jitter isn't flagged.
+     */
+    public Map<String, Object> getSyncStatus() {
+        Instant now = Instant.now();
+        List<Map<String, Object>> domains = new ArrayList<>();
+        Instant oldest = null;
+        boolean anyStale = false, anyError = false;
+
+        for (String domain : SYNC_DOMAINS) {
+            UpwindSyncState s = syncStateRepo.findByDomain(domain).orElse(null);
+            Instant lastSuccess = s == null ? null : s.getLastSuccessAt();
+            long staleAfter = "DETECTIONS".equals(domain) ? 600 : 10_800; // 10 min / 3 h
+            Long ageSeconds = lastSuccess == null ? null
+                    : Math.max(0, now.getEpochSecond() - lastSuccess.getEpochSecond());
+            boolean stale = ageSeconds == null || ageSeconds > staleAfter;
+            // An error only matters while it's the most recent outcome for that domain.
+            boolean failing = false;
+            String lastError = null;
+            if (s != null && s.getLastErrorAt() != null
+                    && (lastSuccess == null || s.getLastErrorAt().isAfter(lastSuccess))) {
+                failing = true;
+                lastError = s.getLastError();
+            }
+
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("domain", domain);
+            m.put("lastSuccessAt", lastSuccess == null ? null : lastSuccess.toString());
+            m.put("ageSeconds", ageSeconds);
+            m.put("stale", stale);
+            m.put("failing", failing);
+            m.put("lastError", lastError);
+            domains.add(m);
+
+            anyStale |= stale;
+            anyError |= failing;
+            if (lastSuccess != null && (oldest == null || lastSuccess.isBefore(oldest))) {
+                oldest = lastSuccess;
+            }
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("status", anyError ? "ERROR" : anyStale ? "STALE" : "OK");
+        out.put("oldestSuccessAt", oldest == null ? null : oldest.toString());
+        out.put("serverTime", now.toString());
+        out.put("domains", domains);
+        return out;
     }
 
     /**
@@ -563,6 +888,8 @@ public class XamSecureService {
         out.put("totalElements", 0);
         out.put("totalPages", 0);
         out.put("number", page);
+        // Keep the response shape stable on the empty path so the UI never sees it missing.
+        out.put("severityCounts", Map.of());
 
         List<String> ids = resolveAccountIds(clientId, accountId);
         if (ids.isEmpty()) return out;
@@ -586,6 +913,18 @@ public class XamSecureService {
             g.firstSeen = earliest(g.firstSeen, (Instant) r[9]);
             g.lastScan = latest(g.lastScan, (Instant) r[10]);
         }
+
+        // CVE-level severity distribution, computed BEFORE the severity filter so the UI's
+        // group-by chips show the whole set. The dashboard's counts are per finding, which
+        // would not match these rows (one CVE spans many findings).
+        Map<String, Long> cveSeverityCounts = new LinkedHashMap<>();
+        for (String sev : SEVERITY_ORDER) {
+            long n = byCve.values().stream()
+                    .filter(g -> sev.equalsIgnoreCase(g.severity == null ? "" : g.severity))
+                    .count();
+            if (n > 0) cveSeverityCounts.put(sev, n);
+        }
+        out.put("severityCounts", cveSeverityCounts);
 
         List<CveGroup> all = byCve.values().stream()
                 .filter(g -> severity == null || severity.isEmpty()
@@ -624,6 +963,7 @@ public class XamSecureService {
                     : (v.getResourceName() != null ? v.getResourceName() : "unknown");
             CveResourceAgg agg = byResource.computeIfAbsent(key, k -> new CveResourceAgg());
             if (agg.resourceName == null) {
+                agg.resourceId = v.getResourceId();
                 agg.resourceName = v.getResourceName();
                 agg.resourceType = v.getResourceType();
                 agg.region = v.getRegion();
@@ -656,6 +996,8 @@ public class XamSecureService {
 
         return byResource.values().stream().map(a -> {
             Map<String, Object> m = new LinkedHashMap<>();
+            // resourceId lets the UI open the cross-domain resource view from a CVE row.
+            m.put("resourceId", a.resourceId);
             m.put("resourceName", a.resourceName);
             m.put("resourceType", a.resourceType);
             m.put("region", a.region);
@@ -677,6 +1019,7 @@ public class XamSecureService {
     }
 
     private static final class CveResourceAgg {
+        String resourceId;
         String resourceName, resourceType, region, cloudProvider, cvssScore, fixedInVersion;
         boolean exploitable, anyInUse;
         Instant firstSeen, lastScan;

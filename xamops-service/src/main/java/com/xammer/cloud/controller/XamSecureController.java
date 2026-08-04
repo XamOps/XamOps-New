@@ -130,6 +130,37 @@ public class XamSecureController {
         return ResponseEntity.ok(xamSecureService.getConfigurationsDashboard(user.getClientId(), accountId));
     }
 
+    /**
+     * Identities with failing configuration checks. Derived, not fetched — Upwind's
+     * Identities module is not reachable on our credential.
+     */
+    @GetMapping("/identities")
+    public ResponseEntity<?> identities(@AuthenticationPrincipal ClientUserDetails user,
+                                        @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getIdentities(user.getClientId(), accountId));
+    }
+
+    /**
+     * Unified view of one resource across configurations, vulnerabilities, detections and
+     * API endpoints — the cross-tab join the flat tables couldn't express.
+     */
+    @GetMapping("/resource")
+    public ResponseEntity<?> resourceDetail(@AuthenticationPrincipal ClientUserDetails user,
+                                            @RequestParam(required = false) String accountId,
+                                            @RequestParam String resourceId) {
+        return ResponseEntity.ok(
+                xamSecureService.getResourceDetail(user.getClientId(), accountId, resourceId));
+    }
+
+    /**
+     * Sync freshness per domain, so the UI can show when Upwind data was last reconciled
+     * instead of silently rendering stale rows.
+     */
+    @GetMapping("/sync-status")
+    public ResponseEntity<?> syncStatus() {
+        return ResponseEntity.ok(xamSecureService.getSyncStatus());
+    }
+
     @GetMapping("/api-security")
     public ResponseEntity<?> apiSecurity(@AuthenticationPrincipal ClientUserDetails user,
                                          @RequestParam(required = false) String accountId) {

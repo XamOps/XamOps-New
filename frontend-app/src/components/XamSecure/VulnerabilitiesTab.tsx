@@ -5,9 +5,13 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis
 import type { FunnelStage } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
 import type {
-  PageResp, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
+  PageResp, VulnerabilityDashboard, CveGroupRow, CveResourceFinding, ResourceDetail,
 } from '../../types/xamsecure';
+import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
+import ResourceLink from './ResourceLink';
+import FilterChips, { SEVERITY_TINT } from './FilterChips';
+import { useResourceDrawer } from './useResourceDrawer';
 
 /** Upwind severity palette. */
 const SEV_COLOR = { Critical: '#dc2626', High: '#f97316', Medium: '#eab308', Other: '#3b82f6' } as const;
@@ -18,6 +22,9 @@ interface Props {
   isLoading: boolean;
   onCvePage: (page: number) => void;
   loadCveFindings: (cveId: string) => Promise<CveResourceFinding[]>;
+  loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
+  /** Server-side severity filter for the CVE list (it is paginated). */
+  onCveSeverity?: (severity: string) => void;
 }
 
 const WORKLOAD_LABEL: Record<string, string> = {
@@ -36,9 +43,12 @@ function last7(): { key: string; label: string }[] {
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
-const VulnerabilitiesTab: React.FC<Props> = ({ dashboard, byCve, isLoading, onCvePage, loadCveFindings }) => {
+const VulnerabilitiesTab: React.FC<Props> = ({
+  dashboard, byCve, isLoading, onCvePage, loadCveFindings, loadResourceDetail, onCveSeverity,
+}) => {
   const [view, setView] = useState<'dashboard' | 'findings'>('dashboard');
   const days = useMemo(() => last7(), []);
+  const { open, drawer } = useResourceDrawer(loadResourceDetail);
 
   const sev = dashboard?.severityCounts ?? {};
   const critical = sev.CRITICAL ?? 0;
@@ -173,8 +183,11 @@ const VulnerabilitiesTab: React.FC<Props> = ({ dashboard, byCve, isLoading, onCv
           </div>
         </div>
       ) : (
-        <CveFindings byCve={byCve} isLoading={isLoading} onPage={onCvePage} loadCveFindings={loadCveFindings} />
+        <CveFindings byCve={byCve} isLoading={isLoading} onPage={onCvePage}
+                     loadCveFindings={loadCveFindings} onOpenResource={open}
+                     onSeverity={onCveSeverity} />
       )}
+      {drawer}
     </div>
   );
 };
@@ -185,10 +198,25 @@ const CveFindings: React.FC<{
   isLoading: boolean;
   onPage: (page: number) => void;
   loadCveFindings: (cveId: string) => Promise<CveResourceFinding[]>;
-}> = ({ byCve, isLoading, onPage, loadCveFindings }) => {
+  onOpenResource: (resourceId: string) => void;
+  onSeverity?: (severity: string) => void;
+}> = ({ byCve, isLoading, onPage, loadCveFindings, onOpenResource, onSeverity }) => {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [severity, setSeverity] = useState<string | null>(null);
   const [drill, setDrill] = useState<Record<string, CveResourceFinding[] | 'loading'>>({});
   const rows = byCve?.content ?? [];
+
+  // Counts are CVE-level and computed server-side before filtering, so they match these rows.
+  const severityGroups = useMemo(() => {
+    const counts = byCve?.severityCounts ?? {};
+    return SEVERITY_ORDER
+      .filter((s) => (counts[s] ?? 0) > 0)
+      .map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase(), count: counts[s] }));
+  }, [byCve]);
+
+  const totalCveCount = useMemo(
+    () => Object.values(byCve?.severityCounts ?? {}).reduce((a, b) => a + b, 0),
+    [byCve]);
 
   const toggle = async (cveId: string) => {
     if (expanded === cveId) { setExpanded(null); return; }
@@ -211,6 +239,17 @@ const CveFindings: React.FC<{
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">CVEs</p>
         {byCve && <span className="text-[10px] text-gray-400">{byCve.totalElements} CVEs</span>}
       </div>
+      {onSeverity && severityGroups.length > 1 && (
+        <div className="px-5 py-3 border-b border-gray-100">
+          <FilterChips
+            options={severityGroups}
+            active={severity}
+            allCount={totalCveCount}
+            tint={(v) => SEVERITY_TINT[v]}
+            onChange={(v) => { setSeverity(v); setExpanded(null); onSeverity(v ?? ''); }}
+          />
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -259,7 +298,8 @@ const CveFindings: React.FC<{
                       {drill[c.cveId] === 'loading' ? (
                         <p className="text-[11px] text-gray-400 py-2">Loading affected resources...</p>
                       ) : (
-                        <CveDrill findings={(drill[c.cveId] as CveResourceFinding[]) ?? []} />
+                        <CveDrill findings={(drill[c.cveId] as CveResourceFinding[]) ?? []}
+                                  onOpenResource={onOpenResource} />
                       )}
                     </td>
                   </tr>
@@ -290,7 +330,10 @@ const CveFindings: React.FC<{
 };
 
 /** Paginated per-CVE affected-package table (a CVE can hit 100+ packages). */
-const CveDrill: React.FC<{ findings: CveResourceFinding[] }> = ({ findings }) => {
+const CveDrill: React.FC<{
+  findings: CveResourceFinding[];
+  onOpenResource: (resourceId: string) => void;
+}> = ({ findings, onOpenResource }) => {
   const { page, setPage, pageItems, totalPages, total } = usePaged(findings, 20);
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
@@ -309,9 +352,9 @@ const CveDrill: React.FC<{ findings: CveResourceFinding[] }> = ({ findings }) =>
         <tbody>
           {pageItems.map((r, i) => (
             <tr key={i} className="border-b border-gray-50 last:border-0">
-              <td className="px-3 py-2 text-gray-800 font-medium max-w-[160px] truncate">
-                {r.resourceName ?? '—'}
-                {r.cloudProvider && <span className="block text-[9px] text-gray-400">{r.cloudProvider}</span>}
+              <td className="px-3 py-2 text-gray-800 max-w-[160px]">
+                <ResourceLink resourceId={r.resourceId} label={r.resourceName}
+                              sub={r.cloudProvider} onOpen={onOpenResource} />
               </td>
               <td className="px-3 py-2 text-gray-600">{r.resourceType ?? '—'}</td>
               <td className="px-3 py-2 text-gray-700">

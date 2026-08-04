@@ -6,7 +6,7 @@ import type {
   ThreatPolicy, Workflow,
   IssueSummary, IssueDetail, ThreatStoriesSummary, InventoryCategory, NetworkTopology,
   AttackSurfaceSummary, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
-  ConfigurationsDashboard,
+  ConfigurationsDashboard, ResourceDetail, SyncStatus, IdentitiesSummary,
 } from '../types/xamsecure';
 
 const CACHE_DURATION = 30 * 60 * 1000; // 30 min for scan-based tabs
@@ -57,6 +57,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [configDashboard, setConfigDashboard] = useState<ConfigurationsDashboard | null>(null);
   const [apiSecurity, setApiSecurity] = useState<ApiEndpoint[] | null>(null);
   const [components, setComponents] = useState<SbomComponent[] | null>(null);
+  const [identities, setIdentities] = useState<IdentitiesSummary | null>(null);
   const [threatPolicies, setThreatPolicies] = useState<ThreatPolicy[] | null>(null);
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
   const [stories, setStories] = useState<ThreatStoriesSummary | null>(null);
@@ -104,6 +105,28 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     setAttackSurface(data);
     saveCache(key, data);
   }, [acct, selectedAccountId]);
+
+  const loadIdentities = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('identities', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<IdentitiesSummary>(key);
+      if (cached) { setIdentities(cached); return; }
+    }
+    const data = await apiClient.get<IdentitiesSummary>(`/api/xamsecure/identities?${acct}`);
+    setIdentities(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
+  /** Cross-domain view of one resource, used by every table that shows a resource. */
+  const loadResourceDetail = useCallback(async (resourceId: string): Promise<ResourceDetail> => {
+    return apiClient.get<ResourceDetail>(
+      `/api/xamsecure/resource?${acct}resourceId=${encodeURIComponent(resourceId)}`);
+  }, [acct]);
+
+  /** Sync freshness for the header indicator. Cheap, so it is never cached. */
+  const loadSyncStatus = useCallback(async (): Promise<SyncStatus> => {
+    return apiClient.get<SyncStatus>('/api/xamsecure/sync-status');
+  }, []);
 
   const loadIssueDetail = useCallback(async (check: string): Promise<IssueDetail> => {
     return apiClient.get<IssueDetail>(
@@ -304,7 +327,9 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
           await Promise.all([loadVulnDashboard(), loadVulnByCve()]);
         }
         else if (activeTab === 'posture') {
-          await Promise.all([loadConfigDashboard(), loadPosture(), loadCompliance()]);
+          // Issues are included so the framework drawer can list each framework's failing
+          // controls without an extra round-trip.
+          await Promise.all([loadConfigDashboard(), loadPosture(), loadCompliance(), loadIssues()]);
         }
         else if (activeTab === 'inventory') {
           await Promise.all([loadInventory(), loadInventoryCategories(), loadNetworkTopology()]);
@@ -312,6 +337,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
         else if (activeTab === 'compliance') await loadCompliance();
         else if (activeTab === 'api-security') await loadApiSecurity();
         else if (activeTab === 'components') await loadComponents();
+        else if (activeTab === 'identities') await loadIdentities();
         else if (activeTab === 'threat-policies') await loadThreatPolicies();
         else if (activeTab === 'workflows') await loadWorkflows();
         else if (activeTab === 'onboarding') await loadOnboarding();
@@ -337,7 +363,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   }, [activeTab, selectedAccountId, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories,
       loadVulnerabilities, loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
       loadNetworkTopology, loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents,
-      loadThreatPolicies, loadWorkflows, loadOnboarding]);
+      loadIdentities, loadThreatPolicies, loadWorkflows, loadOnboarding]);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -352,7 +378,8 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
         await Promise.all([loadVulnDashboard(true), loadVulnByCve()]);
       }
       else if (activeTab === 'posture') {
-        await Promise.all([loadConfigDashboard(true), loadPosture(0, '', true), loadCompliance(true)]);
+        await Promise.all([loadConfigDashboard(true), loadPosture(0, '', true), loadCompliance(true),
+                           loadIssues('', true)]);
       }
       else if (activeTab === 'inventory') {
         await Promise.all([loadInventory(0, '', true), loadInventoryCategories(true), loadNetworkTopology(true)]);
@@ -360,6 +387,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       else if (activeTab === 'compliance') await loadCompliance(true);
       else if (activeTab === 'api-security') await loadApiSecurity(true);
       else if (activeTab === 'components') await loadComponents(true);
+      else if (activeTab === 'identities') await loadIdentities(true);
       else if (activeTab === 'threat-policies') await loadThreatPolicies(true);
       else if (activeTab === 'workflows') await loadWorkflows(true);
       else if (activeTab === 'onboarding') await loadOnboarding();
@@ -370,15 +398,16 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     }
   }, [activeTab, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories, loadVulnerabilities,
       loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories, loadNetworkTopology,
-      loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents, loadThreatPolicies,
-      loadWorkflows, loadOnboarding]);
+      loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents, loadIdentities,
+      loadThreatPolicies, loadWorkflows, loadOnboarding]);
 
   return {
     summary, issues, attackSurface, threats, vulnerabilities, vulnDashboard, vulnByCve, posture, inventory,
     inventoryCategories, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
-    threatPolicies, workflows, stories,
+    threatPolicies, workflows, stories, identities,
     isLoading, refresh,
-    loadIssues, loadIssueDetail, loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,
+    loadIssues, loadIssueDetail, loadResourceDetail, loadSyncStatus,
+    loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,
     loadPosture, loadInventory, loadApiSecurity, loadComponents, archiveThreat,
   };
 };
