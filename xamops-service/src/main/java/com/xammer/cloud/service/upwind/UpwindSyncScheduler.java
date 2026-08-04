@@ -15,7 +15,7 @@ import java.time.Duration;
  * pushes changes in near real-time; the full sync then just backfills anything missed
  * and marks resolved items. Both intervals are configurable (ms):
  *   upwind.sync.detection-interval-ms  (default 60000)
- *   upwind.sync.full-interval-ms       (default 3600000 = 1h)
+ *   upwind.sync.full-interval-ms       (default 21600000 = 6h)
  * Enabled only when upwind.sync.enabled=true.
  *
  * Every run is lease-guarded. live.xamops.com is an ASG, so all instances boot this same
@@ -50,7 +50,10 @@ public class UpwindSyncScheduler {
         lease.runIfLeader("DETECTIONS", DETECTION_LEASE, syncService::syncDetections);
     }
 
-    @Scheduled(fixedDelayString = "${upwind.sync.full-interval-ms:3600000}",
+    // 6h, not 1h: a full run measures ~73 minutes of API time, so an hourly cadence left the
+    // sync running back-to-back. fixedDelay counts from completion, so runs never overlap
+    // within an instance regardless — the interval governs how hard we hammer Upwind and the DB.
+    @Scheduled(fixedDelayString = "${upwind.sync.full-interval-ms:21600000}",
                initialDelayString = "60000")
     public void fullSync() {
         lease.runIfLeader("FULL", Duration.ofMinutes(fullLeaseMinutes), stillLeader -> {
