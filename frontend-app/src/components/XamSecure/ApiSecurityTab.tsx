@@ -17,9 +17,15 @@ const methodColor = (m: string) => METHOD_COLOR[m?.toUpperCase()] ?? '#64748b';
 
 /**
  * APIs — mirrors Upwind's API Security dashboard using only real endpoint data:
- * an endpoints funnel (total / internet-exposed / authenticated / unauthenticated),
- * a breakdown by HTTP method, top domains, the sensitive-data classification observed on
- * each endpoint, and the endpoint inventory table.
+ * an endpoints funnel, a breakdown by HTTP method, top domains, the sensitive-data
+ * classification observed on each endpoint, and the endpoint inventory table.
+ *
+ * "Ingress observed" is deliberately not called internet exposure. The endpoint payload's
+ * risk_overview.internet_exposure.ingress carries only a last_seen_time and no `exposed`
+ * boolean (verified live against api-security/endpoints/search, 100/100 sampled rows had the
+ * timestamp). Presence of that timestamp means traffic was seen, not that the endpoint faces
+ * the internet, so labelling it "internet exposed" turned a near-constant into a red risk
+ * number covering essentially every endpoint.
  *
  * Sensitive data comes from the v2 endpoint payload's risk_overview.sensitive_data — the v1
  * endpoint list we previously read carried none, which is why this panel used to be absent.
@@ -32,7 +38,7 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
   const [selected, setSelected] = useState<ApiEndpoint | null>(null);
 
   const stats = useMemo(() => {
-    let exposed = 0, authed = 0, unauth = 0, sensitive = 0, exposedSensitive = 0;
+    let exposed = 0, authed = 0, unauth = 0, sensitive = 0;
     const byMethod: Record<string, number> = {};
     const byDomain: Record<string, number> = {};
     const bySensitive: Record<string, number> = {};
@@ -47,7 +53,6 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
       const kinds = e.sensitiveData ?? [];
       if (kinds.length > 0) {
         sensitive += 1;
-        if (e.internetExposed) exposedSensitive += 1;
         kinds.forEach((k) => { bySensitive[k] = (bySensitive[k] ?? 0) + 1; });
       }
     }
@@ -56,8 +61,14 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
     const sensitiveKinds = Object.entries(bySensitive).sort((a, b) => b[1] - a[1]);
     // Endpoints Upwind hasn't classified an auth state for (not observed enough traffic).
     const unclassified = Math.max(0, all.length - authed - unauth);
+    // Both sensitive_data and status_codes arrive only on the v2 endpoint payload. If every
+    // row is missing both, these rows were written by the old v1 read and the tab is showing
+    // stale data rather than a genuinely clean result — worth saying so instead of asserting
+    // Upwind observed nothing.
+    const preV2Rows = all.length > 0
+      && all.every((e) => (e.statusCodes ?? []).length === 0 && (e.sensitiveData ?? []).length === 0);
     return { total: all.length, exposed, authed, unauth, unclassified, methods, domains,
-             sensitive, exposedSensitive, sensitiveKinds };
+             sensitive, sensitiveKinds, preV2Rows };
   }, [all]);
 
   const { page, setPage, pageItems: rows, totalPages, total } = usePaged(all, 50);
@@ -73,7 +84,9 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
       {/* Funnel stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <Stat icon="mdi:api" label="Endpoints" value={stats.total} accent="text-gray-900" />
-        <Stat icon="mdi:earth" label="Internet exposed" value={stats.exposed} accent="text-red-600" />
+        <Stat icon="mdi:swap-horizontal" label="Ingress observed" value={stats.exposed}
+              accent="text-gray-900"
+              hint="Endpoints Upwind has seen inbound traffic on. The payload carries a last-seen timestamp only, not an exposure verdict, so this is not a count of internet-facing endpoints." />
         <Stat icon="mdi:lock-check" label="Authenticated" value={stats.authed} accent="text-emerald-600" />
         <Stat icon="mdi:lock-open-alert" label="Unauthenticated" value={stats.unauth} accent="text-orange-600" />
         <Stat icon="mdi:shield-account-outline" label="Sensitive data" value={stats.sensitive}
@@ -83,17 +96,17 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
               hint="Upwind hasn't observed enough traffic to classify auth state" />
       </div>
 
-      {/* The intersection worth acting on first, called out only when it is non-zero. */}
-      {stats.exposedSensitive > 0 && (
+      {/* Sensitive data in traffic is the thing worth acting on; called out when non-zero. */}
+      {stats.sensitive > 0 && (
         <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-4">
           <Icon icon="mdi:alert-octagon" width={18} className="text-red-600 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-semibold text-red-800">
-              {stats.exposedSensitive.toLocaleString()} internet-exposed{' '}
-              {stats.exposedSensitive === 1 ? 'endpoint carries' : 'endpoints carry'} sensitive data
+              {stats.sensitive.toLocaleString()}{' '}
+              {stats.sensitive === 1 ? 'endpoint carries' : 'endpoints carry'} sensitive data
             </p>
             <p className="text-xs text-red-700 mt-0.5">
-              Reachable from the internet and observed transmitting PII, PHI, PCI or secrets.
+              Observed transmitting PII, PHI, PCI or secrets in live traffic.
             </p>
           </div>
         </div>
@@ -163,7 +176,11 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
           </div>
         ) : (
           <p className="text-xs text-gray-400">
-            Upwind has not observed PII, PHI, PCI or secrets on these endpoints.
+            {stats.preV2Rows
+              ? 'No classification synced yet. These endpoint rows carry neither sensitive-data '
+                + 'nor status-code fields, both of which arrive only on the v2 payload, so they '
+                + 'predate the v2 switch and will populate on the next full sync.'
+              : 'Upwind has not observed PII, PHI, PCI or secrets on these endpoints.'}
           </p>
         )}
       </div>
@@ -276,7 +293,7 @@ const EndpointsFunnel: React.FC<{
 }> = ({ total, exposed, authed, unauth }) => {
   const stages = [
     { label: 'Endpoints', value: total, icon: 'mdi:api' },
-    { label: 'Internet exposed', value: exposed, icon: 'mdi:earth' },
+    { label: 'Ingress observed', value: exposed, icon: 'mdi:swap-horizontal' },
     { label: 'Authenticated', value: authed, icon: 'mdi:lock-check' },
     { label: 'Unauthenticated', value: unauth, icon: 'mdi:lock-open-alert' },
   ];
