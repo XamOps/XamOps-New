@@ -40,10 +40,12 @@ interface Props {
   isLoading?: boolean;
   /** Shown instead of the nav + body, e.g. when the entity could not be resolved. */
   emptyState?: React.ReactNode;
+  /** `narrow` suits single-section panels, which don't need room for a nav plus tables. */
+  size?: 'wide' | 'narrow';
 }
 
 const DetailPanel: React.FC<Props> = ({
-  title, subtitle, actions, sections, onClose, isLoading, emptyState,
+  title, subtitle, actions, sections, onClose, isLoading, emptyState, size = 'wide',
 }) => {
   const usable = useMemo(() => sections.filter((s) => s.available !== false), [sections]);
   const [activeId, setActiveId] = useState<string>(usable[0]?.id ?? sections[0]?.id ?? '');
@@ -72,6 +74,11 @@ const DetailPanel: React.FC<Props> = ({
 
   const active = sections.find((s) => s.id === activeId);
 
+  // A nav listing a single destination is noise. Panels for small, cohesive entities
+  // (a framework, a workflow) declare one section and get the shell's chrome, keyboard
+  // handling and scroll lock without paying a click to see their own content.
+  const singlePane = sections.length === 1;
+
   // Group consecutive sections under their heading, preserving declared order.
   const groups = useMemo(() => {
     const out: { group?: string; items: PanelSection[] }[] = [];
@@ -91,7 +98,8 @@ const DetailPanel: React.FC<Props> = ({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        className="relative h-full w-full max-w-5xl bg-white shadow-2xl flex flex-col outline-none"
+        className={`relative h-full w-full bg-white shadow-2xl flex flex-col outline-none ${
+          size === 'narrow' ? 'max-w-2xl' : 'max-w-5xl'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -115,6 +123,7 @@ const DetailPanel: React.FC<Props> = ({
         ) : (
           <div className="flex-1 flex min-h-0">
             {/* Vertical nav, as Upwind does it */}
+            {!singlePane && (
             <nav aria-label="Panel sections"
                  className="w-56 flex-shrink-0 border-r border-gray-200 overflow-y-auto py-3">
               {groups.map((g, gi) => (
@@ -159,6 +168,7 @@ const DetailPanel: React.FC<Props> = ({
                 </div>
               ))}
             </nav>
+            )}
 
             {/* Body */}
             <div className="flex-1 min-w-0 overflow-y-auto px-6 py-5">
@@ -166,7 +176,9 @@ const DetailPanel: React.FC<Props> = ({
                 <p className="text-xs text-gray-400">Loading...</p>
               ) : active ? (
                 <>
-                  <h3 className="text-base font-bold text-gray-900 mb-4">{active.label}</h3>
+                  {!singlePane && (
+                    <h3 className="text-base font-bold text-gray-900 mb-4">{active.label}</h3>
+                  )}
                   {active.render()}
                 </>
               ) : (
