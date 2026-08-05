@@ -118,6 +118,9 @@ const PostureTab: React.FC<Props> = ({
       {selected && (
         <PostureFindingDrawer
           finding={selected}
+          /* Rows already loaded for this page, so Statistics and Violating controls can
+             describe the check across the estate without another round-trip. */
+          siblings={rows}
           onClose={() => setSelected(null)}
           onOpenResource={(id) => { setSelected(null); open(id); }}
         />

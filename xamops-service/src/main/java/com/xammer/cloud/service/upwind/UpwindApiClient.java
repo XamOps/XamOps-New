@@ -163,8 +163,14 @@ public class UpwindApiClient {
             headers.setBearerAuth(getToken());
             // Upwind's WAF rejects default library user agents (nginx 403)
             headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
-            // Link-header next URLs are already percent-encoded; the String overload
-            // would re-encode them (double encoding -> Upwind 400)
+            // Pass the URI through untouched. Link-header next URLs are already
+            // percent-encoded and the String overload would re-encode them.
+            //
+            // That does NOT fail loudly: measured 2026-08-05, a double-encoded (or outright
+            // garbage) page-token returns HTTP 200 with PAGE 1 and a fresh rel="next", so a
+            // client that mangles the token silently loops page 1 -> page 2 -> page 1 for
+            // ever, never advancing and never erroring. An earlier comment here claimed a
+            // 400; that was wrong.
             ResponseEntity<String> resp = exchangeWithRetry(
                     URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
             try {

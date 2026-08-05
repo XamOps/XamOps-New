@@ -12,6 +12,7 @@ import SeverityChip from './SeverityChip';
 import ResourceLink from './ResourceLink';
 import FilterChips, { SEVERITY_TINT } from './FilterChips';
 import { useResourceDrawer } from './useResourceDrawer';
+import VulnFindingDrawer from './VulnFindingDrawer';
 
 /** Upwind severity palette. */
 const SEV_COLOR = { Critical: '#dc2626', High: '#f97316', Medium: '#eab308', Other: '#3b82f6' } as const;
@@ -47,6 +48,9 @@ const VulnerabilitiesTab: React.FC<Props> = ({
   dashboard, byCve, isLoading, onCvePage, loadCveFindings, loadResourceDetail, onCveSeverity,
 }) => {
   const [view, setView] = useState<'dashboard' | 'findings'>('dashboard');
+  // Which affected-resource row has its full finding panel open.
+  const [openFinding, setOpenFinding] =
+    useState<{ cve: CveGroupRow; finding: CveResourceFinding } | null>(null);
   const days = useMemo(() => last7(), []);
   const { open, drawer } = useResourceDrawer(loadResourceDetail);
 
@@ -187,7 +191,13 @@ const VulnerabilitiesTab: React.FC<Props> = ({
       ) : (
         <CveFindings byCve={byCve} isLoading={isLoading} onPage={onCvePage}
                      loadCveFindings={loadCveFindings} onOpenResource={open}
-                     onSeverity={onCveSeverity} />
+                     onSeverity={onCveSeverity}
+                     onOpenFinding={(cve, finding) => setOpenFinding({ cve, finding })} />
+      )}
+      {openFinding && (
+        <VulnFindingDrawer cve={openFinding.cve} finding={openFinding.finding}
+                           onClose={() => setOpenFinding(null)}
+                           onOpenResource={(id) => { setOpenFinding(null); open(id); }} />
       )}
       {drawer}
     </div>
@@ -202,7 +212,11 @@ const CveFindings: React.FC<{
   loadCveFindings: (cveId: string) => Promise<CveResourceFinding[]>;
   onOpenResource: (resourceId: string) => void;
   onSeverity?: (severity: string) => void;
-}> = ({ byCve, isLoading, onPage, loadCveFindings, onOpenResource, onSeverity }) => {
+  /** Opens the vulnerability-finding panel for one affected resource under a CVE. */
+  onOpenFinding?: (cve: CveGroupRow, finding: CveResourceFinding) => void;
+}> = ({
+  byCve, isLoading, onPage, loadCveFindings, onOpenResource, onSeverity, onOpenFinding,
+}) => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [severity, setSeverity] = useState<string | null>(null);
   const [drill, setDrill] = useState<Record<string, CveResourceFinding[] | 'loading'>>({});
@@ -301,7 +315,8 @@ const CveFindings: React.FC<{
                         <p className="text-[11px] text-gray-400 py-2">Loading affected resources...</p>
                       ) : (
                         <CveDrill findings={(drill[c.cveId] as CveResourceFinding[]) ?? []}
-                                  onOpenResource={onOpenResource} />
+                                  onOpenResource={onOpenResource}
+                                  onOpenFinding={(f) => onOpenFinding?.(c, f)} />
                       )}
                     </td>
                   </tr>
@@ -335,7 +350,9 @@ const CveFindings: React.FC<{
 const CveDrill: React.FC<{
   findings: CveResourceFinding[];
   onOpenResource: (resourceId: string) => void;
-}> = ({ findings, onOpenResource }) => {
+  /** Opens the full vulnerability-finding panel for one affected resource. */
+  onOpenFinding?: (finding: CveResourceFinding) => void;
+}> = ({ findings, onOpenResource, onOpenFinding }) => {
   const { page, setPage, pageItems, totalPages, total } = usePaged(findings, 20);
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
@@ -354,7 +371,10 @@ const CveDrill: React.FC<{
         </thead>
         <tbody>
           {pageItems.map((r, i) => (
-            <tr key={i} className="border-b border-gray-50 last:border-0">
+            <tr key={i}
+                onClick={() => onOpenFinding?.(r)}
+                className={`border-b border-gray-50 last:border-0 ${
+                  onOpenFinding ? 'cursor-pointer hover:bg-gray-50' : ''}`}>
               <td className="px-3 py-2 text-gray-800 max-w-[160px]">
                 <ResourceLink resourceId={r.resourceId} label={r.resourceName}
                               sub={r.cloudProvider} onOpen={onOpenResource} />
