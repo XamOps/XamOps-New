@@ -1,7 +1,7 @@
 import React from 'react';
-import { createPortal } from 'react-dom';
 import { Icon } from '@iconify/react';
 import type { Workflow } from '../../types/xamsecure';
+import DetailPanel, { PanelBlock, PanelRow } from './DetailPanel';
 
 interface Props {
   workflow: Workflow;
@@ -44,100 +44,89 @@ const ACTION_ICON: Record<string, string> = {
  * Workflow detail. The table shows action *types*; this shows who each action reaches,
  * what the run produces, and the schedule in words — the fields Upwind surfaces on
  * click and we were previously discarding server-side.
+ *
+ * Single-pane on purpose: schedule, last run and actions are a handful of fields, so the
+ * shared shell is used for chrome and keyboard handling without a nav.
  */
 const WorkflowDrawer: React.FC<Props> = ({ workflow: w, onClose }) => {
   const enabled = (w.status ?? '').toUpperCase() === 'ENABLED';
   const schedule = describeCron(w.cron);
   const details = w.actionDetails ?? w.actions.map((t) => ({ type: t, targetAudience: null }));
 
-  return createPortal((
-    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/30" />
-      <div className="relative w-full max-w-xl h-full bg-white shadow-2xl flex flex-col"
-           onClick={(e) => e.stopPropagation()} role="dialog"
-           aria-label={w.name ?? 'Workflow'}>
-        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200">
-          <div className="pr-4 min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                {enabled ? 'Enabled' : (w.status ?? 'Disabled')}
-              </span>
-              {w.type && (
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 text-indigo-700">
-                  {w.type}
-                </span>
+  const subtitle = (
+    <>
+      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+        enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+        {enabled ? 'Enabled' : (w.status ?? 'Disabled')}
+      </span>
+      {w.type && (
+        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 text-indigo-700">
+          {w.type}
+        </span>
+      )}
+      {w.reportType && (
+        <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-gray-100 text-gray-600">
+          {w.reportType.replace(/_/g, ' ')}
+        </span>
+      )}
+    </>
+  );
+
+  return (
+    <DetailPanel
+      title={w.name ?? 'Workflow'}
+      subtitle={subtitle}
+      onClose={onClose}
+      size="narrow"
+      sections={[{
+        id: 'overview',
+        label: w.name ?? 'Workflow',
+        render: () => (
+          <>
+            <PanelBlock title="Schedule">
+              {schedule ? (
+                <>
+                  <p className="text-xs font-medium text-gray-800">{schedule}</p>
+                  <p className="text-[10px] font-mono text-gray-400 mt-1">{w.cron}</p>
+                </>
+              ) : (
+                <p className="text-xs text-gray-700 font-mono">
+                  {w.cron || 'Not scheduled — runs on trigger.'}
+                </p>
               )}
-              {w.reportType && (
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-gray-100 text-gray-600">
-                  {w.reportType.replace(/_/g, ' ')}
-                </span>
+            </PanelBlock>
+
+            <PanelBlock title={`Actions (${details.length})`}>
+              {details.length > 0 ? (
+                <div className="space-y-1.5">
+                  {details.map((a, i) => (
+                    <div key={i}
+                         className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2">
+                      <Icon icon={ACTION_ICON[(a.type ?? '').toUpperCase()] ?? 'mdi:play-circle-outline'}
+                            width={14} className="text-gray-500 flex-shrink-0" />
+                      <span className="text-xs font-semibold text-gray-800">{a.type ?? '—'}</span>
+                      {a.targetAudience && (
+                        <span className="ml-auto text-[10px] font-semibold text-gray-500">
+                          {a.targetAudience === 'ALL' ? 'All members' : a.targetAudience}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400">No actions configured.</p>
               )}
-            </div>
-            <h3 className="text-sm font-bold text-gray-900 leading-snug break-words">
-              {w.name ?? 'Workflow'}
-            </h3>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 flex-shrink-0"
-                  aria-label="Close">
-            <Icon icon="mdi:close" width={18} />
-          </button>
-        </div>
+            </PanelBlock>
 
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 space-y-6">
-          <Section title="Schedule">
-            {schedule ? (
-              <>
-                <p className="text-xs font-medium text-gray-800">{schedule}</p>
-                <p className="text-[10px] font-mono text-gray-400 mt-1">{w.cron}</p>
-              </>
-            ) : (
-              <p className="text-xs text-gray-700 font-mono">
-                {w.cron || 'Not scheduled — runs on trigger.'}
-              </p>
-            )}
-          </Section>
-
-          <Section title="Last run">
-            <p className="text-xs font-medium text-gray-700">{fmt(w.lastExecutionTime)}</p>
-          </Section>
-
-          <Section title={`Actions (${details.length})`}>
-            {details.length > 0 ? (
-              <div className="space-y-1.5">
-                {details.map((a, i) => (
-                  <div key={i}
-                       className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2">
-                    <Icon icon={ACTION_ICON[(a.type ?? '').toUpperCase()] ?? 'mdi:play-circle-outline'}
-                          width={14} className="text-gray-500 flex-shrink-0" />
-                    <span className="text-xs font-semibold text-gray-800">{a.type ?? '—'}</span>
-                    {a.targetAudience && (
-                      <span className="ml-auto text-[10px] font-semibold text-gray-500">
-                        {a.targetAudience === 'ALL' ? 'All members' : a.targetAudience}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400">No actions configured.</p>
-            )}
-          </Section>
-
-          <Section title="Identifier">
-            <p className="text-[11px] font-mono text-gray-500 break-all">{w.id}</p>
-          </Section>
-        </div>
-      </div>
-    </div>
-  ), document.body);
+            <PanelBlock title="Run history">
+              <PanelRow label="Last run" value={fmt(w.lastExecutionTime)} />
+              <PanelRow label="Workflow ID" value={w.id} mono />
+            </PanelBlock>
+          </>
+        ),
+      }]}
+    />
+  );
 };
-
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div>
-    <h4 className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-2">{title}</h4>
-    {children}
-  </div>
-);
 
 export default WorkflowDrawer;

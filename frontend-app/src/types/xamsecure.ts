@@ -56,6 +56,18 @@ export interface VulnerabilityDashboard {
   criticalWorkloadOverTime: Array<Record<string, number | string>>;
   workloadLabels: string[];
   funnel: FunnelStage[];
+  /**
+   * Runtime narrowing: how the installed total reduces to what is actually reachable and
+   * executing. Counts are distinct CVEs. Previously unavailable because the sync discarded
+   * package.in_use, internet_exposure.ingress.* and exploitable_functions_in_use.
+   */
+  runtimeExposure?: {
+    internetExposed: number;
+    exposedAndInUse: number;
+    activeCommunication: number;
+    functionsInUse: number;
+    packageInUse: number;
+  } | null;
 }
 
 /** One row in the group-by-CVE Findings view. */
@@ -88,6 +100,15 @@ export interface CveResourceFinding {
   packageVersion?: string | null;
   inUse?: boolean | null;
   image?: string | null;
+  imageTag?: string | null;
+  /** Kubernetes context, present when the resource is a workload. */
+  namespace?: string | null;
+  clusterName?: string | null;
+  /** Runtime exposure of the hosting resource. */
+  internetExposed?: boolean | null;
+  activeCommunication?: boolean | null;
+  /** Upwind observed the vulnerable functions actually executing. */
+  functionsInUse?: boolean | null;
   fixAvailable?: boolean | null;
   fixedInVersion?: string | null;
 }
@@ -127,6 +148,12 @@ export interface PostureFinding {
   resourceId: string | null;
   resourceName: string | null;
   resourceType: string | null;
+  /**
+   * Kubernetes context, present only when the finding's resource is a workload rather than
+   * a cloud resource. Available from v1 all along; we simply weren't mapping it.
+   */
+  clusterId: string | null;
+  namespace: string | null;
   firstSeenTime: string | null;
   lastSeenTime: string | null;
   rawPayload: string | null;
@@ -145,6 +172,35 @@ export interface InventoryAsset {
   region: string | null;
   status: string | null;
   rawPayload: string | null;
+  // From Upwind's inventory CATALOG asset. null means Upwind didn't report the signal,
+  // which is deliberately distinct from false.
+  hasElevatedPrivilege: boolean | null;
+  sensitivePiiAtRest: boolean | null;
+  sensitivePhiAtRest: boolean | null;
+  sensitivePciAtRest: boolean | null;
+  sensitivePiiInTransit: boolean | null;
+  sensitivePhiInTransit: boolean | null;
+  sensitivePciInTransit: boolean | null;
+  vulnCriticalCount: number | null;
+  vulnHighCount: number | null;
+  vulnTotalCount: number | null;
+  detectionTotalCount: number | null;
+  internetExposureType: string | null;
+  /** network_risk.last_communication_with_internet_time */
+  lastInternetCommunication: string | null;
+  technologies: string | null;
+  hasEolTechnology: boolean | null;
+}
+
+/** Classification / privilege / EOL / exposure rollup over the synced asset catalog. */
+export interface InventoryRisk {
+  assets: number;
+  pii: number;
+  phi: number;
+  pci: number;
+  elevatedPrivilege: number;
+  eolTechnology: number;
+  internetExposed: number;
 }
 
 export interface InventoryCategory {
@@ -175,6 +231,11 @@ export interface ApiEndpoint {
   authenticated: boolean;
   domains: string[];
   cloudAccountId: string | null;
+  /** "CATEGORY:Type" entries observed on the endpoint, e.g. "PII:Email". */
+  sensitiveData: string[];
+  hasSensitiveData: boolean;
+  /** Observed HTTP status codes, e.g. ["200", "401"]. */
+  statusCodes: string[];
 }
 
 export interface ThreatPolicy {
@@ -325,8 +386,10 @@ export interface SyncStatus {
 
 /**
  * Identities that have failing configuration checks. Derived from posture findings —
- * Upwind's Identities module is not reachable on our credential, so this is not a full
- * identity inventory and carries no privilege classification.
+ * The roster is every identity in Upwind's inventory catalog — IAM users, roles, groups and
+ * policies plus Kubernetes service accounts, roles and bindings — annotated with failing
+ * checks and Upwind's own high_privilege_risk flag. Upwind's CIEM module (entitlement
+ * analysis, human vs non-human split, role-trust graph) has no API and is absent.
  */
 export interface IdentityRow {
   resourceId: string | null;
@@ -337,8 +400,27 @@ export interface IdentityRow {
   severity: Severity | null;
   findingCount: number;
   checks: string[];
+  region: string | null;
   firstSeen: string | null;
   lastSeen: string | null;
+  /** Upwind flagged the underlying asset as holding elevated privilege. */
+  elevatedPrivilege: boolean;
+  /** False for identities that fail a check but are absent from the latest inventory walk. */
+  inInventory: boolean;
+}
+
+/** An asset Upwind flagged as privileged, whether or not it currently fails a check. */
+export interface PrivilegedIdentity {
+  resourceId: string | null;
+  name: string | null;
+  resourceType: string | null;
+  category: string | null;
+  cloudProvider: string | null;
+  cloudAccountId: string | null;
+  region: string | null;
+  internetExposureType: string | null;
+  sensitivePii: boolean;
+  hasFindings: boolean;
 }
 
 export interface IdentitiesSummary {
@@ -346,6 +428,10 @@ export interface IdentitiesSummary {
   severityCounts: Record<string, number>;
   byType: { type: string; count: number }[];
   total: number;
+  /** Identities with at least one failing check; the rest are clean. */
+  withFindings: number;
+  privilegedTotal: number;
+  privileged: PrivilegedIdentity[];
 }
 
 /** One resource joined across every synced domain that references it. */
@@ -403,11 +489,106 @@ export interface ThreatStory {
   severity: Severity | null;
   status: string | null;
   resourceName: string | null;
+  createTime: string | null;
+  updateTime: string | null;
+  /** Detections the story correlates, as Upwind counts them ("Related events"). */
+  relatedEvents: number;
+  /** How many of those we hold for the selected accounts. Always >= 1, or the story is withheld. */
+  resolvedCount: number;
 }
 
 export interface ThreatStoriesSummary {
   activeCount: number;
   stories: ThreatStory[];
+}
+
+/** One day of the Threats trend chart. Bands below High are collapsed into `other`. */
+export interface ThreatTrendPoint {
+  date: string;
+  critical: number;
+  high: number;
+  other: number;
+}
+
+/**
+ * Threats dashboard aggregates.
+ *
+ * `eventCount` is null with `eventCountAvailable: false`: Upwind's funnel starts from raw
+ * sensor events and we sync detections only, so the stage is shown unavailable rather than
+ * filled with a different quantity under the same label.
+ */
+export interface ThreatOverview {
+  detectionCount: number;
+  resourceCount: number;
+  storyCount: number;
+  eventCount: number | null;
+  eventCountAvailable: boolean;
+  eventCountReason: string | null;
+  bySeverity: Record<string, number>;
+  trend: ThreatTrendPoint[];
+  /** Days covered by `trend`, and the windows the API accepts. */
+  trendDays: number;
+  trendWindows: number[];
+  /**
+   * Detections whose last-seen falls inside the window. Needed to read the chart: a nearly
+   * empty 7-day chart against 31 detections is stale data, not a broken chart, and only the
+   * ratio distinguishes the two.
+   */
+  detectionsInWindow: number;
+  byTactic: { tactic: string; count: number }[];
+  bySource: { source: string; count: number }[];
+}
+
+/** One detection correlated into a threat story. */
+export interface StoryDetection {
+  id: string | null;
+  title: string | null;
+  severity: Severity | null;
+  status: string | null;
+  category: string | null;
+  resourceId: string | null;
+  resourceName: string | null;
+  resourceType: string | null;
+  cloudAccountId: string | null;
+  mitreTactics: string[];
+  occurrenceCount: number | null;
+  firstSeenTime: string | null;
+  lastSeenTime: string | null;
+}
+
+/**
+ * A threat story in full. `description` is Upwind's own markdown incident narrative and
+ * carries their inline markup ([br], [header_with_icon ...], [link text=".." href=".."]),
+ * so it needs the dedicated renderer rather than a plain markdown component.
+ *
+ * `detectionCount` is what the story references; `resolvedCount` is how many of those we
+ * hold locally for the selected accounts — they differ when a story spans accounts the
+ * caller doesn't own, or when detections predate our sync.
+ */
+export interface ThreatStoryDetail {
+  id: string | null;
+  title: string | null;
+  severity: Severity | null;
+  status: string | null;
+  createTime: string | null;
+  updateTime: string | null;
+  description: string | null;
+  detectionCount: number;
+  resolvedCount: number;
+  detections: StoryDetection[];
+  worstSeverity: Severity | null;
+  firstSeenTime: string | null;
+  lastSeenTime: string | null;
+  mitreTactics: { tactic: string; count: number }[];
+  categories: { category: string; count: number }[];
+  resources: {
+    resourceId: string | null;
+    resourceName: string | null;
+    resourceType: string | null;
+    cloudProvider: string | null;
+    cloudAccountId: string | null;
+    detectionCount: number;
+  }[];
 }
 
 export interface OnboardingAccount {

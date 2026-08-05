@@ -21,9 +21,9 @@
 
 import type {
   ApiEndpoint, AttackSurfaceSummary, ComplianceFramework, ConfigurationsDashboard,
-  CveGroupRow, CveResourceFinding, InventoryAsset, InventoryCategory, IssueDetail,
+  CveGroupRow, CveResourceFinding, InventoryAsset, InventoryCategory, InventoryRisk, IssueDetail,
   IssueSummary, NetworkTopology, NetworkNode, OnboardingAccount, PageResp, PostureFinding,
-  SbomComponent, Severity, ThreatDetection, ThreatPolicy, ThreatStoriesSummary,
+  SbomComponent, Severity, ThreatDetection, ThreatPolicy, ThreatStoriesSummary, ThreatOverview,
   VulnerabilityDashboard, VulnerabilityFinding, Workflow, XamSecureSummary,
 } from '../types/xamsecure';
 
@@ -390,15 +390,59 @@ export const demoThreatPolicies: ThreatPolicy[] = [
 export const demoThreatStories: ThreatStoriesSummary = {
   activeCount: 7,
   stories: [
-    { id: 'story-01', title: 'Compromised container mining cryptocurrency',        severity: 'CRITICAL', status: 'ACTIVE', resourceName: 'checkout-service-7d9f' },
-    { id: 'story-02', title: 'Credential access followed by outbound C2 traffic',  severity: 'CRITICAL', status: 'ACTIVE', resourceName: 'prod-api-01' },
-    { id: 'story-03', title: 'Container escape attempt on the billing service',    severity: 'HIGH',     status: 'ACTIVE', resourceName: 'billing-api-5c2a' },
-    { id: 'story-04', title: 'SSH brute force into lateral movement',              severity: 'HIGH',     status: 'ACTIVE', resourceName: 'prod-web-02' },
-    { id: 'story-05', title: 'Cloud API enumeration from a stale access key',      severity: 'HIGH',     status: 'ACTIVE', resourceName: 'svc-deploy' },
-    { id: 'story-06', title: 'Repeated container drift on the search indexer',     severity: 'MEDIUM',   status: 'ACTIVE', resourceName: 'search-indexer-2b81' },
-    { id: 'story-07', title: 'Log tampering after a privileged shell session',     severity: 'MEDIUM',   status: 'ACTIVE', resourceName: 'analytics-worker-3' },
-    { id: 'story-08', title: 'Suspicious package pulled during a build',           severity: 'MEDIUM',   status: 'RESOLVED', resourceName: 'etl-runner-02' },
-    { id: 'story-09', title: 'Unexpected persistence via cron on a legacy host',   severity: 'LOW',      status: 'RESOLVED', resourceName: 'prod-cache-01' },
+    { id: 'story-01', title: 'Compromised container mining cryptocurrency',        severity: 'CRITICAL', status: 'ACTIVE', resourceName: 'checkout-service-7d9f' , createTime: '2026-08-02T21:08:07Z', updateTime: '2026-08-03T01:06:21Z', relatedEvents: 40, resolvedCount: 40 },
+    { id: 'story-02', title: 'Credential access followed by outbound C2 traffic',  severity: 'CRITICAL', status: 'ACTIVE', resourceName: 'prod-api-01' , createTime: '2026-07-30T11:20:00Z', updateTime: '2026-08-03T09:14:02Z', relatedEvents: 22, resolvedCount: 22 },
+    { id: 'story-03', title: 'Container escape attempt on the billing service',    severity: 'HIGH',     status: 'ACTIVE', resourceName: 'billing-api-5c2a' , createTime: '2026-07-29T04:41:13Z', updateTime: '2026-08-02T18:03:55Z', relatedEvents: 14, resolvedCount: 12 },
+    { id: 'story-04', title: 'SSH brute force into lateral movement',              severity: 'HIGH',     status: 'ACTIVE', resourceName: 'prod-web-02' , createTime: '2026-07-28T23:12:44Z', updateTime: '2026-08-01T07:31:10Z', relatedEvents: 11, resolvedCount: 11 },
+    { id: 'story-05', title: 'Cloud API enumeration from a stale access key',      severity: 'HIGH',     status: 'ACTIVE', resourceName: 'svc-deploy' , createTime: '2026-07-27T15:02:19Z', updateTime: '2026-07-31T20:48:06Z', relatedEvents: 9, resolvedCount: 7 },
+    { id: 'story-06', title: 'Repeated container drift on the search indexer',     severity: 'MEDIUM',   status: 'ACTIVE', resourceName: 'search-indexer-2b81' , createTime: '2026-07-26T08:55:31Z', updateTime: '2026-07-30T12:22:40Z', relatedEvents: 6, resolvedCount: 6 },
+    { id: 'story-07', title: 'Log tampering after a privileged shell session',     severity: 'MEDIUM',   status: 'ACTIVE', resourceName: 'analytics-worker-3' , createTime: '2026-07-25T19:37:02Z', updateTime: '2026-07-29T05:11:58Z', relatedEvents: 5, resolvedCount: 5 },
+    { id: 'story-08', title: 'Suspicious package pulled during a build',           severity: 'MEDIUM',   status: 'RESOLVED', resourceName: 'etl-runner-02' , createTime: '2026-07-21T10:04:26Z', updateTime: '2026-07-24T16:40:12Z', relatedEvents: 4, resolvedCount: 4 },
+    { id: 'story-09', title: 'Unexpected persistence via cron on a legacy host',   severity: 'LOW',      status: 'RESOLVED', resourceName: 'prod-cache-01' , createTime: '2026-07-18T02:19:47Z', updateTime: '2026-07-20T22:05:33Z', relatedEvents: 2, resolvedCount: 2 },
+  ],
+};
+
+// ─── /api/xamsecure/threats/overview ────────────────────────────────────────────
+
+/**
+ * The Events stage is deliberately unavailable here too. Upwind's funnel starts from raw
+ * sensor events; we sync detections, so the demo must not invent a number the real API
+ * cannot return.
+ */
+export const demoThreatOverview: ThreatOverview = {
+  detectionCount: 214,
+  resourceCount: 47,
+  storyCount: 7,
+  eventCount: null,
+  eventCountAvailable: false,
+  eventCountReason:
+    "Upwind's funnel counts raw sensor events. We sync detections, not events, "
+    + 'so no comparable figure exists on our side.',
+  bySeverity: { CRITICAL: 12, HIGH: 38, MEDIUM: 141, LOW: 23 },
+  trend: [
+    { date: '2026-07-30', critical: 1, high: 4, other: 18 },
+    { date: '2026-07-31', critical: 0, high: 6, other: 21 },
+    { date: '2026-08-01', critical: 2, high: 5, other: 17 },
+    { date: '2026-08-02', critical: 4, high: 7, other: 24 },
+    { date: '2026-08-03', critical: 3, high: 6, other: 26 },
+    { date: '2026-08-04', critical: 1, high: 5, other: 22 },
+    { date: '2026-08-05', critical: 1, high: 5, other: 19 },
+  ],
+  trendDays: 7,
+  trendWindows: [7, 30, 90],
+  detectionsInWindow: 214,
+  byTactic: [
+    { tactic: 'Defense Evasion', count: 86 },
+    { tactic: 'Execution', count: 41 },
+    { tactic: 'Credential Access', count: 33 },
+    { tactic: 'Initial Access', count: 28 },
+    { tactic: 'Persistence', count: 14 },
+    { tactic: 'Lateral Movement', count: 9 },
+  ],
+  bySource: [
+    { source: 'Sensor', count: 128 },
+    { source: 'AWS CloudTrail', count: 74 },
+    { source: 'Audit Logs', count: 12 },
   ],
 };
 
@@ -512,6 +556,14 @@ export const demoCveFindings = (cveId: string): CveResourceFinding[] => {
       image: resourceType === 'AWS_ECS_TASK' ? `xammer/${resourceName.split('-')[0]}:1.${i % 30}.0` : null,
       fixAvailable,
       fixedInVersion: fixAvailable ? `${1 + (i % 4)}.${((i * 3) % 20) + 1}.0` : null,
+      // Reachability tiers, deliberately sparse: exposure is common, executing functions rare.
+      internetExposed: (seed + i) % 3 === 0,
+      activeCommunication: (seed + i) % 6 === 0,
+      functionsInUse: (seed + i) % 23 === 0,
+      // A slice of the estate is Kubernetes, so the namespace hint has something to show.
+      namespace: resourceType === 'AWS_ECS_TASK' ? at(['prod', 'staging'], seed + i) : null,
+      clusterName: resourceType === 'AWS_ECS_TASK' ? 'xammer-prod-cluster' : null,
+      imageTag: `1.${(seed + i) % 30}.0`,
       ...(framework ? {} : {}),
     };
   });
@@ -626,7 +678,17 @@ export const demoVulnDashboard: VulnerabilityDashboard = {
     ['Fix available',     Math.round(totalCveFindings * 0.08)],
     ['NIST critical sev', cveSeverityCounts.CRITICAL ?? 0],
     ['EPSS-prioritized',  epssPrioritized],
+    ['Functions in Use',  Math.max(1, Math.round(totalCveFindings * 0.004))],
   ]),
+  // Ratios mirror what was measured against the live API on 2026-08-04, so the demo
+  // narrowing is as steep as the real thing: most CVEs are installed but unreachable.
+  runtimeExposure: {
+    packageInUse: Math.round(demoCveRowsAll.length * 0.93),
+    internetExposed: Math.round(demoCveRowsAll.length * 0.379),
+    exposedAndInUse: Math.round(demoCveRowsAll.length * 0.364),
+    activeCommunication: Math.round(demoCveRowsAll.length * 0.162),
+    functionsInUse: Math.max(1, Math.round(demoCveRowsAll.length * 0.004)),
+  },
 };
 
 // ─── /api/xamsecure/posture ──────────────────────────────────────────────────
@@ -678,6 +740,10 @@ export const demoPostureAll: PostureFinding[] = demoIssues.flatMap((iss, issueIn
       region: at(REGIONS, seed),
       resourceName: r === 0 ? name : `${name}-${r}`,
       resourceType: type,
+      // A slice of the estate is Kubernetes, so the cluster/namespace column has something
+      // to show. Cloud resources keep these null, as the real payload does.
+      clusterId: seed % 9 === 0 ? '4122e4ce-1ca2-408a-8fb9-fff348a8c525' : null,
+      namespace: seed % 9 === 0 ? at(['prod', 'staging', 'analytics'], seed) : null,
       firstSeenTime: iss.firstSeen,
       lastSeenTime: hoursAgo(4),
       rawPayload: null,
@@ -743,8 +809,36 @@ export const demoInventoryAll: InventoryAsset[] = Array.from({ length: 224 }, (_
     region: at(REGIONS, i),
     status: i % 23 === 0 ? 'STOPPED' : 'ACTIVE',
     rawPayload: null,
+    // Catalog risk signals. Sparse on purpose: most assets carry none, which is what makes
+    // the ones that do worth surfacing.
+    hasElevatedPrivilege: assetCategory === 'identity' && i % 3 === 0,
+    sensitivePiiAtRest: assetCategory === 'storage' && i % 5 === 0,
+    sensitivePhiAtRest: false,
+    sensitivePciAtRest: assetCategory === 'database' && i % 9 === 0,
+    sensitivePiiInTransit: assetCategory === 'compute_platform' && i % 13 === 0,
+    sensitivePhiInTransit: false,
+    sensitivePciInTransit: false,
+    vulnCriticalCount: i % 7 === 0 ? (i % 4) : 0,
+    vulnHighCount: i % 5 === 0 ? (i % 9) : 0,
+    vulnTotalCount: i % 3 === 0 ? (i % 24) : 0,
+    detectionTotalCount: i % 11 === 0 ? (i % 5) : 0,
+    internetExposureType: i % 8 === 0 ? 'direct' : null,
+    lastInternetCommunication: i % 8 === 0 ? hoursAgo(spread(i, 1, 40)) : null,
+    technologies: i % 6 === 0 ? `openssl 1.0.2 (EOL), nginx 1.${i % 26}` : null,
+    hasEolTechnology: i % 6 === 0,
   };
 });
+
+/** Rollup derived from the assets above, so the strip agrees with the table. */
+export const demoInventoryRisk: InventoryRisk = {
+  assets: demoInventoryAll.length,
+  pii: demoInventoryAll.filter((a) => a.sensitivePiiAtRest || a.sensitivePiiInTransit).length,
+  phi: 0,
+  pci: demoInventoryAll.filter((a) => a.sensitivePciAtRest).length,
+  elevatedPrivilege: demoInventoryAll.filter((a) => a.hasElevatedPrivilege).length,
+  eolTechnology: demoInventoryAll.filter((a) => a.hasEolTechnology).length,
+  internetExposed: demoInventoryAll.filter((a) => a.internetExposureType !== null).length,
+};
 
 /** Counts come from the assets themselves, so the rail agrees with the table. */
 export const demoInventoryCategories: InventoryCategory[] = Object.entries(
@@ -893,6 +987,16 @@ export const demoApiSecurity: ApiEndpoint[] = API_ROUTES.map(
       ? [uri.startsWith('/api/v2') ? 'analytics.xammer.in' : 'api.xammer.in']
       : ['internal.xammer.in'],
     cloudAccountId: at(ACCOUNT_IDS, i),
+    // Sensitive data is what Upwind observed in the traffic, so it clusters on the
+    // routes that actually carry user records rather than being spread evenly.
+    sensitiveData: uri.includes('/users') || uri.includes('/profile') || uri.includes('/support')
+      ? ['PII:Email', 'PII:Name']
+      : uri.includes('/payments') || uri.includes('/billing')
+        ? ['PCI:CardNumber']
+        : [],
+    hasSensitiveData: uri.includes('/users') || uri.includes('/profile')
+      || uri.includes('/support') || uri.includes('/payments') || uri.includes('/billing'),
+    statusCodes: authenticated ? ['200', '401'] : ['200'],
   })
 );
 

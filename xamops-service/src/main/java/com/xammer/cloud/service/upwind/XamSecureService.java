@@ -16,6 +16,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -30,6 +32,8 @@ public class XamSecureService {
 
     private static final int SUMMARY_CACHE_MINUTES = 5;
     private static final int APISEC_CACHE_MINUTES = 10;
+    /** Cap for the pre-first-sync live endpoint read, which runs inside a user request. */
+    private static final int LIVE_APISEC_MAX_ITEMS = 1200;
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final CloudAccountRepository cloudAccountRepository;
@@ -232,7 +236,14 @@ public class XamSecureService {
         m.put("domains", e.getDomains() == null || e.getDomains().isEmpty()
                 ? List.of() : Arrays.asList(e.getDomains().split(",")));
         m.put("cloudAccountId", e.getCloudAccountId());
+        m.put("sensitiveData", splitCsv(e.getSensitiveData()));
+        m.put("hasSensitiveData", Boolean.TRUE.equals(e.getHasSensitiveData()));
+        m.put("statusCodes", splitCsv(e.getStatusCodes()));
         return m;
+    }
+
+    private static List<String> splitCsv(String csv) {
+        return csv == null || csv.isEmpty() ? List.of() : Arrays.asList(csv.split(","));
     }
 
     /** Pre-first-sync fallback: the original live read-through, still Redis-cached. */
@@ -246,7 +257,8 @@ public class XamSecureService {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (String id : ids) {
             try {
-                for (JsonNode ep : apiClient.fetchApiSecurityEndpoints(id, 12)) {
+                // Capped well below the sync's ceiling: this path runs inside a user request.
+                for (JsonNode ep : apiClient.searchApiEndpoints(id, LIVE_APISEC_MAX_ITEMS).items()) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", ep.path("id").asText(null));
                     m.put("method", ep.path("method").asText(null));
@@ -265,6 +277,19 @@ public class XamSecureService {
                     ep.path("domains").forEach(d -> domains.add(d.asText()));
                     m.put("domains", domains);
                     m.put("cloudAccountId", id);
+                    List<String> sensitive = new ArrayList<>();
+                    for (JsonNode s : ep.path("risk_overview").path("sensitive_data")) {
+                        String category = s.path("category").asText(null);
+                        String type = s.path("type").asText(null);
+                        if (category == null && type == null) continue;
+                        sensitive.add(category == null ? type
+                                : (type == null ? category : category + ":" + type));
+                    }
+                    m.put("sensitiveData", sensitive);
+                    m.put("hasSensitiveData", !sensitive.isEmpty());
+                    List<String> codes = new ArrayList<>();
+                    ep.path("status_codes").forEach(c -> codes.add(c.asText()));
+                    m.put("statusCodes", codes);
                     rows.add(m);
                 }
             } catch (Exception e) {
@@ -395,13 +420,22 @@ public class XamSecureService {
     }
 
     /**
-     * Identities view, derived from configuration findings on identity resources.
+     * Identities view, built from the inventory catalog's identity assets and annotated
+     * with failing configuration checks.
      *
-     * Upwind's Identities module is not reachable for us: every v1 identity path returns 404
-     * and the v2 inventory search exposes exactly one identity asset (an OIDC provider), so
-     * IAM users and roles only appear to us as the subjects of failing checks. This therefore
-     * reports identities that HAVE findings — it is not a complete identity inventory, and it
-     * cannot reproduce Upwind's high-privilege classification, which no endpoint exposes.
+     * Upwind's dedicated Identities module (CIEM) genuinely does not exist on this API:
+     * seven candidate paths across v1 and v2 all return 404, and
+     * {@code access-management/*} is Upwind CONSOLE user management, not cloud identities.
+     * So entitlement analysis, the human vs non-human split and the role-trust graph remain
+     * unavailable.
+     *
+     * The ROSTER, though, is real. It was previously inferred from whichever identities
+     * happened to be failing a check, on the basis that inventory exposed only one identity
+     * asset — a claim that held for the flat {@code /inventory/assets/search} we used to
+     * call. The catalog endpoint returns 1,076 identity assets across our accounts (IAM
+     * users, roles, groups, policies, and Kubernetes service accounts, roles and bindings),
+     * so this now lists every identity Upwind sees, with findings and Upwind's own
+     * {@code high_privilege_risk.has_elevated_privilege} flag layered on top.
      */
     public Map<String, Object> getIdentities(Long clientId, String accountId) {
         Map<String, Object> out = new LinkedHashMap<>();
@@ -409,17 +443,52 @@ public class XamSecureService {
         out.put("severityCounts", Map.of());
         out.put("byType", List.of());
         out.put("total", 0);
+        out.put("withFindings", 0);
+        out.put("privilegedTotal", 0);
+        out.put("privileged", List.of());
 
         List<String> ids = resolveAccountIds(clientId, accountId);
         if (ids.isEmpty()) return out;
 
-        // One entry per identity resource, accumulating its failing checks.
-        Map<String, IdentityAgg> byResource = new LinkedHashMap<>();
+        List<UpwindInventoryAsset> identityAssets = inventoryRepo.findIdentityAssets(ids);
+        // Privilege spans every category, not just identities: an EC2 instance carrying a
+        // highly-privileged role is exactly as interesting as the role itself.
+        List<UpwindInventoryAsset> privilegedAssets = inventoryRepo.findElevatedPrivilegeAssets(ids);
+        Set<String> privilegedResourceIds = privilegedAssets.stream()
+                .map(UpwindInventoryAsset::getCloudResourceId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        // Failing checks for exactly those identities. Driven off the catalog's resource ids
+        // rather than a resource-type LIKE guess, which cannot catch Kubernetes bindings.
+        Map<String, IdentityAgg> findingsByResource = new LinkedHashMap<>();
+        List<String> resourceIds = identityAssets.stream()
+                .map(UpwindInventoryAsset::getCloudResourceId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        for (List<String> chunk : chunked(resourceIds, RESOURCE_ID_CHUNK)) {
+            for (Object[] r : postureRepo.findFailingByResourceIds(ids, chunk)) {
+                String resourceId = (String) r[0];
+                if (resourceId == null) continue;
+                IdentityAgg a = findingsByResource.computeIfAbsent(resourceId, k -> new IdentityAgg());
+                String check = (String) r[1];
+                a.checks.add(check != null ? check : (String) r[2]);
+                a.severity = worse(a.severity, (String) r[3]);
+                a.lastSeen = latest(a.lastSeen, toInstant(r[4]));
+                a.firstSeen = earliest(a.firstSeen, toInstant(r[5]));
+            }
+        }
+
+        // Identities that fail a check but are absent from the catalog (e.g. deleted since
+        // the last inventory walk). Kept so the roster never loses a live finding.
+        Map<String, IdentityAgg> orphans = new LinkedHashMap<>();
+        Set<String> known = new HashSet<>(resourceIds);
         for (Object[] r : postureRepo.findIdentityFailings(ids)) {
             String resourceId = (String) r[0];
             String key = resourceId != null ? resourceId : (String) r[1];
-            if (key == null) continue;
-            IdentityAgg a = byResource.computeIfAbsent(key, k -> new IdentityAgg());
+            if (key == null || known.contains(key)) continue;
+            IdentityAgg a = orphans.computeIfAbsent(key, k -> new IdentityAgg());
             if (a.resourceId == null) {
                 a.resourceId = resourceId;
                 a.name = (String) r[1];
@@ -434,40 +503,67 @@ public class XamSecureService {
             a.firstSeen = earliest(a.firstSeen, toInstant(r[9]));
         }
 
-        List<Map<String, Object>> identities = byResource.values().stream()
-                .sorted(Comparator
-                        .comparingInt((IdentityAgg a) -> {
-                            int i = SEVERITY_ORDER.indexOf(a.severity == null ? "" : a.severity);
-                            return i < 0 ? Integer.MAX_VALUE : i;
-                        })
-                        .thenComparing(a -> -a.checks.size()))
-                .map(a -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("resourceId", a.resourceId);
-                    m.put("name", a.name);
-                    m.put("resourceType", a.resourceType);
-                    m.put("cloudProvider", a.cloudProvider);
-                    m.put("cloudAccountId", a.cloudAccountId);
-                    m.put("severity", a.severity);
-                    m.put("findingCount", a.checks.size());
-                    m.put("checks", new ArrayList<>(a.checks));
-                    m.put("firstSeen", a.firstSeen);
-                    m.put("lastSeen", a.lastSeen);
-                    return m;
+        List<Map<String, Object>> identities = new ArrayList<>();
+        for (UpwindInventoryAsset a : identityAssets) {
+            IdentityAgg f = a.getCloudResourceId() == null
+                    ? null : findingsByResource.get(a.getCloudResourceId());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("resourceId", a.getCloudResourceId());
+            m.put("name", a.getName());
+            m.put("resourceType", a.getLabel());
+            m.put("cloudProvider", a.getCloudProvider());
+            m.put("cloudAccountId", a.getCloudAccountId());
+            m.put("region", a.getRegion());
+            m.put("elevatedPrivilege", Boolean.TRUE.equals(a.getHasElevatedPrivilege()));
+            m.put("severity", f == null ? null : f.severity);
+            m.put("findingCount", f == null ? 0 : f.checks.size());
+            m.put("checks", f == null ? List.of() : new ArrayList<>(f.checks));
+            m.put("firstSeen", f == null ? null : f.firstSeen);
+            m.put("lastSeen", f == null ? null : f.lastSeen);
+            m.put("inInventory", true);
+            identities.add(m);
+        }
+        for (IdentityAgg a : orphans.values()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("resourceId", a.resourceId);
+            m.put("name", a.name);
+            m.put("resourceType", a.resourceType);
+            m.put("cloudProvider", a.cloudProvider);
+            m.put("cloudAccountId", a.cloudAccountId);
+            m.put("region", null);
+            m.put("elevatedPrivilege",
+                    a.resourceId != null && privilegedResourceIds.contains(a.resourceId));
+            m.put("severity", a.severity);
+            m.put("findingCount", a.checks.size());
+            m.put("checks", new ArrayList<>(a.checks));
+            m.put("firstSeen", a.firstSeen);
+            m.put("lastSeen", a.lastSeen);
+            m.put("inInventory", false);
+            identities.add(m);
+        }
+
+        // Worst severity first, then most failing checks, then privileged, then by name —
+        // so the rows that need attention lead and clean identities sort last.
+        identities.sort(Comparator
+                .comparingInt((Map<String, Object> m) -> {
+                    Object sev = m.get("severity");
+                    int i = sev == null ? -1 : SEVERITY_ORDER.indexOf(sev.toString());
+                    return i < 0 ? Integer.MAX_VALUE : i;
                 })
-                .collect(Collectors.toList());
+                .thenComparing(m -> -((Integer) m.get("findingCount")))
+                .thenComparing(m -> Boolean.TRUE.equals(m.get("elevatedPrivilege")) ? 0 : 1)
+                .thenComparing(m -> String.valueOf(m.get("name") == null ? "" : m.get("name"))));
 
         Map<String, Long> severityCounts = new LinkedHashMap<>();
         for (String sev : SEVERITY_ORDER) {
-            long n = byResource.values().stream()
-                    .filter(a -> sev.equals(a.severity)).count();
+            long n = identities.stream().filter(m -> sev.equals(m.get("severity"))).count();
             if (n > 0) severityCounts.put(sev, n);
         }
 
         Map<String, Long> typeCounts = new LinkedHashMap<>();
-        for (IdentityAgg a : byResource.values()) {
-            String t = a.resourceType == null ? "OTHER" : a.resourceType;
-            typeCounts.merge(t, 1L, Long::sum);
+        for (Map<String, Object> m : identities) {
+            Object t = m.get("resourceType");
+            typeCounts.merge(t == null ? "other" : t.toString(), 1L, Long::sum);
         }
         List<Map<String, Object>> byType = typeCounts.entrySet().stream()
                 .sorted((x, y) -> Long.compare(y.getValue(), x.getValue()))
@@ -479,10 +575,46 @@ public class XamSecureService {
                 })
                 .collect(Collectors.toList());
 
+        // Every elevated-privilege asset, across all categories. An asset can hold elevated
+        // privilege while passing every check — precisely the case worth surfacing.
+        List<Map<String, Object>> privileged = privilegedAssets.stream()
+                .map(a -> {
+                    Map<String, Object> p = new LinkedHashMap<>();
+                    p.put("resourceId", a.getCloudResourceId());
+                    p.put("name", a.getName());
+                    p.put("resourceType", a.getLabel());
+                    p.put("category", a.getAssetCategory());
+                    p.put("cloudProvider", a.getCloudProvider());
+                    p.put("cloudAccountId", a.getCloudAccountId());
+                    p.put("region", a.getRegion());
+                    p.put("internetExposureType", a.getInternetExposureType());
+                    p.put("sensitivePii", Boolean.TRUE.equals(a.getSensitivePiiAtRest())
+                            || Boolean.TRUE.equals(a.getSensitivePiiInTransit()));
+                    p.put("hasFindings", a.getCloudResourceId() != null
+                            && findingsByResource.containsKey(a.getCloudResourceId()));
+                    return p;
+                })
+                .collect(Collectors.toList());
+
         out.put("identities", identities);
         out.put("severityCounts", severityCounts);
         out.put("byType", byType);
         out.put("total", identities.size());
+        out.put("withFindings",
+                (int) identities.stream().filter(m -> ((Integer) m.get("findingCount")) > 0).count());
+        out.put("privilegedTotal", privileged.size());
+        out.put("privileged", privileged);
+        return out;
+    }
+
+    /** Keeps IN-clause sizes sane when annotating a large identity roster. */
+    private static final int RESOURCE_ID_CHUNK = 500;
+
+    private static <T> List<List<T>> chunked(List<T> src, int size) {
+        List<List<T>> out = new ArrayList<>();
+        for (int i = 0; i < src.size(); i += size) {
+            out.add(src.subList(i, Math.min(src.size(), i + size)));
+        }
         return out;
     }
 
@@ -572,30 +704,50 @@ public class XamSecureService {
         try {
             // The threat-stories search only supports severity/status/create_time/update_time
             // as filter fields — a cloud_account_id condition is rejected with HTTP 400. Match
-            // all severities and rely on the per-account post-filter below for tenancy.
+            // all severities; tenancy is established below from correlated detections.
             List<Map<String, Object>> conditions = List.of(
                     Map.of("field", "severity", "operator", "in",
                             "value", List.of("CRITICAL", "HIGH", "MEDIUM", "LOW")));
-            Set<String> owned = new HashSet<>(ids);
+
+            List<JsonNode> raw = new ArrayList<>();
+            Set<String> allDetectionIds = new LinkedHashSet<>();
+            for (JsonNode s : apiClient.searchThreatStories(conditions, 100)) {
+                raw.add(s);
+                s.path("detection_ids").forEach(d -> allDetectionIds.add(d.asText()));
+            }
+
+            // Ownership comes from correlated detections, exactly as getThreatStoryDetail does.
+            // Filtering on resource.cloud_account_id here was inert: stories carry no account id
+            // at all, so the condition never matched and every org story reached every client —
+            // while the detail endpoint correctly withheld it. That left a story listed and then
+            // unopenable, and leaked other tenants' story titles, which name their namespaces.
+            // One bulk query for all stories rather than one per story.
+            Set<String> ourDetectionIds = allDetectionIds.isEmpty() ? Set.of()
+                    : detectionRepo.findByAccountsAndUpwindIds(ids, new ArrayList<>(allDetectionIds))
+                            .stream().map(UpwindThreatDetection::getUpwindId).collect(Collectors.toSet());
+
             List<Map<String, Object>> stories = new ArrayList<>();
             int active = 0;
-            for (JsonNode s : apiClient.searchThreatStories(conditions, 100)) {
-                // Defence in depth: never surface a story outside the caller's accounts.
-                String acct = firstNonNull(
-                        s.path("resource").path("cloud_account_id").asText(null),
-                        s.path("cloud_account_id").asText(null));
-                if (acct != null && !owned.contains(acct)) continue;
+            for (JsonNode s : raw) {
+                List<String> detectionIds = new ArrayList<>();
+                s.path("detection_ids").forEach(d -> detectionIds.add(d.asText()));
+                long ours = detectionIds.stream().filter(ourDetectionIds::contains).count();
+                if (ours == 0) continue;
 
                 String status = s.path("status").asText(null);
                 if (isActiveStory(status)) active++;
-                if (stories.size() < 10) {
+                if (stories.size() < 50) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", s.path("id").asText(null));
                     m.put("title", firstNonNull(s.path("title").asText(null), s.path("name").asText(null)));
-                    m.put("severity", s.path("severity").asText(null));
+                    m.put("severity", upper(s.path("severity").asText(null)));
                     m.put("status", status);
-                    m.put("resourceName", firstNonNull(
-                            s.path("resource").path("name").asText(null), acct));
+                    m.put("resourceName", s.path("resource").path("name").asText(null));
+                    m.put("createTime", s.path("create_time").asText(null));
+                    m.put("updateTime", s.path("update_time").asText(null));
+                    // What the story references vs. how much of it we hold for these accounts.
+                    m.put("relatedEvents", detectionIds.size());
+                    m.put("resolvedCount", ours);
                     stories.add(m);
                 }
             }
@@ -609,6 +761,285 @@ public class XamSecureService {
         return summary;
     }
 
+    /**
+     * One threat story in full, for the detail panel: Upwind's incident narrative plus the
+     * detections it correlates, the MITRE tactics/techniques across them, and the affected
+     * resources.
+     *
+     * Tenancy comes from the DETECTIONS, not the story. Story payloads carry no
+     * cloud_account_id at all (verified live 2026-08-04: the only keys are id/title/severity/
+     * status/create_time/update_time/detection_ids), so the previous
+     * {@code story.resource.cloud_account_id} check could never match and every client saw
+     * every story in the org. A story is the caller's only if it references at least one
+     * detection in one of their accounts.
+     */
+    public Map<String, Object> getThreatStoryDetail(Long clientId, String accountId, String storyId) {
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty() || storyId == null || storyId.isBlank() || !apiClient.isConfigured()) {
+            return Map.of();
+        }
+
+        JsonNode story;
+        try {
+            story = apiClient.getThreatStory(storyId);
+        } catch (Exception e) {
+            log.warn("[Upwind] story {} fetch failed: {}", storyId, e.getMessage());
+            return Map.of();
+        }
+
+        List<String> detectionIds = new ArrayList<>();
+        story.path("detection_ids").forEach(d -> detectionIds.add(d.asText()));
+
+        // Resolve against the synced table: it is already tenant-scoped, and avoids N API
+        // calls for a story that can reference dozens of detections.
+        List<UpwindThreatDetection> detections = detectionIds.isEmpty()
+                ? List.of()
+                : detectionRepo.findByAccountsAndUpwindIds(ids, detectionIds);
+
+        // No detection of ours => not our story. Refusing here is what makes the story list
+        // tenant-safe, since the story itself carries no ownership marker.
+        if (detections.isEmpty()) {
+            log.debug("[Upwind] story {} references no detection in client {}'s accounts", storyId, clientId);
+            return Map.of();
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", story.path("id").asText(null));
+        out.put("title", story.path("title").asText(null));
+        out.put("severity", upper(story.path("severity").asText(null)));
+        out.put("status", upper(story.path("status").asText(null)));
+        out.put("createTime", story.path("create_time").asText(null));
+        out.put("updateTime", story.path("update_time").asText(null));
+        // Upwind's own markdown narrative, passed through verbatim; the client renders it.
+        out.put("description", story.path("description").asText(null));
+        out.put("detectionCount", detectionIds.size());
+        out.put("resolvedCount", detections.size());
+
+        List<Map<String, Object>> detectionRows = new ArrayList<>();
+        Map<String, Long> tacticCounts = new LinkedHashMap<>();
+        Map<String, Map<String, Object>> resources = new LinkedHashMap<>();
+        Map<String, Long> categoryCounts = new LinkedHashMap<>();
+        String worst = null;
+        Instant firstSeen = null, lastSeen = null;
+
+        for (UpwindThreatDetection d : detections) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", d.getUpwindId());
+            m.put("title", d.getTitle());
+            m.put("severity", d.getSeverity());
+            m.put("status", d.getStatus());
+            m.put("category", d.getCategory());
+            m.put("resourceId", d.getResourceId());
+            m.put("resourceName", d.getResourceName());
+            m.put("resourceType", d.getResourceType());
+            m.put("cloudAccountId", d.getCloudAccountId());
+            m.put("mitreTactics", d.getMitreTactics() == null || d.getMitreTactics().isEmpty()
+                    ? List.of() : Arrays.asList(d.getMitreTactics().split(",")));
+            m.put("occurrenceCount", d.getOccurrenceCount());
+            m.put("firstSeenTime", d.getFirstSeenTime());
+            m.put("lastSeenTime", d.getLastSeenTime());
+            detectionRows.add(m);
+
+            worst = worse(worst, d.getSeverity());
+            firstSeen = earliest(firstSeen, d.getFirstSeenTime());
+            lastSeen = latest(lastSeen, d.getLastSeenTime());
+            if (d.getCategory() != null) categoryCounts.merge(d.getCategory(), 1L, Long::sum);
+            if (d.getMitreTactics() != null) {
+                for (String t : d.getMitreTactics().split(",")) {
+                    if (!t.isBlank()) tacticCounts.merge(t.trim(), 1L, Long::sum);
+                }
+            }
+            String key = d.getResourceId() != null ? d.getResourceId() : d.getResourceName();
+            if (key != null) {
+                Map<String, Object> r = resources.computeIfAbsent(key, k -> {
+                    Map<String, Object> n = new LinkedHashMap<>();
+                    n.put("resourceId", d.getResourceId());
+                    n.put("resourceName", d.getResourceName());
+                    n.put("resourceType", d.getResourceType());
+                    n.put("cloudProvider", d.getCloudProvider());
+                    n.put("cloudAccountId", d.getCloudAccountId());
+                    n.put("detectionCount", 0L);
+                    return n;
+                });
+                r.put("detectionCount", ((Long) r.get("detectionCount")) + 1);
+            }
+        }
+
+        out.put("detections", detectionRows);
+        out.put("worstSeverity", worst);
+        out.put("firstSeenTime", firstSeen);
+        out.put("lastSeenTime", lastSeen);
+        out.put("mitreTactics", tacticCounts.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .map(e -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("tactic", e.getKey());
+                    m.put("count", e.getValue());
+                    return m;
+                }).collect(Collectors.toList()));
+        out.put("categories", categoryCounts.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .map(e -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("category", e.getKey());
+                    m.put("count", e.getValue());
+                    return m;
+                }).collect(Collectors.toList()));
+        out.put("resources", new ArrayList<>(resources.values()));
+        return out;
+    }
+
+    /** Friendly labels for the detection sources Upwind emits, keyed by payload category. */
+    private static final Map<String, String> SOURCE_LABELS = Map.of(
+            "CLOUD_TRAIL", "AWS CloudTrail",
+            "SENSOR", "Sensor",
+            "AUDIT_LOGS", "Audit Logs",
+            "CLOUD_SCANNER", "Cloud Scanner",
+            "AZURE_LOGS", "Azure Logs",
+            "GCP_LOGS", "GCP Logs");
+
+    /** Selectable trend windows. 7 matches Upwind's default; the longer ones exist because
+     *  detections here are often last seen well over a week ago, which leaves a 7-day chart
+     *  almost empty and looking like missing data rather than quiet weeks. */
+    private static final List<Integer> THREAT_TREND_WINDOWS = List.of(7, 30, 90);
+    private static final int THREAT_TREND_DAYS = 7;
+
+    /**
+     * Aggregates behind the Threats dashboard: the detection funnel, a seven-day trend, and
+     * breakdowns by MITRE tactic and source.
+     *
+     * The raw event count Upwind puts at the head of its funnel is deliberately reported as
+     * unavailable rather than substituted. Upwind counts sensor events, of which detections are
+     * the filtered remainder; we sync detections only, so any number we printed there would be
+     * a different quantity wearing the same label.
+     */
+    public Map<String, Object> getThreatOverview(Long clientId, String accountId) {
+        return getThreatOverview(clientId, accountId, THREAT_TREND_DAYS);
+    }
+
+    public Map<String, Object> getThreatOverview(Long clientId, String accountId, int days) {
+        int window = THREAT_TREND_WINDOWS.contains(days) ? days : THREAT_TREND_DAYS;
+        Map<String, Object> out = new LinkedHashMap<>();
+        List<String> ids = resolveAccountIds(clientId, accountId);
+
+        List<Object[]> rows = ids.isEmpty() ? List.of() : detectionRepo.findDashboardFacets(ids);
+
+        Map<String, Long> byTactic = new HashMap<>();
+        Map<String, Long> bySource = new HashMap<>();
+        Map<String, Long> bySeverity = new LinkedHashMap<>();
+        // day -> severity band -> count
+        Map<LocalDate, Map<String, Long>> trend = new HashMap<>();
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate from = today.minusDays(window - 1L);
+
+        for (Object[] r : rows) {
+            String severity = upper((String) r[0]);
+            String tactics = (String) r[1];
+            String category = (String) r[2];
+            Instant lastSeen = (Instant) r[3];
+
+            if (severity != null) bySeverity.merge(severity, 1L, Long::sum);
+
+            // A detection can map to several tactics; Upwind counts it under each.
+            if (tactics != null && !tactics.isBlank()) {
+                for (String t : tactics.split(",")) {
+                    String tactic = t.trim();
+                    if (!tactic.isEmpty()) byTactic.merge(tactic, 1L, Long::sum);
+                }
+            }
+
+            String source = category == null || category.isBlank() ? "Unknown"
+                    : SOURCE_LABELS.getOrDefault(upper(category), prettify(category));
+            bySource.merge(source, 1L, Long::sum);
+
+            if (lastSeen != null) {
+                LocalDate day = lastSeen.atZone(ZoneOffset.UTC).toLocalDate();
+                if (!day.isBefore(from) && !day.isAfter(today)) {
+                    trend.computeIfAbsent(day, d -> new HashMap<>())
+                         .merge(severityBand(severity), 1L, Long::sum);
+                }
+            }
+        }
+
+        // Dense series: a day with no detections has to appear as zero, or the chart implies
+        // the quiet days never happened.
+        List<Map<String, Object>> series = new ArrayList<>();
+        long inWindow = 0;
+        for (int i = 0; i < window; i++) {
+            LocalDate day = from.plusDays(i);
+            Map<String, Long> counts = trend.getOrDefault(day, Map.of());
+            Map<String, Object> point = new LinkedHashMap<>();
+            point.put("date", day.toString());
+            point.put("critical", counts.getOrDefault("CRITICAL", 0L));
+            point.put("high", counts.getOrDefault("HIGH", 0L));
+            point.put("other", counts.getOrDefault("OTHER", 0L));
+            inWindow += (Long) point.get("critical") + (Long) point.get("high")
+                      + (Long) point.get("other");
+            series.add(point);
+        }
+
+        Map<String, Object> stories = getThreatStories(clientId, accountId);
+
+        out.put("detectionCount", rows.size());
+        out.put("resourceCount", ids.isEmpty() ? 0L : detectionRepo.countDistinctResources(ids));
+        out.put("storyCount", stories.getOrDefault("activeCount", 0));
+        out.put("eventCount", null);
+        out.put("eventCountAvailable", false);
+        out.put("eventCountReason",
+                "Upwind's funnel counts raw sensor events. We sync detections, not events, "
+                + "so no comparable figure exists on our side.");
+        out.put("bySeverity", bySeverity);
+        out.put("trend", series);
+        out.put("trendDays", window);
+        out.put("trendWindows", THREAT_TREND_WINDOWS);
+        // Detections whose last-seen falls inside the window. Without this the chart cannot be
+        // read: a near-empty 7-day chart against 31 detections looks broken rather than stale.
+        out.put("detectionsInWindow", inWindow);
+        out.put("byTactic", topEntries(byTactic, 10, "tactic"));
+        out.put("bySource", topEntries(bySource, 10, "source"));
+        return out;
+    }
+
+    /** Upwind's trend chart bands everything below High into one "Other" series. */
+    private static String severityBand(String severity) {
+        if ("CRITICAL".equals(severity)) return "CRITICAL";
+        if ("HIGH".equals(severity)) return "HIGH";
+        return "OTHER";
+    }
+
+    private static List<Map<String, Object>> topEntries(Map<String, Long> counts, int limit, String key) {
+        return counts.entrySet().stream()
+                .sorted((a, b) -> {
+                    int c = Long.compare(b.getValue(), a.getValue());
+                    return c != 0 ? c : a.getKey().compareTo(b.getKey());
+                })
+                .limit(limit)
+                .map(e -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put(key, e.getKey());
+                    m.put("count", e.getValue());
+                    return m;
+                })
+                .collect(Collectors.toList());
+    }
+
+    /** CLOUD_TRAIL -> "Cloud Trail", for sources we have no curated label for. */
+    private static String prettify(String raw) {
+        String[] parts = raw.replace('-', '_').split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            if (p.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1).toLowerCase());
+        }
+        return sb.length() == 0 ? raw : sb.toString();
+    }
+
+    private static String upper(String s) {
+        return s == null ? null : s.toUpperCase();
+    }
+
     private static boolean isActiveStory(String status) {
         if (status == null) return true; // absent status → treat as active (matches console default)
         String s = status.toLowerCase();
@@ -620,9 +1051,13 @@ public class XamSecureService {
     }
 
     /**
-     * Resolves the provider account ids (AWS account / GCP project / Azure
-     * subscription) owned by the client. If requestedAccountId is given it
-     * must be one of them, otherwise AccessDeniedException.
+     * Resolves the provider account ids (AWS account / GCP project / Azure subscription)
+     * owned by the client, narrowed to the caller's selection.
+     *
+     * {@code requestedAccountId} may be a single id or a comma-separated list, because the
+     * account picker supports multi-select. Every requested id must be owned by the client,
+     * otherwise AccessDeniedException — a client must never read another client's findings.
+     * An empty/absent selection means "all accounts I own".
      */
     public List<String> resolveAccountIds(Long clientId, String requestedAccountId) {
         List<String> owned = cloudAccountRepository.findByClientId(clientId).stream()
@@ -632,10 +1067,20 @@ public class XamSecureService {
         if (requestedAccountId == null || requestedAccountId.isEmpty()) {
             return owned;
         }
-        if (!owned.contains(requestedAccountId)) {
-            throw new AccessDeniedException("Account not accessible: " + requestedAccountId);
+        List<String> requested = Arrays.stream(requestedAccountId.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+        if (requested.isEmpty()) {
+            return owned;
         }
-        return List.of(requestedAccountId);
+        for (String id : requested) {
+            if (!owned.contains(id)) {
+                throw new AccessDeniedException("Account not accessible: " + id);
+            }
+        }
+        return requested;
     }
 
     public Map<String, Object> getSummary(Long clientId, String accountId) {
@@ -807,20 +1252,41 @@ public class XamSecureService {
                 .sorted(Comparator.comparingInt(m -> -((Integer) m.get("count"))))
                 .collect(Collectors.toList());
 
-        // Runtime exploit funnel (Upwind order). Stages we can source from data; the rest
-        // (internet exposure, NIST critical, functions-in-use) need runtime signal we don't have → 0.
+        // Runtime exploit funnel (Upwind order). "Internet exposure" and "Functions in Use"
+        // used to be hardcoded to unavailable because the sync discarded the fields that
+        // carry them; both are real now. "NIST critical sev" remains unsourced — it needs
+        // NVD's own severity banding rather than the CVSS v3 severity we store.
         int totalCves = byCve.size();
         long packageInUse = vulnRepo.countCvesPackageInUse(ids);
         long fixAvailable = vulnRepo.countCvesFixAvailable(ids);
+        long internetExposed = 0, exposedAndInUse = 0, functionsInUse = 0, activeComm = 0;
+        List<Object[]> runtime = vulnRepo.countRuntimeExposure(ids);
+        if (!runtime.isEmpty() && runtime.get(0) != null) {
+            Object[] r = runtime.get(0);
+            internetExposed = r[0] == null ? 0 : ((Number) r[0]).longValue();
+            exposedAndInUse = r[1] == null ? 0 : ((Number) r[1]).longValue();
+            functionsInUse = r[2] == null ? 0 : ((Number) r[2]).longValue();
+            activeComm = r[3] == null ? 0 : ((Number) r[3]).longValue();
+        }
         List<Map<String, Object>> funnel = new ArrayList<>();
         funnel.add(funnelStage("Total", totalCves, true));
         funnel.add(funnelStage("Package in use", (int) packageInUse, true));
-        funnel.add(funnelStage("Internet exposure", 0, false));
+        funnel.add(funnelStage("Internet exposure", (int) internetExposed, true));
         funnel.add(funnelStage("Known exploit", exploitable, true));
         funnel.add(funnelStage("Fix available", (int) fixAvailable, true));
         funnel.add(funnelStage("NIST critical sev", 0, false));
         funnel.add(funnelStage("EPSS-prioritized", epssPrioritized, true));
-        funnel.add(funnelStage("Functions in Use", 0, false));
+        funnel.add(funnelStage("Functions in Use", (int) functionsInUse, true));
+
+        // Headline runtime narrowing, surfaced separately from the funnel so the tab can lead
+        // with "what is actually reachable and running" instead of the installed total.
+        Map<String, Object> runtimeExposure = new LinkedHashMap<>();
+        runtimeExposure.put("internetExposed", internetExposed);
+        runtimeExposure.put("exposedAndInUse", exposedAndInUse);
+        runtimeExposure.put("activeCommunication", activeComm);
+        runtimeExposure.put("functionsInUse", functionsInUse);
+        runtimeExposure.put("packageInUse", packageInUse);
+        out.put("runtimeExposure", runtimeExposure);
 
         out.put("totalCves", totalCves);
         out.put("totalFindings", totalFindings);
@@ -974,14 +1440,24 @@ public class XamSecureService {
             agg.firstSeen = earliest(agg.firstSeen, v.getFirstSeenTime());
             agg.lastScan = latest(agg.lastScan, v.getLastScanTime());
 
+            // Package / image / in-use now come from promoted columns instead of
+            // re-parsing raw_payload for every finding on every drawer open.
+            if (v.getPackageName() != null) agg.packages.add(v.getPackageName());
+            if (Boolean.TRUE.equals(v.getPackageInUse())) agg.anyInUse = true;
+            if (v.getImageName() != null) agg.images.add(v.getImageName());
+            if (Boolean.TRUE.equals(v.getInternetExposed())) agg.internetExposed = true;
+            if (Boolean.TRUE.equals(v.getActiveCommunication())) agg.activeCommunication = true;
+            if (Boolean.TRUE.equals(v.getExploitableFunctionsInUse())) agg.functionsInUse = true;
+            if (agg.namespace == null) {
+                agg.namespace = v.getNamespace();
+                agg.clusterName = v.getClusterName();
+                agg.packageVersion = v.getPackageVersion();
+                agg.imageTag = v.getImageTag();
+            }
+
+            // remediation has no promoted column, so it still needs the payload.
             JsonNode root = parseJson(v.getRawPayload());
             if (root != null) {
-                JsonNode pkg = root.path("package");
-                String pkgName = textOrNull(pkg, "name");
-                if (pkgName != null) agg.packages.add(pkgName);
-                if (pkg.path("in_use").asBoolean(false)) agg.anyInUse = true;
-                String img = textOrNull(root.path("image"), "name");
-                if (img != null) agg.images.add(img);
                 if (agg.fixedInVersion == null) {
                     JsonNode rem = root.path("remediation");
                     if (rem.isArray()) {
@@ -1012,6 +1488,13 @@ public class XamSecureService {
             m.put("image", a.images.size() == 1 ? a.images.iterator().next()
                     : (a.images.isEmpty() ? null : a.images.size() + " images"));
             m.put("inUse", a.anyInUse);
+            m.put("packageVersion", a.packageVersion);
+            m.put("imageTag", a.imageTag);
+            m.put("namespace", a.namespace);
+            m.put("clusterName", a.clusterName);
+            m.put("internetExposed", a.internetExposed);
+            m.put("activeCommunication", a.activeCommunication);
+            m.put("functionsInUse", a.functionsInUse);
             m.put("fixAvailable", a.fixedInVersion != null);
             m.put("fixedInVersion", a.fixedInVersion);
             return m;
@@ -1021,7 +1504,8 @@ public class XamSecureService {
     private static final class CveResourceAgg {
         String resourceId;
         String resourceName, resourceType, region, cloudProvider, cvssScore, fixedInVersion;
-        boolean exploitable, anyInUse;
+        String packageVersion, imageTag, namespace, clusterName;
+        boolean exploitable, anyInUse, internetExposed, activeCommunication, functionsInUse;
         Instant firstSeen, lastScan;
         final Set<String> packages = new LinkedHashSet<>();
         final Set<String> images = new LinkedHashSet<>();
@@ -1635,6 +2119,35 @@ public class XamSecureService {
                 })
                 .sorted(Comparator.comparingLong(m -> -((Long) m.get("count"))))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Data-classification and exposure rollup over the synced inventory catalog: how many
+     * assets Upwind sees holding PII/PHI/PCI, running elevated privilege, running
+     * end-of-life software, or reachable from the internet.
+     *
+     * These come from the catalog asset's {@code sensitive_data_at_rest} /
+     * {@code sensitive_data_in_transit} / {@code high_privilege_risk} / {@code technologies}
+     * / {@code network_risk} objects. They were unavailable while the sync used the flat
+     * {@code /inventory/assets/search}, which returns none of them.
+     */
+    public Map<String, Object> getInventoryRisk(Long clientId, String accountId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String k : List.of("assets", "pii", "phi", "pci",
+                "elevatedPrivilege", "eolTechnology", "internetExposed")) {
+            out.put(k, 0L);
+        }
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty()) return out;
+        List<Object[]> rows = inventoryRepo.riskRollup(ids);
+        if (rows.isEmpty() || rows.get(0) == null) return out;
+        Object[] r = rows.get(0);
+        String[] keys = {"assets", "pii", "phi", "pci",
+                "elevatedPrivilege", "eolTechnology", "internetExposed"};
+        for (int i = 0; i < keys.length && i < r.length; i++) {
+            out.put(keys[i], r[i] == null ? 0L : ((Number) r[i]).longValue());
+        }
+        return out;
     }
 
     /**

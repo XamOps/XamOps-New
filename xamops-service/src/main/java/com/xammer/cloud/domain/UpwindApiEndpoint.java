@@ -55,6 +55,21 @@ public class UpwindApiEndpoint {
     @Column(name = "last_seen_time")
     private Instant lastSeenTime;
 
+    /**
+     * risk_overview.sensitive_data[] flattened to "CATEGORY:Type" entries (e.g. "PII:Email"),
+     * comma-separated. Only the v2 /api-security/endpoints/search payload carries this; the
+     * v1 endpoint list did not, which is why the APIs tab had no data-classification panel.
+     */
+    @Column(name = "sensitive_data", length = 1024)
+    private String sensitiveData;
+
+    @Column(name = "has_sensitive_data")
+    private Boolean hasSensitiveData;
+
+    /** Observed HTTP status codes, comma-separated (e.g. "200,401,502"). */
+    @Column(name = "status_codes", length = 256)
+    private String statusCodes;
+
     /** ACTIVE / RESOLVED (absent from latest complete sync) */
     @Column(nullable = false)
     private String status = "ACTIVE";

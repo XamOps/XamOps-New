@@ -88,6 +88,336 @@ class XamSecureServiceTest {
         assertEquals(2, byType.size());
     }
 
+    /**
+     * The roster is the inventory catalog's identity assets, not just the subjects of failing
+     * checks. A clean identity must still be listed — that is the difference between an
+     * inventory and a findings list.
+     */
+    @Test
+    void identitiesRosterComesFromInventoryIncludingCleanIdentities() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        var deploy = identityAsset("arn:aws:iam::111:role/deploy", "deploy", "aws_iam_role", true);
+        when(inventoryRepo.findIdentityAssets(List.of("111")))
+                .thenReturn(List.of(
+                        deploy,
+                        identityAsset("arn:aws:iam::111:user/clean", "clean", "aws_iam_user", false),
+                        identityAsset("k8s/sa/builder", "builder", "kubernetes_service_account", false)));
+        // Privilege list is sourced separately, so it can span non-identity assets too.
+        when(inventoryRepo.findElevatedPrivilegeAssets(List.of("111"))).thenReturn(List.of(deploy));
+        when(postureRepo.findFailingByResourceIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.<Object[]>of(new Object[]{
+                        "arn:aws:iam::111:role/deploy", "Role assumable by other accounts", null,
+                        "HIGH", java.time.Instant.parse("2026-08-01T00:00:00Z"),
+                        java.time.Instant.parse("2026-07-01T00:00:00Z")}));
+
+        var out = service.getIdentities(1L, null);
+
+        assertEquals(3, out.get("total"), "clean identities are part of the roster");
+        assertEquals(1, out.get("withFindings"));
+        assertEquals(1, out.get("privilegedTotal"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<Map<String, Object>>) out.get("identities");
+        // Worst severity leads.
+        assertEquals("deploy", rows.get(0).get("name"));
+        assertEquals("HIGH", rows.get(0).get("severity"));
+        assertEquals(1, rows.get(0).get("findingCount"));
+        assertEquals(true, rows.get(0).get("elevatedPrivilege"));
+        // A clean identity is present with no severity and no findings.
+        var clean = rows.stream().filter(r -> "clean".equals(r.get("name"))).findFirst().orElseThrow();
+        assertNull(clean.get("severity"));
+        assertEquals(0, clean.get("findingCount"));
+        // Kubernetes identities are included, which the old resource-type LIKE guess missed.
+        assertTrue(rows.stream().anyMatch(r -> "kubernetes_service_account".equals(r.get("resourceType"))));
+    }
+
+    /** An identity failing a check but missing from the last inventory walk must not vanish. */
+    @Test
+    void identitiesKeepFindingOnlyOrphansNotInInventory() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(inventoryRepo.findIdentityAssets(List.of("111"))).thenReturn(List.of());
+        java.time.Instant t = java.time.Instant.parse("2026-07-01T00:00:00Z");
+        when(postureRepo.findIdentityFailings(List.of("111"))).thenReturn(List.<Object[]>of(
+                new Object[]{"arn:aws:iam::111:user/ghost", "ghost", "AWS_IAM_USER",
+                        "MFA should be enabled", null, "MEDIUM", "AWS", "111", t, t}));
+
+        var out = service.getIdentities(1L, null);
+
+        assertEquals(1, out.get("total"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<Map<String, Object>>) out.get("identities");
+        assertEquals("ghost", rows.get(0).get("name"));
+        assertEquals(false, rows.get(0).get("inInventory"));
+    }
+
+    private static com.xammer.cloud.domain.UpwindInventoryAsset identityAsset(
+            String resourceId, String name, String label, boolean privileged) {
+        var a = new com.xammer.cloud.domain.UpwindInventoryAsset();
+        a.setCloudResourceId(resourceId);
+        a.setName(name);
+        a.setLabel(label);
+        a.setAssetCategory("identity");
+        a.setCloudProvider("AWS");
+        a.setCloudAccountId("111");
+        a.setHasElevatedPrivilege(privileged);
+        return a;
+    }
+
+    /**
+     * high_privilege_risk.has_elevated_privilege comes from the inventory catalog, so
+     * Identities can now show privilege both as its own roster and as a per-row flag —
+     * previously the view had to state that privilege data was unobtainable.
+     */
+    @Test
+    void identitiesJoinElevatedPrivilegeFromInventoryCatalog() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        java.time.Instant t = java.time.Instant.parse("2026-07-01T00:00:00Z");
+        when(postureRepo.findIdentityFailings(List.of("111"))).thenReturn(List.<Object[]>of(
+                new Object[]{"arn:iam::role/deploy", "deploy", "AWS_IAM_ROLE", "Role assumable",
+                        null, "HIGH", "AWS", "111", t, t}));
+
+        com.xammer.cloud.domain.UpwindInventoryAsset privileged =
+                new com.xammer.cloud.domain.UpwindInventoryAsset();
+        privileged.setCloudResourceId("arn:iam::role/deploy");
+        privileged.setName("deploy");
+        privileged.setLabel("aws_iam_role");
+        privileged.setHasElevatedPrivilege(true);
+        com.xammer.cloud.domain.UpwindInventoryAsset cleanButPrivileged =
+                new com.xammer.cloud.domain.UpwindInventoryAsset();
+        cleanButPrivileged.setCloudResourceId("arn:iam::role/admin");
+        cleanButPrivileged.setName("admin");
+        cleanButPrivileged.setHasElevatedPrivilege(true);
+        when(inventoryRepo.findElevatedPrivilegeAssets(List.of("111")))
+                .thenReturn(List.of(privileged, cleanButPrivileged));
+
+        var out = service.getIdentities(1L, null);
+
+        @SuppressWarnings("unchecked")
+        var rows = (List<Map<String, Object>>) out.get("identities");
+        assertEquals(true, rows.get(0).get("elevatedPrivilege"));
+        // The privileged roster is not an intersection: a privileged asset with no failing
+        // check is exactly the case worth surfacing, so it must still be listed.
+        assertEquals(2, out.get("privilegedTotal"));
+        @SuppressWarnings("unchecked")
+        var priv = (List<Map<String, Object>>) out.get("privileged");
+        var admin = priv.stream().filter(p -> "admin".equals(p.get("name"))).findFirst().orElseThrow();
+        assertEquals(false, admin.get("hasFindings"));
+    }
+
+    /**
+     * "Internet exposure" and "Functions in Use" were hardcoded to unavailable because the
+     * sync discarded the fields behind them. Both now come from promoted columns.
+     */
+    @Test
+    void vulnDashboardFunnelSourcesRuntimeExposureStages() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(vulnRepo.countCvesPackageInUse(List.of("111"))).thenReturn(930L);
+        when(vulnRepo.countCvesFixAvailable(List.of("111"))).thenReturn(400L);
+        when(vulnRepo.countRuntimeExposure(List.of("111")))
+                .thenReturn(List.<Object[]>of(new Object[]{379L, 364L, 5L, 162L}));
+
+        var out = service.getVulnerabilityDashboard(1L, null);
+
+        @SuppressWarnings("unchecked")
+        var funnel = (List<Map<String, Object>>) out.get("funnel");
+        var exposure = funnel.stream()
+                .filter(s -> "Internet exposure".equals(s.get("label"))).findFirst().orElseThrow();
+        assertEquals(379, exposure.get("value"));
+        assertEquals(true, exposure.get("available"), "no longer a hardcoded zero");
+        var fns = funnel.stream()
+                .filter(s -> "Functions in Use".equals(s.get("label"))).findFirst().orElseThrow();
+        assertEquals(5, fns.get("value"));
+        assertEquals(true, fns.get("available"));
+        // NIST critical severity still has no honest source, so it stays marked unavailable.
+        var nist = funnel.stream()
+                .filter(s -> "NIST critical sev".equals(s.get("label"))).findFirst().orElseThrow();
+        assertEquals(false, nist.get("available"));
+
+        @SuppressWarnings("unchecked")
+        var runtime = (Map<String, Object>) out.get("runtimeExposure");
+        assertEquals(379L, runtime.get("internetExposed"));
+        assertEquals(364L, runtime.get("exposedAndInUse"));
+        assertEquals(162L, runtime.get("activeCommunication"));
+        assertEquals(5L, runtime.get("functionsInUse"));
+    }
+
+    /** No rows yet must read as zeroes, not blow up on a null aggregate row. */
+    @Test
+    void vulnDashboardRuntimeExposureToleratesNoData() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(vulnRepo.countRuntimeExposure(List.of("111")))
+                .thenReturn(List.<Object[]>of(new Object[]{null, null, null, null}));
+
+        var out = service.getVulnerabilityDashboard(1L, null);
+
+        @SuppressWarnings("unchecked")
+        var runtime = (Map<String, Object>) out.get("runtimeExposure");
+        assertEquals(0L, runtime.get("internetExposed"));
+        assertEquals(0L, runtime.get("functionsInUse"));
+    }
+
+    // --- Threat story detail ---
+
+    private static com.fasterxml.jackson.databind.JsonNode storyJson() throws Exception {
+        return new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                "{\"id\":\"uwis-1\",\"title\":\"Cryptominer Staging Across Kubernetes Workloads\","
+                + "\"severity\":\"critical\",\"status\":\"open\","
+                + "\"create_time\":\"2026-08-02T16:14:36Z\",\"update_time\":\"2026-08-02T19:44:06Z\","
+                + "\"description\":\"# Incident Summary\\nXMRig was downloaded.\","
+                + "\"detection_ids\":[\"uwd-a\",\"uwd-b\",\"uwd-c\"]}");
+    }
+
+    private static com.xammer.cloud.domain.UpwindThreatDetection detection(
+            String id, String severity, String resourceId, String tactics) {
+        var d = new com.xammer.cloud.domain.UpwindThreatDetection();
+        d.setUpwindId(id);
+        d.setTitle("Detection " + id);
+        d.setSeverity(severity);
+        d.setStatus("OPEN");
+        d.setCategory("Runtime");
+        d.setResourceId(resourceId);
+        d.setResourceName(resourceId);
+        d.setResourceType("KUBERNETES_DEPLOYMENT");
+        d.setCloudProvider("AWS");
+        d.setCloudAccountId("111");
+        d.setMitreTactics(tactics);
+        d.setOccurrenceCount(3);
+        d.setFirstSeenTime(java.time.Instant.parse("2026-08-02T15:00:00Z"));
+        d.setLastSeenTime(java.time.Instant.parse("2026-08-02T19:00:00Z"));
+        return d;
+    }
+
+    @Test
+    void storyDetailAggregatesDetectionsMitreAndResources() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.getThreatStory("uwis-1")).thenReturn(storyJson());
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of(
+                        detection("uwd-a", "CRITICAL", "res-1", "Execution,Discovery"),
+                        detection("uwd-b", "HIGH", "res-1", "Execution"),
+                        detection("uwd-c", "MEDIUM", "res-2", "Discovery")));
+
+        var out = service.getThreatStoryDetail(1L, null, "uwis-1");
+
+        assertEquals("uwis-1", out.get("id"));
+        // Upwind lowercases severity/status; we normalise so the chips match every other tab.
+        assertEquals("CRITICAL", out.get("severity"));
+        assertEquals("OPEN", out.get("status"));
+        assertEquals("CRITICAL", out.get("worstSeverity"));
+        assertEquals(3, out.get("detectionCount"));
+        assertEquals(3, out.get("resolvedCount"));
+        assertTrue(((String) out.get("description")).contains("Incident Summary"));
+
+        @SuppressWarnings("unchecked")
+        var tactics = (List<Map<String, Object>>) out.get("mitreTactics");
+        // Execution appears twice, Discovery twice — most frequent first, deduped per tactic.
+        assertEquals(2, tactics.size());
+        assertEquals(2L, tactics.get(0).get("count"));
+
+        @SuppressWarnings("unchecked")
+        var resources = (List<Map<String, Object>>) out.get("resources");
+        assertEquals(2, resources.size(), "two distinct resources across three detections");
+        var res1 = resources.stream()
+                .filter(r -> "res-1".equals(r.get("resourceId"))).findFirst().orElseThrow();
+        assertEquals(2L, res1.get("detectionCount"));
+    }
+
+    /**
+     * Tenancy. Stories carry no cloud_account_id — the payload has only id/title/severity/
+     * status/timestamps/detection_ids — so the old story.resource.cloud_account_id check
+     * never matched and every client could see every story in the org. Ownership now comes
+     * from the detections, and a story with none of ours must be withheld entirely.
+     */
+    @Test
+    void storyDetailIsWithheldWhenNoDetectionBelongsToTheClient() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.getThreatStory("uwis-1")).thenReturn(storyJson());
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of());
+
+        var out = service.getThreatStoryDetail(1L, null, "uwis-1");
+
+        assertTrue(out.isEmpty(), "a story we own no detection in must not be returned at all");
+    }
+
+    /** A story spanning accounts we cannot see reports the shortfall rather than hiding it. */
+    @Test
+    void storyDetailReportsPartiallyResolvedDetections() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.getThreatStory("uwis-1")).thenReturn(storyJson());
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of(detection("uwd-a", "HIGH", "res-1", "Execution")));
+
+        var out = service.getThreatStoryDetail(1L, null, "uwis-1");
+
+        assertEquals(3, out.get("detectionCount"), "what the story references");
+        assertEquals(1, out.get("resolvedCount"), "what we can actually show");
+    }
+
+    /** An upstream failure must degrade to empty, not propagate out of the controller. */
+    @Test
+    void storyDetailReturnsEmptyWhenUpwindFails() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.getThreatStory("uwis-1")).thenThrow(new IllegalStateException("502"));
+
+        assertTrue(service.getThreatStoryDetail(1L, null, "uwis-1").isEmpty());
+    }
+
+    @Test
+    void inventoryRiskRollupMapsClassificationCounts() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(inventoryRepo.riskRollup(List.of("111"))).thenReturn(List.<Object[]>of(
+                new Object[]{2058L, 31L, 0L, 4L, 12L, 7L, 96L}));
+
+        var out = service.getInventoryRisk(1L, null);
+
+        assertEquals(2058L, out.get("assets"));
+        assertEquals(31L, out.get("pii"));
+        assertEquals(0L, out.get("phi"));
+        assertEquals(12L, out.get("elevatedPrivilege"));
+        assertEquals(7L, out.get("eolTechnology"));
+        assertEquals(96L, out.get("internetExposed"));
+    }
+
+    /** No synced assets yet must read as zeroes, not as a null-laden payload. */
+    @Test
+    void inventoryRiskRollupDefaultsToZeroWhenNothingSynced() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(inventoryRepo.riskRollup(List.of("111"))).thenReturn(List.<Object[]>of(
+                new Object[]{0L, null, null, null, null, null, null}));
+
+        var out = service.getInventoryRisk(1L, null);
+
+        assertEquals(0L, out.get("assets"));
+        assertEquals(0L, out.get("pii"));
+        assertEquals(0L, out.get("elevatedPrivilege"));
+    }
+
+    /** v2-only endpoint fields must reach the read model the APIs tab consumes. */
+    @Test
+    void apiSecurityRowsExposeSensitiveDataAndStatusCodes() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        com.xammer.cloud.domain.UpwindApiEndpoint e = new com.xammer.cloud.domain.UpwindApiEndpoint();
+        e.setUpwindId("rt-1");
+        e.setCloudAccountId("111");
+        e.setMethod("GET");
+        e.setUri("/api/profile");
+        e.setSensitiveData("PII:Email,PII:Phone");
+        e.setHasSensitiveData(true);
+        e.setStatusCodes("200,401");
+        when(apiEndpointRepo.findByCloudAccountIdInAndStatusOrderByUriAsc(List.of("111"), "ACTIVE"))
+                .thenReturn(List.of(e));
+
+        var rows = service.getApiSecurity(1L, null);
+
+        assertEquals(List.of("PII:Email", "PII:Phone"), rows.get(0).get("sensitiveData"));
+        assertEquals(true, rows.get(0).get("hasSensitiveData"));
+        assertEquals(List.of("200", "401"), rows.get(0).get("statusCodes"));
+    }
+
     @Test
     void syncStatusFlagsStaleAndFailingDomains() {
         com.xammer.cloud.domain.UpwindSyncState fresh = new com.xammer.cloud.domain.UpwindSyncState();
@@ -146,7 +476,7 @@ class XamSecureServiceTest {
         assertEquals(true, rows.get(0).get("internetExposed"));
         assertEquals(false, rows.get(0).get("authenticated"));
         assertEquals(List.of("a.example", "b.example"), rows.get(0).get("domains"));
-        verify(apiClient, never()).fetchApiSecurityEndpoints(any(), anyInt());
+        verify(apiClient, never()).searchApiEndpoints(any(), anyInt());
     }
 
     @Test
@@ -156,7 +486,8 @@ class XamSecureServiceTest {
         com.fasterxml.jackson.databind.JsonNode ep = new com.fasterxml.jackson.databind.ObjectMapper()
             .readTree("{\"id\":\"rt-1\",\"method\":\"GET\",\"uri\":\"/version\",\"resource_id\":\"ep-1\"}");
         when(apiClient.isConfigured()).thenReturn(true);
-        when(apiClient.fetchApiSecurityEndpoints("111", 12)).thenReturn(List.of(ep));
+        when(apiClient.searchApiEndpoints(eq("111"), anyInt()))
+                .thenReturn(new UpwindApiClient.FetchResult(List.of(ep), false));
 
         var rows = service.getApiSecurity(1L, null);
         assertEquals(1, rows.size());
@@ -170,6 +501,34 @@ class XamSecureServiceTest {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111"), aws("222")));
         List<String> ids = service.resolveAccountIds(1L, null);
         assertEquals(List.of("111", "222"), ids);
+    }
+
+    @Test
+    void resolveAccountIdsNarrowsToASingleSelectedAccount() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111"), aws("222")));
+        assertEquals(List.of("222"), service.resolveAccountIds(1L, "222"));
+    }
+
+    /**
+     * The picker supports multi-select. Before this, only the first id was sent, so choosing
+     * two accounts showed ONE account's data — less than choosing none.
+     */
+    @Test
+    void resolveAccountIdsAcceptsAMultiAccountSelection() {
+        when(cloudAccountRepo.findByClientId(1L))
+                .thenReturn(List.of(aws("111"), aws("222"), aws("333")));
+        assertEquals(List.of("111", "333"), service.resolveAccountIds(1L, "111,333"));
+        assertEquals(List.of("111", "222"), service.resolveAccountIds(1L, " 111 , 222 "));
+    }
+
+    /** Tenancy: an unowned account must be refused even when bundled with owned ones. */
+    @Test
+    void resolveAccountIdsRejectsAnyUnownedAccountInTheSelection() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.resolveAccountIds(1L, "111,999"));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.resolveAccountIds(1L, "999"));
     }
 
     @Test
@@ -301,24 +660,148 @@ class XamSecureServiceTest {
         assertEquals("bucket-1", resources.get(0).get("resourceName"));
     }
 
+    /**
+     * Story tenancy comes from correlated detections, not from a field on the story.
+     *
+     * The previous version of this test gave each story a resource.cloud_account_id and
+     * asserted the service filtered on it. Real stories carry no account id at all (verified
+     * live 2026-08-04: the payload is id/title/severity/status/create_time/update_time/
+     * detection_ids), so that fixture made a broken filter look correct and every org story
+     * reached every client. These fixtures now match the real shape.
+     */
     @Test
-    void getThreatStoriesFiltersForeignAccountsAndCountsActive() throws Exception {
+    void getThreatStoriesEstablishesTenancyFromCorrelatedDetections() throws Exception {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
         when(apiClient.isConfigured()).thenReturn(true);
         var om = new com.fasterxml.jackson.databind.ObjectMapper();
-        var owned = om.readTree("{\"id\":\"s1\",\"title\":\"Story 1\",\"severity\":\"HIGH\",\"status\":\"OPEN\",\"resource\":{\"cloud_account_id\":\"111\",\"name\":\"res-1\"}}");
-        var foreign = om.readTree("{\"id\":\"s2\",\"status\":\"OPEN\",\"resource\":{\"cloud_account_id\":\"999\"}}");
-        var resolved = om.readTree("{\"id\":\"s3\",\"status\":\"RESOLVED\",\"resource\":{\"cloud_account_id\":\"111\"}}");
+        var ours = om.readTree("{\"id\":\"s1\",\"title\":\"Story 1\",\"severity\":\"HIGH\","
+                + "\"status\":\"OPEN\",\"detection_ids\":[\"uwd-a\",\"uwd-b\"]}");
+        var foreign = om.readTree("{\"id\":\"s2\",\"status\":\"OPEN\","
+                + "\"detection_ids\":[\"uwd-z\"]}");
+        var resolvedStory = om.readTree("{\"id\":\"s3\",\"status\":\"RESOLVED\","
+                + "\"detection_ids\":[\"uwd-a\"]}");
         when(apiClient.searchThreatStories(any(), org.mockito.ArgumentMatchers.anyInt()))
-                .thenReturn(List.of(owned, foreign, resolved));
+                .thenReturn(List.of(ours, foreign, resolvedStory));
+        // Only uwd-a and uwd-b are in account 111; uwd-z belongs to somebody else.
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of(
+                        detection("uwd-a", "CRITICAL", "res-1", "Execution"),
+                        detection("uwd-b", "HIGH", "res-1", "Execution")));
 
         var summary = service.getThreatStories(1L, null);
 
-        assertEquals(1, summary.get("activeCount"));        // only the OPEN owned story
+        assertEquals(1, summary.get("activeCount"));        // only the OPEN story we own
         @SuppressWarnings("unchecked")
         var stories = (List<java.util.Map<String, Object>>) summary.get("stories");
-        assertEquals(2, stories.size());                    // both owned stories, foreign excluded
+        assertEquals(2, stories.size());                    // s1 and s3; s2 correlates nothing of ours
         assertEquals("s1", stories.get(0).get("id"));
+        assertEquals(2, stories.get(0).get("relatedEvents")); // what the story references
+        assertEquals(2L, stories.get(0).get("resolvedCount")); // how much of it we hold
+        assertTrue(stories.stream().noneMatch(m -> "s2".equals(m.get("id"))));
+    }
+
+    /** A story naming only other tenants' detections must not appear at all. */
+    @Test
+    void getThreatStoriesWithholdsStoriesCorrelatingNoneOfOurDetections() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        var foreign = om.readTree("{\"id\":\"s9\",\"title\":\"Cryptominer in another tenant\","
+                + "\"status\":\"OPEN\",\"detection_ids\":[\"uwd-x\",\"uwd-y\"]}");
+        when(apiClient.searchThreatStories(any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(foreign));
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of());
+
+        var summary = service.getThreatStories(1L, null);
+
+        assertEquals(0, summary.get("activeCount"));
+        @SuppressWarnings("unchecked")
+        var stories = (List<java.util.Map<String, Object>>) summary.get("stories");
+        assertTrue(stories.isEmpty());
+    }
+
+    @Test
+    void threatOverviewAggregatesTacticsSourcesAndDenseTrend() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(false);   // stories unavailable; aggregates still work
+        var today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        java.time.Instant onDay = today.atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
+                .plusSeconds(3600);
+        java.time.Instant tooOld = onDay.minusSeconds(60L * 60 * 24 * 30);
+        when(detectionRepo.findDashboardFacets(List.of("111"))).thenReturn(List.of(
+                new Object[]{"CRITICAL", "Execution,Discovery", "CLOUD_TRAIL", onDay},
+                new Object[]{"HIGH", "Execution", "SENSOR", onDay},
+                new Object[]{"MEDIUM", null, "weird_source", onDay},
+                // Outside the seven-day window: counted in the facets, absent from the trend.
+                new Object[]{"LOW", "Discovery", "CLOUD_TRAIL", tooOld}));
+        when(detectionRepo.countDistinctResources(List.of("111"))).thenReturn(4L);
+
+        var out = service.getThreatOverview(1L, null);
+
+        assertEquals(4, out.get("detectionCount"));
+        assertEquals(4L, out.get("resourceCount"));
+        // The funnel's event stage has no equivalent on our side and must not be invented.
+        assertEquals(false, out.get("eventCountAvailable"));
+        assertNull(out.get("eventCount"));
+
+        @SuppressWarnings("unchecked")
+        var tactics = (List<java.util.Map<String, Object>>) out.get("byTactic");
+        // A detection with several tactics counts under each, as Upwind does it: Execution from
+        // rows 1-2, Discovery from rows 1 and 4. Equal counts tie-break alphabetically so the
+        // chart ordering is stable between requests rather than dependent on map iteration.
+        assertEquals("Discovery", tactics.get(0).get("tactic"));
+        assertEquals(2L, tactics.get(0).get("count"));
+        assertEquals("Execution", tactics.get(1).get("tactic"));
+        assertEquals(2L, tactics.get(1).get("count"));
+
+        @SuppressWarnings("unchecked")
+        var sources = (List<java.util.Map<String, Object>>) out.get("bySource");
+        var labels = sources.stream().map(m -> (String) m.get("source")).toList();
+        assertTrue(labels.contains("AWS CloudTrail"));       // curated label
+        assertTrue(labels.contains("Weird Source"));         // fallback prettifier
+
+        @SuppressWarnings("unchecked")
+        var trend = (List<java.util.Map<String, Object>>) out.get("trend");
+        assertEquals(7, trend.size());                       // dense: quiet days appear as zero
+        var last = trend.get(6);
+        assertEquals(today.toString(), last.get("date"));
+        assertEquals(1L, last.get("critical"));
+        assertEquals(1L, last.get("high"));
+        assertEquals(1L, last.get("other"));                 // MEDIUM banded into "other"
+        assertEquals(0L, trend.get(0).get("critical"));
+    }
+
+    @Test
+    void threatOverviewHonoursSupportedWindowsAndClampsOthers() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(false);
+        var today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        java.time.Instant recent = today.atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
+                .plusSeconds(3600);
+        java.time.Instant twentyDaysAgo = recent.minusSeconds(60L * 60 * 24 * 20);
+        when(detectionRepo.findDashboardFacets(List.of("111"))).thenReturn(List.of(
+                new Object[]{"HIGH", "Execution", "SENSOR", recent},
+                new Object[]{"LOW", "Execution", "SENSOR", twentyDaysAgo}));
+
+        var week = service.getThreatOverview(1L, null, 7);
+        assertEquals(7, week.get("trendDays"));
+        @SuppressWarnings("unchecked")
+        var weekTrend = (List<java.util.Map<String, Object>>) week.get("trend");
+        assertEquals(7, weekTrend.size());
+        // The 20-day-old detection is counted in the totals but falls outside the window, which
+        // is exactly the case the in-window figure exists to explain.
+        assertEquals(2, week.get("detectionCount"));
+        assertEquals(1L, week.get("detectionsInWindow"));
+
+        var month = service.getThreatOverview(1L, null, 30);
+        assertEquals(30, month.get("trendDays"));
+        assertEquals(2L, month.get("detectionsInWindow"));
+
+        // Anything outside the supported set falls back rather than letting a caller ask for
+        // an arbitrary number of daily buckets.
+        assertEquals(7, service.getThreatOverview(1L, null, 4000).get("trendDays"));
+        assertEquals(7, service.getThreatOverview(1L, null, -1).get("trendDays"));
     }
 
     @Test

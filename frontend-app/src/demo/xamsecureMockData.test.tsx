@@ -41,12 +41,40 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(screen.getAllByText(/S3 Buckets/).length).toBeGreaterThan(0);
   });
 
-  it('Threats lists detections and policies', () => {
+  it('Threats opens on the dashboard and reaches detections', () => {
     draw(
       <ThreatsSection threats={demo.demoThreatsPage('?page=0&size=50')} policies={demo.demoThreatPolicies}
+                      stories={demo.demoThreatStories} overview={demo.demoThreatOverview}
                       isLoading={false} onPage={noop} onArchive={asyncNoop as never} />
     );
+    // Dashboard is the landing view, as it is in Upwind.
+    expect(screen.getByText(/Noise to signal threat funnel/)).toBeInTheDocument();
+    expect(screen.getByText('Defense Evasion')).toBeInTheDocument();
+    // The events stage has no equivalent on our side, so it must say so, not show a number.
+    expect(screen.getByText('Not available')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Detections/ }));
     expect(screen.getAllByText(/Reverse shell spawned/).length).toBeGreaterThan(0);
+  });
+
+  it('Threats lists stories with their related event counts', () => {
+    draw(
+      <ThreatsSection threats={demo.demoThreatsPage('?page=0&size=50')} policies={demo.demoThreatPolicies}
+                      stories={demo.demoThreatStories} overview={demo.demoThreatOverview}
+                      isLoading={false} onPage={noop} onArchive={asyncNoop as never} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Stories/ }));
+    expect(screen.getAllByText(/Compromised container mining cryptocurrency/).length)
+      .toBeGreaterThan(0);
+  });
+
+  it('Threats leaves Investigation disabled, since we sync detections and not events', () => {
+    draw(
+      <ThreatsSection threats={demo.demoThreatsPage('?page=0&size=50')} policies={demo.demoThreatPolicies}
+                      stories={demo.demoThreatStories} overview={demo.demoThreatOverview}
+                      isLoading={false} onPage={noop} onArchive={asyncNoop as never} />
+    );
+    expect(screen.getByRole('button', { name: /Investigation/ })).toBeDisabled();
   });
 
   it('Vulnerabilities shows the CVE totals', () => {
@@ -74,7 +102,8 @@ describe('XamSecure demo data renders in every tab', () => {
   it('Inventory lists assets and categories', () => {
     draw(
       <InventoryTab data={demo.demoInventoryPage('?page=0&size=50')} categories={demo.demoInventoryCategories}
-                    network={demo.demoNetworkTopology} isLoading={false} onLoad={noop} />
+                    risk={demo.demoInventoryRisk} network={demo.demoNetworkTopology}
+                    isLoading={false} onLoad={noop} />
     );
     expect(screen.getByText(demo.demoInventoryAll[0].name!)).toBeInTheDocument();
     // Category rail is rendered from the derived counts

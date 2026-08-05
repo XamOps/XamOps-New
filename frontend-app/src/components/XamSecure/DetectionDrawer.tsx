@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { Icon } from '@iconify/react';
 import type { ThreatDetection } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
+import DetailPanel, { PanelBlock, PanelRow, type PanelSection } from './DetailPanel';
 
 interface Props {
   detection: ThreatDetection;
@@ -15,13 +15,15 @@ const fmt = (iso: string | null | undefined): string =>
   iso ? new Date(iso).toLocaleString() : '—';
 
 /**
- * Curated detection panel. Replaces the raw-payload JSON tree, which read as a debug
- * view: the same information is here as labelled fields, with the MITRE chain, the
- * affected resource, and the evidence Upwind supplies.
+ * Detection panel: labelled fields, the MITRE chain, the affected resource and whatever
+ * evidence Upwind supplied — rather than the raw-payload JSON tree this replaced, which read
+ * as a debug view.
  *
- * Everything is parsed from the stored payload, so no extra request is needed.
+ * Everything is parsed from the stored payload, so opening it costs no request.
  */
-const DetectionDrawer: React.FC<Props> = ({ detection, onClose, onArchive, onOpenResource }) => {
+const DetectionDrawer: React.FC<Props> = ({
+  detection, onClose, onArchive, onOpenResource,
+}) => {
   const raw = useMemo<any>(() => {
     try { return detection.rawPayload ? JSON.parse(detection.rawPayload) : {}; }
     catch { return {}; }
@@ -35,151 +37,136 @@ const DetectionDrawer: React.FC<Props> = ({ detection, onClose, onArchive, onOpe
     .map((k) => [k, raw[k]] as const)
     .filter(([, v]) => v && typeof v === 'object');
 
-  return createPortal((
-    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/30" />
-      <div className="relative w-full max-w-2xl h-full bg-white shadow-2xl flex flex-col"
-           onClick={(e) => e.stopPropagation()} role="dialog"
-           aria-label={detection.title ?? 'Detection'}>
-        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200">
-          <div className="pr-4 min-w-0">
-            <div className="flex items-center gap-2 mb-1.5">
-              <SeverityChip severity={detection.severity} />
-              {detection.status && (
-                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-                  {detection.status}
-                </span>
-              )}
-              {(detection.occurrenceCount ?? 1) > 1 && (
-                <span className="text-[10px] font-semibold text-gray-400">
-                  {detection.occurrenceCount} occurrences
-                </span>
-              )}
-            </div>
-            <h3 className="text-sm font-bold text-gray-900 leading-snug">
-              {detection.title ?? 'Detection'}
-            </h3>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {onArchive && (
-              <button
-                onClick={() => { onArchive(detection.upwindId); onClose(); }}
-                className="px-3 py-1.5 bg-gray-900 hover:bg-black text-white text-xs font-bold rounded-xl"
-              >
-                Archive
-              </button>
-            )}
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100" aria-label="Close">
-              <Icon icon="mdi:close" width={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <Meta label="First seen" value={fmt(detection.firstSeenTime)} />
-            <Meta label="Last seen" value={fmt(detection.lastSeenTime)} />
-            <Meta label="Category" value={detection.category ?? '—'} />
-            <Meta label="Provider" value={detection.cloudProvider ?? '—'} />
-          </div>
-
+  const sections: PanelSection[] = [
+    {
+      id: 'details', label: 'Detection details', icon: 'mdi:format-list-bulleted', group: 'Detection',
+      render: () => (
+        <>
           {description && (
-            <Section title="What happened">
-              <p className="text-xs text-gray-700 leading-relaxed">{description}</p>
-            </Section>
+            <PanelBlock title="What happened">
+              <p className="text-xs leading-relaxed text-gray-700">{description}</p>
+            </PanelBlock>
           )}
-
-          <Section title="Affected resource">
-            <div className="border border-gray-200 rounded-lg px-3 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-gray-800 truncate">
-                    {detection.resourceName ?? detection.resourceId ?? '—'}
-                  </p>
-                  <p className="text-[10px] text-gray-400 truncate">
-                    {detection.resourceType ?? '—'}
-                    {detection.cloudAccountId ? ` · ${detection.cloudAccountId}` : ''}
-                  </p>
+          <PanelBlock>
+            <PanelRow label="Severity" value={<SeverityChip severity={detection.severity} />} />
+            <PanelRow label="Status" value={detection.status} />
+            <PanelRow label="Category" value={detection.category} />
+            <PanelRow label="Occurrences" value={detection.occurrenceCount} />
+            <PanelRow label="First seen" value={fmt(detection.firstSeenTime)} />
+            <PanelRow label="Last seen" value={fmt(detection.lastSeenTime)} />
+            <PanelRow label="Detection id" value={detection.upwindId} mono />
+          </PanelBlock>
+        </>
+      ),
+    },
+    {
+      id: 'mitre', label: 'MITRE ATT&CK', icon: 'mdi:sitemap-outline', group: 'Detection',
+      count: attacks.length || tactics.length || undefined,
+      available: attacks.length > 0 || tactics.length > 0,
+      unavailableReason: 'No MITRE mapping on this detection.',
+      render: () => (
+        <PanelBlock>
+          {attacks.length > 0 ? (
+            <div className="space-y-1.5">
+              {attacks.map((a, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg border border-gray-200
+                                        px-3 py-2 text-xs">
+                  <span className="font-semibold text-gray-800">{a.tactic_name ?? '—'}</span>
+                  <Icon icon="mdi:chevron-right" width={13} className="text-gray-300" />
+                  <span className="text-gray-600">{a.technique_name ?? '—'}</span>
+                  {a.technique_id && (
+                    <span className="ml-auto font-mono text-[10px] text-gray-400">{a.technique_id}</span>
+                  )}
                 </div>
-                {onOpenResource && detection.resourceId && (
-                  <button
-                    onClick={() => onOpenResource(detection.resourceId!)}
-                    className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold rounded-lg border border-gray-200 hover:border-gray-400 text-gray-700"
-                  >
-                    Open resource
-                    <Icon icon="mdi:arrow-top-right" width={11} />
-                  </button>
-                )}
-              </div>
+              ))}
             </div>
-          </Section>
-
-          {(attacks.length > 0 || tactics.length > 0) && (
-            <Section title="MITRE ATT&CK">
-              {attacks.length > 0 ? (
-                <div className="space-y-1.5">
-                  {attacks.map((a, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs border border-gray-200 rounded-lg px-3 py-2">
-                      <span className="font-semibold text-gray-800">{a.tactic_name ?? '—'}</span>
-                      <Icon icon="mdi:chevron-right" width={13} className="text-gray-300" />
-                      <span className="text-gray-600">{a.technique_name ?? '—'}</span>
-                      {a.technique_id && (
-                        <span className="ml-auto text-[10px] font-mono text-gray-400">{a.technique_id}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {tactics.map((t) => (
-                    <span key={t} className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </Section>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {tactics.map((t) => (
+                <span key={t} className="rounded-md border border-gray-200 bg-gray-100 px-2 py-0.5
+                                         text-[10px] font-semibold text-gray-600">{t}</span>
+              ))}
+            </div>
           )}
-
-          {evidence.length > 0 && (
-            <Section title="Evidence">
-              <div className="space-y-3">
-                {evidence.map(([key, value]) => (
-                  <div key={key}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">{key}</p>
-                    <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
-                      {Object.entries(value as Record<string, unknown>)
-                        .filter(([, v]) => v !== null && typeof v !== 'object')
-                        .map(([k, v]) => (
-                          <div key={k} className="flex gap-3 px-3 py-1.5">
-                            <span className="text-[10px] text-gray-400 w-32 flex-shrink-0">{k}</span>
-                            <span className="text-[11px] text-gray-700 font-mono break-all">{String(v)}</span>
-                          </div>
-                        ))}
+        </PanelBlock>
+      ),
+    },
+    {
+      id: 'evidence', label: 'Evidence', icon: 'mdi:file-search-outline', group: 'Detection',
+      count: evidence.length || undefined,
+      available: evidence.length > 0,
+      unavailableReason: 'Upwind supplied no process, file, network or identity evidence.',
+      render: () => (
+        <div className="space-y-4">
+          {evidence.map(([key, value]) => (
+            <PanelBlock key={key} title={key}>
+              <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+                {Object.entries(value as Record<string, unknown>)
+                  .filter(([, v]) => v !== null && typeof v !== 'object')
+                  .map(([k, v]) => (
+                    <div key={k} className="flex gap-3 px-3 py-1.5">
+                      <span className="w-32 flex-shrink-0 text-[10px] text-gray-400">{k}</span>
+                      <span className="break-all font-mono text-[11px] text-gray-700">{String(v)}</span>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
-            </Section>
-          )}
+            </PanelBlock>
+          ))}
         </div>
-      </div>
-    </div>
-  ), document.body);
+      ),
+    },
+    {
+      id: 'resource', label: 'Overview', icon: 'mdi:server', group: 'Resource',
+      render: () => (
+        <PanelBlock action={onOpenResource && detection.resourceId ? (
+          <button type="button" onClick={() => onOpenResource(detection.resourceId!)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1
+                             text-[10px] font-bold text-gray-700 hover:border-gray-400
+                             focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900">
+            Open resource <Icon icon="mdi:arrow-top-right" width={11} />
+          </button>
+        ) : undefined}>
+          <PanelRow label="Name" value={detection.resourceName ?? detection.resourceId} />
+          <PanelRow label="Type" value={detection.resourceType} />
+          <PanelRow label="Cloud" value={detection.cloudProvider} />
+          <PanelRow label="Account" value={detection.cloudAccountId} />
+          {detection.resourceId && <PanelRow label="Resource id" value={detection.resourceId} mono />}
+        </PanelBlock>
+      ),
+    },
+  ];
+
+  return (
+    <DetailPanel
+      title={detection.title ?? 'Detection'}
+      subtitle={
+        <>
+          <SeverityChip severity={detection.severity} />
+          {detection.status && (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              {detection.status}
+            </span>
+          )}
+          {(detection.occurrenceCount ?? 1) > 1 && (
+            <span className="text-[10px] font-semibold text-gray-400">
+              {detection.occurrenceCount} occurrences
+            </span>
+          )}
+        </>
+      }
+      actions={onArchive ? (
+        <button type="button"
+                onClick={() => { onArchive(detection.upwindId); onClose(); }}
+                className="rounded-xl bg-gray-900 px-3 py-1.5 text-xs font-bold text-white
+                           hover:bg-black focus:outline-none focus-visible:ring-2
+                           focus-visible:ring-gray-900">
+          Archive
+        </button>
+      ) : undefined}
+      sections={sections}
+      onClose={onClose}
+    />
+  );
 };
-
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div>
-    <h4 className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-2">{title}</h4>
-    {children}
-  </div>
-);
-
-const Meta: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="min-w-0">
-    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">{label}</p>
-    <p className="text-xs font-medium text-gray-700 truncate">{value}</p>
-  </div>
-);
 
 export default DetectionDrawer;

@@ -27,17 +27,19 @@ const typeLabel = (t: string) => TYPE_LABEL[t] ?? t.replace(/^AWS_/, '').replace
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
 /**
- * Identities with failing configuration checks.
+ * Identities — the full roster from Upwind's inventory catalog (IAM users, roles, groups and
+ * policies, plus Kubernetes service accounts, roles and bindings), annotated with failing
+ * configuration checks and Upwind's own high_privilege_risk flag.
  *
- * This is deliberately scoped: Upwind's Identities module isn't reachable on our
- * credential (v1 identity routes 404; inventory search exposes a single identity asset),
- * so the only identity data we hold is the subjects of failing checks. The header states
- * that plainly rather than presenting this as a full identity inventory, and the
- * high-privilege ratios Upwind shows are omitted because no endpoint provides them.
+ * What is still absent is Upwind's CIEM analysis: entitlement/least-privilege
+ * recommendations, the human vs non-human split, and the cross-account role-trust graph.
+ * Seven candidate identity endpoints all return 404, and access-management/* is Upwind
+ * console user management rather than cloud identities.
  */
 const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail }) => {
   const [severity, setSeverity] = useState<string | null>(null);
   const { open, drawer } = useResourceDrawer(loadResourceDetail);
+  const privileged = data?.privileged ?? [];
 
   const all = data?.identities ?? [];
   const filtered = useMemo(
@@ -61,11 +63,83 @@ const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail })
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Stat value={data?.total ?? 0} label="Identities with findings" />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Stat value={data?.total ?? 0} label="Identities" />
+        <Stat value={data?.privilegedTotal ?? 0} label="Elevated privilege" accent="text-purple-600" />
+        <Stat value={data?.withFindings ?? 0} label="With failing checks" accent="text-orange-600" />
         <Stat value={data?.severityCounts?.CRITICAL ?? 0} label="Critical" accent="text-red-600" />
-        <Stat value={data?.severityCounts?.HIGH ?? 0} label="High" accent="text-orange-600" />
       </div>
+
+      {privileged.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-200">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Elevated privilege ({privileged.length})
+            </p>
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              Assets Upwind flagged as holding elevated or high-level privileges. Listed whether
+              or not they currently fail a check.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-[10px] uppercase text-gray-400 border-b border-gray-100">
+                  <th className="px-5 py-2.5">Asset</th>
+                  <th className="px-5 py-2.5">Type</th>
+                  <th className="px-5 py-2.5">Region</th>
+                  <th className="px-5 py-2.5">Exposure</th>
+                  <th className="px-5 py-2.5">Sensitive data</th>
+                  <th className="px-5 py-2.5">Findings</th>
+                </tr>
+              </thead>
+              <tbody>
+                {privileged.slice(0, 25).map((p) => (
+                  <tr key={p.resourceId ?? p.name} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-5 py-3 text-gray-800">
+                      <ResourceLink resourceId={p.resourceId} label={p.name} onOpen={open} />
+                    </td>
+                    <td className="px-5 py-3 text-gray-600">
+                      {p.resourceType ?? p.category ?? '—'}
+                    </td>
+                    <td className="px-5 py-3 text-gray-500">{p.region ?? '—'}</td>
+                    <td className="px-5 py-3">
+                      {p.internetExposureType ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                          {p.internetExposureType}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-gray-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
+                      {p.sensitivePii ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">
+                          PII
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-gray-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
+                      {p.hasFindings ? (
+                        <span className="text-orange-600 font-semibold">Failing checks</span>
+                      ) : (
+                        <span className="text-emerald-600">Clean</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {privileged.length > 25 && (
+            <p className="px-5 py-2.5 text-[10px] text-gray-400 border-t border-gray-100">
+              Showing the first 25 of {privileged.length}.
+            </p>
+          )}
+        </div>
+      )}
 
       {(data?.byType ?? []).length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
@@ -96,10 +170,8 @@ const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail })
         <div className="flex items-start justify-between gap-3 px-5 py-3 border-b border-gray-200">
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Identities</p>
-            {/* Says what this list is, so the count isn't mistaken for total identities. */}
             <p className="text-[10px] text-gray-400 mt-0.5">
-              Identities with failing configuration checks. Upwind's identity privilege data
-              isn't available through the API.
+              Every identity in Upwind's inventory. Those failing a check sort first.
             </p>
           </div>
         </div>
@@ -121,6 +193,7 @@ const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail })
                 <th className="px-5 py-2.5">Severity</th>
                 <th className="px-5 py-2.5">Identity</th>
                 <th className="px-5 py-2.5">Type</th>
+                <th className="px-5 py-2.5">Privilege</th>
                 <th className="px-5 py-2.5">Failing checks</th>
                 <th className="px-5 py-2.5">First seen</th>
                 <th className="px-5 py-2.5">Last evaluation</th>
@@ -129,13 +202,29 @@ const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail })
             <tbody>
               {rows.map((i) => (
                 <tr key={i.resourceId ?? i.name} className="border-b border-gray-50 hover:bg-gray-50">
-                  <td className="px-5 py-3"><SeverityChip severity={i.severity} /></td>
+                  <td className="px-5 py-3">
+                    {i.severity ? <SeverityChip severity={i.severity} />
+                                : <span className="text-[10px] text-gray-300">—</span>}
+                  </td>
                   <td className="px-5 py-3 text-gray-800">
                     <ResourceLink resourceId={i.resourceId} label={i.name} onOpen={open} />
                   </td>
                   <td className="px-5 py-3 text-gray-600">{typeLabel(i.resourceType ?? 'OTHER')}</td>
                   <td className="px-5 py-3">
-                    <span className="font-semibold text-gray-800">{i.findingCount}</span>
+                    {i.elevatedPrivilege ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">
+                        Elevated
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3">
+                    {i.findingCount === 0 ? (
+                      <span className="text-emerald-600">Clean</span>
+                    ) : (
+                      <span className="font-semibold text-gray-800">{i.findingCount}</span>
+                    )}
                     {i.checks.length > 0 && (
                       <span className="block text-[10px] text-gray-400 max-w-md truncate"
                             title={i.checks.join(' · ')}>
@@ -150,10 +239,10 @@ const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail })
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-gray-400">
+                  <td colSpan={7} className="px-5 py-12 text-center text-gray-400">
                     {severity !== null
                       ? `No ${severity.toLowerCase()}-severity identities. Clear the filter to see all.`
-                      : 'No identity findings for the selected account.'}
+                      : 'No identities discovered for the selected account.'}
                   </td>
                 </tr>
               )}
@@ -165,9 +254,9 @@ const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail })
 
       <p className="flex items-start gap-1.5 text-[10px] text-gray-400">
         <Icon icon="mdi:information-outline" width={12} className="flex-shrink-0 mt-0.5" />
-        Upwind's Identities module (high-privilege humans and non-humans, cross-account role
-        trust) is not exposed on our API credential, so this view is derived from configuration
-        findings and lists only identities that currently fail a check.
+        Roster and privilege flags come from Upwind's inventory catalog. Upwind's CIEM analysis
+        — entitlement and least-privilege recommendations, the human vs non-human split, and
+        the cross-account role-trust graph — has no API endpoint and is not shown.
       </p>
       {drawer}
     </div>

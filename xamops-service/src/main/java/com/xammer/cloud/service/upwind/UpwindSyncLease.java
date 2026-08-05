@@ -8,6 +8,7 @@ import java.net.InetAddress;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -48,13 +49,24 @@ public class UpwindSyncLease {
     }
 
     /**
+     * A task that can ask, mid-run, whether this instance still holds the lease.
+     *
+     * Given to tasks that do something destructive near the end of a long run — the sync's
+     * mark-resolved pass — so they can stand down if the lease lapsed underneath them.
+     */
+    public interface LeasedTask {
+        void run(BooleanSupplier stillLeader);
+    }
+
+    /**
      * Executes {@code task} if the lease is free or expired, otherwise skips it.
      *
-     * @param ttl how long the lease is held. Must exceed the task's worst-case duration,
-     *            or another instance could start a second run while this one is still going.
+     * @param ttl how long the lease is held. Should exceed the task's worst-case duration.
+     *            If it does not, the task can still protect itself via the
+     *            {@code stillLeader} check handed to {@link LeasedTask}.
      * @return true when the task ran here
      */
-    public boolean runIfLeader(String name, Duration ttl, Runnable task) {
+    public boolean runIfLeader(String name, Duration ttl, LeasedTask task) {
         Instant now = Instant.now();
         try {
             lockRepo.ensureRow(name, Instant.EPOCH);
@@ -65,14 +77,18 @@ public class UpwindSyncLease {
         } catch (Exception e) {
             // A lease failure must not silently stop syncing everywhere. Single-instance and
             // pre-migration deployments still need the sync to run, so fall through.
+            //
+            // stillLeader is TRUE here on purpose: with no lease table there is no second
+            // instance to collide with, and returning false would permanently disable
+            // reconciliation on those deployments.
             log.warn("[Upwind] lease check failed for {} ({}) — running without it",
                     name, e.getMessage());
-            task.run();
+            task.run(() -> true);
             return true;
         }
 
         try {
-            task.run();
+            task.run(() -> stillHeld(name));
             return true;
         } finally {
             try {
@@ -81,6 +97,28 @@ public class UpwindSyncLease {
                 // Harmless: the lease simply expires on its own.
                 log.debug("[Upwind] lease release failed for {}: {}", name, e.getMessage());
             }
+        }
+    }
+
+    /** Overload for tasks with nothing destructive to guard (e.g. the detection poll). */
+    public boolean runIfLeader(String name, Duration ttl, Runnable task) {
+        return runIfLeader(name, ttl, stillLeader -> task.run());
+    }
+
+    /**
+     * True while this instance still owns an unexpired lease.
+     *
+     * Fails CLOSED (returns false) on error: the caller uses this to decide whether to
+     * archive data, and skipping an archive pass merely leaves stale rows for the next run,
+     * whereas archiving without the lease can delete another run's work.
+     */
+    public boolean stillHeld(String name) {
+        try {
+            return lockRepo.countHeldBy(name, holder, Instant.now()) > 0;
+        } catch (Exception e) {
+            log.warn("[Upwind] could not confirm {} lease ownership ({}) — assuming lost",
+                    name, e.getMessage());
+            return false;
         }
     }
 

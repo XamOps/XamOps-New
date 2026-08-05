@@ -79,17 +79,24 @@ const ComplianceTab: React.FC<Props> = ({ data, isLoading, issues }) => {
               <div className={`h-full ${score >= 80 ? 'bg-emerald-500' : score >= 50 ? 'bg-yellow-400' : 'bg-red-500'}`}
                    style={{ width: `${score}%` }} />
             </div>
-            <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
-              {/* Upwind's API only returns FAILING findings (no passing count), and the % above
-                  is Upwind's compliance score. Showing "0 passing" alongside a non-zero score is
-                  misleading, so we surface the real failing count and let the score convey the rate. */}
-              {f.failCount > 0 ? (
-                <span><span className="font-bold text-red-600">{f.failCount}</span> failing {f.failCount === 1 ? 'control' : 'controls'}</span>
-              ) : (
-                <span className="font-semibold text-emerald-600">No failing controls</span>
-              )}
+            <div className="flex items-center justify-between gap-2 mt-3 text-xs text-gray-500">
+              {/* Passing counts are real now. The sync used to omit the status parameter, and
+                  Upwind's endpoint defaults to FAIL, so passCount was structurally zero and
+                  this line could only ever show failures. */}
+              <span className="flex items-center gap-2 min-w-0">
+                {f.failCount > 0 ? (
+                  <span><span className="font-bold text-red-600">{f.failCount}</span> failing</span>
+                ) : (
+                  <span className="font-semibold text-emerald-600">No failing controls</span>
+                )}
+                {f.passCount > 0 && (
+                  <span className="text-gray-400">
+                    <span className="font-bold text-emerald-600">{f.passCount}</span> passing
+                  </span>
+                )}
+              </span>
               {f.lastScanTime && (
-                <span className="text-[10px] text-gray-400">Scanned {fmtDate(f.lastScanTime)}</span>
+                <span className="text-[10px] text-gray-400 flex-shrink-0">Scanned {fmtDate(f.lastScanTime)}</span>
               )}
             </div>
           </button>

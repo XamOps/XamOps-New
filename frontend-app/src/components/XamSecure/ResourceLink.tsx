@@ -4,7 +4,8 @@ import { Icon } from '@iconify/react';
 interface Props {
   resourceId: string | null | undefined;
   label: string | null | undefined;
-  onOpen: (resourceId: string) => void;
+  /** Omit where no resource drawer is available; the name then renders as plain text. */
+  onOpen?: (resourceId: string) => void;
   /** Secondary line under the name, e.g. the resource type. */
   sub?: string | null;
 }
@@ -14,14 +15,14 @@ interface Props {
  * affordance reads identically everywhere, and so opening the resource never collides
  * with the row's own click target.
  *
- * Falls back to plain text when there is no resource id to join on, rather than
- * rendering a control that would do nothing.
+ * Falls back to plain text when there is no resource id to join on, or no handler to open
+ * with, rather than rendering a control that would do nothing.
  */
 const ResourceLink: React.FC<Props> = ({ resourceId, label, onOpen, sub }) => {
   const text = label ?? resourceId ?? '—';
   return (
     <>
-      {resourceId ? (
+      {resourceId && onOpen ? (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onOpen(resourceId); }}

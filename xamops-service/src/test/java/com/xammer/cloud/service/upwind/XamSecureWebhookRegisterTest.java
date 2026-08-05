@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
 class XamSecureWebhookRegisterTest {
@@ -26,9 +27,14 @@ class XamSecureWebhookRegisterTest {
         controller.setPublicBaseUrl("https://xamops.example");
     }
 
+    /**
+     * The v2 contract uses lowercase enum values ({@code vendor: custom},
+     * {@code authentication.type: bearer}); the previous v1 body sent them uppercase.
+     */
     @Test
     void registerWebhookPostsCustomVendorWithCallbackAndSecret() throws Exception {
         JsonNode created = new ObjectMapper().readTree("{\"id\":\"wh-1\"}");
+        when(apiClient.searchWebhooks(anyInt())).thenReturn(java.util.List.of());
         when(apiClient.createWebhook(any())).thenReturn(created);
 
         var resp = controller.registerWebhook();
@@ -37,9 +43,36 @@ class XamSecureWebhookRegisterTest {
         ArgumentCaptor<JsonNode> cap = ArgumentCaptor.forClass(JsonNode.class);
         verify(apiClient).createWebhook(cap.capture());
         JsonNode body = cap.getValue();
-        assertEquals("CUSTOM", body.get("vendor").asText());
+        assertEquals("custom", body.get("vendor").asText());
         assertTrue(body.get("config").get("url").asText().contains("/api/xamsecure/webhook/upwind"));
+        assertEquals("bearer", body.get("config").get("authentication").get("type").asText());
         assertEquals("s3cr3t", body.get("config").get("authentication").get("token").asText());
+    }
+
+    /** Re-running registration must not create a second webhook delivering the same events. */
+    @Test
+    void registerWebhookIsIdempotentWhenAlreadyRegistered() throws Exception {
+        JsonNode existing = new ObjectMapper().readTree(
+                "{\"id\":\"wh-existing\",\"name\":\"" + XamSecureOnboardingController.WEBHOOK_NAME + "\"}");
+        when(apiClient.searchWebhooks(anyInt())).thenReturn(java.util.List.of(existing));
+
+        var resp = controller.registerWebhook();
+
+        assertEquals(200, resp.getStatusCodeValue());
+        verify(apiClient, never()).createWebhook(any());
+    }
+
+    /** A failed lookup must not block registration — worst case we create a duplicate. */
+    @Test
+    void registerWebhookStillCreatesWhenSearchFails() throws Exception {
+        when(apiClient.searchWebhooks(anyInt())).thenThrow(new IllegalStateException("403"));
+        when(apiClient.createWebhook(any()))
+                .thenReturn(new ObjectMapper().readTree("{\"id\":\"wh-2\"}"));
+
+        var resp = controller.registerWebhook();
+
+        assertEquals(200, resp.getStatusCodeValue());
+        verify(apiClient).createWebhook(any());
     }
 
     @Test

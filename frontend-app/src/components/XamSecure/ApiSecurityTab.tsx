@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { ApiEndpoint } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
+import ApiEndpointDrawer from './ApiEndpointDrawer';
 
 interface Props {
   data: ApiEndpoint[] | null;
@@ -16,18 +17,31 @@ const methodColor = (m: string) => METHOD_COLOR[m?.toUpperCase()] ?? '#64748b';
 
 /**
  * APIs — mirrors Upwind's API Security dashboard using only real endpoint data:
- * an endpoints funnel (total / internet-exposed / authenticated / unauthenticated),
- * a breakdown by HTTP method, top domains, and the endpoint inventory table.
- * Upwind's sensitive-data classification and API-vulnerability panels are omitted —
- * that data is not exposed by the API.
+ * an endpoints funnel, a breakdown by HTTP method, top domains, the sensitive-data
+ * classification observed on each endpoint, and the endpoint inventory table.
+ *
+ * "Ingress observed" is deliberately not called internet exposure. The endpoint payload's
+ * risk_overview.internet_exposure.ingress carries only a last_seen_time and no `exposed`
+ * boolean (verified live against api-security/endpoints/search, 100/100 sampled rows had the
+ * timestamp). Presence of that timestamp means traffic was seen, not that the endpoint faces
+ * the internet, so labelling it "internet exposed" turned a near-constant into a red risk
+ * number covering essentially every endpoint.
+ *
+ * Sensitive data comes from the v2 endpoint payload's risk_overview.sensitive_data — the v1
+ * endpoint list we previously read carried none, which is why this panel used to be absent.
+ * Upwind's per-endpoint OWASP/CWE mapping is still not exposed by any endpoint, so no
+ * vulnerability-class panel is shown.
  */
 const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
   const all = useMemo(() => data ?? [], [data]);
+  // Rows were inert before; the endpoint payload now carries enough to be worth opening.
+  const [selected, setSelected] = useState<ApiEndpoint | null>(null);
 
   const stats = useMemo(() => {
-    let exposed = 0, authed = 0, unauth = 0;
+    let exposed = 0, authed = 0, unauth = 0, sensitive = 0;
     const byMethod: Record<string, number> = {};
     const byDomain: Record<string, number> = {};
+    const bySensitive: Record<string, number> = {};
     for (const e of all) {
       if (e.internetExposed) exposed += 1;
       if (e.authenticated) authed += 1;
@@ -36,12 +50,25 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
       const m = (e.method ?? 'OTHER').toUpperCase();
       byMethod[m] = (byMethod[m] ?? 0) + 1;
       (e.domains ?? []).forEach((d) => { if (d) byDomain[d] = (byDomain[d] ?? 0) + 1; });
+      const kinds = e.sensitiveData ?? [];
+      if (kinds.length > 0) {
+        sensitive += 1;
+        kinds.forEach((k) => { bySensitive[k] = (bySensitive[k] ?? 0) + 1; });
+      }
     }
     const methods = Object.entries(byMethod).sort((a, b) => b[1] - a[1]);
     const domains = Object.entries(byDomain).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const sensitiveKinds = Object.entries(bySensitive).sort((a, b) => b[1] - a[1]);
     // Endpoints Upwind hasn't classified an auth state for (not observed enough traffic).
     const unclassified = Math.max(0, all.length - authed - unauth);
-    return { total: all.length, exposed, authed, unauth, unclassified, methods, domains };
+    // Both sensitive_data and status_codes arrive only on the v2 endpoint payload. If every
+    // row is missing both, these rows were written by the old v1 read and the tab is showing
+    // stale data rather than a genuinely clean result — worth saying so instead of asserting
+    // Upwind observed nothing.
+    const preV2Rows = all.length > 0
+      && all.every((e) => (e.statusCodes ?? []).length === 0 && (e.sensitiveData ?? []).length === 0);
+    return { total: all.length, exposed, authed, unauth, unclassified, methods, domains,
+             sensitive, sensitiveKinds, preV2Rows };
   }, [all]);
 
   const { page, setPage, pageItems: rows, totalPages, total } = usePaged(all, 50);
@@ -55,14 +82,35 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
   return (
     <div className="space-y-4">
       {/* Funnel stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <Stat icon="mdi:api" label="Endpoints" value={stats.total} accent="text-gray-900" />
-        <Stat icon="mdi:earth" label="Internet exposed" value={stats.exposed} accent="text-red-600" />
+        <Stat icon="mdi:swap-horizontal" label="Ingress observed" value={stats.exposed}
+              accent="text-gray-900"
+              hint="Endpoints Upwind has seen inbound traffic on. The payload carries a last-seen timestamp only, not an exposure verdict, so this is not a count of internet-facing endpoints." />
         <Stat icon="mdi:lock-check" label="Authenticated" value={stats.authed} accent="text-emerald-600" />
         <Stat icon="mdi:lock-open-alert" label="Unauthenticated" value={stats.unauth} accent="text-orange-600" />
+        <Stat icon="mdi:shield-account-outline" label="Sensitive data" value={stats.sensitive}
+              accent="text-purple-600"
+              hint="Endpoints where Upwind observed PII, PHI, PCI or secrets in traffic" />
         <Stat icon="mdi:help-circle-outline" label="Unclassified" value={stats.unclassified} accent="text-gray-500"
               hint="Upwind hasn't observed enough traffic to classify auth state" />
       </div>
+
+      {/* Sensitive data in traffic is the thing worth acting on; called out when non-zero. */}
+      {stats.sensitive > 0 && (
+        <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-4">
+          <Icon icon="mdi:alert-octagon" width={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-red-800">
+              {stats.sensitive.toLocaleString()}{' '}
+              {stats.sensitive === 1 ? 'endpoint carries' : 'endpoints carry'} sensitive data
+            </p>
+            <p className="text-xs text-red-700 mt-0.5">
+              Observed transmitting PII, PHI, PCI or secrets in live traffic.
+            </p>
+          </div>
+        </div>
+      )}
 
       <EndpointsFunnel total={stats.total} exposed={stats.exposed}
                        authed={stats.authed} unauth={stats.unauth} />
@@ -105,6 +153,38 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
         </div>
       </div>
 
+      {/* Sensitive data observed in endpoint traffic, by category and type. */}
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">
+          Sensitive data in API traffic
+        </p>
+        {stats.sensitiveKinds.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {stats.sensitiveKinds.map(([kind, n]) => {
+              const [category, type] = kind.split(':');
+              return (
+                <span key={kind}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px]
+                                 border border-purple-200 bg-purple-50 text-purple-800">
+                  <Icon icon="mdi:shield-account-outline" width={12} className="flex-shrink-0" />
+                  <span className="font-semibold">{type ?? category}</span>
+                  {type && <span className="text-purple-500">{category}</span>}
+                  <span className="font-bold">{n}</span>
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400">
+            {stats.preV2Rows
+              ? 'No classification synced yet. These endpoint rows carry neither sensitive-data '
+                + 'nor status-code fields, both of which arrive only on the v2 payload, so they '
+                + 'predate the v2 switch and will populate on the next full sync.'
+              : 'Upwind has not observed PII, PHI, PCI or secrets on these endpoints.'}
+          </p>
+        )}
+      </div>
+
       {/* Endpoint inventory */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100">
@@ -121,13 +201,17 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                 <th className="px-5 py-2.5">Served by</th>
                 <th className="px-5 py-2.5">Auth</th>
                 <th className="px-5 py-2.5">Internet Exposed</th>
+                <th className="px-5 py-2.5">Sensitive data</th>
+                <th className="px-5 py-2.5">Status codes</th>
                 <th className="px-5 py-2.5">First Seen</th>
                 <th className="px-5 py-2.5">Last Seen</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((e) => (
-                <tr key={e.id} className="border-b border-gray-50 hover:bg-gray-50">
+                <tr key={e.id}
+                    onClick={() => setSelected(e)}
+                    className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer">
                   <td className="px-5 py-3 font-mono font-bold" style={{ color: methodColor(e.method ?? '') }}>{e.method}</td>
                   <td className="px-5 py-3 font-mono text-gray-800 max-w-md truncate">
                     {e.uri}
@@ -157,6 +241,23 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                       {e.internetExposed ? 'Exposed' : 'Internal'}
                     </span>
                   </td>
+                  <td className="px-5 py-3">
+                    {(e.sensitiveData ?? []).length > 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                                       text-[10px] font-bold bg-purple-100 text-purple-700"
+                            title={e.sensitiveData.join(' · ')}>
+                        <Icon icon="mdi:shield-account-outline" width={11} />
+                        {/* Show the first type and a count, so a wide list doesn't blow out the row. */}
+                        {e.sensitiveData[0].split(':').slice(-1)[0]}
+                        {e.sensitiveData.length > 1 ? ` +${e.sensitiveData.length - 1}` : ''}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 font-mono text-[10px] text-gray-500 whitespace-nowrap">
+                    {(e.statusCodes ?? []).length > 0 ? e.statusCodes.join(' ') : '—'}
+                  </td>
                   <td className="px-5 py-3 whitespace-nowrap text-gray-500">
                     {e.firstSeenTime ? new Date(e.firstSeenTime).toLocaleDateString() : '—'}
                   </td>
@@ -166,7 +267,7 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">
+                <tr><td colSpan={9} className="px-5 py-12 text-center text-gray-400">
                   No API endpoints discovered for the selected account.</td></tr>
               )}
             </tbody>
@@ -174,6 +275,10 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
         </div>
         <Pager page={page} totalPages={totalPages} total={total} unit="endpoints" onPage={setPage} />
       </div>
+
+      {selected && (
+        <ApiEndpointDrawer endpoint={selected} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 };
@@ -188,7 +293,7 @@ const EndpointsFunnel: React.FC<{
 }> = ({ total, exposed, authed, unauth }) => {
   const stages = [
     { label: 'Endpoints', value: total, icon: 'mdi:api' },
-    { label: 'Internet exposed', value: exposed, icon: 'mdi:earth' },
+    { label: 'Ingress observed', value: exposed, icon: 'mdi:swap-horizontal' },
     { label: 'Authenticated', value: authed, icon: 'mdi:lock-check' },
     { label: 'Unauthenticated', value: unauth, icon: 'mdi:lock-open-alert' },
   ];

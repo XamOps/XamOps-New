@@ -36,10 +36,35 @@ public class XamSecureController {
         return ResponseEntity.ok(xamSecureService.getIssueDetail(user.getClientId(), accountId, check));
     }
 
+    /**
+     * One threat story in full, for the detail panel. Returns an empty object when the story
+     * references no detection in the caller's accounts — stories carry no account id of their
+     * own, so detection ownership is what establishes tenancy.
+     */
+    @GetMapping("/stories/{storyId}")
+    public ResponseEntity<?> storyDetail(@AuthenticationPrincipal ClientUserDetails user,
+                                         @PathVariable String storyId,
+                                         @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(
+                xamSecureService.getThreatStoryDetail(user.getClientId(), accountId, storyId));
+    }
+
     @GetMapping("/stories")
     public ResponseEntity<?> stories(@AuthenticationPrincipal ClientUserDetails user,
                                      @RequestParam(required = false) String accountId) {
         return ResponseEntity.ok(xamSecureService.getThreatStories(user.getClientId(), accountId));
+    }
+
+    /**
+     * Aggregates for the Threats dashboard: funnel, seven-day trend, MITRE tactic and source
+     * breakdowns. The funnel's raw event count is reported unavailable rather than guessed.
+     */
+    @GetMapping("/threats/overview")
+    public ResponseEntity<?> threatOverview(@AuthenticationPrincipal ClientUserDetails user,
+                                            @RequestParam(required = false) String accountId,
+                                            @RequestParam(defaultValue = "7") int days) {
+        return ResponseEntity.ok(
+                xamSecureService.getThreatOverview(user.getClientId(), accountId, days));
     }
 
     @GetMapping("/attack-surface")
@@ -101,6 +126,13 @@ public class XamSecureController {
     public ResponseEntity<?> inventoryCategories(@AuthenticationPrincipal ClientUserDetails user,
                                                  @RequestParam(required = false) String accountId) {
         return ResponseEntity.ok(xamSecureService.getInventoryCategories(user.getClientId(), accountId));
+    }
+
+    /** Data-classification / privilege / EOL / exposure rollup over the synced asset catalog. */
+    @GetMapping("/inventory/risk")
+    public ResponseEntity<?> inventoryRisk(@AuthenticationPrincipal ClientUserDetails user,
+                                           @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getInventoryRisk(user.getClientId(), accountId));
     }
 
     @GetMapping("/inventory/network")
