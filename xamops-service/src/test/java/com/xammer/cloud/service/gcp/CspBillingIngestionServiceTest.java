@@ -64,13 +64,16 @@ class CspBillingIngestionServiceTest {
         List<GcpCostDto> history = List.of(new GcpCostDto("2026-04", 12.50, false));
 
         when(queryService.buildClient(config)).thenReturn(bigQuery);
-        when(queryService.queryServiceBreakdown(eq(bigQuery), eq(config), eq("my-project"), anyString()))
+        when(queryService.queryBreakdownByDateRange(eq(bigQuery), eq(config), eq("my-project"),
+                eq("service_description"), anyString(), anyString()))
             .thenReturn(breakdown);
-        when(queryService.queryRegionBreakdown(eq(bigQuery), eq(config), eq("my-project"), anyString()))
+        when(queryService.queryBreakdownByDateRange(eq(bigQuery), eq(config), eq("my-project"),
+                eq("region"), anyString(), anyString()))
             .thenReturn(regions);
         when(queryService.queryMonthlyHistory(eq(bigQuery), eq(config), eq("my-project")))
             .thenReturn(history);
-        when(queryService.queryMtdTotal(eq(bigQuery), eq(config), eq("my-project"), anyString()))
+        when(queryService.queryTotalByDateRange(eq(bigQuery), eq(config), eq("my-project"),
+                anyString(), anyString()))
             .thenReturn(12.50);
         when(cachedDataRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
@@ -87,6 +90,39 @@ class CspBillingIngestionServiceTest {
         assertThat(savedKeys).anyMatch(k -> k.equals("gcp:unfiltered-mtd-spend:my-project"));
         // The dashboard's Top Services widget reads this key, not the breakdown key.
         assertThat(savedKeys).anyMatch(k -> k.equals("gcp:billing-summary:my-project"));
+    }
+
+    /**
+     * Ingestion must filter on usage date, matching GcpCostService's CSP read path. Both
+     * write the same cache keys, so a mismatched filter made the dashboard KPI flip between
+     * two values depending on which wrote last — and invoice_month undercounts by dropping
+     * boundary usage billed to the previous invoice period.
+     */
+    @Test
+    void ingestForAccount_filtersByCurrentMonthUsageDates_notInvoiceMonth() {
+        when(queryService.buildClient(config)).thenReturn(bigQuery);
+        when(queryService.queryBreakdownByDateRange(any(), any(), any(), any(), any(), any()))
+            .thenReturn(List.of());
+        when(queryService.queryMonthlyHistory(any(), any(), any())).thenReturn(List.of());
+        when(queryService.queryTotalByDateRange(any(), any(), any(), any(), any())).thenReturn(0.0);
+        when(cachedDataRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.ingestForAccount(account);
+
+        java.time.LocalDate today = java.time.LocalDate.now();
+        String expectedStart = today.withDayOfMonth(1).toString();
+        String expectedEnd = today.toString();
+
+        verify(queryService).queryTotalByDateRange(bigQuery, config, "my-project", expectedStart, expectedEnd);
+        verify(queryService).queryBreakdownByDateRange(
+            bigQuery, config, "my-project", "service_description", expectedStart, expectedEnd);
+        verify(queryService).queryBreakdownByDateRange(
+            bigQuery, config, "my-project", "region", expectedStart, expectedEnd);
+
+        // The invoice_month-based variants must no longer be used.
+        verify(queryService, never()).queryMtdTotal(any(), any(), any(), any());
+        verify(queryService, never()).queryServiceBreakdown(any(), any(), any(), any());
+        verify(queryService, never()).queryRegionBreakdown(any(), any(), any(), any());
     }
 
     @Test
@@ -116,10 +152,10 @@ class CspBillingIngestionServiceTest {
         // inside the transaction — the scheduled job has no open session otherwise.
         when(cloudAccountRepository.findById(1L)).thenReturn(Optional.of(account));
         when(queryService.buildClient(config)).thenReturn(bigQuery);
-        when(queryService.queryServiceBreakdown(any(), any(), any(), any())).thenReturn(List.of());
-        when(queryService.queryRegionBreakdown(any(), any(), any(), any())).thenReturn(List.of());
+        when(queryService.queryBreakdownByDateRange(any(), any(), any(), any(), any(), any()))
+            .thenReturn(List.of());
         when(queryService.queryMonthlyHistory(any(), any(), any())).thenReturn(List.of());
-        when(queryService.queryMtdTotal(any(), any(), any(), any())).thenReturn(0.0);
+        when(queryService.queryTotalByDateRange(any(), any(), any(), any(), any())).thenReturn(0.0);
         when(cachedDataRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         service.ingestAll();

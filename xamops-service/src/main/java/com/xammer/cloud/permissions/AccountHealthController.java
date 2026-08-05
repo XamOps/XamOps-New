@@ -99,9 +99,7 @@ public class AccountHealthController {
         }
 
         List<AccountPermissionStatusDto> statuses = accessible.stream()
-                // Only AWS is instrumented today; returning GCP/Azure here would
-                // imply a health check that is not actually running for them.
-                .filter(account -> "AWS".equalsIgnoreCase(account.getProvider()))
+                // AWS, GCP, and Azure are all instrumented for permission tracking
                 .filter(account -> account.getProviderAccountId() != null)
                 .map(account -> permissionGapService.statusFor(account, requestedFeature))
                 .collect(Collectors.toList());

@@ -339,7 +339,7 @@ const Part2Tab: React.FC = () => (
     <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Part 2: Security Tools</h3>
     <div className="p-3 bg-purple-50 border border-purple-100 rounded-xl text-[12px] text-purple-800 flex items-start gap-2">
       <Icon icon="mdi:information-outline" width={14} className="mt-0.5 flex-shrink-0" />
-      Trivy creates <code className="bg-purple-100 px-1 rounded">VulnerabilityReport</code> CRDs. Kubescape creates <code className="bg-purple-100 px-1 rounded">ConfigurationScanSummary</code> CRDs. The XamOps Agent reads these and pushes them to the dashboard.
+      Trivy creates <code className="bg-purple-100 px-1 rounded">VulnerabilityReport</code> CRDs. Kubescape creates <code className="bg-purple-100 px-1 rounded">WorkloadConfigurationScanSummary</code> CRDs. The XamOps Agent reads these and pushes them to the dashboard.
     </div>
 
     <CollapsibleSection title="Step 2.1: Install Trivy Operator" icon="mdi:bug-outline" iconColor="#DC2626">
@@ -368,9 +368,19 @@ helm upgrade --install kubescape kubescape/kubescape-operator \\
   --set capabilities.continuousScan=enable \\
   --set storage.enabled=true
 
+# REQUIRED: without an account, kubescape auto-enables cloud submission, which
+# fails on 'chmod /home/nonroot/.kubescape: operation not permitted' and aborts
+# the scan before results reach the in-cluster storage. Keeping it local skips
+# that path entirely. Re-apply after every 'helm upgrade' — the chart has no
+# env passthrough for this component.
+# Do NOT set --set account=<uuid> instead: an account makes kubescape ship
+# results to Kubescape Cloud and stop writing them to in-cluster storage.
+kubectl set env deployment/kubescape -n kubescape KS_KEEP_LOCAL=true
+kubectl rollout status deploy/kubescape -n kubescape
+
 # Verify (wait 3–5 min)
 kubectl get pods -n kubescape
-kubectl get configurationscansummaries -A --no-headers | head -10`} />
+kubectl get workloadconfigurationscansummaries -A --no-headers | head -10`} />
     </CollapsibleSection>
   </div>
 );
@@ -402,7 +412,9 @@ metadata:
   name: xamops-agent-role
 rules:
   - apiGroups: [""]
-    resources: [pods, nodes, namespaces, services, events, persistentvolumeclaims]
+    resources: [pods, nodes, namespaces, services, endpoints, persistentvolumes,
+                persistentvolumeclaims, resourcequotas, limitranges, serviceaccounts,
+                events, configmaps]
     verbs: [get, list, watch]
   - apiGroups: [apps]
     resources: [deployments, daemonsets, statefulsets, replicasets]
@@ -410,17 +422,39 @@ rules:
   - apiGroups: [batch]
     resources: [jobs, cronjobs]
     verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [get, list, watch]
   - apiGroups: [autoscaling]
     resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling.k8s.io]
+    resources: [verticalpodautoscalers]
     verbs: [get, list, watch]
   - apiGroups: [metrics.k8s.io]
     resources: [nodes, pods]
     verbs: [get, list]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list]
   - apiGroups: [aquasecurity.github.io]
-    resources: [vulnerabilityreports, configauditreports]
+    resources: [vulnerabilityreports, configauditreports, exposedsecretreports,
+                rbacassessmentreports, infraassessmentreports, clustercompliancereports,
+                clusterconfigauditreports, clusterinfraassessmentreports,
+                clusterrbacassessmentreports]
     verbs: [get, list, watch]
   - apiGroups: [spdx.softwarecomposition.kubescape.io]
-    resources: [configurationscansummaries]
+    resources: [configurationscansummaries, vulnerabilitymanifestsummaries,
+                workloadconfigurationscans, workloadconfigurationscansummaries,
+                vulnerabilitymanifests, applicationprofiles, applicationactivities,
+                networkneighborhoods, generatednetworkpolicies, knownservers,
+                openvulnerabilityexchangecontainers, seccompprofiles]
+    verbs: [get, list, watch]
+  - apiGroups: [kubescape.io]
+    resources: [workloadconfigurationscans, workloadconfigurationscansummaries]
     verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -456,7 +490,8 @@ data:
   CLOUD_PROVIDER: "AZURE"
   COLLECTOR_K8S_RESOURCES: "true"
   COLLECTOR_PROMETHEUS_METRICS: "true"
-  PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+  # The prometheus-community chart's server Service listens on 80, not 9090.
+  PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:80"
   COLLECTOR_TRIVY: "true"
   COLLECTOR_KUBESCAPE: "true"
   COLLECTOR_OPENCOST: "true"

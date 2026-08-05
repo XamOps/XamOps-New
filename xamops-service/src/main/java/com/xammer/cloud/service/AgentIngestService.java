@@ -154,6 +154,66 @@ public class AgentIngestService {
     }
 
     /**
+     * Find the cluster config for a Kubernetes agent push, auto-registering the
+     * cluster on first contact when it belongs to an Azure account.
+     *
+     * AKS is onboarded agent-only: no UI creates a KubernetesClusterConfig row, and
+     * the one API that does (POST /api/xamops/k8s/security/configure) needs a
+     * kubeconfig plus inbound reachability from this server to the cluster — neither
+     * of which an agent-based install has. Without this, an AKS agent pushes valid
+     * data every interval and gets a 404 forever.
+     *
+     * Scoped to Azure deliberately: EKS and GKE keep their existing
+     * register-before-push behaviour, so this cannot change what those agents do.
+     * DB agents already auto-register on first push (see the caller in
+     * AgentController), so the trust model here is not new — any holder of the
+     * global agent API key can already create rows this way.
+     *
+     * @param clusterName    cluster name from the agent payload
+     * @param cloudAccountId provider account ID from the payload (Azure subscription ID for AKS)
+     * @return the existing or newly created config, or null if the account is unknown
+     *         or belongs to a non-Azure provider
+     */
+    @Transactional
+    public KubernetesClusterConfig findOrAutoRegisterClusterConfig(String clusterName, String cloudAccountId) {
+        KubernetesClusterConfig existing = findClusterConfig(clusterName, cloudAccountId);
+        if (existing != null) {
+            return existing;
+        }
+
+        CloudAccount account = null;
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(cloudAccountId);
+        if (!accounts.isEmpty()) {
+            account = accounts.get(0);
+        } else {
+            Optional<CloudAccount> byAny = cloudAccountRepository.findByProviderAccountId(cloudAccountId);
+            if (byAny.isPresent()) account = byAny.get();
+        }
+
+        if (account == null) {
+            logger.warn("Auto-register skipped: no cloud account for id {}", cloudAccountId);
+            return null;
+        }
+
+        if (!"Azure".equalsIgnoreCase(account.getProvider())) {
+            logger.warn("Auto-register skipped: cluster '{}' belongs to {} account {} (Azure only)",
+                    clusterName, account.getProvider(), cloudAccountId);
+            return null;
+        }
+
+        KubernetesClusterConfig cfg = new KubernetesClusterConfig();
+        cfg.setCloudAccountId(account.getId());
+        cfg.setClusterName(clusterName);
+        cfg.setRegion("auto");
+        cfg.setKubeconfigYaml(""); // NOT NULL constraint — agent mode never reads it
+        cfg.setDataSourceMode("agent");
+        cfg.setAgentStatus("active");
+        cfg.setLastAgentCheckin(LocalDateTime.now());
+        logger.info("Auto-registered AKS cluster '{}' for Azure subscription {}", clusterName, cloudAccountId);
+        return clusterConfigRepository.save(cfg);
+    }
+
+    /**
      * Find cluster config, or auto-create a db-only entry if not found.
      *
      * Used when the DB agent runs on EC2 (no k8s cluster) — there is no

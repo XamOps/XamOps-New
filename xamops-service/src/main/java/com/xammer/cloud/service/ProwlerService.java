@@ -6,6 +6,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.ProwlerFinding;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.compliance.ComplianceScanRecorder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +21,7 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.Semaphore;
@@ -39,6 +41,7 @@ public class ProwlerService {
     private final CloudAccountRepository cloudAccountRepository;
     private final CachedDataRepository cachedDataRepository;
     private final AwsClientProvider awsClientProvider;
+    private final ComplianceScanRecorder complianceScanRecorder;
 
     @Value("${prowler.executable.path:}")
     private String configuredProwlerPath;
@@ -47,11 +50,42 @@ public class ProwlerService {
     public ProwlerService(RedisCacheService redisCacheService,
             CloudAccountRepository cloudAccountRepository,
             CachedDataRepository cachedDataRepository,
-            AwsClientProvider awsClientProvider) {
+            AwsClientProvider awsClientProvider,
+            ComplianceScanRecorder complianceScanRecorder) {
         this.redisCacheService = redisCacheService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cachedDataRepository = cachedDataRepository;
         this.awsClientProvider = awsClientProvider;
+        this.complianceScanRecorder = complianceScanRecorder;
+    }
+
+    /**
+     * Write the scan into the ComplianceOps tables.
+     *
+     * Never allowed to fail the scan. The Redis + CachedData path above is what
+     * SecurityPage reads and has to keep working; this call adds the historical record
+     * ComplianceOps needs. If it throws, the scan is still successful and only the
+     * history entry is missing, which is recoverable on the next run.
+     */
+    private void recordCompliance(String accountId, String provider, List<String> regions,
+            String[] frameworks, List<ProwlerFinding> findings, Instant startedAt) {
+        try {
+            complianceScanRecorder.recordCompleted(accountId, provider, regions,
+                    frameworks == null ? List.of() : Arrays.asList(frameworks), findings, startedAt);
+        } catch (Exception e) {
+            logger.error("Failed to record compliance scan history for {} — the scan itself "
+                    + "succeeded and cached findings are intact", accountId, e);
+        }
+    }
+
+    private void recordComplianceFailure(String accountId, String provider, List<String> regions,
+            String[] frameworks, Instant startedAt, String error) {
+        try {
+            complianceScanRecorder.recordFailed(accountId, provider, regions,
+                    frameworks == null ? List.of() : Arrays.asList(frameworks), startedAt, error);
+        } catch (Exception e) {
+            logger.error("Failed to record compliance scan failure for {}", accountId, e);
+        }
     }
 
     /**
@@ -98,6 +132,9 @@ public class ProwlerService {
         String statusKey = "prowler_status_" + accountId;
         String findingsKey = "prowler_findings_" + accountId;
         String securityServiceCacheKey = "securityFindings-" + accountId;
+        // Captured before any work so the trend plots when the account was observed,
+        // not when a 40-minute scan happened to finish.
+        Instant scanStartedAt = Instant.now();
 
         try {
             // 1. Update Status to RUNNING
@@ -153,6 +190,8 @@ public class ProwlerService {
                 logger.warn("Failed to persist Prowler findings to DB: {}", dbEx.getMessage());
             }
 
+            recordCompliance(accountId, "AWS", regions, complianceFrameworks, findings, scanStartedAt);
+
             // Force refresh of combined security findings (Redis + DB snapshots)
             redisCacheService.evict(securityServiceCacheKey);
             // Also evict the DB snapshot used by SecurityController's fast-path cache
@@ -178,6 +217,8 @@ public class ProwlerService {
             status.put("error", e.getMessage());
             status.put("endTime", LocalDateTime.now().toString());
             redisCacheService.put(statusKey, status, 1440); // 1440 min (24 hrs)
+            recordComplianceFailure(accountId, "AWS", regions, complianceFrameworks,
+                    scanStartedAt, e.getMessage());
         }
     }
 
@@ -230,6 +271,7 @@ public class ProwlerService {
     public void triggerGcpScanAsync(String projectId, String[] complianceFrameworks) {
         String statusKey = "prowler_status_gcp_" + projectId;
         String findingsKey = "prowler_findings_gcp_" + projectId;
+        Instant scanStartedAt = Instant.now();
 
         try {
             Map<String, Object> status = new HashMap<>();
@@ -264,6 +306,9 @@ public class ProwlerService {
                 logger.warn("Failed to persist GCP Prowler findings to DB: {}", dbEx.getMessage());
             }
 
+            // GCP scans are project-scoped, so there is no region list to record.
+            recordCompliance(projectId, "GCP", List.of(), complianceFrameworks, findings, scanStartedAt);
+
             status.put("status", "COMPLETED");
             status.put("endTime", LocalDateTime.now().toString());
             status.put("findingsCount", findings.size());
@@ -279,6 +324,8 @@ public class ProwlerService {
             status.put("error", e.getMessage());
             status.put("endTime", LocalDateTime.now().toString());
             redisCacheService.put(statusKey, status, 1440);
+            recordComplianceFailure(projectId, "GCP", List.of(), complianceFrameworks,
+                    scanStartedAt, e.getMessage());
         }
     }
 
@@ -363,6 +410,7 @@ public class ProwlerService {
     public void triggerAzureScanAsync(String subscriptionId, String[] complianceFrameworks) {
         String statusKey = "prowler_status_azure_" + subscriptionId;
         String findingsKey = "prowler_findings_azure_" + subscriptionId;
+        Instant scanStartedAt = Instant.now();
 
         try {
             Map<String, Object> status = new HashMap<>();
@@ -397,6 +445,10 @@ public class ProwlerService {
                 logger.warn("Failed to persist Azure Prowler findings to DB: {}", dbEx.getMessage());
             }
 
+            // Azure scans are subscription-scoped; regions come back on each finding.
+            recordCompliance(subscriptionId, "Azure", List.of(), complianceFrameworks,
+                    findings, scanStartedAt);
+
             status.put("status", "COMPLETED");
             status.put("endTime", LocalDateTime.now().toString());
             status.put("findingsCount", findings.size());
@@ -412,6 +464,8 @@ public class ProwlerService {
             status.put("error", e.getMessage());
             status.put("endTime", LocalDateTime.now().toString());
             redisCacheService.put(statusKey, status, 1440);
+            recordComplianceFailure(subscriptionId, "Azure", List.of(), complianceFrameworks,
+                    scanStartedAt, e.getMessage());
         }
     }
 

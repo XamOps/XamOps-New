@@ -53,12 +53,17 @@ class CspBillingQueryServiceTest {
         assertThat(result).isEqualTo(0.0);
     }
 
+    /**
+     * History buckets by usage month now, so the query already returns "yyyy-MM" and no
+     * string surgery is needed. Grouping by invoice_month used to split one calendar month
+     * into two bars whenever GCP billed boundary usage to the previous invoice period.
+     */
     @Test
-    void queryMonthlyHistory_convertsInvoiceMonthFormat() throws Exception {
-        FieldValue monthVal = FieldValue.of(FieldValue.Attribute.PRIMITIVE, "202604");
+    void queryMonthlyHistory_bucketsByUsageMonth() throws Exception {
+        FieldValue monthVal = FieldValue.of(FieldValue.Attribute.PRIMITIVE, "2026-04");
         FieldValue costVal = FieldValue.of(FieldValue.Attribute.PRIMITIVE, "12.50");
         FieldValueList row = FieldValueList.of(List.of(monthVal, costVal),
-            Field.of("invoice_month", LegacySQLTypeName.STRING),
+            Field.of("month", LegacySQLTypeName.STRING),
             Field.of("cost", LegacySQLTypeName.NUMERIC));
 
         when(bigQuery.query(any(QueryJobConfiguration.class))).thenReturn(tableResult);
@@ -69,5 +74,46 @@ class CspBillingQueryServiceTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getName()).isEqualTo("2026-04");
         assertThat(result.get(0).getAmount()).isEqualTo(12.50);
+    }
+
+    @Test
+    void queryMonthlyHistory_queriesUsageDateNotInvoiceMonth() throws Exception {
+        when(bigQuery.query(any(QueryJobConfiguration.class))).thenReturn(tableResult);
+        when(tableResult.iterateAll()).thenReturn(List.of());
+
+        service.queryMonthlyHistory(bigQuery, config, "my-project");
+
+        org.mockito.ArgumentCaptor<QueryJobConfiguration> captor =
+            org.mockito.ArgumentCaptor.forClass(QueryJobConfiguration.class);
+        verify(bigQuery).query(captor.capture());
+        assertThat(captor.getValue().getQuery())
+            .contains("DATE(usage_start_time)")
+            .doesNotContain("invoice_month");
+    }
+
+    @Test
+    void queryBreakdownByDateRange_bindsDatesAsParameters() throws Exception {
+        when(bigQuery.query(any(QueryJobConfiguration.class))).thenReturn(tableResult);
+        when(tableResult.iterateAll()).thenReturn(List.of());
+
+        service.queryBreakdownByDateRange(bigQuery, config, "my-project",
+            "service_description", "2026-08-01", "2026-08-05");
+
+        org.mockito.ArgumentCaptor<QueryJobConfiguration> captor =
+            org.mockito.ArgumentCaptor.forClass(QueryJobConfiguration.class);
+        verify(bigQuery).query(captor.capture());
+        QueryJobConfiguration sent = captor.getValue();
+        assertThat(sent.getQuery()).contains("DATE(usage_start_time) >= @startDate");
+        assertThat(sent.getNamedParameters()).containsKeys("projectId", "startDate", "endDate");
+    }
+
+    @Test
+    void queryTotalByDateRange_returnsZeroOnQueryFailure() throws Exception {
+        when(bigQuery.query(any(QueryJobConfiguration.class))).thenThrow(new InterruptedException("timeout"));
+
+        double result = service.queryTotalByDateRange(bigQuery, config, "my-project",
+            "2026-08-01", "2026-08-05");
+
+        assertThat(result).isEqualTo(0.0);
     }
 }

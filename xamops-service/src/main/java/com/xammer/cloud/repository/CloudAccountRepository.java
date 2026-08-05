@@ -15,6 +15,21 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     Optional<CloudAccount> findByGcpProjectId(String gcpProjectId);
     Optional<CloudAccount> findByExternalId(String externalId);
 
+    /**
+     * The reseller billing config for a CSP-managed GCP project, or empty when the project
+     * is not CSP-managed / has no config linked.
+     * <p>
+     * {@code CloudAccount.cspBillingConfig} is a LAZY {@code @ManyToOne}, so reading it off
+     * a detached account outside a transaction throws LazyInitializationException. Selecting
+     * the association directly sidesteps that, which matters because the cost getters run on
+     * background executor threads with no open session.
+     */
+    @Query("SELECT a.cspBillingConfig FROM CloudAccount a "
+         + "WHERE a.gcpProjectId = :gcpProjectId AND a.cspManaged = true "
+         + "AND a.cspBillingConfig IS NOT NULL")
+    Optional<com.xammer.cloud.domain.CspBillingConfig> findCspBillingConfigByGcpProjectId(
+            @Param("gcpProjectId") String gcpProjectId);
+
     // MODIFIED: Changed return type to List<CloudAccount>
     List<CloudAccount> findByAwsAccountId(String awsAccountId);
 

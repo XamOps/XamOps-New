@@ -203,15 +203,18 @@ public class AgentController {
             return ResponseEntity.ok(response);
         }
 
-        // 4. Fall through to K8s cluster agent path
-        KubernetesClusterConfig clusterConfig = agentIngestService.findClusterConfig(
+        // 4. Fall through to K8s cluster agent path. Azure clusters auto-register on
+        // first push — AKS has no other registration path (see findOrAutoRegisterClusterConfig).
+        KubernetesClusterConfig clusterConfig = agentIngestService.findOrAutoRegisterClusterConfig(
                 payload.getClusterName(), payload.getCloudAccountId());
 
         if (clusterConfig == null) {
             logger.warn("No DB agent or K8s cluster config found for cluster: {} accountId: {}",
                     payload.getClusterName(), payload.getCloudAccountId());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(AgentIngestResponse.error("Agent not registered. Use the DbOps wizard to register this agent first."));
+                    .body(AgentIngestResponse.error(
+                            "Agent not registered. Register the cluster in XamOps before the agent pushes data, "
+                                    + "and check that cloudAccountId matches an onboarded cloud account."));
         }
 
         AgentIngestResponse response = agentIngestService.processIngest(clusterConfig, payload, clientIp);
@@ -326,8 +329,9 @@ public class AgentController {
             ));
         }
 
-        // 4. Fall through to K8s cluster agent path
-        KubernetesClusterConfig clusterConfig = agentIngestService.findClusterConfig(clusterName, cloudAccountId);
+        // 4. Fall through to K8s cluster agent path (auto-registers Azure clusters)
+        KubernetesClusterConfig clusterConfig = agentIngestService.findOrAutoRegisterClusterConfig(
+                clusterName, cloudAccountId);
         if (clusterConfig == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "Agent not registered"));

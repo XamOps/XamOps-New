@@ -73,24 +73,38 @@ public class CspBillingIngestionService {
         }
 
         String projectId = account.getGcpProjectId();
-        String currentMonth = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMM"));
+
+        // Month-to-date by USAGE DATE, not invoice_month.
+        //
+        // Two reasons. First, GCP bills usage sitting on a month boundary to the PREVIOUS
+        // invoice period, so an invoice_month='YYYYMM' filter silently drops it — for
+        // trustsignal-prod-320607 that was ~681 of early-August usage invoiced as 202607,
+        // roughly 15% of the month. Second, GcpCostService's CSP read path already filters
+        // on DATE(usage_start_time) and writes the SAME cache keys as this job. Two writers
+        // with different filters made the dashboard KPI flip between two values depending on
+        // which ran last. Matching the filter here keeps every page on one number.
+        LocalDate today = LocalDate.now();
+        String monthStart = today.withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String monthEnd = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
         BigQuery bq = queryService.buildClient(config);
 
-        List<GcpCostDto> breakdown = queryService.queryServiceBreakdown(bq, config, projectId, currentMonth);
+        List<GcpCostDto> breakdown = queryService.queryBreakdownByDateRange(
+            bq, config, projectId, "service_description", monthStart, monthEnd);
         writeCache("GCP_COST_BREAKDOWN::" + projectId + "::SERVICE", breakdown, 60);
         // The dashboard's Top Services widget reads the billing summary under its own key
         // (GcpCostService.BILLING_SUMMARY_CACHE_PREFIX), not the breakdown key. Same
         // service-level data, so publish it there too or CSP accounts show an empty widget.
         writeCache("gcp:billing-summary:" + projectId, breakdown, 60);
 
-        List<GcpCostDto> regions = queryService.queryRegionBreakdown(bq, config, projectId, currentMonth);
+        List<GcpCostDto> regions = queryService.queryBreakdownByDateRange(
+            bq, config, projectId, "region", monthStart, monthEnd);
         writeCache("GCP_COST_BY_REGION::" + projectId, regions, 60);
 
         List<GcpCostDto> history = queryService.queryMonthlyHistory(bq, config, projectId);
         writeCache("GCP_COST_HISTORY::" + projectId, history, 60 * 24);
 
-        double mtd = queryService.queryMtdTotal(bq, config, projectId, currentMonth);
+        double mtd = queryService.queryTotalByDateRange(bq, config, projectId, monthStart, monthEnd);
         writeCache("gcp:unfiltered-mtd-spend:" + projectId, mtd, 60);
 
         boolean hasData = !breakdown.isEmpty() || !regions.isEmpty() || !history.isEmpty() || mtd > 0;

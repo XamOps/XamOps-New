@@ -68,17 +68,120 @@ public class GcpCostService {
     private static final String GCP_COST_BY_TAG_DB         = "GCP_COST_BY_TAG::";
     private static final String GCP_COST_SVC_REGION_DB     = "GCP_COST_SVC_REGION::";
 
+    private final CspBillingQueryService cspBillingQueryService;
+
     public GcpCostService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService,
             CloudAccountRepository cloudAccountRepository,
             CachedDataRepository cachedDataRepository,
             ObjectMapper objectMapper,
-            GcpCostDataSnapshotService gcpCostDataSnapshotService) {
+            GcpCostDataSnapshotService gcpCostDataSnapshotService,
+            CspBillingQueryService cspBillingQueryService) {
         this.gcpClientProvider = gcpClientProvider;
         this.redisCacheService = redisCacheService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
         this.gcpCostDataSnapshotService = gcpCostDataSnapshotService;
+        this.cspBillingQueryService = cspBillingQueryService;
+    }
+
+    // =====================================================================================
+    // CSP (reseller) billing support
+    //
+    // A CSP-managed project has NO billing export of its own — its costs live in the
+    // reseller's dataset under a flattened schema (project_id, cost_at_list,
+    // service_description, region, ...). The standard-export SQL in this class
+    // (SUM(cost), project.id, service.description, location.region) cannot read it, and
+    // getBillingTableName() cannot find a table for it, so every query returned empty.
+    // These helpers let the cost getters read the reseller dataset directly instead of
+    // depending on the nightly ingestion having pre-warmed exactly the right cache key.
+    // =====================================================================================
+
+    /** A CSP-managed project's reseller config plus a BigQuery client authorised for it. */
+    private static final class CspSource {
+        final com.xammer.cloud.domain.CspBillingConfig config;
+        final BigQuery client;
+        CspSource(com.xammer.cloud.domain.CspBillingConfig config, BigQuery client) {
+            this.config = config;
+            this.client = client;
+        }
+    }
+
+    /** Present only when the project is reseller-billed and its config resolves. */
+    private Optional<CspSource> cspSource(String gcpProjectId) {
+        try {
+            return cloudAccountRepository.findCspBillingConfigByGcpProjectId(gcpProjectId)
+                    .map(config -> new CspSource(config, cspBillingQueryService.buildClient(config)));
+        } catch (Exception e) {
+            log.error("Failed to resolve CSP billing source for project {}: {}", gcpProjectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /** Maps a standard-export dimension expression to its flattened reseller column. */
+    private static String cspDimension(String standardDimension) {
+        if ("location.region".equals(standardDimension)) return "region";
+        if ("project.name".equals(standardDimension))    return "project_name";
+        return "service_description";
+    }
+
+    /**
+     * Grouped cost for a date range, from whichever billing source the project actually has:
+     * the reseller dataset for CSP-managed projects, the project's own billing export
+     * otherwise. Single entry point so every caller gets CSP support automatically.
+     */
+    private List<GcpCostDto> fetchCostData(String gcpProjectId, String dimension,
+                                           LocalDate startDate, LocalDate endDate) {
+        Optional<CspSource> csp = cspSource(gcpProjectId);
+        if (csp.isPresent()) {
+            log.info("🏷️ CSP-managed project {} — reading {} from reseller dataset ({} to {})",
+                    gcpProjectId, cspDimension(dimension), startDate, endDate);
+            return cspBillingQueryService.queryBreakdownByDateRange(
+                    csp.get().client, csp.get().config, gcpProjectId,
+                    cspDimension(dimension), startDate.toString(), endDate.toString());
+        }
+
+        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
+        if (bqOpt.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return queryCostData(bqOpt.get(), gcpProjectId, dimension, startDate, endDate);
+    }
+
+    /** Redis TTL (minutes) for section data that actually has rows. */
+    private static final int SECTION_TTL_MINUTES = 60 * 24;
+
+    /**
+     * Redis TTL (minutes) for an empty section result. Deliberately short: an empty list is
+     * almost always a failed fetch (bad credentials, missing IAM permission, timeout), and
+     * the old code cached it for 24 hours AND wrote a permanent DB snapshot. Because the DB
+     * read path treated any present snapshot as a hit, that empty result was then served
+     * forever and the project never retried — so the very error you needed to see never got
+     * logged again.
+     */
+    private static final int EMPTY_SECTION_TTL_MINUTES = 5;
+
+    /** True when cached data holds usable rows. */
+    private static boolean hasRows(java.util.Collection<?> data) {
+        return data != null && !data.isEmpty();
+    }
+
+    /**
+     * Cache a section result, only snapshotting it when it has rows, so a transient failure
+     * cannot become permanent truth.
+     */
+    private void cacheCostData(String cacheKey, String dbKey, java.util.Collection<?> result,
+                               String label, String gcpProjectId) {
+        if (hasRows(result)) {
+            redisCacheService.put(cacheKey, result, SECTION_TTL_MINUTES);
+            saveToDb(dbKey, result);
+            return;
+        }
+        redisCacheService.put(cacheKey, result == null ? Collections.emptyList() : result,
+                EMPTY_SECTION_TTL_MINUTES);
+        log.warn("⚠️ Empty {} for project {} — caching for {} min only and skipping the DB snapshot, "
+                        + "so the next request retries instead of serving this forever",
+                label, gcpProjectId, EMPTY_SECTION_TTL_MINUTES);
     }
 
     /** Persist data to DB snapshot, ignoring failures so main flow is never blocked. */
@@ -304,6 +407,22 @@ public class GcpCostService {
 
         log.info("🔍 Fetching MTD spend for project {}", gcpProjectId);
 
+        Optional<CspSource> csp = cspSource(gcpProjectId);
+        if (csp.isPresent()) {
+            LocalDate now = LocalDate.now();
+            double cspTotal = cspBillingQueryService.queryTotalByDateRange(
+                    csp.get().client, csp.get().config, gcpProjectId,
+                    now.withDayOfMonth(1).toString(), now.toString());
+            log.info("🏷️ CSP-managed project {} — MTD spend {} from reseller dataset", gcpProjectId, cspTotal);
+            if (cspTotal > 0.0) {
+                redisCacheService.put(cacheKey, cspTotal, 60);
+                saveToDb(cacheKey, cspTotal);
+            } else {
+                redisCacheService.put(cacheKey, cspTotal, EMPTY_SECTION_TTL_MINUTES);
+            }
+            return cspTotal;
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
         if (bqOpt.isEmpty())
             return 0.0;
@@ -365,9 +484,12 @@ public class GcpCostService {
                 Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
                 if (dbSnapshot.isPresent()) {
                     List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
-                    log.info("✅ Returning DB-cached billing summary for project {} — re-warming Redis", gcpProjectId);
-                    redisCacheService.put(cacheKey, dbResult, 60);
-                    return dbResult;
+                    if (hasRows(dbResult)) {
+                        log.info("✅ Returning DB-cached billing summary for project {} — re-warming Redis", gcpProjectId);
+                        redisCacheService.put(cacheKey, dbResult, 60);
+                        return dbResult;
+                    }
+                    log.info("⚠️ DB snapshot for billing summary {} is empty — refetching", gcpProjectId);
                 }
             } catch (Exception e) {
                 log.warn("DB snapshot load failed for billing summary {}: {}", gcpProjectId, e.getMessage());
@@ -378,16 +500,11 @@ public class GcpCostService {
 
         log.info("🔍 Fetching billing summary for project {}", gcpProjectId);
 
-        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty())
-            return Collections.emptyList();
-
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.withDayOfMonth(1);
 
-        List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "service.description", startDate, endDate);
-        redisCacheService.put(cacheKey, result, 60 * 24);
-        saveToDb(cacheKey, result);
+        List<GcpCostDto> result = fetchCostData(gcpProjectId, "service.description", startDate, endDate);
+        cacheCostData(cacheKey, cacheKey, result, "billing summary", gcpProjectId);
         return result;
     }
 
@@ -437,6 +554,18 @@ public class GcpCostService {
         }
 
         log.info("🔍 Fetching historical costs for project {} — composing from snapshots + BigQuery", gcpProjectId);
+
+        // CSP-managed: the reseller export already holds every month for this project, so
+        // read it directly rather than composing from snapshots that were never written.
+        Optional<CspSource> cspHistory = cspSource(gcpProjectId);
+        if (cspHistory.isPresent()) {
+            List<GcpCostDto> cspResult = cspBillingQueryService.queryMonthlyHistory(
+                    cspHistory.get().client, cspHistory.get().config, gcpProjectId);
+            log.info("🏷️ CSP-managed project {} — {} months of history from reseller dataset",
+                    gcpProjectId, cspResult.size());
+            cacheCostData(cacheKey, dbKey, cspResult, "historical costs", gcpProjectId);
+            return cspResult;
+        }
 
         // Build 6-month list: closed months from DB snapshots, current month from BigQuery
         YearMonth currentYm = YearMonth.now();
@@ -540,9 +669,12 @@ public class GcpCostService {
                 Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
                 if (dbSnapshot.isPresent()) {
                     List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
-                    log.info("✅ Returning DB-cached cost by region for project {} — re-warming Redis", gcpProjectId);
-                    redisCacheService.put(cacheKey, dbResult, 60 * 24);
-                    return dbResult;
+                    if (hasRows(dbResult)) {
+                        log.info("✅ Returning DB-cached cost by region for project {} — re-warming Redis", gcpProjectId);
+                        redisCacheService.put(cacheKey, dbResult, 60 * 24);
+                        return dbResult;
+                    }
+                    log.info("⚠️ DB snapshot for cost by region {} is empty — refetching", gcpProjectId);
                 }
             } catch (Exception e) {
                 log.warn("DB snapshot load failed for cost by region {}: {}", gcpProjectId, e.getMessage());
@@ -553,16 +685,11 @@ public class GcpCostService {
 
         log.info("🔍 Fetching cost by region for project {}", gcpProjectId);
 
-        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty())
-            return Collections.emptyList();
-
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.withDayOfMonth(1);
 
-        List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "location.region", startDate, endDate);
-        redisCacheService.put(cacheKey, result, 60 * 24);
-        saveToDb(dbKey, result);
+        List<GcpCostDto> result = fetchCostData(gcpProjectId, "location.region", startDate, endDate);
+        cacheCostData(cacheKey, dbKey, result, "cost by region", gcpProjectId);
         return result;
     }
 
@@ -614,6 +741,18 @@ public class GcpCostService {
 
         log.info("🔍 Fetching daily costs forecast for project {}", gcpProjectId);
 
+        Optional<CspSource> cspDaily = cspSource(gcpProjectId);
+        if (cspDaily.isPresent()) {
+            LocalDate cspEnd = LocalDate.now();
+            List<Map<String, Object>> cspRows = cspBillingQueryService.queryDailyCosts(
+                    cspDaily.get().client, cspDaily.get().config, gcpProjectId, serviceName,
+                    cspEnd.minusDays(days).toString(), cspEnd.toString());
+            log.info("🏷️ CSP-managed project {} — {} daily cost rows from reseller dataset",
+                    gcpProjectId, cspRows.size());
+            cacheCostData(cacheKey, dbKey, cspRows, "daily costs forecast", gcpProjectId);
+            return cspRows;
+        }
+
         Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
         if (bqOpt.isEmpty())
             return Collections.emptyList();
@@ -626,8 +765,10 @@ public class GcpCostService {
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(days);
 
+        // NOTE: serviceName is interpolated into SQL below rather than bound as a parameter.
+        // The CSP path above uses a named parameter instead.
         String serviceFilter = (serviceName != null && !serviceName.isEmpty() && !"ALL".equalsIgnoreCase(serviceName))
-                ? String.format("AND service.description = '%s'", serviceName)
+                ? String.format("AND service.description = '%s'", serviceName.replace("'", "''"))
                 : "";
 
         String query = String.format(
@@ -697,9 +838,12 @@ public class GcpCostService {
                 Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
                 if (dbSnapshot.isPresent()) {
                     List<GcpCostDto> dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), new TypeReference<>() {});
-                    log.info("✅ Returning DB-cached cost breakdown for project {} / groupBy {} — re-warming Redis", gcpProjectId, groupBy);
-                    redisCacheService.put(cacheKey, dbResult, 60 * 24);
-                    return dbResult;
+                    if (hasRows(dbResult)) {
+                        log.info("✅ Returning DB-cached cost breakdown for project {} / groupBy {} — re-warming Redis", gcpProjectId, groupBy);
+                        redisCacheService.put(cacheKey, dbResult, 60 * 24);
+                        return dbResult;
+                    }
+                    log.info("⚠️ DB snapshot for cost breakdown {} / {} is empty — refetching", gcpProjectId, groupBy);
                 }
             } catch (Exception e) {
                 log.warn("DB snapshot load failed for cost breakdown {}: {}", gcpProjectId, e.getMessage());
@@ -708,24 +852,19 @@ public class GcpCostService {
 
         log.info("🔍 Fetching cost breakdown for project {} / groupBy {}", gcpProjectId, groupBy);
 
-        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty())
-            return Collections.emptyList();
-
-        String dimension = "service.description";
-        if ("REGION".equalsIgnoreCase(groupBy)) {
-            dimension = "location.region";
-        } else if ("PROJECT".equalsIgnoreCase(groupBy)) {
-            dimension = "project.name";
-        }
-
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.withDayOfMonth(1);
 
-        List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, dimension, startDate, endDate);
-        redisCacheService.put(cacheKey, result, 60 * 24);
-        saveToDb(dbKey, result);
+        List<GcpCostDto> result = fetchCostData(gcpProjectId, dimensionFor(groupBy), startDate, endDate);
+        cacheCostData(cacheKey, dbKey, result, "cost breakdown / " + groupBy, gcpProjectId);
         return result;
+    }
+
+    /** Standard-export dimension expression for a groupBy value. */
+    private static String dimensionFor(String groupBy) {
+        if ("REGION".equalsIgnoreCase(groupBy))  return "location.region";
+        if ("PROJECT".equalsIgnoreCase(groupBy)) return "project.name";
+        return "service.description";
     }
 
     public List<GcpCostDto> getCostBreakdownSync(String gcpProjectId, String groupBy, String startDate, String endDate, boolean forceRefresh) {
@@ -745,23 +884,20 @@ public class GcpCostService {
                 Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
                 if (dbSnap.isPresent()) {
                     List<GcpCostDto> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<GcpCostDto>>() {});
-                    if (dbData != null) { redisCacheService.put(cacheKey, dbData, 60 * 24); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                    if (hasRows(dbData)) {
+                        redisCacheService.put(cacheKey, dbData, 60 * 24);
+                        log.info("✅ DB hit — re-warmed Redis: {}", dbKey);
+                        return dbData;
+                    }
+                    log.info("⚠️ DB snapshot {} is empty — refetching", dbKey);
                 }
             } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
         }
 
         log.info("🔍 Fetching cost breakdown (date-range) for project {} / groupBy {} ({} to {})", gcpProjectId, groupBy, start, end);
 
-        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-        if (bqOpt.isEmpty()) return Collections.emptyList();
-
-        String dimension = "service.description";
-        if ("REGION".equalsIgnoreCase(groupBy)) dimension = "location.region";
-        else if ("PROJECT".equalsIgnoreCase(groupBy)) dimension = "project.name";
-
-        List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, dimension, start, end);
-        redisCacheService.put(cacheKey, result, 60 * 24);
-        saveToDb(dbKey, result);
+        List<GcpCostDto> result = fetchCostData(gcpProjectId, dimensionFor(groupBy), start, end);
+        cacheCostData(cacheKey, dbKey, result, "cost breakdown / " + groupBy + " (date-range)", gcpProjectId);
         return result;
     }
 
@@ -990,20 +1126,16 @@ public class GcpCostService {
                     Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
                     if (dbSnap.isPresent()) {
                         List<GcpCostDto> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<GcpCostDto>>() {});
-                        if (dbData != null) { redisCacheService.put(cacheKey, dbData, 60); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                        if (hasRows(dbData)) { redisCacheService.put(cacheKey, dbData, 60); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                        log.info("⚠️ DB snapshot {} is empty — refetching", dbKey);
                     }
                 } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
             }
 
             log.info("Fetching billing summary for project {} from {} to {}", gcpProjectId, start, end);
 
-            Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-            if (bqOpt.isEmpty())
-                return Collections.emptyList();
-
-            List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "service.description", start, end);
-            redisCacheService.put(cacheKey, result, 60);
-            saveToDb(dbKey, result);
+            List<GcpCostDto> result = fetchCostData(gcpProjectId, "service.description", start, end);
+            cacheCostData(cacheKey, dbKey, result, "billing summary (date-range)", gcpProjectId);
             return result;
         }, executor);
     }
@@ -1030,20 +1162,16 @@ public class GcpCostService {
                     Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
                     if (dbSnap.isPresent()) {
                         List<GcpCostDto> dbData = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<List<GcpCostDto>>() {});
-                        if (dbData != null) { redisCacheService.put(cacheKey, dbData, 60); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                        if (hasRows(dbData)) { redisCacheService.put(cacheKey, dbData, 60); log.info("✅ DB hit — re-warmed Redis: {}", dbKey); return dbData; }
+                        log.info("⚠️ DB snapshot {} is empty — refetching", dbKey);
                     }
                 } catch (Exception e) { log.warn("DB cache miss for {}: {}", dbKey, e.getMessage()); }
             }
 
             log.info("Fetching cost by region for project {} from {} to {}", gcpProjectId, start, end);
 
-            Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
-            if (bqOpt.isEmpty())
-                return Collections.emptyList();
-
-            List<GcpCostDto> result = queryCostData(bqOpt.get(), gcpProjectId, "location.region", start, end);
-            redisCacheService.put(cacheKey, result, 60);
-            saveToDb(dbKey, result);
+            List<GcpCostDto> result = fetchCostData(gcpProjectId, "location.region", start, end);
+            cacheCostData(cacheKey, dbKey, result, "cost by region (date-range)", gcpProjectId);
             return result;
         }, executor);
     }
