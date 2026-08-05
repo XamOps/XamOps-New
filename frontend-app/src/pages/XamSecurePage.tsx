@@ -3,6 +3,8 @@ import { Icon } from '@iconify/react';
 import { Link, useParams } from 'react-router-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useXamSecureData } from '../hooks/useXamSecureData';
+import StoryDrawer from '../components/XamSecure/StoryDrawer';
+import type { ThreatStoryDetail } from '../types/xamsecure';
 import {
   XamSecureHeader, IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsSection, VulnerabilitiesTab,
   ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, WorkflowsTab, OnboardingTab,
@@ -55,10 +57,30 @@ const XamSecurePage: React.FC = () => {
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, identities,
     noAccountSelected,
-    isLoading, refresh, loadIssueDetail, loadResourceDetail,
+    isLoading, refresh, loadIssueDetail, loadResourceDetail, loadStoryDetail,
     loadThreats, loadVulnByCve, loadCveFindings, loadPosture, loadInventory,
     archiveThreat,
   } = useXamSecureData({ selectedAccountId, activeTab });
+
+  // Threat-story detail panel. Fetched on open rather than with the tab, since the narrative
+  // is large and only wanted when someone actually drills in.
+  const [story, setStory] = useState<ThreatStoryDetail | null>(null);
+  const [storyOpen, setStoryOpen] = useState(false);
+  const [storyLoading, setStoryLoading] = useState(false);
+
+  const openStory = React.useCallback(async (storyId: string) => {
+    setStoryOpen(true);
+    setStoryLoading(true);
+    setStory(null);
+    try {
+      setStory(await loadStoryDetail(storyId));
+    } catch (err) {
+      console.error('[XamSecure] story load failed:', err);
+      setStory(null);
+    } finally {
+      setStoryLoading(false);
+    }
+  }, [loadStoryDetail]);
 
   // An account must be chosen before anything is shown. Falling through to "all accounts I
   // own" would put an unselected account's findings on screen, which for a security view is
@@ -119,7 +141,7 @@ const XamSecurePage: React.FC = () => {
                             loadResourceDetail={loadResourceDetail} />
         )}
         {activeTab === 'overview' && (
-          <OverviewTab summary={summary} issues={issues} threats={threats}
+          <OverviewTab summary={summary} issues={issues} threats={threats} onOpenStory={openStory}
                        stories={stories} vulnDashboard={vulnDashboard} isLoading={isLoading} />
         )}
         {activeTab === 'threats' && (
@@ -156,6 +178,12 @@ const XamSecurePage: React.FC = () => {
         {activeTab === 'workflows' && <WorkflowsTab data={workflows} isLoading={isLoading} />}
         {activeTab === 'onboarding' && <OnboardingTab accounts={onboarding} isLoading={isLoading} />}
       </div>
+
+      {storyOpen && (
+        <StoryDrawer story={story} isLoading={storyLoading}
+                     onClose={() => { setStoryOpen(false); setStory(null); }}
+                     onOpenResource={undefined} />
+      )}
     </main>
   );
 };

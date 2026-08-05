@@ -348,6 +348,26 @@ public class UpwindApiClient {
         return items;
     }
 
+    /**
+     * One threat story in full: {@code GET /v2/{org}/threats/stories/{id}}.
+     *
+     * The detail route adds {@code description} — a long markdown incident narrative with
+     * Upwind's own inline markup — which the search/list routes omit. Everything else
+     * (severity, status, timestamps, detection_ids) matches the list payload.
+     */
+    public JsonNode getThreatStory(String storyId) {
+        String url = apiBaseUrl + "/v2/organizations/" + orgId + "/threats/stories/" + storyId;
+        try {
+            ResponseEntity<String> resp = exchangeWithRetry(
+                    URI.create(url), HttpMethod.GET, new HttpEntity<>(authHeaders()));
+            JsonNode json = objectMapper.readTree(resp.getBody());
+            JsonNode items = json.path("items");
+            return items.isArray() && items.size() > 0 ? items.get(0) : json;
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind threat-story fetch failed for " + storyId, e);
+        }
+    }
+
     /** v1 SBOM software packages, tenant-filtered by cloud-account-id query param, Link paging. */
     public List<JsonNode> fetchSbomPackages(String cloudAccountId, int maxPages) {
         java.util.List<JsonNode> items = new java.util.ArrayList<>();

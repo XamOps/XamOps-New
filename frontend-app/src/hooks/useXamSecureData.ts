@@ -4,7 +4,8 @@ import type {
   XamSecureSummary, ThreatDetection, VulnerabilityFinding, PostureFinding,
   ComplianceFramework, OnboardingAccount, PageResp, InventoryAsset, ApiEndpoint, SbomComponent,
   ThreatPolicy, Workflow,
-  IssueSummary, IssueDetail, ThreatStoriesSummary, InventoryCategory, InventoryRisk, NetworkTopology,
+  IssueSummary, IssueDetail, ThreatStoriesSummary, ThreatStoryDetail, InventoryCategory,
+  InventoryRisk, NetworkTopology,
   AttackSurfaceSummary, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
   ConfigurationsDashboard, ResourceDetail, SyncStatus, IdentitiesSummary,
 } from '../types/xamsecure';
@@ -128,6 +129,17 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const loadSyncStatus = useCallback(async (): Promise<SyncStatus> => {
     return apiClient.get<SyncStatus>('/api/xamsecure/sync-status');
   }, []);
+
+  /**
+   * One threat story in full, for the detail panel. Returns null when the story references no
+   * detection in the selected accounts — the server withholds it, since stories carry no
+   * account id of their own and detection ownership is what establishes tenancy.
+   */
+  const loadStoryDetail = useCallback(async (storyId: string): Promise<ThreatStoryDetail | null> => {
+    const d = await apiClient.get<ThreatStoryDetail>(
+      `/api/xamsecure/stories/${encodeURIComponent(storyId)}?${acct}`);
+    return d && d.id ? d : null;
+  }, [acct]);
 
   const loadIssueDetail = useCallback(async (check: string): Promise<IssueDetail> => {
     return apiClient.get<IssueDetail>(
@@ -439,7 +451,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, identities,
     isLoading, refresh,
-    loadIssues, loadIssueDetail, loadResourceDetail, loadSyncStatus,
+    loadIssues, loadIssueDetail, loadResourceDetail, loadStoryDetail, loadSyncStatus,
     loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,
     loadPosture, loadInventory, loadApiSecurity, loadComponents, archiveThreat,
   };

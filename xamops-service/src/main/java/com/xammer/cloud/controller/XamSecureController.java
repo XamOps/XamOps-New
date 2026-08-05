@@ -36,6 +36,19 @@ public class XamSecureController {
         return ResponseEntity.ok(xamSecureService.getIssueDetail(user.getClientId(), accountId, check));
     }
 
+    /**
+     * One threat story in full, for the detail panel. Returns an empty object when the story
+     * references no detection in the caller's accounts — stories carry no account id of their
+     * own, so detection ownership is what establishes tenancy.
+     */
+    @GetMapping("/stories/{storyId}")
+    public ResponseEntity<?> storyDetail(@AuthenticationPrincipal ClientUserDetails user,
+                                         @PathVariable String storyId,
+                                         @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(
+                xamSecureService.getThreatStoryDetail(user.getClientId(), accountId, storyId));
+    }
+
     @GetMapping("/stories")
     public ResponseEntity<?> stories(@AuthenticationPrincipal ClientUserDetails user,
                                      @RequestParam(required = false) String accountId) {

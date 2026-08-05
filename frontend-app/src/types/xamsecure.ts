@@ -494,6 +494,58 @@ export interface ThreatStoriesSummary {
   stories: ThreatStory[];
 }
 
+/** One detection correlated into a threat story. */
+export interface StoryDetection {
+  id: string | null;
+  title: string | null;
+  severity: Severity | null;
+  status: string | null;
+  category: string | null;
+  resourceId: string | null;
+  resourceName: string | null;
+  resourceType: string | null;
+  cloudAccountId: string | null;
+  mitreTactics: string[];
+  occurrenceCount: number | null;
+  firstSeenTime: string | null;
+  lastSeenTime: string | null;
+}
+
+/**
+ * A threat story in full. `description` is Upwind's own markdown incident narrative and
+ * carries their inline markup ([br], [header_with_icon ...], [link text=".." href=".."]),
+ * so it needs the dedicated renderer rather than a plain markdown component.
+ *
+ * `detectionCount` is what the story references; `resolvedCount` is how many of those we
+ * hold locally for the selected accounts — they differ when a story spans accounts the
+ * caller doesn't own, or when detections predate our sync.
+ */
+export interface ThreatStoryDetail {
+  id: string | null;
+  title: string | null;
+  severity: Severity | null;
+  status: string | null;
+  createTime: string | null;
+  updateTime: string | null;
+  description: string | null;
+  detectionCount: number;
+  resolvedCount: number;
+  detections: StoryDetection[];
+  worstSeverity: Severity | null;
+  firstSeenTime: string | null;
+  lastSeenTime: string | null;
+  mitreTactics: { tactic: string; count: number }[];
+  categories: { category: string; count: number }[];
+  resources: {
+    resourceId: string | null;
+    resourceName: string | null;
+    resourceType: string | null;
+    cloudProvider: string | null;
+    cloudAccountId: string | null;
+    detectionCount: number;
+  }[];
+}
+
 export interface OnboardingAccount {
   accountName: string;
   cloudAccountId: string;

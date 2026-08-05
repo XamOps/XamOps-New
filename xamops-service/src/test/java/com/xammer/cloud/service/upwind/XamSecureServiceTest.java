@@ -255,6 +255,117 @@ class XamSecureServiceTest {
         assertEquals(0L, runtime.get("functionsInUse"));
     }
 
+    // --- Threat story detail ---
+
+    private static com.fasterxml.jackson.databind.JsonNode storyJson() throws Exception {
+        return new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                "{\"id\":\"uwis-1\",\"title\":\"Cryptominer Staging Across Kubernetes Workloads\","
+                + "\"severity\":\"critical\",\"status\":\"open\","
+                + "\"create_time\":\"2026-08-02T16:14:36Z\",\"update_time\":\"2026-08-02T19:44:06Z\","
+                + "\"description\":\"# Incident Summary\\nXMRig was downloaded.\","
+                + "\"detection_ids\":[\"uwd-a\",\"uwd-b\",\"uwd-c\"]}");
+    }
+
+    private static com.xammer.cloud.domain.UpwindThreatDetection detection(
+            String id, String severity, String resourceId, String tactics) {
+        var d = new com.xammer.cloud.domain.UpwindThreatDetection();
+        d.setUpwindId(id);
+        d.setTitle("Detection " + id);
+        d.setSeverity(severity);
+        d.setStatus("OPEN");
+        d.setCategory("Runtime");
+        d.setResourceId(resourceId);
+        d.setResourceName(resourceId);
+        d.setResourceType("KUBERNETES_DEPLOYMENT");
+        d.setCloudProvider("AWS");
+        d.setCloudAccountId("111");
+        d.setMitreTactics(tactics);
+        d.setOccurrenceCount(3);
+        d.setFirstSeenTime(java.time.Instant.parse("2026-08-02T15:00:00Z"));
+        d.setLastSeenTime(java.time.Instant.parse("2026-08-02T19:00:00Z"));
+        return d;
+    }
+
+    @Test
+    void storyDetailAggregatesDetectionsMitreAndResources() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.getThreatStory("uwis-1")).thenReturn(storyJson());
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of(
+                        detection("uwd-a", "CRITICAL", "res-1", "Execution,Discovery"),
+                        detection("uwd-b", "HIGH", "res-1", "Execution"),
+                        detection("uwd-c", "MEDIUM", "res-2", "Discovery")));
+
+        var out = service.getThreatStoryDetail(1L, null, "uwis-1");
+
+        assertEquals("uwis-1", out.get("id"));
+        // Upwind lowercases severity/status; we normalise so the chips match every other tab.
+        assertEquals("CRITICAL", out.get("severity"));
+        assertEquals("OPEN", out.get("status"));
+        assertEquals("CRITICAL", out.get("worstSeverity"));
+        assertEquals(3, out.get("detectionCount"));
+        assertEquals(3, out.get("resolvedCount"));
+        assertTrue(((String) out.get("description")).contains("Incident Summary"));
+
+        @SuppressWarnings("unchecked")
+        var tactics = (List<Map<String, Object>>) out.get("mitreTactics");
+        // Execution appears twice, Discovery twice — most frequent first, deduped per tactic.
+        assertEquals(2, tactics.size());
+        assertEquals(2L, tactics.get(0).get("count"));
+
+        @SuppressWarnings("unchecked")
+        var resources = (List<Map<String, Object>>) out.get("resources");
+        assertEquals(2, resources.size(), "two distinct resources across three detections");
+        var res1 = resources.stream()
+                .filter(r -> "res-1".equals(r.get("resourceId"))).findFirst().orElseThrow();
+        assertEquals(2L, res1.get("detectionCount"));
+    }
+
+    /**
+     * Tenancy. Stories carry no cloud_account_id — the payload has only id/title/severity/
+     * status/timestamps/detection_ids — so the old story.resource.cloud_account_id check
+     * never matched and every client could see every story in the org. Ownership now comes
+     * from the detections, and a story with none of ours must be withheld entirely.
+     */
+    @Test
+    void storyDetailIsWithheldWhenNoDetectionBelongsToTheClient() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.getThreatStory("uwis-1")).thenReturn(storyJson());
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of());
+
+        var out = service.getThreatStoryDetail(1L, null, "uwis-1");
+
+        assertTrue(out.isEmpty(), "a story we own no detection in must not be returned at all");
+    }
+
+    /** A story spanning accounts we cannot see reports the shortfall rather than hiding it. */
+    @Test
+    void storyDetailReportsPartiallyResolvedDetections() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.getThreatStory("uwis-1")).thenReturn(storyJson());
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of(detection("uwd-a", "HIGH", "res-1", "Execution")));
+
+        var out = service.getThreatStoryDetail(1L, null, "uwis-1");
+
+        assertEquals(3, out.get("detectionCount"), "what the story references");
+        assertEquals(1, out.get("resolvedCount"), "what we can actually show");
+    }
+
+    /** An upstream failure must degrade to empty, not propagate out of the controller. */
+    @Test
+    void storyDetailReturnsEmptyWhenUpwindFails() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.getThreatStory("uwis-1")).thenThrow(new IllegalStateException("502"));
+
+        assertTrue(service.getThreatStoryDetail(1L, null, "uwis-1").isEmpty());
+    }
+
     @Test
     void inventoryRiskRollupMapsClassificationCounts() {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));

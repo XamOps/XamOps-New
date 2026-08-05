@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { Icon } from '@iconify/react';
 import { Link } from 'react-router-dom';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, Legend as ReLegend } from 'recharts';
 import type {
@@ -16,6 +17,8 @@ interface Props {
   issues: IssueSummary[] | null;
   threats: PageResp<ThreatDetection> | null;
   stories: ThreatStoriesSummary | null;
+  /** Opens the threat-story detail panel. */
+  onOpenStory?: (storyId: string) => void;
   vulnDashboard: VulnerabilityDashboard | null;
   isLoading: boolean;
 }
@@ -76,9 +79,12 @@ const BarChart: React.FC<{ data: { label: string; value: number }[] }> = ({ data
   );
 };
 
-const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, vulnDashboard, isLoading }) => {
+const OverviewTab: React.FC<Props> = ({
+  summary, issues, threats, stories, vulnDashboard, isLoading, onOpenStory,
+}) => {
   const days = useMemo(() => last7Days(), []);
   const activeStories = stories?.activeCount ?? 0;
+  const storyList = stories?.stories ?? [];
 
   // 7-day change in total vulnerability findings, taken from the same cumulative series the
   // chart plots so the number and the shape can never disagree. Needs both ends to exist.
@@ -189,13 +195,49 @@ const OverviewTab: React.FC<Props> = ({ summary, issues, threats, stories, vulnD
       {/* Row 2 — Active stories · Threat funnel · Detections over time */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Panel title="Active threat stories">
-          <div className="flex flex-col items-center justify-center text-center py-6">
-            <p className="text-6xl font-extrabold text-gray-900">{activeStories}</p>
-            <p className="mt-3 text-sm font-bold text-gray-700">Active threat stories</p>
-            <p className="mt-1 text-[11px] text-gray-400">
-              {activeStories === 0 ? 'No active stories in your environment.' : 'Correlated attack stories from Upwind.'}
-            </p>
-          </div>
+          {/* The stories themselves are the point, so list them as buttons that open the
+              detail panel. The bare count told you something was wrong with no way in. */}
+          {storyList.length > 0 ? (
+            <div className="py-2 space-y-1.5">
+              {storyList.slice(0, 4).map((st) => (
+                <button key={st.id} type="button"
+                        onClick={() => st.id && onOpenStory?.(st.id)}
+                        disabled={!st.id || !onOpenStory}
+                        className="w-full text-left rounded-lg border border-gray-200 p-2.5
+                                   hover:border-gray-400 hover:bg-gray-50 transition-colors
+                                   disabled:cursor-default disabled:hover:border-gray-200
+                                   disabled:hover:bg-transparent
+                                   focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[11px] font-semibold text-gray-800 leading-snug line-clamp-2">
+                      {st.title ?? 'Untitled story'}
+                    </p>
+                    <SeverityChip severity={st.severity} />
+                  </div>
+                  <p className="mt-1 flex items-center gap-1.5 text-[10px] text-gray-400">
+                    {st.resourceName && <span className="truncate">{st.resourceName}</span>}
+                    {st.status && <span className="uppercase">{st.status}</span>}
+                    <Icon icon="mdi:chevron-right" width={12} className="ml-auto flex-shrink-0" />
+                  </p>
+                </button>
+              ))}
+              {storyList.length > 4 && (
+                <p className="pt-1 text-[10px] text-gray-400">
+                  +{storyList.length - 4} more on the Threats tab
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center text-center py-6">
+              <p className="text-6xl font-extrabold text-gray-900">{activeStories}</p>
+              <p className="mt-3 text-sm font-bold text-gray-700">Active threat stories</p>
+              <p className="mt-1 text-[11px] text-gray-400">
+                {activeStories === 0
+                  ? 'No active stories in your environment.'
+                  : 'Correlated attack stories from Upwind.'}
+              </p>
+            </div>
+          )}
         </Panel>
 
         <Panel title="Noise to signal threat funnel" action={<AllLink to="/xamsecure/threats" label="All threats" />}>

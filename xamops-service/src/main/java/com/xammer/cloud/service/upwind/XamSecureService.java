@@ -739,6 +739,138 @@ public class XamSecureService {
         return summary;
     }
 
+    /**
+     * One threat story in full, for the detail panel: Upwind's incident narrative plus the
+     * detections it correlates, the MITRE tactics/techniques across them, and the affected
+     * resources.
+     *
+     * Tenancy comes from the DETECTIONS, not the story. Story payloads carry no
+     * cloud_account_id at all (verified live 2026-08-04: the only keys are id/title/severity/
+     * status/create_time/update_time/detection_ids), so the previous
+     * {@code story.resource.cloud_account_id} check could never match and every client saw
+     * every story in the org. A story is the caller's only if it references at least one
+     * detection in one of their accounts.
+     */
+    public Map<String, Object> getThreatStoryDetail(Long clientId, String accountId, String storyId) {
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty() || storyId == null || storyId.isBlank() || !apiClient.isConfigured()) {
+            return Map.of();
+        }
+
+        JsonNode story;
+        try {
+            story = apiClient.getThreatStory(storyId);
+        } catch (Exception e) {
+            log.warn("[Upwind] story {} fetch failed: {}", storyId, e.getMessage());
+            return Map.of();
+        }
+
+        List<String> detectionIds = new ArrayList<>();
+        story.path("detection_ids").forEach(d -> detectionIds.add(d.asText()));
+
+        // Resolve against the synced table: it is already tenant-scoped, and avoids N API
+        // calls for a story that can reference dozens of detections.
+        List<UpwindThreatDetection> detections = detectionIds.isEmpty()
+                ? List.of()
+                : detectionRepo.findByAccountsAndUpwindIds(ids, detectionIds);
+
+        // No detection of ours => not our story. Refusing here is what makes the story list
+        // tenant-safe, since the story itself carries no ownership marker.
+        if (detections.isEmpty()) {
+            log.debug("[Upwind] story {} references no detection in client {}'s accounts", storyId, clientId);
+            return Map.of();
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", story.path("id").asText(null));
+        out.put("title", story.path("title").asText(null));
+        out.put("severity", upper(story.path("severity").asText(null)));
+        out.put("status", upper(story.path("status").asText(null)));
+        out.put("createTime", story.path("create_time").asText(null));
+        out.put("updateTime", story.path("update_time").asText(null));
+        // Upwind's own markdown narrative, passed through verbatim; the client renders it.
+        out.put("description", story.path("description").asText(null));
+        out.put("detectionCount", detectionIds.size());
+        out.put("resolvedCount", detections.size());
+
+        List<Map<String, Object>> detectionRows = new ArrayList<>();
+        Map<String, Long> tacticCounts = new LinkedHashMap<>();
+        Map<String, Map<String, Object>> resources = new LinkedHashMap<>();
+        Map<String, Long> categoryCounts = new LinkedHashMap<>();
+        String worst = null;
+        Instant firstSeen = null, lastSeen = null;
+
+        for (UpwindThreatDetection d : detections) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", d.getUpwindId());
+            m.put("title", d.getTitle());
+            m.put("severity", d.getSeverity());
+            m.put("status", d.getStatus());
+            m.put("category", d.getCategory());
+            m.put("resourceId", d.getResourceId());
+            m.put("resourceName", d.getResourceName());
+            m.put("resourceType", d.getResourceType());
+            m.put("cloudAccountId", d.getCloudAccountId());
+            m.put("mitreTactics", d.getMitreTactics() == null || d.getMitreTactics().isEmpty()
+                    ? List.of() : Arrays.asList(d.getMitreTactics().split(",")));
+            m.put("occurrenceCount", d.getOccurrenceCount());
+            m.put("firstSeenTime", d.getFirstSeenTime());
+            m.put("lastSeenTime", d.getLastSeenTime());
+            detectionRows.add(m);
+
+            worst = worse(worst, d.getSeverity());
+            firstSeen = earliest(firstSeen, d.getFirstSeenTime());
+            lastSeen = latest(lastSeen, d.getLastSeenTime());
+            if (d.getCategory() != null) categoryCounts.merge(d.getCategory(), 1L, Long::sum);
+            if (d.getMitreTactics() != null) {
+                for (String t : d.getMitreTactics().split(",")) {
+                    if (!t.isBlank()) tacticCounts.merge(t.trim(), 1L, Long::sum);
+                }
+            }
+            String key = d.getResourceId() != null ? d.getResourceId() : d.getResourceName();
+            if (key != null) {
+                Map<String, Object> r = resources.computeIfAbsent(key, k -> {
+                    Map<String, Object> n = new LinkedHashMap<>();
+                    n.put("resourceId", d.getResourceId());
+                    n.put("resourceName", d.getResourceName());
+                    n.put("resourceType", d.getResourceType());
+                    n.put("cloudProvider", d.getCloudProvider());
+                    n.put("cloudAccountId", d.getCloudAccountId());
+                    n.put("detectionCount", 0L);
+                    return n;
+                });
+                r.put("detectionCount", ((Long) r.get("detectionCount")) + 1);
+            }
+        }
+
+        out.put("detections", detectionRows);
+        out.put("worstSeverity", worst);
+        out.put("firstSeenTime", firstSeen);
+        out.put("lastSeenTime", lastSeen);
+        out.put("mitreTactics", tacticCounts.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .map(e -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("tactic", e.getKey());
+                    m.put("count", e.getValue());
+                    return m;
+                }).collect(Collectors.toList()));
+        out.put("categories", categoryCounts.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .map(e -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("category", e.getKey());
+                    m.put("count", e.getValue());
+                    return m;
+                }).collect(Collectors.toList()));
+        out.put("resources", new ArrayList<>(resources.values()));
+        return out;
+    }
+
+    private static String upper(String s) {
+        return s == null ? null : s.toUpperCase();
+    }
+
     private static boolean isActiveStory(String status) {
         if (status == null) return true; // absent status → treat as active (matches console default)
         String s = status.toLowerCase();

@@ -14,6 +14,22 @@ public interface UpwindThreatDetectionRepository extends JpaRepository<UpwindThr
 
     Optional<UpwindThreatDetection> findByUpwindId(String upwindId);
 
+    /**
+     * Detections named by a threat story, restricted to the caller's accounts.
+     *
+     * Threat stories carry no cloud_account_id of their own — the payload has only
+     * id/title/severity/status/create_time/update_time/detection_ids (verified live
+     * 2026-08-04). Tenancy therefore has to come from the detections a story correlates,
+     * which do carry one: a story belongs to the caller only if it references a detection in
+     * one of their accounts. This also supplies the story drawer's detection list.
+     */
+    @Query("SELECT d FROM UpwindThreatDetection d " +
+           "WHERE d.cloudAccountId IN :accountIds AND d.upwindId IN :upwindIds " +
+           "ORDER BY d.lastSeenTime DESC")
+    List<UpwindThreatDetection> findByAccountsAndUpwindIds(
+            @Param("accountIds") List<String> accountIds,
+            @Param("upwindIds") List<String> upwindIds);
+
     Page<UpwindThreatDetection> findByCloudAccountIdInOrderByLastSeenTimeDesc(
             List<String> accountIds, Pageable pageable);
 
