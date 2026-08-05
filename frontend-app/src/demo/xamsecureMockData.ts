@@ -779,6 +779,7 @@ export const demoInventoryAll: InventoryAsset[] = Array.from({ length: 224 }, (_
     vulnTotalCount: i % 3 === 0 ? (i % 24) : 0,
     detectionTotalCount: i % 11 === 0 ? (i % 5) : 0,
     internetExposureType: i % 8 === 0 ? 'direct' : null,
+    lastInternetCommunication: i % 8 === 0 ? hoursAgo(spread(i, 1, 40)) : null,
     technologies: i % 6 === 0 ? `openssl 1.0.2 (EOL), nginx 1.${i % 26}` : null,
     hasEolTechnology: i % 6 === 0,
   };

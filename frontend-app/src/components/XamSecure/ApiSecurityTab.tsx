@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { ApiEndpoint } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
+import ApiEndpointDrawer from './ApiEndpointDrawer';
 
 interface Props {
   data: ApiEndpoint[] | null;
@@ -27,6 +28,8 @@ const methodColor = (m: string) => METHOD_COLOR[m?.toUpperCase()] ?? '#64748b';
  */
 const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
   const all = useMemo(() => data ?? [], [data]);
+  // Rows were inert before; the endpoint payload now carries enough to be worth opening.
+  const [selected, setSelected] = useState<ApiEndpoint | null>(null);
 
   const stats = useMemo(() => {
     let exposed = 0, authed = 0, unauth = 0, sensitive = 0, exposedSensitive = 0;
@@ -189,7 +192,9 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
             </thead>
             <tbody>
               {rows.map((e) => (
-                <tr key={e.id} className="border-b border-gray-50 hover:bg-gray-50">
+                <tr key={e.id}
+                    onClick={() => setSelected(e)}
+                    className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer">
                   <td className="px-5 py-3 font-mono font-bold" style={{ color: methodColor(e.method ?? '') }}>{e.method}</td>
                   <td className="px-5 py-3 font-mono text-gray-800 max-w-md truncate">
                     {e.uri}
@@ -253,6 +258,10 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
         </div>
         <Pager page={page} totalPages={totalPages} total={total} unit="endpoints" onPage={setPage} />
       </div>
+
+      {selected && (
+        <ApiEndpointDrawer endpoint={selected} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 };

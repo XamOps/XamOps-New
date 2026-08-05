@@ -186,6 +186,8 @@ export interface InventoryAsset {
   vulnTotalCount: number | null;
   detectionTotalCount: number | null;
   internetExposureType: string | null;
+  /** network_risk.last_communication_with_internet_time */
+  lastInternetCommunication: string | null;
   technologies: string | null;
   hasEolTechnology: boolean | null;
 }
