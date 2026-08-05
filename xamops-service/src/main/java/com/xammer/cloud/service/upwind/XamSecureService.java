@@ -16,6 +16,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -702,30 +704,50 @@ public class XamSecureService {
         try {
             // The threat-stories search only supports severity/status/create_time/update_time
             // as filter fields — a cloud_account_id condition is rejected with HTTP 400. Match
-            // all severities and rely on the per-account post-filter below for tenancy.
+            // all severities; tenancy is established below from correlated detections.
             List<Map<String, Object>> conditions = List.of(
                     Map.of("field", "severity", "operator", "in",
                             "value", List.of("CRITICAL", "HIGH", "MEDIUM", "LOW")));
-            Set<String> owned = new HashSet<>(ids);
+
+            List<JsonNode> raw = new ArrayList<>();
+            Set<String> allDetectionIds = new LinkedHashSet<>();
+            for (JsonNode s : apiClient.searchThreatStories(conditions, 100)) {
+                raw.add(s);
+                s.path("detection_ids").forEach(d -> allDetectionIds.add(d.asText()));
+            }
+
+            // Ownership comes from correlated detections, exactly as getThreatStoryDetail does.
+            // Filtering on resource.cloud_account_id here was inert: stories carry no account id
+            // at all, so the condition never matched and every org story reached every client —
+            // while the detail endpoint correctly withheld it. That left a story listed and then
+            // unopenable, and leaked other tenants' story titles, which name their namespaces.
+            // One bulk query for all stories rather than one per story.
+            Set<String> ourDetectionIds = allDetectionIds.isEmpty() ? Set.of()
+                    : detectionRepo.findByAccountsAndUpwindIds(ids, new ArrayList<>(allDetectionIds))
+                            .stream().map(UpwindThreatDetection::getUpwindId).collect(Collectors.toSet());
+
             List<Map<String, Object>> stories = new ArrayList<>();
             int active = 0;
-            for (JsonNode s : apiClient.searchThreatStories(conditions, 100)) {
-                // Defence in depth: never surface a story outside the caller's accounts.
-                String acct = firstNonNull(
-                        s.path("resource").path("cloud_account_id").asText(null),
-                        s.path("cloud_account_id").asText(null));
-                if (acct != null && !owned.contains(acct)) continue;
+            for (JsonNode s : raw) {
+                List<String> detectionIds = new ArrayList<>();
+                s.path("detection_ids").forEach(d -> detectionIds.add(d.asText()));
+                long ours = detectionIds.stream().filter(ourDetectionIds::contains).count();
+                if (ours == 0) continue;
 
                 String status = s.path("status").asText(null);
                 if (isActiveStory(status)) active++;
-                if (stories.size() < 10) {
+                if (stories.size() < 50) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", s.path("id").asText(null));
                     m.put("title", firstNonNull(s.path("title").asText(null), s.path("name").asText(null)));
-                    m.put("severity", s.path("severity").asText(null));
+                    m.put("severity", upper(s.path("severity").asText(null)));
                     m.put("status", status);
-                    m.put("resourceName", firstNonNull(
-                            s.path("resource").path("name").asText(null), acct));
+                    m.put("resourceName", s.path("resource").path("name").asText(null));
+                    m.put("createTime", s.path("create_time").asText(null));
+                    m.put("updateTime", s.path("update_time").asText(null));
+                    // What the story references vs. how much of it we hold for these accounts.
+                    m.put("relatedEvents", detectionIds.size());
+                    m.put("resolvedCount", ours);
                     stories.add(m);
                 }
             }
@@ -865,6 +887,136 @@ public class XamSecureService {
                 }).collect(Collectors.toList()));
         out.put("resources", new ArrayList<>(resources.values()));
         return out;
+    }
+
+    /** Friendly labels for the detection sources Upwind emits, keyed by payload category. */
+    private static final Map<String, String> SOURCE_LABELS = Map.of(
+            "CLOUD_TRAIL", "AWS CloudTrail",
+            "SENSOR", "Sensor",
+            "AUDIT_LOGS", "Audit Logs",
+            "CLOUD_SCANNER", "Cloud Scanner",
+            "AZURE_LOGS", "Azure Logs",
+            "GCP_LOGS", "GCP Logs");
+
+    private static final int THREAT_TREND_DAYS = 7;
+
+    /**
+     * Aggregates behind the Threats dashboard: the detection funnel, a seven-day trend, and
+     * breakdowns by MITRE tactic and source.
+     *
+     * The raw event count Upwind puts at the head of its funnel is deliberately reported as
+     * unavailable rather than substituted. Upwind counts sensor events, of which detections are
+     * the filtered remainder; we sync detections only, so any number we printed there would be
+     * a different quantity wearing the same label.
+     */
+    public Map<String, Object> getThreatOverview(Long clientId, String accountId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        List<String> ids = resolveAccountIds(clientId, accountId);
+
+        List<Object[]> rows = ids.isEmpty() ? List.of() : detectionRepo.findDashboardFacets(ids);
+
+        Map<String, Long> byTactic = new HashMap<>();
+        Map<String, Long> bySource = new HashMap<>();
+        Map<String, Long> bySeverity = new LinkedHashMap<>();
+        // day -> severity band -> count
+        Map<LocalDate, Map<String, Long>> trend = new HashMap<>();
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate from = today.minusDays(THREAT_TREND_DAYS - 1L);
+
+        for (Object[] r : rows) {
+            String severity = upper((String) r[0]);
+            String tactics = (String) r[1];
+            String category = (String) r[2];
+            Instant lastSeen = (Instant) r[3];
+
+            if (severity != null) bySeverity.merge(severity, 1L, Long::sum);
+
+            // A detection can map to several tactics; Upwind counts it under each.
+            if (tactics != null && !tactics.isBlank()) {
+                for (String t : tactics.split(",")) {
+                    String tactic = t.trim();
+                    if (!tactic.isEmpty()) byTactic.merge(tactic, 1L, Long::sum);
+                }
+            }
+
+            String source = category == null || category.isBlank() ? "Unknown"
+                    : SOURCE_LABELS.getOrDefault(upper(category), prettify(category));
+            bySource.merge(source, 1L, Long::sum);
+
+            if (lastSeen != null) {
+                LocalDate day = lastSeen.atZone(ZoneOffset.UTC).toLocalDate();
+                if (!day.isBefore(from) && !day.isAfter(today)) {
+                    trend.computeIfAbsent(day, d -> new HashMap<>())
+                         .merge(severityBand(severity), 1L, Long::sum);
+                }
+            }
+        }
+
+        // Dense series: a day with no detections has to appear as zero, or the chart implies
+        // the quiet days never happened.
+        List<Map<String, Object>> series = new ArrayList<>();
+        for (int i = 0; i < THREAT_TREND_DAYS; i++) {
+            LocalDate day = from.plusDays(i);
+            Map<String, Long> counts = trend.getOrDefault(day, Map.of());
+            Map<String, Object> point = new LinkedHashMap<>();
+            point.put("date", day.toString());
+            point.put("critical", counts.getOrDefault("CRITICAL", 0L));
+            point.put("high", counts.getOrDefault("HIGH", 0L));
+            point.put("other", counts.getOrDefault("OTHER", 0L));
+            series.add(point);
+        }
+
+        Map<String, Object> stories = getThreatStories(clientId, accountId);
+
+        out.put("detectionCount", rows.size());
+        out.put("resourceCount", ids.isEmpty() ? 0L : detectionRepo.countDistinctResources(ids));
+        out.put("storyCount", stories.getOrDefault("activeCount", 0));
+        out.put("eventCount", null);
+        out.put("eventCountAvailable", false);
+        out.put("eventCountReason",
+                "Upwind's funnel counts raw sensor events. We sync detections, not events, "
+                + "so no comparable figure exists on our side.");
+        out.put("bySeverity", bySeverity);
+        out.put("trend", series);
+        out.put("byTactic", topEntries(byTactic, 10, "tactic"));
+        out.put("bySource", topEntries(bySource, 10, "source"));
+        return out;
+    }
+
+    /** Upwind's trend chart bands everything below High into one "Other" series. */
+    private static String severityBand(String severity) {
+        if ("CRITICAL".equals(severity)) return "CRITICAL";
+        if ("HIGH".equals(severity)) return "HIGH";
+        return "OTHER";
+    }
+
+    private static List<Map<String, Object>> topEntries(Map<String, Long> counts, int limit, String key) {
+        return counts.entrySet().stream()
+                .sorted((a, b) -> {
+                    int c = Long.compare(b.getValue(), a.getValue());
+                    return c != 0 ? c : a.getKey().compareTo(b.getKey());
+                })
+                .limit(limit)
+                .map(e -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put(key, e.getKey());
+                    m.put("count", e.getValue());
+                    return m;
+                })
+                .collect(Collectors.toList());
+    }
+
+    /** CLOUD_TRAIL -> "Cloud Trail", for sources we have no curated label for. */
+    private static String prettify(String raw) {
+        String[] parts = raw.replace('-', '_').split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            if (p.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1).toLowerCase());
+        }
+        return sb.length() == 0 ? raw : sb.toString();
     }
 
     private static String upper(String s) {

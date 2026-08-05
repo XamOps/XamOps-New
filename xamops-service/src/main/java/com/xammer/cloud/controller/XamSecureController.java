@@ -55,6 +55,16 @@ public class XamSecureController {
         return ResponseEntity.ok(xamSecureService.getThreatStories(user.getClientId(), accountId));
     }
 
+    /**
+     * Aggregates for the Threats dashboard: funnel, seven-day trend, MITRE tactic and source
+     * breakdowns. The funnel's raw event count is reported unavailable rather than guessed.
+     */
+    @GetMapping("/threats/overview")
+    public ResponseEntity<?> threatOverview(@AuthenticationPrincipal ClientUserDetails user,
+                                            @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getThreatOverview(user.getClientId(), accountId));
+    }
+
     @GetMapping("/attack-surface")
     public ResponseEntity<?> attackSurface(@AuthenticationPrincipal ClientUserDetails user,
                                            @RequestParam(required = false) String accountId) {

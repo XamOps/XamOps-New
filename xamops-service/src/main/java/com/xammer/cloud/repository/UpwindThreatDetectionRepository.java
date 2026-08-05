@@ -54,6 +54,27 @@ public interface UpwindThreatDetectionRepository extends JpaRepository<UpwindThr
            "AND d.upwindId <> 'uwnd-smoke' GROUP BY d.severity")
     List<Object[]> countOpenBySeverity(@Param("accountIds") List<String> accountIds);
 
+    /**
+     * The four columns the Threats dashboard aggregates over, for the caller's accounts.
+     *
+     * Aggregated in Java rather than SQL on purpose. MITRE tactics are stored as a
+     * comma-joined string (a detection can carry several), and bucketing by day needs date
+     * truncation — neither is expressible portably in JPQL, and the Postgres-only
+     * alternatives can't be exercised on the H2 slice DB used by the repository tests.
+     * Detections are by far the smallest of the three finding tables, so scanning four
+     * columns is cheaper than the round trips a per-facet query set would cost.
+     */
+    @Query("SELECT d.severity, d.mitreTactics, d.category, d.lastSeenTime " +
+           "FROM UpwindThreatDetection d WHERE d.cloudAccountId IN :accountIds " +
+           "AND d.upwindId <> 'uwnd-smoke'")
+    List<Object[]> findDashboardFacets(@Param("accountIds") List<String> accountIds);
+
+    /** Distinct resources carrying at least one detection — the funnel's resource stage. */
+    @Query("SELECT COUNT(DISTINCT d.resourceId) FROM UpwindThreatDetection d " +
+           "WHERE d.cloudAccountId IN :accountIds AND d.upwindId <> 'uwnd-smoke' " +
+           "AND d.resourceId IS NOT NULL")
+    long countDistinctResources(@Param("accountIds") List<String> accountIds);
+
     /** Detections against one resource — powers the unified resource view. */
     @Query("SELECT d FROM UpwindThreatDetection d WHERE d.cloudAccountId IN :accountIds " +
            "AND d.resourceId = :resourceId AND d.upwindId <> 'uwnd-smoke' " +

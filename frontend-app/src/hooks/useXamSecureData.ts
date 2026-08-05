@@ -4,7 +4,8 @@ import type {
   XamSecureSummary, ThreatDetection, VulnerabilityFinding, PostureFinding,
   ComplianceFramework, OnboardingAccount, PageResp, InventoryAsset, ApiEndpoint, SbomComponent,
   ThreatPolicy, Workflow,
-  IssueSummary, IssueDetail, ThreatStoriesSummary, ThreatStoryDetail, InventoryCategory,
+  IssueSummary, IssueDetail, ThreatStoriesSummary, ThreatStoryDetail, ThreatOverview,
+  InventoryCategory,
   InventoryRisk, NetworkTopology,
   AttackSurfaceSummary, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
   ConfigurationsDashboard, ResourceDetail, SyncStatus, IdentitiesSummary,
@@ -63,6 +64,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [threatPolicies, setThreatPolicies] = useState<ThreatPolicy[] | null>(null);
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
   const [stories, setStories] = useState<ThreatStoriesSummary | null>(null);
+  const [threatOverview, setThreatOverview] = useState<ThreatOverview | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingAccount[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const pollRef = useRef<number | null>(null);
@@ -163,6 +165,17 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       `/api/xamsecure/threats?${acct}page=${page}&size=50${severity ? `&severity=${severity}` : ''}`);
     setThreats(data);
   }, [acct]);
+
+  const loadThreatOverview = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('threat_overview', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<ThreatOverview>(key);
+      if (cached) { setThreatOverview(cached); return; }
+    }
+    const data = await apiClient.get<ThreatOverview>(`/api/xamsecure/threats/overview?${acct}`);
+    setThreatOverview(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
 
   const loadVulnDashboard = useCallback(async (force = false) => {
     const key = xamSecureCacheKey('vuln_dashboard', selectedAccountId);
@@ -361,7 +374,9 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
           await Promise.all([loadSummary(), loadIssues(), loadThreats(), loadStories(), loadVulnDashboard()]);
         }
         else if (activeTab === 'attack-surface') await loadAttackSurface();
-        else if (activeTab === 'threats') await Promise.all([loadThreats(), loadThreatPolicies()]);
+        else if (activeTab === 'threats') {
+          await Promise.all([loadThreats(), loadThreatPolicies(), loadStories(), loadThreatOverview()]);
+        }
         else if (activeTab === 'vulnerabilities') {
           await Promise.all([loadVulnDashboard(), loadVulnByCve()]);
         }
@@ -405,7 +420,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       loadVulnerabilities, loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
       loadInventoryRisk,
       loadNetworkTopology, loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents,
-      loadIdentities, loadThreatPolicies, loadWorkflows, loadOnboarding]);
+      loadIdentities, loadThreatPolicies, loadWorkflows, loadOnboarding, loadThreatOverview]);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -415,7 +430,10 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       else if (activeTab === 'overview') {
         await Promise.all([loadSummary(true), loadIssues('', true), loadThreats(), loadStories(true), loadVulnDashboard(true)]);
       }
-      else if (activeTab === 'threats') await Promise.all([loadThreats(), loadThreatPolicies(true)]);
+      else if (activeTab === 'threats') {
+        await Promise.all([loadThreats(), loadThreatPolicies(true), loadStories(true),
+                          loadThreatOverview(true)]);
+      }
       else if (activeTab === 'vulnerabilities') {
         await Promise.all([loadVulnDashboard(true), loadVulnByCve()]);
       }
@@ -443,13 +461,13 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
       loadInventoryRisk, loadNetworkTopology,
       loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents, loadIdentities,
-      loadThreatPolicies, loadWorkflows, loadOnboarding]);
+      loadThreatPolicies, loadWorkflows, loadOnboarding, loadThreatOverview]);
 
   return {
     summary, issues, attackSurface, threats, vulnerabilities, vulnDashboard, vulnByCve, posture, inventory,
     noAccountSelected,
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
-    threatPolicies, workflows, stories, identities,
+    threatPolicies, workflows, stories, threatOverview, identities,
     isLoading, refresh,
     loadIssues, loadIssueDetail, loadResourceDetail, loadStoryDetail, loadSyncStatus,
     loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,

@@ -23,7 +23,7 @@ import type {
   ApiEndpoint, AttackSurfaceSummary, ComplianceFramework, ConfigurationsDashboard,
   CveGroupRow, CveResourceFinding, InventoryAsset, InventoryCategory, InventoryRisk, IssueDetail,
   IssueSummary, NetworkTopology, NetworkNode, OnboardingAccount, PageResp, PostureFinding,
-  SbomComponent, Severity, ThreatDetection, ThreatPolicy, ThreatStoriesSummary,
+  SbomComponent, Severity, ThreatDetection, ThreatPolicy, ThreatStoriesSummary, ThreatOverview,
   VulnerabilityDashboard, VulnerabilityFinding, Workflow, XamSecureSummary,
 } from '../types/xamsecure';
 
@@ -390,15 +390,56 @@ export const demoThreatPolicies: ThreatPolicy[] = [
 export const demoThreatStories: ThreatStoriesSummary = {
   activeCount: 7,
   stories: [
-    { id: 'story-01', title: 'Compromised container mining cryptocurrency',        severity: 'CRITICAL', status: 'ACTIVE', resourceName: 'checkout-service-7d9f' },
-    { id: 'story-02', title: 'Credential access followed by outbound C2 traffic',  severity: 'CRITICAL', status: 'ACTIVE', resourceName: 'prod-api-01' },
-    { id: 'story-03', title: 'Container escape attempt on the billing service',    severity: 'HIGH',     status: 'ACTIVE', resourceName: 'billing-api-5c2a' },
-    { id: 'story-04', title: 'SSH brute force into lateral movement',              severity: 'HIGH',     status: 'ACTIVE', resourceName: 'prod-web-02' },
-    { id: 'story-05', title: 'Cloud API enumeration from a stale access key',      severity: 'HIGH',     status: 'ACTIVE', resourceName: 'svc-deploy' },
-    { id: 'story-06', title: 'Repeated container drift on the search indexer',     severity: 'MEDIUM',   status: 'ACTIVE', resourceName: 'search-indexer-2b81' },
-    { id: 'story-07', title: 'Log tampering after a privileged shell session',     severity: 'MEDIUM',   status: 'ACTIVE', resourceName: 'analytics-worker-3' },
-    { id: 'story-08', title: 'Suspicious package pulled during a build',           severity: 'MEDIUM',   status: 'RESOLVED', resourceName: 'etl-runner-02' },
-    { id: 'story-09', title: 'Unexpected persistence via cron on a legacy host',   severity: 'LOW',      status: 'RESOLVED', resourceName: 'prod-cache-01' },
+    { id: 'story-01', title: 'Compromised container mining cryptocurrency',        severity: 'CRITICAL', status: 'ACTIVE', resourceName: 'checkout-service-7d9f' , createTime: '2026-08-02T21:08:07Z', updateTime: '2026-08-03T01:06:21Z', relatedEvents: 40, resolvedCount: 40 },
+    { id: 'story-02', title: 'Credential access followed by outbound C2 traffic',  severity: 'CRITICAL', status: 'ACTIVE', resourceName: 'prod-api-01' , createTime: '2026-07-30T11:20:00Z', updateTime: '2026-08-03T09:14:02Z', relatedEvents: 22, resolvedCount: 22 },
+    { id: 'story-03', title: 'Container escape attempt on the billing service',    severity: 'HIGH',     status: 'ACTIVE', resourceName: 'billing-api-5c2a' , createTime: '2026-07-29T04:41:13Z', updateTime: '2026-08-02T18:03:55Z', relatedEvents: 14, resolvedCount: 12 },
+    { id: 'story-04', title: 'SSH brute force into lateral movement',              severity: 'HIGH',     status: 'ACTIVE', resourceName: 'prod-web-02' , createTime: '2026-07-28T23:12:44Z', updateTime: '2026-08-01T07:31:10Z', relatedEvents: 11, resolvedCount: 11 },
+    { id: 'story-05', title: 'Cloud API enumeration from a stale access key',      severity: 'HIGH',     status: 'ACTIVE', resourceName: 'svc-deploy' , createTime: '2026-07-27T15:02:19Z', updateTime: '2026-07-31T20:48:06Z', relatedEvents: 9, resolvedCount: 7 },
+    { id: 'story-06', title: 'Repeated container drift on the search indexer',     severity: 'MEDIUM',   status: 'ACTIVE', resourceName: 'search-indexer-2b81' , createTime: '2026-07-26T08:55:31Z', updateTime: '2026-07-30T12:22:40Z', relatedEvents: 6, resolvedCount: 6 },
+    { id: 'story-07', title: 'Log tampering after a privileged shell session',     severity: 'MEDIUM',   status: 'ACTIVE', resourceName: 'analytics-worker-3' , createTime: '2026-07-25T19:37:02Z', updateTime: '2026-07-29T05:11:58Z', relatedEvents: 5, resolvedCount: 5 },
+    { id: 'story-08', title: 'Suspicious package pulled during a build',           severity: 'MEDIUM',   status: 'RESOLVED', resourceName: 'etl-runner-02' , createTime: '2026-07-21T10:04:26Z', updateTime: '2026-07-24T16:40:12Z', relatedEvents: 4, resolvedCount: 4 },
+    { id: 'story-09', title: 'Unexpected persistence via cron on a legacy host',   severity: 'LOW',      status: 'RESOLVED', resourceName: 'prod-cache-01' , createTime: '2026-07-18T02:19:47Z', updateTime: '2026-07-20T22:05:33Z', relatedEvents: 2, resolvedCount: 2 },
+  ],
+};
+
+// ─── /api/xamsecure/threats/overview ────────────────────────────────────────────
+
+/**
+ * The Events stage is deliberately unavailable here too. Upwind's funnel starts from raw
+ * sensor events; we sync detections, so the demo must not invent a number the real API
+ * cannot return.
+ */
+export const demoThreatOverview: ThreatOverview = {
+  detectionCount: 214,
+  resourceCount: 47,
+  storyCount: 7,
+  eventCount: null,
+  eventCountAvailable: false,
+  eventCountReason:
+    "Upwind's funnel counts raw sensor events. We sync detections, not events, "
+    + 'so no comparable figure exists on our side.',
+  bySeverity: { CRITICAL: 12, HIGH: 38, MEDIUM: 141, LOW: 23 },
+  trend: [
+    { date: '2026-07-30', critical: 1, high: 4, other: 18 },
+    { date: '2026-07-31', critical: 0, high: 6, other: 21 },
+    { date: '2026-08-01', critical: 2, high: 5, other: 17 },
+    { date: '2026-08-02', critical: 4, high: 7, other: 24 },
+    { date: '2026-08-03', critical: 3, high: 6, other: 26 },
+    { date: '2026-08-04', critical: 1, high: 5, other: 22 },
+    { date: '2026-08-05', critical: 1, high: 5, other: 19 },
+  ],
+  byTactic: [
+    { tactic: 'Defense Evasion', count: 86 },
+    { tactic: 'Execution', count: 41 },
+    { tactic: 'Credential Access', count: 33 },
+    { tactic: 'Initial Access', count: 28 },
+    { tactic: 'Persistence', count: 14 },
+    { tactic: 'Lateral Movement', count: 9 },
+  ],
+  bySource: [
+    { source: 'Sensor', count: 128 },
+    { source: 'AWS CloudTrail', count: 74 },
+    { source: 'Audit Logs', count: 12 },
   ],
 };
 

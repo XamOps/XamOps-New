@@ -489,11 +489,45 @@ export interface ThreatStory {
   severity: Severity | null;
   status: string | null;
   resourceName: string | null;
+  createTime: string | null;
+  updateTime: string | null;
+  /** Detections the story correlates, as Upwind counts them ("Related events"). */
+  relatedEvents: number;
+  /** How many of those we hold for the selected accounts. Always >= 1, or the story is withheld. */
+  resolvedCount: number;
 }
 
 export interface ThreatStoriesSummary {
   activeCount: number;
   stories: ThreatStory[];
+}
+
+/** One day of the Threats trend chart. Bands below High are collapsed into `other`. */
+export interface ThreatTrendPoint {
+  date: string;
+  critical: number;
+  high: number;
+  other: number;
+}
+
+/**
+ * Threats dashboard aggregates.
+ *
+ * `eventCount` is null with `eventCountAvailable: false`: Upwind's funnel starts from raw
+ * sensor events and we sync detections only, so the stage is shown unavailable rather than
+ * filled with a different quantity under the same label.
+ */
+export interface ThreatOverview {
+  detectionCount: number;
+  resourceCount: number;
+  storyCount: number;
+  eventCount: number | null;
+  eventCountAvailable: boolean;
+  eventCountReason: string | null;
+  bySeverity: Record<string, number>;
+  trend: ThreatTrendPoint[];
+  byTactic: { tactic: string; count: number }[];
+  bySource: { source: string; count: number }[];
 }
 
 /** One detection correlated into a threat story. */

@@ -660,24 +660,116 @@ class XamSecureServiceTest {
         assertEquals("bucket-1", resources.get(0).get("resourceName"));
     }
 
+    /**
+     * Story tenancy comes from correlated detections, not from a field on the story.
+     *
+     * The previous version of this test gave each story a resource.cloud_account_id and
+     * asserted the service filtered on it. Real stories carry no account id at all (verified
+     * live 2026-08-04: the payload is id/title/severity/status/create_time/update_time/
+     * detection_ids), so that fixture made a broken filter look correct and every org story
+     * reached every client. These fixtures now match the real shape.
+     */
     @Test
-    void getThreatStoriesFiltersForeignAccountsAndCountsActive() throws Exception {
+    void getThreatStoriesEstablishesTenancyFromCorrelatedDetections() throws Exception {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
         when(apiClient.isConfigured()).thenReturn(true);
         var om = new com.fasterxml.jackson.databind.ObjectMapper();
-        var owned = om.readTree("{\"id\":\"s1\",\"title\":\"Story 1\",\"severity\":\"HIGH\",\"status\":\"OPEN\",\"resource\":{\"cloud_account_id\":\"111\",\"name\":\"res-1\"}}");
-        var foreign = om.readTree("{\"id\":\"s2\",\"status\":\"OPEN\",\"resource\":{\"cloud_account_id\":\"999\"}}");
-        var resolved = om.readTree("{\"id\":\"s3\",\"status\":\"RESOLVED\",\"resource\":{\"cloud_account_id\":\"111\"}}");
+        var ours = om.readTree("{\"id\":\"s1\",\"title\":\"Story 1\",\"severity\":\"HIGH\","
+                + "\"status\":\"OPEN\",\"detection_ids\":[\"uwd-a\",\"uwd-b\"]}");
+        var foreign = om.readTree("{\"id\":\"s2\",\"status\":\"OPEN\","
+                + "\"detection_ids\":[\"uwd-z\"]}");
+        var resolvedStory = om.readTree("{\"id\":\"s3\",\"status\":\"RESOLVED\","
+                + "\"detection_ids\":[\"uwd-a\"]}");
         when(apiClient.searchThreatStories(any(), org.mockito.ArgumentMatchers.anyInt()))
-                .thenReturn(List.of(owned, foreign, resolved));
+                .thenReturn(List.of(ours, foreign, resolvedStory));
+        // Only uwd-a and uwd-b are in account 111; uwd-z belongs to somebody else.
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of(
+                        detection("uwd-a", "CRITICAL", "res-1", "Execution"),
+                        detection("uwd-b", "HIGH", "res-1", "Execution")));
 
         var summary = service.getThreatStories(1L, null);
 
-        assertEquals(1, summary.get("activeCount"));        // only the OPEN owned story
+        assertEquals(1, summary.get("activeCount"));        // only the OPEN story we own
         @SuppressWarnings("unchecked")
         var stories = (List<java.util.Map<String, Object>>) summary.get("stories");
-        assertEquals(2, stories.size());                    // both owned stories, foreign excluded
+        assertEquals(2, stories.size());                    // s1 and s3; s2 correlates nothing of ours
         assertEquals("s1", stories.get(0).get("id"));
+        assertEquals(2, stories.get(0).get("relatedEvents")); // what the story references
+        assertEquals(2L, stories.get(0).get("resolvedCount")); // how much of it we hold
+        assertTrue(stories.stream().noneMatch(m -> "s2".equals(m.get("id"))));
+    }
+
+    /** A story naming only other tenants' detections must not appear at all. */
+    @Test
+    void getThreatStoriesWithholdsStoriesCorrelatingNoneOfOurDetections() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        var foreign = om.readTree("{\"id\":\"s9\",\"title\":\"Cryptominer in another tenant\","
+                + "\"status\":\"OPEN\",\"detection_ids\":[\"uwd-x\",\"uwd-y\"]}");
+        when(apiClient.searchThreatStories(any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(foreign));
+        when(detectionRepo.findByAccountsAndUpwindIds(eq(List.of("111")), anyList()))
+                .thenReturn(List.of());
+
+        var summary = service.getThreatStories(1L, null);
+
+        assertEquals(0, summary.get("activeCount"));
+        @SuppressWarnings("unchecked")
+        var stories = (List<java.util.Map<String, Object>>) summary.get("stories");
+        assertTrue(stories.isEmpty());
+    }
+
+    @Test
+    void threatOverviewAggregatesTacticsSourcesAndDenseTrend() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(false);   // stories unavailable; aggregates still work
+        var today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        java.time.Instant onDay = today.atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
+                .plusSeconds(3600);
+        java.time.Instant tooOld = onDay.minusSeconds(60L * 60 * 24 * 30);
+        when(detectionRepo.findDashboardFacets(List.of("111"))).thenReturn(List.of(
+                new Object[]{"CRITICAL", "Execution,Discovery", "CLOUD_TRAIL", onDay},
+                new Object[]{"HIGH", "Execution", "SENSOR", onDay},
+                new Object[]{"MEDIUM", null, "weird_source", onDay},
+                // Outside the seven-day window: counted in the facets, absent from the trend.
+                new Object[]{"LOW", "Discovery", "CLOUD_TRAIL", tooOld}));
+        when(detectionRepo.countDistinctResources(List.of("111"))).thenReturn(4L);
+
+        var out = service.getThreatOverview(1L, null);
+
+        assertEquals(4, out.get("detectionCount"));
+        assertEquals(4L, out.get("resourceCount"));
+        // The funnel's event stage has no equivalent on our side and must not be invented.
+        assertEquals(false, out.get("eventCountAvailable"));
+        assertNull(out.get("eventCount"));
+
+        @SuppressWarnings("unchecked")
+        var tactics = (List<java.util.Map<String, Object>>) out.get("byTactic");
+        // A detection with several tactics counts under each, as Upwind does it: Execution from
+        // rows 1-2, Discovery from rows 1 and 4. Equal counts tie-break alphabetically so the
+        // chart ordering is stable between requests rather than dependent on map iteration.
+        assertEquals("Discovery", tactics.get(0).get("tactic"));
+        assertEquals(2L, tactics.get(0).get("count"));
+        assertEquals("Execution", tactics.get(1).get("tactic"));
+        assertEquals(2L, tactics.get(1).get("count"));
+
+        @SuppressWarnings("unchecked")
+        var sources = (List<java.util.Map<String, Object>>) out.get("bySource");
+        var labels = sources.stream().map(m -> (String) m.get("source")).toList();
+        assertTrue(labels.contains("AWS CloudTrail"));       // curated label
+        assertTrue(labels.contains("Weird Source"));         // fallback prettifier
+
+        @SuppressWarnings("unchecked")
+        var trend = (List<java.util.Map<String, Object>>) out.get("trend");
+        assertEquals(7, trend.size());                       // dense: quiet days appear as zero
+        var last = trend.get(6);
+        assertEquals(today.toString(), last.get("date"));
+        assertEquals(1L, last.get("critical"));
+        assertEquals(1L, last.get("high"));
+        assertEquals(1L, last.get("other"));                 // MEDIUM banded into "other"
+        assertEquals(0L, trend.get(0).get("critical"));
     }
 
     @Test
