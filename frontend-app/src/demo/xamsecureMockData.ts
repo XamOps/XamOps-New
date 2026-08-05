@@ -428,6 +428,9 @@ export const demoThreatOverview: ThreatOverview = {
     { date: '2026-08-04', critical: 1, high: 5, other: 22 },
     { date: '2026-08-05', critical: 1, high: 5, other: 19 },
   ],
+  trendDays: 7,
+  trendWindows: [7, 30, 90],
+  detectionsInWindow: 214,
   byTactic: [
     { tactic: 'Defense Evasion', count: 86 },
     { tactic: 'Execution', count: 41 },

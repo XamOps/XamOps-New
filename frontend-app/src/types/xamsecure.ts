@@ -526,6 +526,15 @@ export interface ThreatOverview {
   eventCountReason: string | null;
   bySeverity: Record<string, number>;
   trend: ThreatTrendPoint[];
+  /** Days covered by `trend`, and the windows the API accepts. */
+  trendDays: number;
+  trendWindows: number[];
+  /**
+   * Detections whose last-seen falls inside the window. Needed to read the chart: a nearly
+   * empty 7-day chart against 31 detections is stale data, not a broken chart, and only the
+   * ratio distinguishes the two.
+   */
+  detectionsInWindow: number;
   byTactic: { tactic: string; count: number }[];
   bySource: { source: string; count: number }[];
 }

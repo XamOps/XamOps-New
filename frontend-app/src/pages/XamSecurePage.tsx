@@ -55,7 +55,7 @@ const XamSecurePage: React.FC = () => {
   const {
     summary, issues, attackSurface, threats, vulnDashboard, vulnByCve, posture, inventory,
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
-    threatPolicies, workflows, stories, threatOverview, identities,
+    threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
     noAccountSelected,
     isLoading, refresh, loadIssueDetail, loadResourceDetail, loadStoryDetail,
     loadThreats, loadVulnByCve, loadCveFindings, loadPosture, loadInventory,
@@ -149,7 +149,8 @@ const XamSecurePage: React.FC = () => {
                           stories={stories} overview={threatOverview}
                           onPage={(p) => loadThreats(p)} onArchive={archiveThreat}
                           loadResourceDetail={loadResourceDetail}
-                          onOpenStory={openStory} />
+                          onOpenStory={openStory}
+                          onTrendRange={(d) => { void loadThreatOverview(true, d); }} />
         )}
         {activeTab === 'vulnerabilities' && (
           <VulnerabilitiesTab dashboard={vulnDashboard} byCve={vulnByCve} isLoading={isLoading}

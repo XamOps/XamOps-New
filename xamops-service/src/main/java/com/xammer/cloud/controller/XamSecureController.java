@@ -61,8 +61,10 @@ public class XamSecureController {
      */
     @GetMapping("/threats/overview")
     public ResponseEntity<?> threatOverview(@AuthenticationPrincipal ClientUserDetails user,
-                                            @RequestParam(required = false) String accountId) {
-        return ResponseEntity.ok(xamSecureService.getThreatOverview(user.getClientId(), accountId));
+                                            @RequestParam(required = false) String accountId,
+                                            @RequestParam(defaultValue = "7") int days) {
+        return ResponseEntity.ok(
+                xamSecureService.getThreatOverview(user.getClientId(), accountId, days));
     }
 
     @GetMapping("/attack-surface")

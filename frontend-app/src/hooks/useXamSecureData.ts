@@ -166,13 +166,14 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     setThreats(data);
   }, [acct]);
 
-  const loadThreatOverview = useCallback(async (force = false) => {
-    const key = xamSecureCacheKey('threat_overview', selectedAccountId);
+  const loadThreatOverview = useCallback(async (force = false, days = 7) => {
+    const key = xamSecureCacheKey(`threat_overview_${days}`, selectedAccountId);
     if (!force) {
       const cached = loadCache<ThreatOverview>(key);
       if (cached) { setThreatOverview(cached); return; }
     }
-    const data = await apiClient.get<ThreatOverview>(`/api/xamsecure/threats/overview?${acct}`);
+    const data = await apiClient.get<ThreatOverview>(
+      `/api/xamsecure/threats/overview?${acct}days=${days}`);
     setThreatOverview(data);
     saveCache(key, data);
   }, [acct, selectedAccountId]);
@@ -467,7 +468,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     summary, issues, attackSurface, threats, vulnerabilities, vulnDashboard, vulnByCve, posture, inventory,
     noAccountSelected,
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
-    threatPolicies, workflows, stories, threatOverview, identities,
+    threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
     isLoading, refresh,
     loadIssues, loadIssueDetail, loadResourceDetail, loadStoryDetail, loadSyncStatus,
     loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,

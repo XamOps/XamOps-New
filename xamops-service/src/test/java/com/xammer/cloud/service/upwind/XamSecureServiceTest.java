@@ -773,6 +773,38 @@ class XamSecureServiceTest {
     }
 
     @Test
+    void threatOverviewHonoursSupportedWindowsAndClampsOthers() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(false);
+        var today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        java.time.Instant recent = today.atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
+                .plusSeconds(3600);
+        java.time.Instant twentyDaysAgo = recent.minusSeconds(60L * 60 * 24 * 20);
+        when(detectionRepo.findDashboardFacets(List.of("111"))).thenReturn(List.of(
+                new Object[]{"HIGH", "Execution", "SENSOR", recent},
+                new Object[]{"LOW", "Execution", "SENSOR", twentyDaysAgo}));
+
+        var week = service.getThreatOverview(1L, null, 7);
+        assertEquals(7, week.get("trendDays"));
+        @SuppressWarnings("unchecked")
+        var weekTrend = (List<java.util.Map<String, Object>>) week.get("trend");
+        assertEquals(7, weekTrend.size());
+        // The 20-day-old detection is counted in the totals but falls outside the window, which
+        // is exactly the case the in-window figure exists to explain.
+        assertEquals(2, week.get("detectionCount"));
+        assertEquals(1L, week.get("detectionsInWindow"));
+
+        var month = service.getThreatOverview(1L, null, 30);
+        assertEquals(30, month.get("trendDays"));
+        assertEquals(2L, month.get("detectionsInWindow"));
+
+        // Anything outside the supported set falls back rather than letting a caller ask for
+        // an arbitrary number of daily buckets.
+        assertEquals(7, service.getThreatOverview(1L, null, 4000).get("trendDays"));
+        assertEquals(7, service.getThreatOverview(1L, null, -1).get("trendDays"));
+    }
+
+    @Test
     void getThreatStoriesEmptyWhenUpwindNotConfigured() {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
         when(apiClient.isConfigured()).thenReturn(false);

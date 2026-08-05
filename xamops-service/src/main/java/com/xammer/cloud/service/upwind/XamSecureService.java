@@ -898,6 +898,10 @@ public class XamSecureService {
             "AZURE_LOGS", "Azure Logs",
             "GCP_LOGS", "GCP Logs");
 
+    /** Selectable trend windows. 7 matches Upwind's default; the longer ones exist because
+     *  detections here are often last seen well over a week ago, which leaves a 7-day chart
+     *  almost empty and looking like missing data rather than quiet weeks. */
+    private static final List<Integer> THREAT_TREND_WINDOWS = List.of(7, 30, 90);
     private static final int THREAT_TREND_DAYS = 7;
 
     /**
@@ -910,6 +914,11 @@ public class XamSecureService {
      * a different quantity wearing the same label.
      */
     public Map<String, Object> getThreatOverview(Long clientId, String accountId) {
+        return getThreatOverview(clientId, accountId, THREAT_TREND_DAYS);
+    }
+
+    public Map<String, Object> getThreatOverview(Long clientId, String accountId, int days) {
+        int window = THREAT_TREND_WINDOWS.contains(days) ? days : THREAT_TREND_DAYS;
         Map<String, Object> out = new LinkedHashMap<>();
         List<String> ids = resolveAccountIds(clientId, accountId);
 
@@ -922,7 +931,7 @@ public class XamSecureService {
         Map<LocalDate, Map<String, Long>> trend = new HashMap<>();
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        LocalDate from = today.minusDays(THREAT_TREND_DAYS - 1L);
+        LocalDate from = today.minusDays(window - 1L);
 
         for (Object[] r : rows) {
             String severity = upper((String) r[0]);
@@ -956,7 +965,8 @@ public class XamSecureService {
         // Dense series: a day with no detections has to appear as zero, or the chart implies
         // the quiet days never happened.
         List<Map<String, Object>> series = new ArrayList<>();
-        for (int i = 0; i < THREAT_TREND_DAYS; i++) {
+        long inWindow = 0;
+        for (int i = 0; i < window; i++) {
             LocalDate day = from.plusDays(i);
             Map<String, Long> counts = trend.getOrDefault(day, Map.of());
             Map<String, Object> point = new LinkedHashMap<>();
@@ -964,6 +974,8 @@ public class XamSecureService {
             point.put("critical", counts.getOrDefault("CRITICAL", 0L));
             point.put("high", counts.getOrDefault("HIGH", 0L));
             point.put("other", counts.getOrDefault("OTHER", 0L));
+            inWindow += (Long) point.get("critical") + (Long) point.get("high")
+                      + (Long) point.get("other");
             series.add(point);
         }
 
@@ -979,6 +991,11 @@ public class XamSecureService {
                 + "so no comparable figure exists on our side.");
         out.put("bySeverity", bySeverity);
         out.put("trend", series);
+        out.put("trendDays", window);
+        out.put("trendWindows", THREAT_TREND_WINDOWS);
+        // Detections whose last-seen falls inside the window. Without this the chart cannot be
+        // read: a near-empty 7-day chart against 31 detections looks broken rather than stale.
+        out.put("detectionsInWindow", inWindow);
         out.put("byTactic", topEntries(byTactic, 10, "tactic"));
         out.put("bySource", topEntries(bySource, 10, "source"));
         return out;

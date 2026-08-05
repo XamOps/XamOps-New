@@ -20,6 +20,8 @@ interface Props {
   loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
   /** Opens the shared story panel, which the page owns so it works from Overview too. */
   onOpenStory?: (storyId: string) => void;
+  /** Refetches the dashboard trend over a different day window. */
+  onTrendRange?: (days: number) => void;
 }
 
 type View = 'dashboard' | 'stories' | 'detections' | 'policies';
@@ -35,7 +37,7 @@ type View = 'dashboard' | 'stories' | 'detections' | 'policies';
  */
 const ThreatsSection: React.FC<Props> = ({
   threats, policies, stories, overview, isLoading, onPage, onArchive,
-  loadResourceDetail, onOpenStory,
+  loadResourceDetail, onOpenStory, onTrendRange,
 }) => {
   const [view, setView] = useState<View>('dashboard');
 
@@ -65,6 +67,7 @@ const ThreatsSection: React.FC<Props> = ({
           isLoading={isLoading}
           onOpenStory={onOpenStory}
           onSeeAllStories={() => setView('stories')}
+          onTrendRange={onTrendRange}
         />
       )}
       {view === 'stories' && (

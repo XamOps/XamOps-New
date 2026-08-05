@@ -9,6 +9,8 @@ interface Props {
   isLoading: boolean;
   onOpenStory?: (storyId: string) => void;
   onSeeAllStories?: () => void;
+  /** Refetches the trend over a different window. */
+  onTrendRange?: (days: number) => void;
 }
 
 const DAY_LABEL = (iso: string): string => {
@@ -26,7 +28,9 @@ const DAY_LABEL = (iso: string): string => {
  * therefore drawn as unavailable with the reason attached, instead of quietly starting the
  * funnel at detections and implying no filtering happened.
  */
-const ThreatsDashboard: React.FC<Props> = ({ data, stories, isLoading, onOpenStory, onSeeAllStories }) => {
+const ThreatsDashboard: React.FC<Props> = ({
+  data, stories, isLoading, onOpenStory, onSeeAllStories, onTrendRange,
+}) => {
   if (isLoading && !data) {
     return <div className="bg-white border border-gray-200 rounded-xl p-12 text-center text-xs text-gray-400">
       Loading threat overview...
@@ -73,7 +77,26 @@ const ThreatsDashboard: React.FC<Props> = ({ data, stories, isLoading, onOpenSto
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
               Threat detections over time
             </p>
-            <span className="text-[10px] text-gray-400">Last 7 days</span>
+            {/* Selectable window: detections here are frequently last seen more than a week
+                ago, so a fixed 7-day chart reads as missing data. */}
+            <div className="flex items-center gap-1">
+              {(data.trendWindows ?? [7]).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={onTrendRange ? () => onTrendRange(d) : undefined}
+                  disabled={!onTrendRange}
+                  aria-pressed={d === data.trendDays}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors
+                              focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${
+                    d === data.trendDays
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-500 hover:bg-gray-100 disabled:hover:bg-transparent'}`}
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex items-center gap-3 mb-3">
             <Legend colour="bg-red-500" label="Critical" />
@@ -86,23 +109,40 @@ const ThreatsDashboard: React.FC<Props> = ({ data, stories, isLoading, onOpenSto
               const h = (n: number) => (total === 0 ? 0 : (n / trendMax) * 100);
               return (
                 <div key={p.date} className="flex-1 flex flex-col items-center gap-1 group">
-                  <div className="w-full flex flex-col justify-end h-28"
+                  {/* Value label, because a single non-zero day renders full height and is
+                      otherwise unreadable without an axis. */}
+                  <span className={`text-[9px] font-semibold leading-none ${
+                    total > 0 ? 'text-gray-500' : 'text-transparent'}`}>
+                    {total > 0 ? total : '0'}
+                  </span>
+                  <div className="w-full flex flex-col justify-end h-24"
                        title={`${DAY_LABEL(p.date)} — ${total} detection${total === 1 ? '' : 's'}`}>
                     {p.critical > 0 && <div className="w-full bg-red-500" style={{ height: `${h(p.critical)}%` }} />}
                     {p.high > 0 && <div className="w-full bg-orange-400" style={{ height: `${h(p.high)}%` }} />}
                     {p.other > 0 && <div className="w-full bg-gray-300" style={{ height: `${h(p.other)}%` }} />}
                     {total === 0 && <div className="w-full h-0.5 bg-gray-100 rounded" />}
                   </div>
-                  <span className="text-[9px] text-gray-400 whitespace-nowrap">
-                    {DAY_LABEL(p.date).split(' ')[0]}
-                  </span>
+                  {data.trend.length <= 14 && (
+                    <span className="text-[9px] text-gray-400 whitespace-nowrap">
+                      {DAY_LABEL(p.date).split(' ')[0]}
+                    </span>
+                  )}
                 </div>
               );
             })}
           </div>
           {/* Bucketed on last-seen, which is what makes a long-running detection show up on the
-              day it was last active rather than the day it started. */}
-          <p className="mt-3 text-[10px] text-gray-400">Bucketed by last seen, UTC.</p>
+              day it was last active rather than the day it started. Stating the in-window
+              share is what separates "quiet week" from "everything is older than the window". */}
+          <p className="mt-3 text-[10px] text-gray-400">
+            Bucketed by last seen, UTC.{' '}
+            {data.detectionCount > 0 && (
+              <>
+                {data.detectionsInWindow.toLocaleString()} of{' '}
+                {data.detectionCount.toLocaleString()} detections were last seen in this window.
+              </>
+            )}
+          </p>
         </div>
 
         {/* Active stories */}
