@@ -11,6 +11,7 @@
  */
 
 import { getDemoRole } from './demoConfig';
+import { buildDemoComplianceReport } from './complianceReportDemo';
 import * as xamops from './xamopsMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
@@ -250,6 +251,29 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // Waste — raw WastedResource[] array
   if (url.includes('/api/xamops/waste'))
     return makeResponse(xamops.demoWasteData);
+
+  // ComplianceOps — the page reads a server-aggregated report rather than raw scanner
+  // output, so the report is derived from the same OCSF fixtures the prowler routes serve.
+  if (url.includes('/api/xamops/compliance/report')) {
+    const accountId = param(url, 'accountId') || 'demo-aws-001';
+    const provider = accountId.includes('gcp') ? 'GCP'
+      : accountId.includes('azure') ? 'Azure' : 'AWS';
+    const findings = provider === 'GCP' ? xamops.demoGcpProwlerFindings
+      : provider === 'Azure' ? xamops.demoAzureProwlerFindings
+        : xamops.demoAwsProwlerFindings;
+    const regions = provider === 'AWS'
+      ? ['ap-south-1', 'us-east-1', 'ap-southeast-1']
+      : [];
+    return makeResponse(
+      buildDemoComplianceReport(accountId, provider, findings, regions),
+    );
+  }
+  if (url.includes('/api/xamops/compliance/trend'))
+    return makeResponse([]);
+  // Governance writes are accepted but not persisted in demo mode — the report is
+  // rebuilt from fixtures on every read, so there is nowhere for them to land.
+  if (url.includes('/api/xamops/compliance/'))
+    return makeResponse({ status: 'DEMO', message: 'Not persisted in demo mode.' });
 
   // Security — every prowler sub-path before the generic security catch-all.
   // ComplianceOps reads prowler/findings (not /security/findings) and expects the

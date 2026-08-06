@@ -73,24 +73,67 @@ public class RedisCacheService {
         }
     }
 
+    /** Keys pulled per SCAN round trip, and per DEL batch. */
+    private static final int SCAN_BATCH_SIZE = 500;
+
     /**
      * Evicts every key matching the given glob-style pattern (e.g. "gcp:billing-summary:my-project:*").
      * Returns the number of keys removed.
+     * <p>
+     * Uses SCAN rather than KEYS. KEYS is O(N) over the whole keyspace and runs on Redis's
+     * single command thread, so it stalls every other client for the duration. That matters
+     * here because this instance also backs Spring Session: a stalled Redis means
+     * {@code SessionRepositoryFilter} blocks on session lookup for every inbound HTTP
+     * request, which surfaces as app-wide 500s with
+     * {@code RedisCommandTimeoutException: Command timed out after 1 minute(s)}.
+     * {@code evictAllCostCaches} issues nine of these patterns per project, so the old
+     * implementation could block Redis dozens of times in a row during the nightly refresh.
+     * <p>
+     * SCAN iterates in small cursor-bounded chunks instead, and deletes are batched.
      */
     public long evictByPattern(String pattern) {
-        try {
-            java.util.Set<String> keys = redisTemplate.keys(pattern);
-            if (keys == null || keys.isEmpty()) {
-                logger.info("--- NO REDIS KEYS MATCHED PATTERN: {} ---", pattern);
-                return 0L;
-            }
-            Long removed = redisTemplate.delete(keys);
-            logger.info("--- EVICTED {} REDIS KEYS FOR PATTERN: {} ---", removed, pattern);
-            return removed == null ? 0L : removed;
-        } catch (Exception e) {
-            logger.warn("Error evicting Redis keys for pattern {}: {}", pattern, e.getMessage());
+        if (pattern == null || pattern.isBlank() || "*".equals(pattern.trim())) {
+            logger.warn("--- REFUSING UNBOUNDED REDIS EVICTION FOR PATTERN: '{}' ---", pattern);
             return 0L;
         }
+
+        long removed = 0L;
+        try {
+            org.springframework.data.redis.core.ScanOptions options =
+                    org.springframework.data.redis.core.ScanOptions.scanOptions()
+                            .match(pattern)
+                            .count(SCAN_BATCH_SIZE)
+                            .build();
+
+            java.util.List<String> batch = new java.util.ArrayList<>(SCAN_BATCH_SIZE);
+            try (org.springframework.data.redis.core.Cursor<String> cursor = redisTemplate.scan(options)) {
+                while (cursor.hasNext()) {
+                    batch.add(cursor.next());
+                    if (batch.size() >= SCAN_BATCH_SIZE) {
+                        removed += deleteBatch(batch);
+                        batch.clear();
+                    }
+                }
+            }
+            if (!batch.isEmpty()) {
+                removed += deleteBatch(batch);
+            }
+
+            if (removed == 0L) {
+                logger.info("--- NO REDIS KEYS MATCHED PATTERN: {} ---", pattern);
+            } else {
+                logger.info("--- EVICTED {} REDIS KEYS FOR PATTERN: {} ---", removed, pattern);
+            }
+            return removed;
+        } catch (Exception e) {
+            logger.warn("Error evicting Redis keys for pattern {}: {}", pattern, e.getMessage());
+            return removed;
+        }
+    }
+
+    private long deleteBatch(java.util.List<String> keys) {
+        Long deleted = redisTemplate.delete(keys);
+        return deleted == null ? 0L : deleted;
     }
 
     // --- ✅ ADD THESE NEW METHODS AT THE BOTTOM ---

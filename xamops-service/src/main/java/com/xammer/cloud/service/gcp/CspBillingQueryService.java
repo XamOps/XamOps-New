@@ -53,12 +53,21 @@ public class CspBillingQueryService {
         return runNamedQuery(bq, sql, projectId, invoiceMonth, "region");
     }
 
+    /**
+     * Last 12 months of cost, bucketed by USAGE month rather than invoice_month.
+     * <p>
+     * Grouping by invoice_month splits a single calendar month into two buckets whenever
+     * GCP bills boundary usage to the previous invoice period — early-August usage
+     * invoiced as 202607 showed up as a separate bar. That made the history chart
+     * disagree with the month-to-date KPI, which filters on usage date. Output format
+     * ("yyyy-MM") is unchanged, so {@code getLastMonthSpend} and the chart still match.
+     */
     public List<GcpCostDto> queryMonthlyHistory(BigQuery bq, CspBillingConfig config, String projectId) {
         String sql = String.format(
-            "SELECT invoice_month, SUM(cost_at_list) AS cost " +
+            "SELECT FORMAT_DATE('%%Y-%%m', DATE(usage_start_time)) AS month, SUM(cost_at_list) AS cost " +
             "FROM `%s.%s.%s` " +
             "WHERE project_id = @projectId " +
-            "GROUP BY invoice_month ORDER BY invoice_month DESC LIMIT 12",
+            "GROUP BY month ORDER BY month DESC LIMIT 12",
             config.getGcpProjectId(), config.getDatasetId(), config.getTableId());
         try {
             QueryJobConfiguration query = QueryJobConfiguration.newBuilder(sql)
@@ -67,10 +76,9 @@ public class CspBillingQueryService {
             TableResult result = bq.query(query);
             List<GcpCostDto> dtos = new ArrayList<>();
             for (FieldValueList row : result.iterateAll()) {
-                String raw = row.get("invoice_month").getStringValue();
-                String displayMonth = raw.substring(0, 4) + "-" + raw.substring(4, 6);
-                double cost = row.get("cost").getNumericValue().doubleValue();
-                dtos.add(new GcpCostDto(displayMonth, cost, false));
+                double cost = row.get("cost").isNull() ? 0.0
+                    : row.get("cost").getNumericValue().doubleValue();
+                dtos.add(new GcpCostDto(row.get("month").getStringValue(), cost, false));
             }
             return dtos;
         } catch (Exception e) {
@@ -102,6 +110,130 @@ public class CspBillingQueryService {
             log.error("CSP MTD query failed for project {}", projectId, e);
             return 0.0;
         }
+    }
+
+    // =====================================================================================
+    // Date-range queries
+    //
+    // The invoice_month-based methods above only ever see one billing period, which makes
+    // them unusable for the Cost pages (arbitrary ranges, "last 90 days") and makes them
+    // undercount: GCP bills usage at a month boundary to the PREVIOUS invoice_month, so a
+    // '202608' filter silently drops early-August usage invoiced as '202607'. Filtering on
+    // usage_start_time fixes both problems.
+    // =====================================================================================
+
+    /** Column in the flattened reseller export for each grouping dimension we support. */
+    public static String dimensionColumn(String groupBy) {
+        if (groupBy == null) {
+            return "service_description";
+        }
+        switch (groupBy.toUpperCase()) {
+            case "REGION":  return "region";
+            case "PROJECT": return "project_name";
+            default:        return "service_description";
+        }
+    }
+
+    /**
+     * Cost grouped by one dimension over a date range.
+     *
+     * @param dimension a column name from {@link #dimensionColumn(String)}
+     */
+    public List<GcpCostDto> queryBreakdownByDateRange(BigQuery bq, CspBillingConfig config,
+                                                      String projectId, String dimension,
+                                                      String startDate, String endDate) {
+        String sql = String.format(
+            "SELECT COALESCE(%s, 'Uncategorized') AS name, SUM(cost_at_list) AS cost " +
+            "FROM `%s.%s.%s` " +
+            "WHERE project_id = @projectId " +
+            "  AND DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate " +
+            "GROUP BY name HAVING SUM(cost_at_list) > 0 ORDER BY cost DESC",
+            dimension, config.getGcpProjectId(), config.getDatasetId(), config.getTableId());
+        try {
+            TableResult result = bq.query(dateRangeQuery(sql, projectId, startDate, endDate));
+            List<GcpCostDto> dtos = new ArrayList<>();
+            for (FieldValueList row : result.iterateAll()) {
+                dtos.add(new GcpCostDto(
+                    row.get("name").isNull() ? "Uncategorized" : row.get("name").getStringValue(),
+                    row.get("cost").getNumericValue().doubleValue(),
+                    false));
+            }
+            return dtos;
+        } catch (Exception e) {
+            log.error("CSP date-range breakdown query failed for project {} ({} to {})",
+                projectId, startDate, endDate, e);
+            return List.of();
+        }
+    }
+
+    /** Total cost over a date range. */
+    public double queryTotalByDateRange(BigQuery bq, CspBillingConfig config,
+                                        String projectId, String startDate, String endDate) {
+        String sql = String.format(
+            "SELECT SUM(cost_at_list) AS cost FROM `%s.%s.%s` " +
+            "WHERE project_id = @projectId " +
+            "  AND DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate",
+            config.getGcpProjectId(), config.getDatasetId(), config.getTableId());
+        try {
+            TableResult result = bq.query(dateRangeQuery(sql, projectId, startDate, endDate));
+            for (FieldValueList row : result.iterateAll()) {
+                if (!row.get("cost").isNull()) {
+                    return row.get("cost").getNumericValue().doubleValue();
+                }
+            }
+            return 0.0;
+        } catch (Exception e) {
+            log.error("CSP date-range total query failed for project {} ({} to {})",
+                projectId, startDate, endDate, e);
+            return 0.0;
+        }
+    }
+
+    /** Daily cost totals over a date range, optionally filtered to a single service. */
+    public List<java.util.Map<String, Object>> queryDailyCosts(BigQuery bq, CspBillingConfig config,
+                                                               String projectId, String serviceName,
+                                                               String startDate, String endDate) {
+        boolean filterService = serviceName != null && !serviceName.isBlank()
+                && !"ALL".equalsIgnoreCase(serviceName);
+        String sql = String.format(
+            "SELECT FORMAT_DATE('%%Y-%%m-%%d', DATE(usage_start_time)) AS date, SUM(cost_at_list) AS cost " +
+            "FROM `%s.%s.%s` " +
+            "WHERE project_id = @projectId " +
+            "  AND DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate " +
+            "%s" +
+            "GROUP BY date ORDER BY date",
+            config.getGcpProjectId(), config.getDatasetId(), config.getTableId(),
+            filterService ? "  AND service_description = @serviceName " : "");
+        try {
+            QueryJobConfiguration.Builder builder = QueryJobConfiguration.newBuilder(sql)
+                .addNamedParameter("projectId", QueryParameterValue.string(projectId))
+                .addNamedParameter("startDate", QueryParameterValue.date(startDate))
+                .addNamedParameter("endDate", QueryParameterValue.date(endDate));
+            if (filterService) {
+                builder.addNamedParameter("serviceName", QueryParameterValue.string(serviceName));
+            }
+            TableResult result = bq.query(builder.build());
+            List<java.util.Map<String, Object>> rows = new ArrayList<>();
+            for (FieldValueList row : result.iterateAll()) {
+                rows.add(java.util.Map.of(
+                    "date", row.get("date").getStringValue(),
+                    "cost", row.get("cost").isNull() ? 0.0 : row.get("cost").getNumericValue().doubleValue()));
+            }
+            return rows;
+        } catch (Exception e) {
+            log.error("CSP daily cost query failed for project {} ({} to {})",
+                projectId, startDate, endDate, e);
+            return List.of();
+        }
+    }
+
+    private QueryJobConfiguration dateRangeQuery(String sql, String projectId,
+                                                 String startDate, String endDate) {
+        return QueryJobConfiguration.newBuilder(sql)
+            .addNamedParameter("projectId", QueryParameterValue.string(projectId))
+            .addNamedParameter("startDate", QueryParameterValue.date(startDate))
+            .addNamedParameter("endDate", QueryParameterValue.date(endDate))
+            .build();
     }
 
     private List<GcpCostDto> runNamedQuery(BigQuery bq, String sql,

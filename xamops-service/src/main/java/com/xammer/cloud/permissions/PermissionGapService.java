@@ -36,7 +36,11 @@ public class PermissionGapService {
         dto.setProvider(account.getProvider());
         dto.setAccessType(account.getAccessType());
 
-        List<PermissionGap> gaps = registry.findByAccount(account.getProviderAccountId());
+        // Currently only AWS is instrumented for permission tracking
+        List<PermissionGap> gaps = "AWS".equalsIgnoreCase(account.getProvider())
+                ? registry.findByAccount(account.getProviderAccountId())
+                : List.of();
+
         if (feature != null) {
             gaps = gaps.stream()
                     .filter(gap -> gap.getFeatures().contains(feature.name()))
