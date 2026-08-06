@@ -650,10 +650,17 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse({ success: true });
   // Paged tables read ?page/&size (inventory also &category) off the URL, so the
   // Prev/Next controls and the category rail actually move through the data.
+  // Order matters: the grouped and overview routes are more specific than /threats.
+  if (url.includes('/api/xamsecure/threats/groups'))
+    return makeResponse(xamsecure.demoThreatGroups(url));
+  if (url.includes('/api/xamsecure/threats/overview'))
+    return makeResponse(xamsecure.demoThreatOverview);
   if (url.includes('/api/xamsecure/threats'))
     return makeResponse(xamsecure.demoThreatsPage(url));
   if (url.includes('/api/xamsecure/vulnerabilities/dashboard'))
     return makeResponse(xamsecure.demoVulnDashboard);
+  if (url.includes('/api/xamsecure/vulnerabilities/groups'))
+    return makeResponse(xamsecure.demoVulnGroupPage(url));
   if (url.includes('/api/xamsecure/vulnerabilities/by-cve'))
     return makeResponse(xamsecure.demoVulnByCvePage(url));
   if (url.includes('/api/xamsecure/vulnerabilities/cve/findings'))

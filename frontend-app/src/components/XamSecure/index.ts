@@ -14,6 +14,8 @@ export { default as ThreatsTab } from './ThreatsTab';
 export { default as ThreatsSection } from './ThreatsSection';
 export { default as ThreatsDashboard } from './ThreatsDashboard';
 export { default as ThreatStoriesTab } from './ThreatStoriesTab';
+export { default as ThreatGroupTable } from './ThreatGroupTable';
+export { default as VulnGroupTable } from './VulnGroupTable';
 export { default as VulnerabilitiesTab } from './VulnerabilitiesTab';
 export { default as PostureTab } from './PostureTab';
 export { default as ConfigurationsTab } from './ConfigurationsTab';

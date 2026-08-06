@@ -5,6 +5,7 @@ import type {
   ComplianceFramework, OnboardingAccount, PageResp, InventoryAsset, ApiEndpoint, SbomComponent,
   ThreatPolicy, Workflow,
   IssueSummary, IssueDetail, ThreatStoriesSummary, ThreatStoryDetail, ThreatOverview,
+  VulnGroupPage, VulnGroupDimension, ThreatGroups, ThreatGroupDimension,
   InventoryCategory,
   InventoryRisk, NetworkTopology,
   AttackSurfaceSummary, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
@@ -65,6 +66,8 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
   const [stories, setStories] = useState<ThreatStoriesSummary | null>(null);
   const [threatOverview, setThreatOverview] = useState<ThreatOverview | null>(null);
+  const [vulnGroups, setVulnGroups] = useState<VulnGroupPage | null>(null);
+  const [threatGroups, setThreatGroups] = useState<ThreatGroups | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingAccount[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const pollRef = useRef<number | null>(null);
@@ -194,6 +197,18 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       `/api/xamsecure/vulnerabilities/by-cve?${acct}page=${page}&size=50`
       + `${severity ? `&severity=${severity}` : ''}${view ? `&view=${view}` : ''}`);
     setVulnByCve(data);
+  }, [acct]);
+
+  const loadVulnGroups = useCallback(async (dimension: VulnGroupDimension, page = 0) => {
+    const data = await apiClient.get<VulnGroupPage>(
+      `/api/xamsecure/vulnerabilities/groups?${acct}dimension=${dimension}&page=${page}&size=50`);
+    setVulnGroups(data);
+  }, [acct]);
+
+  const loadThreatGroups = useCallback(async (dimension: ThreatGroupDimension) => {
+    const data = await apiClient.get<ThreatGroups>(
+      `/api/xamsecure/threats/groups?${acct}dimension=${dimension}`);
+    setThreatGroups(data);
   }, [acct]);
 
   const loadCveFindings = useCallback(async (cveId: string): Promise<CveResourceFinding[]> => {
@@ -470,6 +485,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     noAccountSelected,
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
+    vulnGroups, loadVulnGroups, threatGroups, loadThreatGroups,
     isLoading, refresh,
     loadIssues, loadIssueDetail, loadResourceDetail, loadStoryDetail, loadSyncStatus,
     loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,

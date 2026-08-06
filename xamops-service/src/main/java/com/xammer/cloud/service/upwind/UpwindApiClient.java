@@ -282,6 +282,42 @@ public class UpwindApiClient {
      *
      * @return items plus a truncation flag, so an incomplete walk can skip mark-resolved.
      */
+    /**
+     * Detection policies from the v2 search, which is a DIFFERENT set from the v1
+     * {@code /threat-policies} list — not a replacement for it.
+     *
+     * Upwind's console splits them: "Classic Policies" is the v1 list (49 for this org) and
+     * "Policies" is this one (32), and its Policies tab header counts both (81). Reading only
+     * v1 therefore under-reported by the whole v2 set.
+     *
+     * Verified live 2026-08-05: an empty {@code conditions} array is required — omitting the
+     * field returns 400 "Field 'conditions': must not be null".
+     */
+    public List<JsonNode> searchThreatPolicies(int maxItems) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/threats/policies/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(
+                    java.util.Map.of("conditions", java.util.List.of()));
+            while (url != null && items.size() < maxItems) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            // Non-fatal: the caller still has the v1 list, so a failure here narrows the
+            // policy view rather than emptying it.
+            log.warn("[Upwind] v2 threat policy search failed: {}", e.getMessage());
+        }
+        return items;
+    }
+
     public FetchResult searchApiEndpoints(String cloudAccountId, int maxItems) {
         java.util.List<JsonNode> items = new java.util.ArrayList<>();
         String base = apiBaseUrl + "/v2/organizations/" + orgId

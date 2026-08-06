@@ -19,11 +19,13 @@
  *    sees the same rows.
  */
 
+import { SEVERITY_ORDER } from '../types/xamsecure';
 import type {
   ApiEndpoint, AttackSurfaceSummary, ComplianceFramework, ConfigurationsDashboard,
   CveGroupRow, CveResourceFinding, InventoryAsset, InventoryCategory, InventoryRisk, IssueDetail,
   IssueSummary, NetworkTopology, NetworkNode, OnboardingAccount, PageResp, PostureFinding,
   SbomComponent, Severity, ThreatDetection, ThreatPolicy, ThreatStoriesSummary, ThreatOverview,
+  VulnGroupPage, VulnGroupRow, VulnGroupDimension, ThreatGroups, ThreatGroupRow, ThreatGroupDimension,
   VulnerabilityDashboard, VulnerabilityFinding, Workflow, XamSecureSummary,
 } from '../types/xamsecure';
 
@@ -358,10 +360,13 @@ const openIssuesFor = (category: string): number =>
 const threatPolicy = (
   id: string, displayName: string, category: string, scope: string,
   managedBy: string, enabled: boolean,
+  kind: 'CLASSIC' | 'POLICY' = 'CLASSIC',
+  severity: Severity | null = null,
+  description: string | null = null,
 ): ThreatPolicy => ({
   id, displayName, category, scope,
   openIssues: enabled ? openIssuesFor(category) : 0,
-  managedBy, enabled,
+  managedBy, enabled, kind, severity, description,
 });
 
 export const demoThreatPolicies: ThreatPolicy[] = [
@@ -383,6 +388,16 @@ export const demoThreatPolicies: ThreatPolicy[] = [
   threatPolicy('pol-016', 'Unusual outbound data volume',      'Network',           'Production',   'Upwind', false),
   threatPolicy('pol-017', 'Serverless function tampering',     'Runtime',           'All accounts', 'Upwind', true),
   threatPolicy('pol-018', 'Secrets accessed outside a deploy', 'Credential Access', 'Production',   'Xammer', true),
+  // Upwind's second, newer policy set. Kept in the same list because both appear on the same
+  // tab; `kind` is what lets the UI report the split (49 classic + 32 policies = 81 in their UI).
+  threatPolicy('pol-v2-01', 'Cloudtrail Bedrock Violations', 'Cloud Logs', 'All accounts', 'Upwind', true,
+    'POLICY', 'MEDIUM', 'Detects modifications to Amazon Bedrock guardrails, prompts and agent settings.'),
+  threatPolicy('pol-v2-02', 'Anomalous IAM Role Assumption', 'Cloud Logs', 'All accounts', 'Upwind', true,
+    'POLICY', 'HIGH', 'Flags role assumptions that deviate from the observed baseline for a principal.'),
+  threatPolicy('pol-v2-03', 'Unusual S3 Bulk Download', 'Cloud Logs', 'All accounts', 'Upwind', false,
+    'POLICY', 'HIGH', 'Detects large-volume object reads inconsistent with prior access patterns.'),
+  threatPolicy('pol-v2-04', 'Sensor Tamper Attempt', 'Sensor', 'All accounts', 'Upwind', true,
+    'POLICY', 'CRITICAL', 'Raised when a workload attempts to stop or unload the runtime sensor.'),
 ];
 
 // ─── /api/xamsecure/stories ──────────────────────────────────────────────────
@@ -505,6 +520,7 @@ export const demoCveRowsAll: CveGroupRow[] = [
     internetExposed: i % 3 === 0,
     functionsInUse: i === 4,
     runtimeExposed: i % 8 !== 0 && i % 3 === 0,
+    imageCount: 1 + (i % 4),
     findingsCount: spread(i, 8, 96),
     resourceCount: spread(i, 3, 34),
     firstSeen: daysAgo(spread(i, 2, 30)),
@@ -526,6 +542,7 @@ export const demoCveRowsAll: CveGroupRow[] = [
       internetExposed: i % 4 === 0,
       functionsInUse: false,
       runtimeExposed: i % 9 !== 0 && i % 4 === 0,
+      imageCount: i % 5 === 0 ? 0 : 1 + (i % 3),
       findingsCount: spread(i, 1, 74),
       resourceCount: spread(i, 1, 28),
       firstSeen: daysAgo(spread(i, 1, 45)),
@@ -1121,4 +1138,79 @@ export const demoXamSecureSummary: XamSecureSummary = {
     { domain: 'api-security',    lastSuccessAt: hoursAgo(2), lastError: null },
     { domain: 'components',      lastSuccessAt: hoursAgo(5), lastError: null },
   ],
+};
+
+// ─── /api/xamsecure/vulnerabilities/groups & /threats/groups ────────────────────
+
+/**
+ * Group-by rollups derived from the CVE rows above, so the demo's dimensions agree with each
+ * other instead of being three unrelated invented lists.
+ */
+export const demoVulnGroupPage = (url: string): VulnGroupPage => {
+  const q = qs(url);
+  const dimension = (q.get('dimension') ?? 'image') as VulnGroupDimension;
+  const buckets = dimension === 'package' ? PACKAGES.length : dimension === 'resource' ? WORKLOADS.length : 9;
+  const groups: VulnGroupRow[] = Array.from({ length: buckets }, (_, i) => {
+    const members = demoCveRowsAll.filter((_c, n) => n % buckets === i);
+    const worst = SEVERITY_ORDER.find((sev) => members.some((m) => m.severity === sev)) ?? 'LOW';
+    const key = dimension === 'package'
+      ? at(PACKAGES, i)[0]
+      : dimension === 'resource'
+        ? at(WORKLOADS, i)[0]
+        : `registry.internal/${['api', 'worker', 'web', 'etl', 'auth', 'search', 'billing', 'cron', 'proxy'][i]}`;
+    const secondary = dimension === 'package'
+      ? `${1 + (i % 4)}.${i % 10}.0`
+      : dimension === 'resource'
+        ? at(WORKLOADS, i)[1]
+        : `sha-${(1000 + i * 37).toString(16)}`;
+    return {
+      key,
+      secondary,
+      severity: worst,
+      cveCount: members.length,
+      findingsCount: members.reduce((a, m) => a + m.findingsCount, 0),
+      resourceCount: 1 + (i % 9),
+      exploitable: members.some((m) => m.exploitable),
+      packageInUse: members.some((m) => m.packageInUse),
+      internetExposed: members.some((m) => m.internetExposed),
+      runtimeExposed: members.some((m) => m.runtimeExposed),
+    };
+  });
+  const size = Math.max(1, Number(q.get('size')) || 50);
+  const number = Math.min(Math.max(0, Number(q.get('page')) || 0), Math.ceil(groups.length / size) - 1);
+  return {
+    content: groups.slice(number * size, number * size + size),
+    totalElements: groups.length,
+    totalPages: Math.max(1, Math.ceil(groups.length / size)),
+    number,
+    dimension,
+  };
+};
+
+export const demoThreatGroups = (url: string): ThreatGroups => {
+  const dimension = (qs(url).get('dimension') ?? 'threat') as ThreatGroupDimension;
+  const rows = demoThreatsAll;
+  const keyOf = (t: ThreatDetection): string => (dimension === 'resource'
+    ? t.resourceName ?? t.resourceId ?? 'unknown'
+    : dimension === 'account'
+      ? t.cloudAccountId ?? 'unknown'
+      : t.title ?? 'unknown');
+  const byKey = new Map<string, ThreatDetection[]>();
+  rows.forEach((t) => {
+    const k = keyOf(t);
+    byKey.set(k, [...(byKey.get(k) ?? []), t]);
+  });
+  const groups: ThreatGroupRow[] = [...byKey.entries()].map(([key, members]) => ({
+    key,
+    secondary: dimension === 'resource' ? members[0].resourceType
+      : dimension === 'account' ? null : members[0].category,
+    severity: SEVERITY_ORDER.find((sev) => members.some((m) => m.severity === sev)) ?? 'LOW',
+    detections: members.length,
+    occurrences: members.reduce((a, m) => a + (m.occurrenceCount ?? 1), 0),
+    resourceCount: new Set(members.map((m) => m.resourceId)).size,
+    accountCount: new Set(members.map((m) => m.cloudAccountId)).size,
+    firstSeenTime: members[0].firstSeenTime,
+    lastSeenTime: members[0].lastSeenTime,
+  }));
+  return { dimension, groups };
 };

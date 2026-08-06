@@ -6,6 +6,7 @@ import type { FunnelStage } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
 import type {
   PageResp, VulnerabilityDashboard, CveGroupRow, CveResourceFinding, ResourceDetail,
+  VulnGroupPage, VulnGroupDimension,
 } from '../../types/xamsecure';
 import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
@@ -13,6 +14,7 @@ import ResourceLink from './ResourceLink';
 import FilterChips, { SEVERITY_TINT } from './FilterChips';
 import { useResourceDrawer } from './useResourceDrawer';
 import VulnFindingDrawer from './VulnFindingDrawer';
+import VulnGroupTable from './VulnGroupTable';
 
 /** Upwind severity palette. */
 const SEV_COLOR = { Critical: '#dc2626', High: '#f97316', Medium: '#eab308', Other: '#3b82f6' } as const;
@@ -28,6 +30,9 @@ interface Props {
   onCveSeverity?: (severity: string) => void;
   /** Server-side saved-view filter: '' for all CVEs, 'runtime' for runtime-exposed only. */
   onCveView?: (view: string) => void;
+  /** Findings grouped by something other than CVE. */
+  groups?: VulnGroupPage | null;
+  onGroupBy?: (dimension: VulnGroupDimension, page?: number) => void;
 }
 
 const WORKLOAD_LABEL: Record<string, string> = {
@@ -48,9 +53,10 @@ const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString(
 
 const VulnerabilitiesTab: React.FC<Props> = ({
   dashboard, byCve, isLoading, onCvePage, loadCveFindings, loadResourceDetail, onCveSeverity,
-  onCveView,
+  onCveView, groups, onGroupBy,
 }) => {
   const [view, setView] = useState<'dashboard' | 'findings'>('dashboard');
+  const [groupBy, setGroupBy] = useState<'cve' | VulnGroupDimension>('cve');
   // Which affected-resource row has its full finding panel open.
   const [openFinding, setOpenFinding] =
     useState<{ cve: CveGroupRow; finding: CveResourceFinding } | null>(null);
@@ -192,10 +198,44 @@ const VulnerabilitiesTab: React.FC<Props> = ({
           </div>
         </div>
       ) : (
-        <CveFindings byCve={byCve} isLoading={isLoading} onPage={onCvePage}
-                     loadCveFindings={loadCveFindings} onOpenResource={open}
-                     onSeverity={onCveSeverity} onView={onCveView}
-                     onOpenFinding={(cve, finding) => setOpenFinding({ cve, finding })} />
+        <>
+          {/* Group by, as Upwind offers it. CVE stays the default because it is the only
+              dimension with a drill-down; the others are rollups. */}
+          {onGroupBy && (
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                Group by
+              </span>
+              {(['cve', 'image', 'package', 'resource'] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  aria-pressed={groupBy === d}
+                  onClick={() => {
+                    setGroupBy(d);
+                    if (d !== 'cve') onGroupBy(d, 0);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors
+                              focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${
+                    groupBy === d
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+                >
+                  {d === 'cve' ? 'CVE' : d.charAt(0).toUpperCase() + d.slice(1)}
+                </button>
+              ))}
+            </div>
+          )}
+          {groupBy === 'cve' ? (
+            <CveFindings byCve={byCve} isLoading={isLoading} onPage={onCvePage}
+                         loadCveFindings={loadCveFindings} onOpenResource={open}
+                         onSeverity={onCveSeverity} onView={onCveView}
+                         onOpenFinding={(cve, finding) => setOpenFinding({ cve, finding })} />
+          ) : (
+            <VulnGroupTable data={groups} dimension={groupBy} isLoading={isLoading}
+                            onPage={(p) => onGroupBy?.(groupBy, p)} />
+          )}
+        </>
       )}
       {openFinding && (
         <VulnFindingDrawer cve={openFinding.cve} finding={openFinding.finding}
@@ -300,6 +340,7 @@ const CveFindings: React.FC<{
               <th className="px-3 py-2.5">Runtime</th>
               <th className="px-3 py-2.5">Findings</th>
               <th className="px-3 py-2.5">Affected resources</th>
+              <th className="px-3 py-2.5">Affected images</th>
               <th className="px-3 py-2.5">First seen</th>
             </tr>
           </thead>
@@ -350,11 +391,15 @@ const CveFindings: React.FC<{
                   </td>
                   <td className="px-3 py-3 font-semibold text-gray-700">{c.findingsCount}</td>
                   <td className="px-3 py-3 font-semibold text-gray-700">{c.resourceCount}</td>
+                  {/* Zero is meaningful: host and serverless findings carry no image. */}
+                  <td className="px-3 py-3 text-gray-600">
+                    {c.imageCount > 0 ? c.imageCount : <span className="text-gray-300">—</span>}
+                  </td>
                   <td className="px-3 py-3 whitespace-nowrap text-gray-500">{fmtDate(c.firstSeen)}</td>
                 </tr>
                 {expanded === c.cveId && (
                   <tr className="bg-gray-50/60">
-                    <td colSpan={9} className="px-8 py-3">
+                    <td colSpan={10} className="px-8 py-3">
                       {drill[c.cveId] === 'loading' ? (
                         <p className="text-[11px] text-gray-400 py-2">Loading affected resources...</p>
                       ) : (
@@ -368,7 +413,7 @@ const CveFindings: React.FC<{
               </React.Fragment>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={9} className="px-5 py-12 text-center text-gray-400">
+              <tr><td colSpan={10} className="px-5 py-12 text-center text-gray-400">
                 {isLoading
                   ? 'Loading CVEs...'
                   : runtimeOnly

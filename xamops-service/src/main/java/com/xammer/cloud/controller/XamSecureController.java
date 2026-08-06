@@ -56,9 +56,32 @@ public class XamSecureController {
     }
 
     /**
+     * Findings grouped by image, package or resource — the dimensions Upwind offers next to
+     * CVE, and usually the more actionable ones.
+     */
+    @GetMapping("/vulnerabilities/groups")
+    public ResponseEntity<?> vulnerabilityGroups(@AuthenticationPrincipal ClientUserDetails user,
+                                                 @RequestParam(required = false) String accountId,
+                                                 @RequestParam(defaultValue = "image") String dimension,
+                                                 @RequestParam(defaultValue = "0") int page,
+                                                 @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(xamSecureService.getVulnerabilityGroups(
+                user.getClientId(), accountId, dimension, page, size));
+    }
+
+    /**
      * Aggregates for the Threats dashboard: funnel, seven-day trend, MITRE tactic and source
      * breakdowns. The funnel's raw event count is reported unavailable rather than guessed.
      */
+    /** Detections grouped by threat, resource or account — Upwind's Group by chips. */
+    @GetMapping("/threats/groups")
+    public ResponseEntity<?> threatGroups(@AuthenticationPrincipal ClientUserDetails user,
+                                          @RequestParam(required = false) String accountId,
+                                          @RequestParam(defaultValue = "threat") String dimension) {
+        return ResponseEntity.ok(
+                xamSecureService.getThreatGroups(user.getClientId(), accountId, dimension));
+    }
+
     @GetMapping("/threats/overview")
     public ResponseEntity<?> threatOverview(@AuthenticationPrincipal ClientUserDetails user,
                                             @RequestParam(required = false) String accountId,

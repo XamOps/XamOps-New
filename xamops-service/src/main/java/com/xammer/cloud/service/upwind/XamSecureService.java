@@ -93,10 +93,39 @@ public class XamSecureService {
                 m.put("openIssues", p.path("open_issues").asInt(0));
                 m.put("managedBy", p.path("managed_by").asText(null));
                 m.put("enabled", p.path("enabled").asBoolean(false));
+                m.put("kind", "CLASSIC");
+                m.put("severity", null);
+                m.put("description", null);
                 rows.add(m);
             }
         } catch (Exception e) {
             log.warn("[Upwind] threat-policies fetch failed: {}", e.getMessage());
+        }
+
+        // The v2 search is a separate set, not a newer version of the list above: Upwind's
+        // console shows "Classic Policies" (v1, 49) and "Policies" (v2, 32) side by side and
+        // counts 81. Reading only v1 under-reported by the entire v2 set.
+        try {
+            for (JsonNode p : apiClient.searchThreatPolicies(500)) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", p.path("policy_id").asText(null));
+                m.put("displayName", firstNonNull(
+                        p.path("metadata").path("detection_title").asText(null),
+                        p.path("name").asText(null)));
+                // v2 carries no category; source_type is the closest equivalent and is what
+                // Upwind groups these by (cloud_logs, sensor, ...).
+                m.put("category", prettify(p.path("source_type").asText("")));
+                m.put("scope", null);
+                m.put("openIssues", 0);
+                m.put("managedBy", p.path("creator_id").asText(null));
+                m.put("enabled", p.path("is_enabled").asBoolean(false));
+                m.put("kind", "POLICY");
+                m.put("severity", upper(p.path("severity").asText(null)));
+                m.put("description", p.path("metadata").path("detection_description").asText(null));
+                rows.add(m);
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] v2 threat policy merge failed: {}", e.getMessage());
         }
         if (!rows.isEmpty()) redisCacheService.put(cacheKey, rows, APISEC_CACHE_MINUTES);
         return rows;
@@ -889,6 +918,107 @@ public class XamSecureService {
         return out;
     }
 
+    /**
+     * Findings grouped by something other than CVE — Upwind offers Image, Package and Resource
+     * alongside it, and the answer to "what do I patch" is usually an image or a package rather
+     * than a CVE.
+     *
+     * Rows carry the same runtime and risk rollups as the CVE list so a group can be judged
+     * without drilling in: severity is the worst in the group, and the runtime flags are OR-ed,
+     * because one reachable member makes the group worth attention.
+     *
+     * @param dimension one of {@code image}, {@code package}, {@code resource}
+     */
+    public Map<String, Object> getVulnerabilityGroups(Long clientId, String accountId,
+                                                     String dimension, int page, int size) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("content", List.of());
+        out.put("totalElements", 0);
+        out.put("totalPages", 0);
+        out.put("number", page);
+        out.put("dimension", dimension == null ? "image" : dimension.toLowerCase());
+
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty()) return out;
+
+        List<Object[]> rows;
+        String dim = dimension == null ? "image" : dimension.toLowerCase();
+        switch (dim) {
+            case "package" -> rows = vulnRepo.groupByPackage(ids);
+            case "resource" -> rows = vulnRepo.groupByResource(ids);
+            case "image" -> rows = vulnRepo.groupByImage(ids);
+            default -> {
+                // Unknown dimension returns empty rather than silently showing images: a typo
+                // in a query param should not look like real data for the wrong grouping.
+                out.put("dimension", dim);
+                return out;
+            }
+        }
+
+        Map<String, VulnGroup> groups = new LinkedHashMap<>();
+        for (Object[] r : rows) {
+            String key = (String) r[0];
+            if (key == null || key.isBlank()) continue;
+            VulnGroup g = groups.computeIfAbsent(key, VulnGroup::new);
+            if (g.secondary == null) g.secondary = (String) r[1];
+            String sev = (String) r[2];
+            if (isHigherVulnSeverity(sev, g.severity)) g.severity = sev;
+            String cve = (String) r[3];
+            if (cve != null && !cve.isBlank()) g.cves.add(cve);
+            String resourceId = (String) r[4];
+            if (resourceId != null) g.resources.add(resourceId);
+            if (Boolean.TRUE.equals(r[5])) g.exploitable = true;
+            if (Boolean.TRUE.equals(r[6])) g.packageInUse = true;
+            if (Boolean.TRUE.equals(r[7])) g.internetExposed = true;
+            g.findingsCount++;
+        }
+
+        List<VulnGroup> all = groups.values().stream()
+                .sorted(Comparator
+                        .comparingInt((VulnGroup g) -> vulnSeverityRank(g.severity))
+                        .thenComparing(g -> -g.cves.size()))
+                .collect(Collectors.toList());
+
+        int total = all.size();
+        int pageSize = Math.min(Math.max(size, 1), 200);
+        int from = Math.min(page * pageSize, total);
+        int to = Math.min(from + pageSize, total);
+        out.put("content", all.subList(from, to).stream()
+                .map(VulnGroup::toMap).collect(Collectors.toList()));
+        out.put("totalElements", total);
+        out.put("totalPages", (int) Math.ceil((double) total / pageSize));
+        out.put("number", page);
+        return out;
+    }
+
+    /** One image / package / resource with its vulnerability rollup. */
+    private static final class VulnGroup {
+        final String key;
+        String secondary;
+        String severity;
+        boolean exploitable;
+        boolean packageInUse;
+        boolean internetExposed;
+        int findingsCount;
+        final Set<String> cves = new HashSet<>();
+        final Set<String> resources = new HashSet<>();
+        VulnGroup(String key) { this.key = key; }
+        Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("key", key);
+            m.put("secondary", secondary);
+            m.put("severity", severity);
+            m.put("cveCount", cves.size());
+            m.put("findingsCount", findingsCount);
+            m.put("resourceCount", resources.size());
+            m.put("exploitable", exploitable);
+            m.put("packageInUse", packageInUse);
+            m.put("internetExposed", internetExposed);
+            m.put("runtimeExposed", packageInUse && internetExposed);
+            return m;
+        }
+    }
+
     /** Friendly labels for the detection sources Upwind emits, keyed by payload category. */
     private static final Map<String, String> SOURCE_LABELS = Map.of(
             "CLOUD_TRAIL", "AWS CloudTrail",
@@ -999,6 +1129,91 @@ public class XamSecureService {
         out.put("byTactic", topEntries(byTactic, 10, "tactic"));
         out.put("bySource", topEntries(bySource, 10, "source"));
         return out;
+    }
+
+    /**
+     * Detections grouped by threat, resource or account — Upwind's Group by chips.
+     *
+     * A raw detection feed repeats the same rule against dozens of resources, so the flat list
+     * answers "what happened most recently" but not "what is actually going on". Grouping by
+     * threat collapses that; grouping by resource shows which workloads are noisy.
+     *
+     * @param dimension one of {@code threat}, {@code resource}, {@code account}
+     */
+    public Map<String, Object> getThreatGroups(Long clientId, String accountId, String dimension) {
+        String dim = dimension == null ? "threat" : dimension.toLowerCase();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("dimension", dim);
+        out.put("groups", List.of());
+
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        if (ids.isEmpty()) return out;
+        if (!List.of("threat", "resource", "account").contains(dim)) return out;
+
+        Map<String, ThreatGroup> groups = new LinkedHashMap<>();
+        for (Object[] r : detectionRepo.findGroupingFacets(ids)) {
+            String key;
+            String secondary;
+            switch (dim) {
+                case "resource" -> {
+                    key = firstNonNull((String) r[3], (String) r[2]);
+                    secondary = (String) r[4];
+                }
+                case "account" -> {
+                    key = (String) r[5];
+                    secondary = null;
+                }
+                default -> {
+                    key = (String) r[0];
+                    secondary = (String) r[6];
+                }
+            }
+            if (key == null || key.isBlank()) continue;
+            ThreatGroup g = groups.computeIfAbsent(key, ThreatGroup::new);
+            if (g.secondary == null) g.secondary = secondary;
+            g.severity = worse(g.severity, (String) r[1]);
+            if (r[2] != null) g.resources.add((String) r[2]);
+            if (r[5] != null) g.accounts.add((String) r[5]);
+            g.detections++;
+            g.occurrences += r[7] == null ? 1 : ((Number) r[7]).intValue();
+            g.firstSeen = earliest(g.firstSeen, (Instant) r[8]);
+            g.lastSeen = latest(g.lastSeen, (Instant) r[9]);
+        }
+
+        out.put("groups", groups.values().stream()
+                .sorted(Comparator
+                        .comparingInt((ThreatGroup g) -> vulnSeverityRank(g.severity))
+                        .thenComparing(g -> -g.detections))
+                .map(ThreatGroup::toMap)
+                .collect(Collectors.toList()));
+        return out;
+    }
+
+    /** One threat / resource / account with its detection rollup. */
+    private static final class ThreatGroup {
+        final String key;
+        String secondary;
+        String severity;
+        int detections;
+        int occurrences;
+        final Set<String> resources = new HashSet<>();
+        final Set<String> accounts = new HashSet<>();
+        Instant firstSeen;
+        Instant lastSeen;
+        ThreatGroup(String key) { this.key = key; }
+        Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("key", key);
+            m.put("secondary", secondary);
+            m.put("severity", severity);
+            m.put("detections", detections);
+            m.put("occurrences", occurrences);
+            m.put("resourceCount", resources.size());
+            m.put("accountCount", accounts.size());
+            m.put("firstSeenTime", firstSeen);
+            m.put("lastSeenTime", lastSeen);
+            return m;
+        }
     }
 
     /** Upwind's trend chart bands everything below High into one "Other" series. */
@@ -1396,6 +1611,13 @@ public class XamSecureService {
             if (Boolean.TRUE.equals(r[13])) g.functionsInUse = true;
         }
 
+        // Affected images per CVE, aggregated separately because a DISTINCT over image names
+        // cannot be folded into the row-per-finding projection above.
+        for (Object[] r : vulnRepo.countImagesPerCve(ids)) {
+            CveGroup g = byCve.get((String) r[0]);
+            if (g != null) g.imageCount = (int) ((Number) r[1]).longValue();
+        }
+
         // CVE-level severity distribution, computed BEFORE the severity filter so the UI's
         // group-by chips show the whole set. The dashboard's counts are per finding, which
         // would not match these rows (one CVE spans many findings).
@@ -1557,6 +1779,7 @@ public class XamSecureService {
         boolean packageInUse;
         boolean internetExposed;
         boolean functionsInUse;
+        int imageCount;
         int findingsCount;
         final Set<String> resources = new HashSet<>();
         Instant firstSeen;
@@ -1578,6 +1801,7 @@ public class XamSecureService {
             m.put("runtimeExposed", runtimeExposed());
             m.put("findingsCount", findingsCount);
             m.put("resourceCount", resources.size());
+            m.put("imageCount", imageCount);
             m.put("firstSeen", firstSeen);
             m.put("lastScan", lastScan);
             return m;

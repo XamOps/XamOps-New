@@ -43,6 +43,10 @@ const ThreatPoliciesTab: React.FC<Props> = ({ data, isLoading }) => {
     policies: all.length,
     enabled: all.filter((p) => p.enabled).length,
     openIssues: all.reduce((a, p) => a + (p.openIssues || 0), 0),
+    // Upwind's console keeps these two sets on separate sub-tabs and totals them in the header.
+    // Showing the split makes the total reconcilable with theirs instead of looking arbitrary.
+    classic: all.filter((p) => p.kind === 'CLASSIC').length,
+    modern: all.filter((p) => p.kind === 'POLICY').length,
   }), [all]);
 
   if (isLoading && all.length === 0) {
@@ -51,10 +55,13 @@ const ThreatPoliciesTab: React.FC<Props> = ({ data, isLoading }) => {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Stat value={totals.policies} label="Total policies" />
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <Stat value={totals.policies} label="Total policies"
+              hint={`${totals.classic} classic + ${totals.modern} policies`} />
         <Stat value={totals.enabled} label="Enabled" accent="text-emerald-600" />
         <Stat value={totals.openIssues} label="Open issues" accent="text-red-600" />
+        <Stat value={totals.modern} label="Policies (v2)" accent="text-indigo-600"
+              hint="Upwind's newer policy set, separate from Classic Policies" />
       </div>
 
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
@@ -114,10 +121,13 @@ const ThreatPoliciesTab: React.FC<Props> = ({ data, isLoading }) => {
   );
 };
 
-const Stat: React.FC<{ value: number; label: string; accent?: string }> = ({ value, label, accent }) => (
-  <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+const Stat: React.FC<{
+  value: number; label: string; accent?: string; hint?: string;
+}> = ({ value, label, accent, hint }) => (
+  <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5" title={hint}>
     <p className={`text-2xl font-bold ${accent ?? 'text-gray-900'}`}>{value.toLocaleString()}</p>
     <p className="text-xs text-gray-500 mt-1">{label}</p>
+    {hint && <p className="text-[10px] text-gray-400 mt-0.5">{hint}</p>}
   </div>
 );
 

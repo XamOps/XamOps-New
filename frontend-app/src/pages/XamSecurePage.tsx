@@ -62,6 +62,7 @@ const XamSecurePage: React.FC = () => {
     summary, issues, attackSurface, threats, vulnDashboard, vulnByCve, posture, inventory,
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
+    vulnGroups, loadVulnGroups, threatGroups, loadThreatGroups,
     noAccountSelected,
     isLoading, refresh, loadIssueDetail, loadResourceDetail, loadStoryDetail,
     loadThreats, loadVulnByCve, loadCveFindings, loadPosture, loadInventory,
@@ -156,7 +157,9 @@ const XamSecurePage: React.FC = () => {
                           onPage={(p) => loadThreats(p)} onArchive={archiveThreat}
                           loadResourceDetail={loadResourceDetail}
                           onOpenStory={openStory}
-                          onTrendRange={(d) => { void loadThreatOverview(true, d); }} />
+                          onTrendRange={(d) => { void loadThreatOverview(true, d); }}
+                          groups={threatGroups}
+                          onGroupBy={(d) => { void loadThreatGroups(d); }} />
         )}
         {activeTab === 'vulnerabilities' && (
           <VulnerabilitiesTab dashboard={vulnDashboard} byCve={vulnByCve} isLoading={isLoading}
@@ -164,7 +167,9 @@ const XamSecurePage: React.FC = () => {
                               loadCveFindings={loadCveFindings}
                               loadResourceDetail={loadResourceDetail}
                               onCveSeverity={(s) => { setCveSeverity(s); loadVulnByCve(0, s, cveView); }}
-                              onCveView={(v) => { setCveView(v); setCveSeverity(''); loadVulnByCve(0, '', v); }} />
+                              onCveView={(v) => { setCveView(v); setCveSeverity(''); loadVulnByCve(0, '', v); }}
+                              groups={vulnGroups}
+                              onGroupBy={(d, p) => { void loadVulnGroups(d, p ?? 0); }} />
         )}
         {activeTab === 'posture' && (
           <ConfigurationsTab dashboard={configDashboard} posture={posture} compliance={compliance}

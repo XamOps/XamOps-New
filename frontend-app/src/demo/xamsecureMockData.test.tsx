@@ -63,6 +63,52 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(runtime.runtimeExposedCount).toBe(runtime.totalElements);
   });
 
+  it('Vulnerabilities groups findings by image, package and resource', () => {
+    // The unit of remediation is usually an image or a package, not a CVE, which is why Upwind
+    // offers these dimensions alongside it.
+    for (const dim of ['image', 'package', 'resource'] as const) {
+      const groups = demo.demoVulnGroupPage(`?dimension=${dim}&page=0&size=50`);
+      expect(groups.dimension).toBe(dim);
+      expect(groups.totalElements).toBeGreaterThan(0);
+      // Every group has to account for at least one CVE, or the rollup is lying.
+      expect(groups.content.every((g) => g.cveCount > 0)).toBe(true);
+    }
+
+    const byImage = demo.demoVulnGroupPage('?dimension=image&page=0&size=50');
+    draw(
+      <VulnerabilitiesTab dashboard={demo.demoVulnDashboard}
+                          byCve={demo.demoVulnByCvePage('?page=0&size=50')}
+                          groups={byImage} onGroupBy={noop}
+                          isLoading={false} onCvePage={noop}
+                          loadCveFindings={asyncNoop as never} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Findings/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Image$/ }));
+    expect(screen.getByText('Tag')).toBeInTheDocument();
+  });
+
+  it('Threats groups detections by threat, resource and account', () => {
+    const byThreat = demo.demoThreatGroups('?dimension=threat');
+    // Grouping must actually collapse the feed, otherwise the chip achieves nothing.
+    expect(byThreat.groups.length).toBeLessThan(demo.demoThreatsAll.length);
+    expect(byThreat.groups.every((g) => g.detections > 0)).toBe(true);
+    // Occurrences count repeats, so they can never be fewer than the detections themselves.
+    expect(byThreat.groups.every((g) => g.occurrences >= g.detections)).toBe(true);
+
+    expect(demo.demoThreatGroups('?dimension=account').groups.length)
+      .toBeLessThanOrEqual(byThreat.groups.length);
+
+    draw(
+      <ThreatsSection threats={demo.demoThreatsPage('?page=0&size=50')} policies={demo.demoThreatPolicies}
+                      stories={demo.demoThreatStories} overview={demo.demoThreatOverview}
+                      groups={byThreat} onGroupBy={noop}
+                      isLoading={false} onPage={noop} onArchive={asyncNoop as never} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Detections/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Threat$/ }));
+    expect(screen.getByText('Occurrences')).toBeInTheDocument();
+  });
+
   it('Threats opens on the dashboard and reaches detections', () => {
     draw(
       <ThreatsSection threats={demo.demoThreatsPage('?page=0&size=50')} policies={demo.demoThreatPolicies}

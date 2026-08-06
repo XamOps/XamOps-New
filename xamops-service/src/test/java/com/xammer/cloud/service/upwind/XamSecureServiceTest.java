@@ -834,6 +834,78 @@ class XamSecureServiceTest {
     }
 
     @Test
+    void vulnerabilityGroupsRollUpByImageAndOrRuntimeFlags() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        // groupByImage columns: key, secondary, severity, cveId, resourceId, exploitable,
+        //                       packageInUse, internetExposed
+        when(vulnRepo.groupByImage(List.of("111"))).thenReturn(List.of(
+                new Object[]{"api", "v1.2", "HIGH", "CVE-1", "res-a", true, true, false},
+                new Object[]{"api", "v1.2", "CRITICAL", "CVE-2", "res-b", false, false, true},
+                new Object[]{"worker", "v3", "LOW", "CVE-3", "res-c", false, false, false}));
+
+        var out = service.getVulnerabilityGroups(1L, null, "image", 0, 50);
+
+        assertEquals("image", out.get("dimension"));
+        assertEquals(2, out.get("totalElements"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<java.util.Map<String, Object>>) out.get("content");
+        // Worst severity wins the group, so "api" (CRITICAL) sorts above "worker" (LOW).
+        var api = rows.get(0);
+        assertEquals("api", api.get("key"));
+        assertEquals("CRITICAL", api.get("severity"));
+        assertEquals(2, api.get("cveCount"));
+        assertEquals(2, api.get("findingsCount"));
+        assertEquals(2, api.get("resourceCount"));
+        // Flags are OR-ed: neither finding is both in-use AND exposed, but the image is both.
+        assertEquals(true, api.get("packageInUse"));
+        assertEquals(true, api.get("internetExposed"));
+        assertEquals(true, api.get("runtimeExposed"));
+        assertEquals("worker", rows.get(1).get("key"));
+    }
+
+    @Test
+    void vulnerabilityGroupsRejectUnknownDimensionRatherThanDefaulting() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        var out = service.getVulnerabilityGroups(1L, null, "colour", 0, 50);
+        // Must not quietly return images: a typo would look like real data for the wrong axis.
+        assertEquals(0, out.get("totalElements"));
+        assertEquals("colour", out.get("dimension"));
+        verify(vulnRepo, never()).groupByImage(anyList());
+    }
+
+    @Test
+    void threatGroupsRollUpByThreatAndResource() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        // findGroupingFacets columns: title, severity, resourceId, resourceName, resourceType,
+        //                             cloudAccountId, category, occurrences, firstSeen, lastSeen
+        var t0 = java.time.Instant.parse("2026-08-01T00:00:00Z");
+        var t1 = java.time.Instant.parse("2026-08-05T00:00:00Z");
+        when(detectionRepo.findGroupingFacets(List.of("111"))).thenReturn(List.of(
+                new Object[]{"Reverse shell", "HIGH", "r1", "web-1", "K8S", "111", "SENSOR", 3, t0, t1},
+                new Object[]{"Reverse shell", "CRITICAL", "r2", "web-2", "K8S", "111", "SENSOR", 1, t0, t1},
+                new Object[]{"MFA disabled", "MEDIUM", "r3", "user-1", "IAM", "111", "CLOUD_TRAIL", 2, t0, t0}));
+
+        var byThreat = service.getThreatGroups(1L, null, "threat");
+        @SuppressWarnings("unchecked")
+        var groups = (List<java.util.Map<String, Object>>) byThreat.get("groups");
+        assertEquals(2, groups.size());
+        var shell = groups.get(0);
+        assertEquals("Reverse shell", shell.get("key"));
+        assertEquals("CRITICAL", shell.get("severity"));   // worst in the group
+        assertEquals(2, shell.get("detections"));
+        assertEquals(4, shell.get("occurrences"));         // occurrence counts summed
+        assertEquals(2, shell.get("resourceCount"));
+
+        var byResource = service.getThreatGroups(1L, null, "resource");
+        @SuppressWarnings("unchecked")
+        var resources = (List<java.util.Map<String, Object>>) byResource.get("groups");
+        assertEquals(3, resources.size());                  // one row per resource
+
+        // Unknown dimension yields nothing rather than silently grouping by threat.
+        assertTrue(((List<?>) service.getThreatGroups(1L, null, "weather").get("groups")).isEmpty());
+    }
+
+    @Test
     void threatOverviewHonoursSupportedWindowsAndClampsOthers() {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
         when(apiClient.isConfigured()).thenReturn(false);

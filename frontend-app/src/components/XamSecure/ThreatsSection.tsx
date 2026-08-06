@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
 import type {
   PageResp, ThreatDetection, ThreatPolicy, ResourceDetail,
-  ThreatStoriesSummary, ThreatOverview,
+  ThreatStoriesSummary, ThreatOverview, ThreatGroups, ThreatGroupDimension,
 } from '../../types/xamsecure';
 import ThreatsTab from './ThreatsTab';
 import ThreatPoliciesTab from './ThreatPoliciesTab';
 import ThreatsDashboard from './ThreatsDashboard';
 import ThreatStoriesTab from './ThreatStoriesTab';
+import ThreatGroupTable from './ThreatGroupTable';
 
 interface Props {
   threats: PageResp<ThreatDetection> | null;
@@ -22,6 +23,8 @@ interface Props {
   onOpenStory?: (storyId: string) => void;
   /** Refetches the dashboard trend over a different day window. */
   onTrendRange?: (days: number) => void;
+  groups?: ThreatGroups | null;
+  onGroupBy?: (dimension: ThreatGroupDimension) => void;
 }
 
 type View = 'dashboard' | 'stories' | 'detections' | 'policies';
@@ -37,9 +40,10 @@ type View = 'dashboard' | 'stories' | 'detections' | 'policies';
  */
 const ThreatsSection: React.FC<Props> = ({
   threats, policies, stories, overview, isLoading, onPage, onArchive,
-  loadResourceDetail, onOpenStory, onTrendRange,
+  loadResourceDetail, onOpenStory, onTrendRange, groups, onGroupBy,
 }) => {
   const [view, setView] = useState<View>('dashboard');
+  const [groupBy, setGroupBy] = useState<'none' | ThreatGroupDimension>('none');
 
   return (
     <div className="space-y-4">
@@ -78,8 +82,42 @@ const ThreatsSection: React.FC<Props> = ({
         />
       )}
       {view === 'detections' && (
-        <ThreatsTab threats={threats} isLoading={isLoading} onPage={onPage} onArchive={onArchive}
-                    loadResourceDetail={loadResourceDetail} />
+        <>
+          {/* Group by, as Upwind offers it. "None" keeps the live feed, which is the only view
+              with per-detection drill-down; the rest are rollups over every detection in scope
+              rather than the current page. */}
+          {onGroupBy && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                Group by
+              </span>
+              {(['none', 'threat', 'resource', 'account'] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  aria-pressed={groupBy === d}
+                  onClick={() => {
+                    setGroupBy(d);
+                    if (d !== 'none') onGroupBy(d);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors
+                              focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${
+                    groupBy === d
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+                >
+                  {d === 'none' ? 'None' : d.charAt(0).toUpperCase() + d.slice(1)}
+                </button>
+              ))}
+            </div>
+          )}
+          {groupBy === 'none' ? (
+            <ThreatsTab threats={threats} isLoading={isLoading} onPage={onPage} onArchive={onArchive}
+                        loadResourceDetail={loadResourceDetail} />
+          ) : (
+            <ThreatGroupTable data={groups} dimension={groupBy} isLoading={isLoading} />
+          )}
+        </>
       )}
       {view === 'policies' && <ThreatPoliciesTab data={policies} isLoading={isLoading} />}
     </div>
