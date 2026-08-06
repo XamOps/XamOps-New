@@ -73,7 +73,8 @@ const SreInvestigateButton: React.FC<Props> = ({
       <button
         onClick={handleClick}
         title="View Investigation Report"
-        className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-100 text-green-600 hover:bg-green-200 transition-colors"
+        aria-label="View Investigation Report"
+        className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-100 text-green-600 hover:bg-green-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 transition-colors"
       >
         <i className="fas fa-check-circle text-sm" />
       </button>
@@ -85,7 +86,8 @@ const SreInvestigateButton: React.FC<Props> = ({
       <button
         onClick={handleClick}
         title="Investigation in progress…"
-        className="w-8 h-8 rounded-lg flex items-center justify-center bg-yellow-100 text-yellow-600 cursor-pointer"
+        aria-label="Investigation in progress"
+        className="w-8 h-8 rounded-lg flex items-center justify-center bg-yellow-100 text-yellow-600 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 focus-visible:ring-offset-2 transition-colors"
       >
         <i className="fas fa-spinner fa-spin text-sm" />
       </button>
@@ -96,8 +98,9 @@ const SreInvestigateButton: React.FC<Props> = ({
     <button
       onClick={handleClick}
       disabled={triggering}
-      title="Investigate with AI"
-      className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+      title={triggering ? "Investigating with AI..." : "Investigate with AI"}
+      aria-label={triggering ? "Investigating with AI..." : "Investigate with AI"}
+      className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 transition-colors"
     >
       {triggering
         ? <i className="fas fa-spinner fa-spin text-sm" />
