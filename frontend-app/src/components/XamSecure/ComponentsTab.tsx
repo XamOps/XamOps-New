@@ -8,7 +8,15 @@ interface Props {
   isLoading: boolean;
 }
 
-/** Software components (SBOM) — mirrors Upwind's Components view. */
+/**
+ * Software bill of materials: packages, versions, licences, and which are loaded at runtime.
+ *
+ * Surfaced as "Packages". It does NOT mirror Upwind's Components view, which the earlier
+ * comment here claimed — theirs is sensor and agent fleet management (Sensors, Cloud Scanners,
+ * Integrations, Workflows, with coverage and health). No API exposes that: nine candidate
+ * sensor paths all 404, so their version is not buildable and sharing the label only implied
+ * a gap where there is none.
+ */
 const ComponentsTab: React.FC<Props> = ({ data, isLoading }) => {
   const all = data ?? [];
   const [query, setQuery] = useState('');

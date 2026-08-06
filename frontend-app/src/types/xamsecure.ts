@@ -10,6 +10,10 @@ export interface PageResp<T> {
    * active filter. Present on endpoints that back group-by chips (currently by-CVE).
    */
   severityCounts?: Record<string, number>;
+  /** by-CVE only: totals before any view filter, so a toggle can be labelled with its count. */
+  totalCveCount?: number;
+  runtimeExposedCount?: number;
+  view?: 'all' | 'runtime';
 }
 
 export interface ThreatDetection {
@@ -78,6 +82,12 @@ export interface CveGroupRow {
   cvssScore: number | null;
   epssScore: number | null;
   exploitable: boolean;
+  /** Runtime reachability, OR-ed across the CVE's findings. */
+  packageInUse: boolean;
+  internetExposed: boolean;
+  functionsInUse: boolean;
+  /** packageInUse && internetExposed — what Upwind calls a runtime-exposure vulnerability. */
+  runtimeExposed: boolean;
   findingsCount: number;
   resourceCount: number;
   firstSeen: string | null;

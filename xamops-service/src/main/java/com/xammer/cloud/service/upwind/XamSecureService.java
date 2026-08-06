@@ -1349,6 +1349,19 @@ public class XamSecureService {
      */
     public Map<String, Object> getVulnerabilitiesByCve(Long clientId, String accountId,
                                                        String severity, int page, int size) {
+        return getVulnerabilitiesByCve(clientId, accountId, severity, page, size, null);
+    }
+
+    /**
+     * @param view {@code "runtime"} restricts to CVEs whose package is loaded at runtime on a
+     *        workload taking inbound traffic — the narrowing Upwind's default saved view
+     *        ("Runtime exposure vulnerabilities") applies. Any other value shows everything.
+     *        Worth having because the unfiltered list is a different question: Onfinance holds
+     *        thousands of installed CVEs against a double-digit number that are reachable.
+     */
+    public Map<String, Object> getVulnerabilitiesByCve(Long clientId, String accountId,
+                                                       String severity, int page, int size,
+                                                       String view) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("content", List.of());
         out.put("totalElements", 0);
@@ -1378,6 +1391,9 @@ public class XamSecureService {
             g.findingsCount++;
             g.firstSeen = earliest(g.firstSeen, (Instant) r[9]);
             g.lastScan = latest(g.lastScan, (Instant) r[10]);
+            if (Boolean.TRUE.equals(r[11])) g.packageInUse = true;
+            if (Boolean.TRUE.equals(r[12])) g.internetExposed = true;
+            if (Boolean.TRUE.equals(r[13])) g.functionsInUse = true;
         }
 
         // CVE-level severity distribution, computed BEFORE the severity filter so the UI's
@@ -1391,8 +1407,16 @@ public class XamSecureService {
             if (n > 0) cveSeverityCounts.put(sev, n);
         }
         out.put("severityCounts", cveSeverityCounts);
+        // Both totals are pre-filter so the view toggle can be labelled with its own count
+        // before it is applied.
+        out.put("totalCveCount", byCve.size());
+        out.put("runtimeExposedCount", byCve.values().stream().filter(CveGroup::runtimeExposed).count());
+
+        boolean runtimeOnly = "runtime".equalsIgnoreCase(view);
+        out.put("view", runtimeOnly ? "runtime" : "all");
 
         List<CveGroup> all = byCve.values().stream()
+                .filter(g -> !runtimeOnly || g.runtimeExposed())
                 .filter(g -> severity == null || severity.isEmpty()
                         || severity.equalsIgnoreCase(g.severity == null ? "" : g.severity))
                 .sorted(Comparator
@@ -1530,11 +1554,16 @@ public class XamSecureService {
         double cvss;
         double epss;
         boolean exploitable;
+        boolean packageInUse;
+        boolean internetExposed;
+        boolean functionsInUse;
         int findingsCount;
         final Set<String> resources = new HashSet<>();
         Instant firstSeen;
         Instant lastScan;
         CveGroup(String cveId) { this.cveId = cveId; }
+        /** Upwind's "runtime exposure": the package is loaded AND the workload takes ingress. */
+        boolean runtimeExposed() { return packageInUse && internetExposed; }
         Map<String, Object> toMap() {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("cveId", cveId);
@@ -1543,6 +1572,10 @@ public class XamSecureService {
             m.put("cvssScore", cvss > 0 ? cvss : null);
             m.put("epssScore", epss > 0 ? epss : null);
             m.put("exploitable", exploitable);
+            m.put("packageInUse", packageInUse);
+            m.put("internetExposed", internetExposed);
+            m.put("functionsInUse", functionsInUse);
+            m.put("runtimeExposed", runtimeExposed());
             m.put("findingsCount", findingsCount);
             m.put("resourceCount", resources.size());
             m.put("firstSeen", firstSeen);
@@ -2182,9 +2215,9 @@ public class XamSecureService {
         if (ids.isEmpty()) return Page.empty();
         Pageable pageable = PageRequest.of(page, Math.min(size, 200));
         if (category != null && !category.isEmpty()) {
-            return inventoryRepo.findByCloudAccountIdInAndAssetCategoryOrderByNameAsc(ids, category, pageable);
+            return inventoryRepo.findActiveByAccountsAndCategory(ids, category, pageable);
         }
-        return inventoryRepo.findByCloudAccountIdInOrderByNameAsc(ids, pageable);
+        return inventoryRepo.findActiveByAccounts(ids, pageable);
     }
 
     public List<Map<String, Object>> getOnboardingStatus(Long clientId) {

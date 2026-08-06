@@ -41,6 +41,28 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(screen.getAllByText(/S3 Buckets/).length).toBeGreaterThan(0);
   });
 
+  it('Vulnerabilities offers Upwind\'s runtime-exposure view and it narrows the list', () => {
+    const all = demo.demoVulnByCvePage('?page=0&size=50');
+    draw(
+      <VulnerabilitiesTab dashboard={demo.demoVulnDashboard} byCve={all}
+                          isLoading={false} onCvePage={noop}
+                          loadCveFindings={asyncNoop as never}
+                          onCveSeverity={noop} onCveView={noop} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Findings/ }));
+    // Both counts are offered up front: the installed total stays reachable rather than being
+    // replaced by a hidden default filter, which is what makes Upwind's console read so low.
+    const runtimeChip = screen.getByRole('button', { name: /Runtime exposed/ });
+    expect(runtimeChip).toBeInTheDocument();
+    expect(runtimeChip).toHaveAttribute('aria-pressed', 'false');
+
+    // The runtime view really is a strict subset.
+    const runtime = demo.demoVulnByCvePage('?page=0&size=50&view=runtime');
+    expect(runtime.view).toBe('runtime');
+    expect(runtime.totalElements).toBeLessThan(all.totalElements);
+    expect(runtime.runtimeExposedCount).toBe(runtime.totalElements);
+  });
+
   it('Threats opens on the dashboard and reaches detections', () => {
     draw(
       <ThreatsSection threats={demo.demoThreatsPage('?page=0&size=50')} policies={demo.demoThreatPolicies}

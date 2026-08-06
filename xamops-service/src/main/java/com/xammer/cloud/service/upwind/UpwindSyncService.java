@@ -25,10 +25,23 @@ public class UpwindSyncService {
 
     // Page caps are in PAGES; the client requests UpwindApiClient.PAGE_SIZE (1000) per page.
     static final int DETECTION_POLL_MAX_PAGES = 5;    // ~5k newest detections per poll
-    // ~200k items per domain. Measured 2026-07-31: configuration-findings returns ~19.4k
-    // findings (20 pages), so this leaves ~10x headroom. Under the old 100-item pages the
-    // same walk needed 196 of 200 pages — effectively at the cap.
-    static final int FULL_SYNC_MAX_PAGES = 200;
+    /**
+     * Runaway guard, in PAGES of {@link UpwindApiClient#PAGE_SIZE} (1000) items.
+     *
+     * Raised from 200 after measuring 2026-08-05: vulnerability-findings returns 161,424
+     * findings for ONE account (Onfinance, 8,499 unique CVEs), and the vulnerability walk is
+     * org-wide with no account filter, so the org total already exceeds the old 200-page /
+     * 200k-item ceiling. Hitting it is not a soft failure: the walk is marked truncated,
+     * reconciliation correctly refuses to run, and the table keeps a partial set for ever —
+     * which is why prod held 5,657 CVEs against Upwind's 8,502.
+     *
+     * Posture is the other grower, now that PASS findings are fetched alongside FAIL:
+     * ~29.4k FAIL for Onfinance measured the same day, doubled by PASS.
+     *
+     * Only as many pages as there is data are ever requested, so a high cap costs nothing on
+     * small tenants; it just has to stay above real volume with room to grow.
+     */
+    static final int FULL_SYNC_MAX_PAGES = 600;
     static final int INVENTORY_MAX_ITEMS = 20000;
     // ~6.8k endpoints measured 2026-07-31. The v2 search caps limit at 100 per page, so this
     // is an ITEM cap (~300 requests worst case) rather than the old page cap.
@@ -107,7 +120,11 @@ public class UpwindSyncService {
             }
             log.info("[Upwind] Vulnerability sync upserted {} findings (complete={})",
                     res.items().size(), !res.truncated());
-            recordSuccess("VULNERABILITIES");
+            if (res.truncated()) {
+                recordTruncated("VULNERABILITIES", res.items().size(), FULL_SYNC_MAX_PAGES);
+            } else {
+                recordSuccess("VULNERABILITIES");
+            }
         } catch (Exception e) {
             log.error("[Upwind] Vulnerability sync failed: {}", e.getMessage());
             recordError("VULNERABILITIES", e);
@@ -176,7 +193,8 @@ public class UpwindSyncService {
             }
             log.info("[Upwind] Posture sync upserted {} findings across {} (complete={})",
                     upserted, POSTURE_STATUSES, allComplete);
-            recordSuccess("POSTURE");
+            if (allComplete) recordSuccess("POSTURE");
+            else recordTruncated("POSTURE", upserted, FULL_SYNC_MAX_PAGES);
         } catch (Exception e) {
             log.error("[Upwind] Posture sync failed: {}", e.getMessage());
             recordError("POSTURE", e);
@@ -221,7 +239,8 @@ public class UpwindSyncService {
             }
             log.info("[Upwind] API endpoint sync upserted {} endpoints across {} account(s) (complete={})",
                     synced, accountIds.size(), allComplete);
-            recordSuccess("API_ENDPOINTS");
+            if (allComplete) recordSuccess("API_ENDPOINTS");
+            else recordTruncated("API_ENDPOINTS", synced, APISEC_MAX_ITEMS);
         } catch (Exception e) {
             log.error("[Upwind] API endpoint sync failed: {}", e.getMessage());
             recordError("API_ENDPOINTS", e);
@@ -641,6 +660,27 @@ public class UpwindSyncService {
         s.setLastSuccessAt(Instant.now());
         s.setLastError(null);
         s.setLastErrorAt(null);
+        syncStateRepo.save(s);
+    }
+
+    /**
+     * Records a completed-but-incomplete walk.
+     *
+     * Truncation used to be a log warning only, so a domain could sit permanently partial with
+     * reconciliation refusing to run and nothing on screen saying so. Writing it to sync state
+     * puts it on the Data Freshness panel next to the timestamps, where a stale-looking domain
+     * is actually investigated.
+     */
+    private void recordTruncated(String domain, int items, int maxPages) {
+        UpwindSyncState s = syncStateRepo.findByDomain(domain).orElseGet(() -> {
+            UpwindSyncState n = new UpwindSyncState();
+            n.setDomain(domain);
+            return n;
+        });
+        s.setLastSuccessAt(Instant.now());
+        s.setLastError("Incomplete: hit the " + maxPages + "-page cap after " + items
+                + " items, so archiving was skipped and this domain may be partial.");
+        s.setLastErrorAt(Instant.now());
         syncStateRepo.save(s);
     }
 

@@ -573,11 +573,13 @@ class XamSecureServiceTest {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
         org.springframework.data.domain.Page<com.xammer.cloud.domain.UpwindInventoryAsset> empty =
             org.springframework.data.domain.Page.empty();
-        when(inventoryRepo.findByCloudAccountIdInOrderByNameAsc(eq(List.of("111")), any()))
+        // findActiveByAccounts, not the old unfiltered derived method: the table has to agree
+        // with the category rail and the Assets tile, which both count ACTIVE only.
+        when(inventoryRepo.findActiveByAccounts(eq(List.of("111")), any()))
             .thenReturn(empty);
         var page = service.getInventory(1L, null, null, 0, 50);
         assertNotNull(page);
-        verify(inventoryRepo).findByCloudAccountIdInOrderByNameAsc(eq(List.of("111")), any());
+        verify(inventoryRepo).findActiveByAccounts(eq(List.of("111")), any());
     }
 
     @Test
@@ -770,6 +772,65 @@ class XamSecureServiceTest {
         assertEquals(1L, last.get("high"));
         assertEquals(1L, last.get("other"));                 // MEDIUM banded into "other"
         assertEquals(0L, trend.get(0).get("critical"));
+    }
+
+    /** Projection row for findAllForCveGrouping (14 columns; last three are runtime flags). */
+    private static Object[] cveRow(String cveId, String severity, String resourceId,
+                                   Boolean inUse, Boolean exposed, Boolean functionsInUse) {
+        return new Object[]{cveId, cveId + " name", severity, "9.8", Boolean.TRUE, "0.5",
+                resourceId, resourceId, "KUBERNETES_DEPLOYMENT",
+                java.time.Instant.parse("2026-08-01T00:00:00Z"),
+                java.time.Instant.parse("2026-08-05T00:00:00Z"),
+                inUse, exposed, functionsInUse};
+    }
+
+    @Test
+    void cveViewRuntimeKeepsOnlyReachableCvesAndReportsBothTotals() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(vulnRepo.findAllForCveGrouping(List.of("111"))).thenReturn(List.of(
+                // Reachable: loaded and behind ingress.
+                cveRow("CVE-1", "CRITICAL", "res-a", true, true, false),
+                // Loaded but not exposed.
+                cveRow("CVE-2", "CRITICAL", "res-b", true, false, false),
+                // Exposed but never loaded.
+                cveRow("CVE-3", "HIGH", "res-c", false, true, false),
+                // Neither.
+                cveRow("CVE-4", "LOW", "res-d", false, false, false)));
+
+        var all = service.getVulnerabilitiesByCve(1L, null, "", 0, 50, null);
+        assertEquals(4, all.get("totalElements"));
+        assertEquals("all", all.get("view"));
+        // Both totals are reported regardless of the active view, so the toggle can be labelled.
+        assertEquals(4, all.get("totalCveCount"));
+        assertEquals(1L, all.get("runtimeExposedCount"));
+
+        var runtime = service.getVulnerabilitiesByCve(1L, null, "", 0, 50, "runtime");
+        assertEquals("runtime", runtime.get("view"));
+        assertEquals(1, runtime.get("totalElements"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<java.util.Map<String, Object>>) runtime.get("content");
+        assertEquals("CVE-1", rows.get(0).get("cveId"));
+        assertEquals(true, rows.get(0).get("runtimeExposed"));
+        // Unknown view values must not silently filter anything out.
+        assertEquals(4, service.getVulnerabilitiesByCve(1L, null, "", 0, 50, "nonsense")
+                .get("totalElements"));
+    }
+
+    @Test
+    void cveRuntimeFlagsAreOrredAcrossFindings() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        // One CVE, two findings: neither is both in-use AND exposed on its own, but the CVE is
+        // reachable because one instance is loaded and another sits behind ingress.
+        when(vulnRepo.findAllForCveGrouping(List.of("111"))).thenReturn(List.of(
+                cveRow("CVE-9", "HIGH", "res-a", true, false, false),
+                cveRow("CVE-9", "HIGH", "res-b", false, true, false)));
+
+        var runtime = service.getVulnerabilitiesByCve(1L, null, "", 0, 50, "runtime");
+        assertEquals(1, runtime.get("totalElements"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<java.util.Map<String, Object>>) runtime.get("content");
+        assertEquals(2, rows.get(0).get("findingsCount"));
+        assertEquals(2, rows.get(0).get("resourceCount"));
     }
 
     @Test

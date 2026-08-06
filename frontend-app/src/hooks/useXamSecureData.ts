@@ -189,9 +189,10 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     saveCache(key, data);
   }, [acct, selectedAccountId]);
 
-  const loadVulnByCve = useCallback(async (page = 0, severity = '') => {
+  const loadVulnByCve = useCallback(async (page = 0, severity = '', view = '') => {
     const data = await apiClient.get<PageResp<CveGroupRow>>(
-      `/api/xamsecure/vulnerabilities/by-cve?${acct}page=${page}&size=50${severity ? `&severity=${severity}` : ''}`);
+      `/api/xamsecure/vulnerabilities/by-cve?${acct}page=${page}&size=50`
+      + `${severity ? `&severity=${severity}` : ''}${view ? `&view=${view}` : ''}`);
     setVulnByCve(data);
   }, [acct]);
 

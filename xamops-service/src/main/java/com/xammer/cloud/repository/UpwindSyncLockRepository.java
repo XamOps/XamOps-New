@@ -33,6 +33,22 @@ public interface UpwindSyncLockRepository extends JpaRepository<UpwindSyncLock, 
     int tryAcquire(@Param("name") String name, @Param("holder") String holder,
                    @Param("now") Instant now, @Param("expiresAt") Instant expiresAt);
 
+    /**
+     * Pushes our own lease further out. Only succeeds while we still hold it, so a heartbeat
+     * can never resurrect a lease another instance has already taken over.
+     *
+     * Exists because a fixed TTL forces an unwinnable choice: short enough that a dead
+     * instance frees the lease promptly, or long enough to cover the slowest sync. A live run
+     * that renews gets both — see UpwindSyncLease#runIfLeader.
+     */
+    @Transactional
+    @Modifying
+    @Query(value = "UPDATE upwind_sync_lock SET expires_at = :expiresAt "
+            + "WHERE name = :name AND holder = :holder AND expires_at > :now",
+            nativeQuery = true)
+    int renew(@Param("name") String name, @Param("holder") String holder,
+              @Param("now") Instant now, @Param("expiresAt") Instant expiresAt);
+
     /** Frees the lease, but only if we still hold it — never steals another holder's lease. */
     @Transactional
     @Modifying

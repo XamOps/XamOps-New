@@ -498,6 +498,13 @@ const CVSS_BY_SEVERITY: Record<string, number> = { CRITICAL: 9.4, HIGH: 8.1, MED
 export const demoCveRowsAll: CveGroupRow[] = [
   ...NAMED_CVES.map(([cveId, name, severity, cvssScore, epssScore, exploitable], i) => ({
     cveId, name, severity, cvssScore, epssScore, exploitable,
+    // Runtime reachability thins out fast in real estates: most installed packages are never
+    // loaded, and fewer still sit behind ingress. Measured shares were 93% in use, 37.9%
+    // internet-exposed, 0.42% with a vulnerable function actually executing.
+    packageInUse: i % 8 !== 0,
+    internetExposed: i % 3 === 0,
+    functionsInUse: i === 4,
+    runtimeExposed: i % 8 !== 0 && i % 3 === 0,
     findingsCount: spread(i, 8, 96),
     resourceCount: spread(i, 3, 34),
     firstSeen: daysAgo(spread(i, 2, 30)),
@@ -515,6 +522,10 @@ export const demoCveRowsAll: CveGroupRow[] = [
       cvssScore: Math.round((CVSS_BY_SEVERITY[severity] - (i % 5) * 0.3) * 10) / 10,
       epssScore: Math.round(((i % 19) / 20) * 100) / 100,
       exploitable,
+      packageInUse: i % 9 !== 0,
+      internetExposed: i % 4 === 0,
+      functionsInUse: false,
+      runtimeExposed: i % 9 !== 0 && i % 4 === 0,
       findingsCount: spread(i, 1, 74),
       resourceCount: spread(i, 1, 28),
       firstSeen: daysAgo(spread(i, 1, 45)),
@@ -523,8 +534,21 @@ export const demoCveRowsAll: CveGroupRow[] = [
   }),
 ];
 
-export const demoVulnByCvePage = (url: string): PageResp<CveGroupRow> =>
-  paginate(bySeverity(demoCveRowsAll, url), url);
+/**
+ * Honours the `view=runtime` saved view as the real endpoint does, so the demo shows the same
+ * narrowing Upwind's Findings tab opens on. Both totals are reported before filtering, which is
+ * what lets the toggle be labelled with its own count.
+ */
+export const demoVulnByCvePage = (url: string): PageResp<CveGroupRow> => {
+  const runtimeOnly = qs(url).get('view') === 'runtime';
+  const scoped = runtimeOnly ? demoCveRowsAll.filter((c) => c.runtimeExposed) : demoCveRowsAll;
+  return {
+    ...paginate(bySeverity(scoped, url), url),
+    totalCveCount: demoCveRowsAll.length,
+    runtimeExposedCount: demoCveRowsAll.filter((c) => c.runtimeExposed).length,
+    view: runtimeOnly ? 'runtime' : 'all',
+  };
+};
 
 /**
  * Per-CVE affected resources. Sized from the CVE's own resourceCount so the

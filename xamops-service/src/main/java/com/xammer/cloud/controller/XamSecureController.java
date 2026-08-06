@@ -93,8 +93,10 @@ public class XamSecureController {
                                                   @RequestParam(required = false) String accountId,
                                                   @RequestParam(required = false) String severity,
                                                   @RequestParam(defaultValue = "0") int page,
-                                                  @RequestParam(defaultValue = "50") int size) {
-        return ResponseEntity.ok(xamSecureService.getVulnerabilitiesByCve(user.getClientId(), accountId, severity, page, size));
+                                                  @RequestParam(defaultValue = "50") int size,
+                                                  @RequestParam(required = false) String view) {
+        return ResponseEntity.ok(xamSecureService.getVulnerabilitiesByCve(
+                user.getClientId(), accountId, severity, page, size, view));
     }
 
     @GetMapping("/vulnerabilities/cve/findings")
