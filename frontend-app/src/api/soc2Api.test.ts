@@ -13,7 +13,9 @@ vi.mock('../utils/apiClient', () => ({
 }));
 
 describe('soc2Api', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it('fetchSoc2Overview calls GET /api/soc2/overview', async () => {
     (apiClient.get as any).mockResolvedValue({ frameworkName: 'SOC 2', controlsTotal: 35 });

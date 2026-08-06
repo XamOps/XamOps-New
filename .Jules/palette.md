@@ -1,0 +1,3 @@
+## 2026-08-06 - [A11y patterns on dynamic icon-only elements]
+**Learning:** In state-driven components like `SreInvestigateButton`, icon-only buttons that transition dynamically (e.g. from triggering, pending, running, to completed states) often lack matching ARIA labels or focus ring indicators. This leaves screen-reader users with unannounced state changes and keyboard navigation without visible feedback.
+**Action:** Always pair dynamic visual title/tooltip tooltips with matching `aria-label` properties, and include visible, high-contrast focus rings (`focus-visible:ring-2`) matching the element's theme.
