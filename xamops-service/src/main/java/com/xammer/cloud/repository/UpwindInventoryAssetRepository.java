@@ -42,6 +42,10 @@ public interface UpwindInventoryAssetRepository extends JpaRepository<UpwindInve
             @Param("accountIds") List<String> accountIds,
             @Param("assetCategory") String assetCategory, Pageable pageable);
 
+    /** Live rows, for the archive safety guard (see UpwindSyncService#archiveIsSafe). */
+    @Query("SELECT COUNT(a) FROM UpwindInventoryAsset a WHERE a.status = 'ACTIVE'")
+    long countActive();
+
     @Query("SELECT a.assetCategory, COUNT(a) FROM UpwindInventoryAsset a " +
            "WHERE a.cloudAccountId IN :accountIds AND a.status = 'ACTIVE' GROUP BY a.assetCategory")
     List<Object[]> countByCategory(@Param("accountIds") List<String> accountIds);

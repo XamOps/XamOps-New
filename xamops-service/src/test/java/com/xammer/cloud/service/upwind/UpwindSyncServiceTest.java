@@ -187,6 +187,66 @@ class UpwindSyncServiceTest {
         verify(apiEndpointRepo).markResolvedNotSyncedSince(eq("111"), any());
     }
 
+    /**
+     * The outage this guard exists to prevent: reconciliation had been standing down whenever
+     * the lease lapsed mid-sync, a lease heartbeat turned it back on, and the next run archived
+     * a table full of rows the fetch never re-covered — emptying every XamSecure tab.
+     *
+     * A complete walk is not evidence the walk saw everything: it only means no page cap was
+     * hit. An auth or scope change yields a small, complete, wrong result.
+     */
+    @Test
+    void archivingIsRefusedWhenTheRunCoversTooLittleOfWhatWeHold() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
+        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
+                .thenReturn(result(List.of(parse(VULN_JSON)), false));
+        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
+                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
+        // One finding fetched against 10,000 held: 0.01% coverage, far under the floor.
+        when(vulnRepo.countOpen()).thenReturn(10_000L);
+        when(postureRepo.countLive()).thenReturn(10_000L);
+
+        service.syncAll();
+
+        verify(vulnRepo, never()).markResolvedNotSyncedSince(any());
+        verify(postureRepo, never()).markResolvedNotSyncedSince(any());
+    }
+
+    @Test
+    void archivingProceedsWhenTheRunCoversEnough() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
+        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
+                .thenReturn(result(List.of(parse(VULN_JSON)), false));
+        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
+                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
+        // One fetched against one held is full coverage; a genuinely emptied estate still
+        // reconciles, which is the case the guard must not block.
+        when(vulnRepo.countOpen()).thenReturn(1L);
+        when(postureRepo.countLive()).thenReturn(2L);   // FAIL+PASS walks upsert twice
+
+        service.syncAll();
+
+        verify(vulnRepo).markResolvedNotSyncedSince(any());
+        verify(postureRepo).markResolvedNotSyncedSince(any());
+    }
+
+    @Test
+    void endpointArchivingIsRefusedPerAccountWhenCoverageIsTooLow() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
+        when(apiClient.searchApiEndpoints(eq("111"), anyInt()))
+                .thenReturn(result(List.of(parse("{\"id\":\"rt-1\"}")), false));
+        when(apiEndpointRepo.countActiveByAccount("111")).thenReturn(15_000L);
+
+        service.syncApiEndpoints();
+
+        // Still upserted — refusing to archive must not stop us storing what we did fetch.
+        verify(apiEndpointRepo).save(any());
+        verify(apiEndpointRepo, never()).markResolvedNotSyncedSince(any(), any());
+    }
+
     @Test
     void syncApiEndpointsSkipsReconcileWhenTruncated() {
         when(apiClient.isConfigured()).thenReturn(true);

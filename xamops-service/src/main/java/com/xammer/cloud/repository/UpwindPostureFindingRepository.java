@@ -148,4 +148,8 @@ public interface UpwindPostureFindingRepository extends JpaRepository<UpwindPost
     @Query("UPDATE UpwindPostureFinding p SET p.status = 'RESOLVED' " +
            "WHERE p.syncedAt < :runStart AND p.status <> 'RESOLVED'")
     int markResolvedNotSyncedSince(@Param("runStart") Instant runStart);
+
+    /** Live rows, for the archive safety guard (see UpwindSyncService#archiveIsSafe). */
+    @Query("SELECT COUNT(p) FROM UpwindPostureFinding p WHERE p.status <> 'RESOLVED'")
+    long countLive();
 }

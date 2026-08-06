@@ -115,7 +115,9 @@ public class UpwindSyncService {
             }
             // Reconcile only on a COMPLETE fetch: a truncated page walk would archive
             // every finding we simply never re-read. And only while we still hold the lease.
-            if (!res.items().isEmpty() && !res.truncated() && mayReconcile(canReconcile, "vulnerabilities")) {
+            if (!res.items().isEmpty() && !res.truncated()
+                    && mayReconcile(canReconcile, "vulnerabilities")
+                    && archiveIsSafe("VULNERABILITIES", res.items().size(), vulnRepo.countOpen())) {
                 vulnRepo.markResolvedNotSyncedSince(runStart);
             }
             log.info("[Upwind] Vulnerability sync upserted {} findings (complete={})",
@@ -132,6 +134,59 @@ public class UpwindSyncService {
         syncPosture(canReconcile);
         syncInventory(canReconcile);
         syncApiEndpoints(canReconcile);
+    }
+
+    /**
+     * Minimum share of the existing live rows a fetch must account for before it is allowed to
+     * archive the remainder.
+     *
+     * This guard is here because its absence caused an outage. Reconciliation had been silently
+     * standing down for weeks whenever the lease lapsed mid-sync; adding a lease heartbeat
+     * turned it back on, and the first run afterwards archived a table full of rows the fetch
+     * did not re-cover, emptying every XamSecure tab on UAT.
+     *
+     * A "complete" walk is not evidence that the walk saw everything: it only means no page cap
+     * was hit. An auth change, a scope change, or an account dropping out of
+     * knownCloudAccountIds all produce a small, complete, wrong result. Comparing against what
+     * we already hold is the check that catches those, and it fails safe — refusing to archive
+     * leaves stale rows, which is recoverable, whereas archiving wrongly is not.
+     */
+    static final double ARCHIVE_MIN_COVERAGE = 0.5;
+
+    /**
+     * Whether a mark-resolved pass may archive, given how much of the existing data this run
+     * actually re-covered.
+     *
+     * @param fetched  rows this run upserted for the domain
+     * @param existing live rows already held
+     */
+    private boolean archiveIsSafe(String domain, long fetched, long existing) {
+        if (existing <= 0) return true;                 // nothing to lose
+        double coverage = (double) fetched / existing;
+        if (coverage < ARCHIVE_MIN_COVERAGE) {
+            log.error("[Upwind] {} archiving REFUSED — this run covered {} of {} live rows "
+                    + "({}%), below the {}% floor. Stale rows are kept rather than risk wiping "
+                    + "data the fetch simply missed.",
+                    domain, fetched, existing, Math.round(coverage * 100),
+                    Math.round(ARCHIVE_MIN_COVERAGE * 100));
+            recordArchiveRefused(domain, fetched, existing);
+            return false;
+        }
+        return true;
+    }
+
+    /** Surfaces a refused archive on the Data Freshness panel, not just in the log. */
+    private void recordArchiveRefused(String domain, long fetched, long existing) {
+        UpwindSyncState s = syncStateRepo.findByDomain(domain).orElseGet(() -> {
+            UpwindSyncState n = new UpwindSyncState();
+            n.setDomain(domain);
+            return n;
+        });
+        s.setLastSuccessAt(Instant.now());
+        s.setLastError("Archiving skipped: this run covered only " + fetched + " of " + existing
+                + " live rows. Data is kept but may include rows Upwind no longer reports.");
+        s.setLastErrorAt(Instant.now());
+        syncStateRepo.save(s);
     }
 
     /**
@@ -187,7 +242,8 @@ public class UpwindSyncService {
                 log.info("[Upwind] Posture sync fetched {} {} findings (complete={})",
                         res.items().size(), status, !res.truncated());
             }
-            if (upserted > 0 && allComplete && mayReconcile(canReconcile, "posture")) {
+            if (upserted > 0 && allComplete && mayReconcile(canReconcile, "posture")
+                    && archiveIsSafe("POSTURE", upserted, postureRepo.countLive())) {
                 int resolved = postureRepo.markResolvedNotSyncedSince(runStart);
                 log.info("[Upwind] Posture sync archived {} findings no longer reported", resolved);
             }
@@ -232,7 +288,9 @@ public class UpwindSyncService {
                     synced++;
                 }
                 if (!res.items().isEmpty() && !res.truncated()
-                        && mayReconcile(canReconcile, "API endpoints")) {
+                        && mayReconcile(canReconcile, "API endpoints")
+                        && archiveIsSafe("API_ENDPOINTS", res.items().size(),
+                                apiEndpointRepo.countActiveByAccount(accountId))) {
                     apiEndpointRepo.markResolvedNotSyncedSince(accountId, runStart);
                 }
                 allComplete &= !res.truncated();
@@ -329,7 +387,8 @@ public class UpwindSyncService {
                     syncedCount++;
                 }
             }
-            if (syncedCount > 0 && mayReconcile(canReconcile, "inventory")) {
+            if (syncedCount > 0 && mayReconcile(canReconcile, "inventory")
+                    && archiveIsSafe("INVENTORY", syncedCount, inventoryRepo.countActive())) {
                 inventoryRepo.markResolvedNotSyncedSince(runStart);
             }
             log.info("[Upwind] Inventory sync upserted {} assets across {} account(s)",

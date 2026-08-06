@@ -32,6 +32,11 @@ public interface UpwindApiEndpointRepository extends JpaRepository<UpwindApiEndp
      * because the fetch is per account — a global sweep would archive other accounts'
      * endpoints that simply weren't part of this run.
      */
+    /** Live rows for one account, for the archive safety guard. */
+    @Query("SELECT COUNT(e) FROM UpwindApiEndpoint e " +
+           "WHERE e.cloudAccountId = :accountId AND e.status = 'ACTIVE'")
+    long countActiveByAccount(@Param("accountId") String accountId);
+
     @Transactional
     @Modifying
     @Query("UPDATE UpwindApiEndpoint e SET e.status = 'RESOLVED' " +
