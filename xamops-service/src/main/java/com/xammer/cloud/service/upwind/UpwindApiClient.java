@@ -152,6 +152,70 @@ public class UpwindApiClient {
      */
     static final int PAGE_SIZE = 1000;
 
+    /** Outcome of a streaming walk: how many items were handed to the sink, and whether the
+     *  page cap cut it short. Deliberately carries no items — that is the point. */
+    public record StreamResult(int count, boolean truncated) { }
+
+    /**
+     * Walks a paged v1 collection and hands each item to {@code sink}, holding only one page in
+     * memory at a time.
+     *
+     * {@link #fetchAllPaged} accumulates the entire result before returning, which does not
+     * survive real volume: vulnerability-findings measured 161,424 items for a single account
+     * on 2026-08-05, and the walk is org-wide. At 600 pages of 1000 that list can reach 600k
+     * Jackson nodes, and an OutOfMemoryError is an Error rather than an Exception, so it slips
+     * past the per-domain catch blocks in UpwindSyncService and kills the whole run — taking
+     * the domains that come after it with it.
+     *
+     * Streaming bounds memory to one page whatever the total volume.
+     */
+    public StreamResult streamAllPaged(String path, int maxPages,
+                                       java.util.function.Consumer<JsonNode> sink) {
+        String url = apiBaseUrl + "/v1/organizations/" + orgId + path
+                + (path.contains("?") ? "&" : "?") + "per-page=" + PAGE_SIZE;
+        int pages = 0;
+        int count = 0;
+        while (url != null && pages < maxPages) {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(getToken());
+            headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
+            ResponseEntity<String> resp = exchangeWithRetry(
+                    URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
+            try {
+                JsonNode body = objectMapper.readTree(resp.getBody());
+                if (body.isArray()) {
+                    for (JsonNode item : body) {
+                        sink.accept(item);
+                        count++;
+                    }
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException("Upwind response was not valid JSON for " + path, e);
+            }
+            url = nextLink(resp.getHeaders());
+            pages++;
+        }
+        boolean truncated = url != null;
+        if (truncated) {
+            log.warn("[Upwind] {} hit the {}-page cap with more pages available — streamed {} "
+                    + "items; treating result as incomplete (skipping mark-resolved)",
+                    path, maxPages, count);
+        }
+        return new StreamResult(count, truncated);
+    }
+
+    /** Streaming form of {@link #fetchVulnerabilityFindingsPaged}. */
+    public StreamResult streamVulnerabilityFindings(int maxPages,
+                                                    java.util.function.Consumer<JsonNode> sink) {
+        return streamAllPaged("/vulnerability-findings", maxPages, sink);
+    }
+
+    /** Streaming form of {@link #fetchConfigurationFindingsPaged}. */
+    public StreamResult streamConfigurationFindings(String status, int maxPages,
+                                                    java.util.function.Consumer<JsonNode> sink) {
+        return streamAllPaged("/configuration-findings?status=" + status, maxPages, sink);
+    }
+
     /** As {@link #fetchAll}, but also reports whether the page cap cut the fetch short. */
     public FetchResult fetchAllPaged(String path, int maxPages) {
         List<JsonNode> items = new ArrayList<>();

@@ -108,22 +108,22 @@ public class UpwindSyncService {
         syncDetections();
         Instant runStart = Instant.now();
         try {
-            UpwindApiClient.FetchResult res =
-                    apiClient.fetchVulnerabilityFindingsPaged(FULL_SYNC_MAX_PAGES);
-            for (JsonNode item : res.items()) {
-                upsertVulnerability(item, Instant.now());
-            }
+            // Streamed, not accumulated: this collection reaches hundreds of thousands of
+            // items org-wide, and holding them all was an OutOfMemoryError — which, being an
+            // Error, escaped this catch block and killed posture, inventory and endpoints with it.
+            UpwindApiClient.StreamResult res = apiClient.streamVulnerabilityFindings(
+                    FULL_SYNC_MAX_PAGES, item -> upsertVulnerability(item, Instant.now()));
             // Reconcile only on a COMPLETE fetch: a truncated page walk would archive
             // every finding we simply never re-read. And only while we still hold the lease.
-            if (!res.items().isEmpty() && !res.truncated()
+            if (res.count() > 0 && !res.truncated()
                     && mayReconcile(canReconcile, "vulnerabilities")
-                    && archiveIsSafe("VULNERABILITIES", res.items().size(), vulnRepo.countOpen())) {
+                    && archiveIsSafe("VULNERABILITIES", res.count(), vulnRepo.countOpen())) {
                 vulnRepo.markResolvedNotSyncedSince(runStart);
             }
             log.info("[Upwind] Vulnerability sync upserted {} findings (complete={})",
-                    res.items().size(), !res.truncated());
+                    res.count(), !res.truncated());
             if (res.truncated()) {
-                recordTruncated("VULNERABILITIES", res.items().size(), FULL_SYNC_MAX_PAGES);
+                recordTruncated("VULNERABILITIES", res.count(), FULL_SYNC_MAX_PAGES);
             } else {
                 recordSuccess("VULNERABILITIES");
             }
@@ -232,15 +232,14 @@ public class UpwindSyncService {
             int upserted = 0;
             boolean allComplete = true;
             for (String status : POSTURE_STATUSES) {
-                UpwindApiClient.FetchResult res =
-                        apiClient.fetchConfigurationFindingsPaged(status, FULL_SYNC_MAX_PAGES);
-                for (JsonNode item : res.items()) {
-                    upsertPosture(item, Instant.now());
-                    upserted++;
-                }
+                // Streamed for the same reason as vulnerabilities: ~29.4k FAIL for one account
+                // measured 2026-08-05, doubled by the PASS walk, and growing.
+                UpwindApiClient.StreamResult res = apiClient.streamConfigurationFindings(
+                        status, FULL_SYNC_MAX_PAGES, item -> upsertPosture(item, Instant.now()));
+                upserted += res.count();
                 allComplete &= !res.truncated();
                 log.info("[Upwind] Posture sync fetched {} {} findings (complete={})",
-                        res.items().size(), status, !res.truncated());
+                        res.count(), status, !res.truncated());
             }
             if (upserted > 0 && allComplete && mayReconcile(canReconcile, "posture")
                     && archiveIsSafe("POSTURE", upserted, postureRepo.countLive())) {
