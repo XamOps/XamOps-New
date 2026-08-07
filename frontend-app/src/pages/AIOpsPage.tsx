@@ -397,7 +397,7 @@ const AIOpsPage: React.FC = () => {
               <div className="text-center py-20 px-8">
                 <div className="mb-6 flex justify-center">
                   <div className="w-14 h-14 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center">
-                    <Icon icon="mdi:plug-outline" width={28} color="#4F46E5" />
+                    <Icon icon="mdi:power-plug-outline" width={28} color="#4F46E5" />
                   </div>
                 </div>
                 <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">

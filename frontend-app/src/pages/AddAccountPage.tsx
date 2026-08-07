@@ -97,7 +97,7 @@ const AddAccountPage: React.FC = () => {
       case 'azure':
         return { name: 'Azure', icon: 'mdi:microsoft', colorClass: 'azure' };
       case 'jenkins':
-        return { name: 'Jenkins', icon: 'mdi:jenkins', colorClass: 'jenkins' };
+        return { name: 'Jenkins', icon: 'simple-icons:jenkins', colorClass: 'jenkins' };
       case 'github':
         return { name: 'GitHub', icon: 'mdi:github', colorClass: 'github' };
       default:

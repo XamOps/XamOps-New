@@ -2179,7 +2179,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                     </div>
                     {meetLink && !/^https:\/\/meet\.google\.com\//.test(meetLink) && (
                       <p className="text-[10px] text-amber-600 mt-1 font-medium flex items-center gap-1">
-                        <Icon icon="mdi:alert-triangle-outline" width={12} />
+                        <Icon icon="mdi:alert-outline" width={12} />
                         Should start with https://meet.google.com/
                       </p>
                     )}

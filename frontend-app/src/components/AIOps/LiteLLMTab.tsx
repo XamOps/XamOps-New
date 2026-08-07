@@ -380,7 +380,7 @@ export default function LiteLLMTab({ providers, serverBaseUrl = 'https://api.xam
   const steps = [
     {
       num: 1, done: step1Done, active: !step1Done,
-      icon: 'mdi:plug-outline',
+      icon: 'mdi:power-plug-outline',
       title: 'Add an AI Provider',
       desc: 'Go to the API Keys tab → connect OpenAI, Anthropic, Gemini or Bedrock.',
       copyText: null as string | null,
@@ -644,7 +644,7 @@ console.log(response.choices[0].message.content)`;
       {activeProviders.length > 0 && (
         <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
           <h3 className="text-sm font-semibold text-[rgba(0,0,0,0.7)] mb-3 flex items-center gap-2">
-            <Icon icon="mdi:plug-outline" width={14} color="#818cf8" /> Connected Providers
+            <Icon icon="mdi:power-plug-outline" width={14} color="#818cf8" /> Connected Providers
             <span className="ml-auto text-xs font-normal text-[rgba(0,0,0,0.4)]">All accessible via one master key</span>
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -703,7 +703,7 @@ console.log(response.choices[0].message.content)`;
             </h3>
             <div className="space-y-3">
               {[
-                { icon: 'mdi:plug-outline',   title: 'Add Providers',       desc: 'Connect OpenAI, Anthropic, Gemini or Bedrock via API Keys tab.' },
+                { icon: 'mdi:power-plug-outline',   title: 'Add Providers',       desc: 'Connect OpenAI, Anthropic, Gemini or Bedrock via API Keys tab.' },
                 { icon: 'mdi:key-outline',    title: 'Get One Master Key',  desc: 'XamOps gives you one key that works for all connected providers.' },
                 { icon: 'mdi:layers-outline', title: 'Create Key Groups',   desc: 'Group specific providers together and get a separate key per group.' },
                 { icon: 'mdi:chart-bar',      title: 'Monitor Everything',  desc: 'Spend, tokens, latency per model and team — all in the dashboard.' },
@@ -731,7 +731,7 @@ console.log(response.choices[0].message.content)`;
                 { icon: 'mdi:currency-usd',        label: 'Cost Tracking',     desc: 'Per-request spend logging' },
                 { icon: 'mdi:account-group-outline',label: 'Team Budgets',     desc: 'Spend limits per team' },
                 { icon: 'mdi:speedometer',         label: 'Rate Limiting',     desc: 'Control request volume' },
-                { icon: 'mdi:plug-outline',        label: 'OpenAI Compatible', desc: 'Drop-in replacement' },
+                { icon: 'mdi:power-plug-outline',        label: 'OpenAI Compatible', desc: 'Drop-in replacement' },
               ].map(f => (
                 <div key={f.label} className="flex gap-2 p-2.5 bg-indigo-50/60 rounded-xl border border-indigo-100">
                   <Icon icon={f.icon} width={14} color="#6366f1" className="mt-0.5" />

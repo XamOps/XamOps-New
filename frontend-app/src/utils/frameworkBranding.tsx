@@ -13,7 +13,7 @@ export const FRAMEWORK_CONFIG: Record<string, { displayName: string; icon: strin
   'HIPAA':              { displayName: 'HIPAA',               icon: 'mdi:heart-pulse',             color: 'text-red-600',     bgColor: 'bg-red-50',     borderColor: 'border-red-200'     },
   'NIST':               { displayName: 'NIST CSF',            icon: 'mdi:bank-outline',            color: 'text-indigo-600',  bgColor: 'bg-indigo-50',  borderColor: 'border-indigo-200'  },
   'ISO27001':           { displayName: 'ISO 27001',           icon: 'mdi:certificate-outline',     color: 'text-teal-600',    bgColor: 'bg-teal-50',    borderColor: 'border-teal-200'    },
-  'GDPR':               { displayName: 'GDPR',                icon: 'mdi:account-shield-outline',  color: 'text-amber-600',   bgColor: 'bg-amber-50',   borderColor: 'border-amber-200'   },
+  'GDPR':               { displayName: 'GDPR',                icon: 'mdi:shield-account-outline',  color: 'text-amber-600',   bgColor: 'bg-amber-50',   borderColor: 'border-amber-200'   },
   'MITRE':              { displayName: 'MITRE ATT&CK',        icon: 'mdi:crosshairs',              color: 'text-rose-600',    bgColor: 'bg-rose-50',    borderColor: 'border-rose-200'    },
   'CISA':               { displayName: 'CISA',                icon: 'mdi:flag-variant',            color: 'text-sky-600',     bgColor: 'bg-sky-50',     borderColor: 'border-sky-200'     },
   'FEDRAMP':            { displayName: 'FedRAMP',             icon: 'mdi:bank-outline',            color: 'text-blue-700',    bgColor: 'bg-blue-50',    borderColor: 'border-blue-200'    },

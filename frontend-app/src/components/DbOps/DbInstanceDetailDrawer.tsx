@@ -885,7 +885,7 @@ db.grantRolesToUser("xamops_reader", [
     <div className="space-y-3">
       <div className="bg-sky-50 border border-sky-100 rounded-xl p-4">
         <p className="text-xs font-semibold text-sky-800 mb-1 flex items-center gap-2">
-          <Icon icon="mdi:plug-outline" width={14} /> Step 2 — Configure database connections
+          <Icon icon="mdi:power-plug-outline" width={14} /> Step 2 — Configure database connections
         </p>
         <p className="text-xs text-sky-600">One agent can monitor multiple databases. Add each one below.</p>
       </div>

@@ -68,6 +68,12 @@ export default defineConfig({
     versionPlugin(),
   ],
 
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+
   css: {
     devSourcemap: false,
   },
@@ -270,5 +276,17 @@ export default defineConfig({
   build: {
     // For React SPA, Vite automatically uses index.html as entry point
     // No need to specify rollupOptions.input
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // Keep the generated Iconify subset out of the entry chunk. It is ~217 KB of static
+          // SVG path data that changes only when an icon is added, whereas the entry chunk
+          // changes on every app edit — bundling them together would re-download the icons on
+          // every deploy. Split out, it is cached once and reused indefinitely.
+          if (id.includes('src/icons/bundle')) return 'icons';
+          return undefined;
+        },
+      },
+    },
   },
 });

@@ -369,7 +369,7 @@ const GcpDashboard: React.FC = () => {
       <div className="flex-1 p-6 flex items-center justify-center min-h-[calc(100vh-80px)]">
         <div className="text-center p-8 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm max-w-lg w-full">
           <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Icon icon="mdi:alert-triangle-outline" width={36} color="#ef4444" />
+            <Icon icon="mdi:alert-outline" width={36} color="#ef4444" />
           </div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">Connection Error</h2>
           <p className="text-red-500 mb-6">{error.message}</p>
