@@ -3,10 +3,7 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.war.WarReport;
 import com.xammer.cloud.repository.CloudAccountRepository;
-import com.xammer.cloud.service.CloudListService;
-import com.xammer.cloud.service.war.AwsWarService;
-import com.xammer.cloud.service.war.AzureWarService;
-import com.xammer.cloud.service.war.GcpWarService;
+import com.xammer.cloud.service.war.WarScanDispatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -50,29 +47,13 @@ public class WarController {
      */
     private static final int SCAN_TIMEOUT_SECONDS = 110;
 
-    /**
-     * Regions scanned when the account has no discovered region list yet. Mirrors
-     * SecurityController.ComplianceRegions so both pages describe the same footprint.
-     */
-    private static final List<String> FALLBACK_REGIONS = List.of(
-            "ap-south-1", "us-east-1", "ap-southeast-1");
-
-    private final AwsWarService awsWarService;
-    private final GcpWarService gcpWarService;
-    private final AzureWarService azureWarService;
     private final CloudAccountRepository cloudAccountRepository;
-    private final CloudListService cloudListService;
+    private final WarScanDispatcher scanDispatcher;
 
-    public WarController(AwsWarService awsWarService,
-            GcpWarService gcpWarService,
-            AzureWarService azureWarService,
-            CloudAccountRepository cloudAccountRepository,
-            CloudListService cloudListService) {
-        this.awsWarService = awsWarService;
-        this.gcpWarService = gcpWarService;
-        this.azureWarService = azureWarService;
+    public WarController(CloudAccountRepository cloudAccountRepository,
+            WarScanDispatcher scanDispatcher) {
         this.cloudAccountRepository = cloudAccountRepository;
-        this.cloudListService = cloudListService;
+        this.scanDispatcher = scanDispatcher;
     }
 
     @GetMapping("/report")
@@ -87,7 +68,7 @@ public class WarController {
             return CompletableFuture.completedFuture(ResponseEntity.notFound().build());
         }
 
-        return scan(account, forceRefresh)
+        return scanDispatcher.scan(account, forceRefresh)
                 .orTimeout(SCAN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> {
@@ -104,26 +85,6 @@ public class WarController {
     }
 
     /**
-     * Dispatches to the provider's scanner.
-     *
-     * <p>
-     * AWS needs its active-region list resolved first because most of its resources are
-     * regional. GCP and Azure enumerate subscription- or project-wide in one call, so the
-     * provider id is all their scanners need.
-     */
-    private CompletableFuture<WarReport> scan(CloudAccount account, boolean forceRefresh) {
-        String provider = account.getProvider() == null ? "AWS" : account.getProvider();
-        return switch (provider) {
-            case "GCP" -> gcpWarService.getReport(account, forceRefresh);
-            case "Azure" -> azureWarService.getReport(account, forceRefresh);
-            case "AWS" -> resolveRegions(account, forceRefresh)
-                    .thenCompose(regions -> awsWarService.getReport(account, regions, forceRefresh));
-            default -> CompletableFuture.failedFuture(new UnsupportedOperationException(
-                    "WAR does not have a baseline for provider " + provider + " yet"));
-        };
-    }
-
-    /**
      * Kicks off a fresh scan without waiting for it. Lets the UI show "scanning" and
      * poll {@code /report} rather than holding a request open for two minutes.
      */
@@ -134,7 +95,7 @@ public class WarController {
             return ResponseEntity.notFound().build();
         }
         log.info("[WAR] background scan requested for account {}", accountId);
-        scan(account, true).exceptionally(ex -> {
+        scanDispatcher.scan(account, true).exceptionally(ex -> {
             log.error("[WAR] background scan failed for account {}", accountId, ex);
             return null;
         });
@@ -164,22 +125,5 @@ public class WarController {
         }
         log.warn("[WAR] no cloud account registered for accountId {}", accountId);
         return null;
-    }
-
-    private CompletableFuture<List<String>> resolveRegions(CloudAccount account, boolean forceRefresh) {
-        return cloudListService.getRegionStatusForAccount(account, forceRefresh)
-                .thenApply(statuses -> {
-                    List<String> regions = statuses.stream()
-                            .map(s -> s.getRegionId())
-                            .filter(id -> id != null && !id.isBlank())
-                            .distinct()
-                            .toList();
-                    return regions.isEmpty() ? FALLBACK_REGIONS : regions;
-                })
-                .exceptionally(ex -> {
-                    log.warn("[WAR] region discovery failed for account {}, using fallback list: {}",
-                            account.getAwsAccountId(), ex.getMessage());
-                    return FALLBACK_REGIONS;
-                });
     }
 }

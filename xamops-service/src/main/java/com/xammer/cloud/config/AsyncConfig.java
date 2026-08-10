@@ -68,6 +68,33 @@ public class AsyncConfig implements AsyncConfigurer {
     }
 
     /**
+     * Executor for the onboarding WAR report.
+     *
+     * <p>
+     * Its tasks block for the length of a full scan — minutes, not milliseconds — so they
+     * get their own small pool. On the shared default executor a batch of simultaneous
+     * onboardings would occupy every thread and stall unrelated {@code @Async} work.
+     *
+     * <p>
+     * Deliberately narrow: two concurrent scans is already a heavy load of cloud API
+     * calls, and the queue is long because a delayed security email is fine while a
+     * dropped one is not. {@code CallerRunsPolicy} is the last-resort backstop.
+     */
+    @Bean(name = "warReportExecutor")
+    public Executor warReportExecutor(TaskDecorator tenantTaskDecorator) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(3);
+        executor.setQueueCapacity(500);
+        executor.setThreadNamePrefix("WarReport-");
+        executor.setTaskDecorator(tenantTaskDecorator);
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        log.info("warReportExecutor created: core={} max={} queue={}", 2, 3, 500);
+        return executor;
+    }
+
+    /**
      * Default executor for any bare @Async (no named executor) calls.
      * Provides the same TaskDecorator-based tenant context propagation as the named executors,
      * ensuring future @Async methods that don't specify an executor still propagate tenant context.

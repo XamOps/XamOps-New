@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.domain.UserCloudAccountAccess;
 import com.xammer.cloud.dto.*;
+import com.xammer.cloud.event.CloudAccountConnectedEvent;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
@@ -18,6 +19,7 @@ import com.xammer.cloud.service.gcp.GcpDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -61,6 +63,10 @@ public class AccountManagerController {
 
     @Autowired
     private MasterDatabaseService masterDatabaseService;
+
+    /** Announces a newly connected subscription so the onboarding WAR report can run. */
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @PostMapping("/generate-stack-url")
     public ResponseEntity<Map<String, String>> generateStackUrl(@RequestBody AccountCreationRequestDto request,
@@ -345,6 +351,16 @@ public class AccountManagerController {
             CloudAccount savedAccount = cloudAccountRepository.save(account);
             if (isNewAccount) {
                 grantSubUserAccess(userDetails, savedAccount);
+                // Only on a first connection. Re-saving credentials for a subscription the
+                // tenant already onboarded is not an onboarding, and should not re-send the
+                // "your first security review" email.
+                try {
+                    eventPublisher.publishEvent(new CloudAccountConnectedEvent(
+                            savedAccount.getId(), "Azure", false));
+                } catch (Exception e) {
+                    logger.warn("Could not publish connected event for Azure account {}: {}",
+                            savedAccount.getId(), e.getMessage());
+                }
             }
 
             // Logic to skip export setup based on account type is REMOVED.

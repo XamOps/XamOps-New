@@ -3,6 +3,7 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.VerifyAccountRequest;
+import com.xammer.cloud.event.CloudAccountConnectedEvent;
 import com.xammer.cloud.repository.AsgSpotConfigRepository;
 import com.xammer.cloud.repository.AutoSpottingSettingsRepository;
 import com.xammer.cloud.repository.ClientRepository;
@@ -23,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -43,6 +45,7 @@ public class AwsAccountService {
     private final ClientRepository clientRepository;
     public final AwsClientProvider awsClientProvider;
     private final CacheService cacheService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Value("${cloudformation.template.s3.url}")
     private String cloudFormationTemplateUrl;
@@ -62,12 +65,14 @@ public class AwsAccountService {
             ClientRepository clientRepository,
             AwsClientProvider awsClientProvider,
             StsClient stsClient,
-            CacheService cacheService) {
+            CacheService cacheService,
+            ApplicationEventPublisher eventPublisher) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientRepository = clientRepository;
         this.awsClientProvider = awsClientProvider;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
         this.cacheService = cacheService;
+        this.eventPublisher = eventPublisher;
 
         String tmpAccountId;
         try {
@@ -126,6 +131,7 @@ public class AwsAccountService {
             throw new RuntimeException("Account is not in a PENDING or FAILED state.");
         }
 
+        String previousStatus = account.getStatus();
         account.setAwsAccountId(request.getAwsAccountId());
         String roleArn = String.format("arn:aws:iam::%s:role/%s", request.getAwsAccountId(), request.getRoleName());
         account.setRoleArn(roleArn);
@@ -137,9 +143,12 @@ public class AwsAccountService {
             Ec2Client testClient = awsClientProvider.getEc2Client(account, configuredRegion);
             testClient.describeRegions();
 
+            boolean reconnected = "FAILED".equals(previousStatus);
             account.setStatus("CONNECTED");
             logger.info("Successfully verified and connected to account: {}", account.getAccountName());
-            return cloudAccountRepository.save(account);
+            CloudAccount saved = cloudAccountRepository.save(account);
+            publishConnected(saved, reconnected);
+            return saved;
         } catch (Exception e) {
             account.setStatus("FAILED");
             logger.error("Failed to verify account {}: {}", account.getAccountName(), e.getMessage());
@@ -160,6 +169,7 @@ public class AwsAccountService {
             return account;
         }
 
+        String previousStatus = account.getStatus();
         account.setAwsAccountId(awsAccountId);
         account.setRoleArn(roleArn);
         awsClientProvider.evictAccount(awsAccountId);
@@ -167,9 +177,12 @@ public class AwsAccountService {
         try {
             Ec2Client testClient = awsClientProvider.getEc2Client(account, configuredRegion);
             testClient.describeRegions();
+            boolean reconnected = "FAILED".equals(previousStatus);
             account.setStatus("CONNECTED");
             logger.info("EventBridge callback: successfully connected account externalId={}", externalId);
-            return cloudAccountRepository.save(account);
+            CloudAccount saved = cloudAccountRepository.save(account);
+            publishConnected(saved, reconnected);
+            return saved;
         } catch (Exception e) {
             account.setStatus("FAILED");
             logger.error("EventBridge callback: role assumption failed for externalId={}: {}", externalId,
@@ -177,6 +190,24 @@ public class AwsAccountService {
             cloudAccountRepository.save(account);
             awsClientProvider.evictAccount(awsAccountId);
             throw new RuntimeException("Role assumption failed during EventBridge callback.", e);
+        }
+    }
+
+    /**
+     * Announces that an account reached CONNECTED, so listeners can react.
+     *
+     * <p>
+     * Currently drives the onboarding WAR report email. Wrapped in a try/catch because
+     * publishing must never turn a successful connection into a failed API response —
+     * the account is connected regardless of who is listening.
+     */
+    private void publishConnected(CloudAccount account, boolean reconnected) {
+        try {
+            eventPublisher.publishEvent(new CloudAccountConnectedEvent(
+                    account.getId(), account.getProvider(), reconnected));
+        } catch (Exception e) {
+            logger.warn("Could not publish connected event for account {}: {}",
+                    account.getId(), e.getMessage());
         }
     }
 
