@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react';
 import type { CveResourceFinding, CveGroupRow } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
 import DetailPanel, { PanelBlock, PanelRow, type PanelSection } from './DetailPanel';
+import { packageMark, osMark, ResourceIcon } from '../../utils/resourceBranding';
 
 interface Props {
   cve: CveGroupRow;
@@ -100,7 +101,27 @@ const VulnFindingDrawer: React.FC<Props> = ({ cve, finding, onClose, onOpenResou
               <PanelRow label="Current version" value={
                 finding.packageVersion
                   ? <span className="font-mono">{finding.packageVersion}</span> : null} />
-              <PanelRow label="Package" value={finding.packageName} />
+              <PanelRow label="Package" value={finding.packageName ? (
+                <span className="flex items-center gap-1.5">
+                  <ResourceIcon mark={packageMark(finding.packageName)} />
+                  <span>{finding.packageName}</span>
+                </span>
+              ) : null} />
+              {/* Which distro the vulnerable package came from is often the fastest route to a
+                  fix: an Alpine base and a Debian base patch differently. */}
+              <PanelRow label="Base image OS" value={finding.imageOsName ? (
+                <span className="flex items-center gap-1.5">
+                  <ResourceIcon mark={osMark(finding.imageOsName)} />
+                  <span>
+                    {osMark(finding.imageOsName).label}
+                    {finding.imageOsVersion && (
+                      <span className="ml-1 font-mono text-[11px] text-gray-500">
+                        {finding.imageOsVersion}
+                      </span>
+                    )}
+                  </span>
+                </span>
+              ) : null} />
             </>
           ) : (
             <p className="text-xs text-gray-500">
@@ -129,10 +150,35 @@ const VulnFindingDrawer: React.FC<Props> = ({ cve, finding, onClose, onOpenResou
         <PanelBlock>
           {finding.image || finding.imageTag ? (
             <>
-              <PanelRow label="Image" value={finding.image} />
+              <PanelRow label="Image" value={finding.image ? (
+                <span className="flex items-center gap-1.5">
+                  <ResourceIcon mark={{ icon: 'logos:docker-icon', label: 'Container image' }} />
+                  <span>{finding.image}</span>
+                </span>
+              ) : null} />
               <PanelRow label="Tag" value={
                 finding.imageTag ? <span className="font-mono">{finding.imageTag}</span> : null} />
-              <PanelRow label="Package" value={finding.packageName} />
+              <PanelRow label="Package" value={finding.packageName ? (
+                <span className="flex items-center gap-1.5">
+                  <ResourceIcon mark={packageMark(finding.packageName)} />
+                  <span>{finding.packageName}</span>
+                </span>
+              ) : null} />
+              {/* Which distro the vulnerable package came from is often the fastest route to a
+                  fix: an Alpine base and a Debian base patch differently. */}
+              <PanelRow label="Base image OS" value={finding.imageOsName ? (
+                <span className="flex items-center gap-1.5">
+                  <ResourceIcon mark={osMark(finding.imageOsName)} />
+                  <span>
+                    {osMark(finding.imageOsName).label}
+                    {finding.imageOsVersion && (
+                      <span className="ml-1 font-mono text-[11px] text-gray-500">
+                        {finding.imageOsVersion}
+                      </span>
+                    )}
+                  </span>
+                </span>
+              ) : null} />
               <PanelRow label="Package version" value={
                 finding.packageVersion
                   ? <span className="font-mono">{finding.packageVersion}</span> : null} />

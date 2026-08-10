@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '@iconify/react';
 import type { VulnGroupPage, VulnGroupDimension } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
+import { packageMark, resourceMark, ResourceIcon } from '../../utils/resourceBranding';
 
 interface Props {
   data: VulnGroupPage | null | undefined;
@@ -14,12 +15,6 @@ const HEADINGS: Record<VulnGroupDimension, { primary: string; secondary: string 
   image: { primary: 'Image', secondary: 'Tag' },
   package: { primary: 'Package', secondary: 'Version' },
   resource: { primary: 'Resource', secondary: 'Type' },
-};
-
-const ICONS: Record<VulnGroupDimension, string> = {
-  image: 'mdi:layers-outline',
-  package: 'mdi:package-variant-closed',
-  resource: 'mdi:cube-outline',
 };
 
 /**
@@ -53,7 +48,17 @@ const VulnGroupTable: React.FC<Props> = ({ data, dimension, isLoading, onPage })
               <tr key={g.key} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="px-5 py-3">
                   <span className="flex items-center gap-1.5 min-w-0">
-                    <Icon icon={ICONS[dimension]} width={13} className="flex-shrink-0 text-gray-400" />
+                    {/* Every row shared one layers glyph before. A package row now carries its
+                        upstream project's mark and a resource row its service's, which is what
+                        makes the list scannable rather than uniform. */}
+                    {dimension === 'package' ? (
+                      <ResourceIcon mark={packageMark(g.key)} size={13} className="flex-shrink-0" />
+                    ) : dimension === 'resource' ? (
+                      <ResourceIcon mark={resourceMark(g.secondary ?? g.key)} size={13} className="flex-shrink-0" />
+                    ) : (
+                      <ResourceIcon mark={{ icon: 'logos:docker-icon', label: 'Image' }} size={13}
+                                    className="flex-shrink-0" />
+                    )}
                     <span className="font-medium text-gray-800 truncate max-w-md" title={g.key}>
                       {g.key}
                     </span>

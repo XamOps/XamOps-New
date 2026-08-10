@@ -153,6 +153,9 @@ export interface CveResourceFinding {
   firstSeenTime: string | null;
   lastScanTime: string | null;
   packageName?: string | null;     // single package name, or "N packages"
+  /** Base-image OS, for the distro mark in the drill-down. Null on host findings. */
+  imageOsName?: string | null;
+  imageOsVersion?: string | null;
   packageCount?: number | null;
   packageVersion?: string | null;
   inUse?: boolean | null;

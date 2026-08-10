@@ -1699,6 +1699,12 @@ public class XamSecureService {
                 agg.clusterName = v.getClusterName();
                 agg.packageVersion = v.getPackageVersion();
                 agg.imageTag = v.getImageTag();
+                // Base-image OS. Persisted since the runtime-context work but never exposed,
+                // so the drill-down could not say which distro a finding came from.
+                agg.imageOsName = v.getImageOsName();
+                agg.imageOsVersion = v.getImageOsVersion();
+                agg.imageOsName = v.getImageOsName();
+                agg.imageOsVersion = v.getImageOsVersion();
             }
 
             // remediation has no promoted column, so it still needs the payload.
@@ -1736,6 +1742,12 @@ public class XamSecureService {
             m.put("inUse", a.anyInUse);
             m.put("packageVersion", a.packageVersion);
             m.put("imageTag", a.imageTag);
+            m.put("imageOsName", a.imageOsName);
+            m.put("imageOsVersion", a.imageOsVersion);
+            // Persisted since the runtime-context work but never exposed. The base image OS is
+            // what tells you whether a CVE is even reachable in your distro's build.
+            m.put("imageOsName", a.imageOsName);
+            m.put("imageOsVersion", a.imageOsVersion);
             m.put("namespace", a.namespace);
             m.put("clusterName", a.clusterName);
             m.put("internetExposed", a.internetExposed);
@@ -1750,7 +1762,7 @@ public class XamSecureService {
     private static final class CveResourceAgg {
         String resourceId;
         String resourceName, resourceType, region, cloudProvider, cvssScore, fixedInVersion;
-        String packageVersion, imageTag, namespace, clusterName;
+        String packageVersion, imageTag, namespace, clusterName, imageOsName, imageOsVersion;
         boolean exploitable, anyInUse, internetExposed, activeCommunication, functionsInUse;
         Instant firstSeen, lastScan;
         final Set<String> packages = new LinkedHashSet<>();

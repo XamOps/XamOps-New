@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '@iconify/react';
 import type { ThreatGroups, ThreatGroupDimension } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
+import { resourceMark, telemetryMark, ResourceIcon } from '../../utils/resourceBranding';
 
 interface Props {
   data: ThreatGroups | null | undefined;
@@ -56,7 +57,15 @@ const ThreatGroupTable: React.FC<Props> = ({ data, dimension, isLoading }) => {
               <tr key={g.key} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="px-5 py-3">
                   <span className="flex items-center gap-1.5 min-w-0">
-                    <Icon icon={ICONS[dimension]} width={13} className="flex-shrink-0 text-gray-400" />
+                    {/* A resource row is branded by its own type; a threat row has no product
+                        to name, so it keeps the abstract glyph. */}
+                    {dimension === 'resource' && g.secondary ? (
+                      <ResourceIcon mark={resourceMark(g.secondary)} size={13} className="flex-shrink-0" />
+                    ) : dimension === 'account' ? (
+                      <ResourceIcon mark={resourceMark('aws')} size={13} className="flex-shrink-0" />
+                    ) : (
+                      <Icon icon={ICONS[dimension]} width={13} className="flex-shrink-0 text-gray-400" />
+                    )}
                     <span className="font-medium text-gray-800 truncate max-w-md" title={g.key}>
                       {g.key}
                     </span>
@@ -64,7 +73,18 @@ const ThreatGroupTable: React.FC<Props> = ({ data, dimension, isLoading }) => {
                 </td>
                 {showSecondary && (
                   <td className="px-3 py-3 text-[11px] text-gray-500">
-                    {g.secondary ?? <span className="text-gray-300">—</span>}
+                    {g.secondary ? (
+                      <span className="flex items-center gap-1.5" title={g.secondary}>
+                        <ResourceIcon
+                          mark={dimension === 'threat' ? telemetryMark(g.secondary) : resourceMark(g.secondary)}
+                          size={12} className="flex-shrink-0" />
+                        <span className="truncate">
+                          {dimension === 'threat'
+                            ? telemetryMark(g.secondary).label
+                            : resourceMark(g.secondary).label}
+                        </span>
+                      </span>
+                    ) : <span className="text-gray-300">—</span>}
                   </td>
                 )}
                 <td className="px-3 py-3"><SeverityChip severity={g.severity} /></td>
