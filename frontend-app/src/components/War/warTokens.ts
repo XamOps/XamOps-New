@@ -24,47 +24,63 @@ interface StatusToken {
   accent: string;
 }
 
+/**
+ * Pill backgrounds are solid, never alpha-blended.
+ *
+ * The labels exist so this page never leans on colour alone, which only works if they
+ * can be read. At 9.5px they are normal-size text and owe 4.5:1, but blending a -500 at
+ * 85% over a white card landed every one of them under it — measured: amber 1.91:1,
+ * emerald 2.22:1, sky 2.39:1, red 3.19:1, and the two neutrals 2.24:1 and 3.36:1. The
+ * darker solid steps below clear 4.5:1 with the lightest at 4.74:1.
+ *
+ * The two neutrals stay on the house rgba ladder rather than switching to Tailwind's
+ * slate, per the palette note above.
+ */
 export const STATUS_TOKENS: Record<WarStatus, StatusToken> = {
   FAIL: {
     label: 'Exposed',
     icon: 'mdi:shield-off-outline',
     badge: 'bg-red-50 text-red-700 border-red-200',
-    pill: 'bg-red-500/85 text-white',
+    pill: 'bg-red-600 text-white', // 4.83:1
     accent: 'bg-red-500',
   },
   WARN: {
     label: 'Weakened',
     icon: 'mdi:shield-alert-outline',
     badge: 'bg-amber-50 text-amber-700 border-amber-200',
-    pill: 'bg-amber-500/85 text-white',
+    // Amber is the hard one: even amber-600 only reaches 3.19:1 against white text.
+    pill: 'bg-amber-700 text-white', // 5.02:1
     accent: 'bg-amber-400',
   },
   UNKNOWN: {
     label: 'Unverified',
     icon: 'mdi:shield-search',
     badge: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.16)]',
-    pill: 'bg-[rgba(0,0,0,0.45)] text-white',
+    pill: 'bg-[rgba(0,0,0,0.6)] text-white', // 5.74:1
     accent: 'bg-[rgba(0,0,0,0.18)]',
   },
   MANUAL: {
     label: 'Manual review',
     icon: 'mdi:account-search-outline',
     badge: 'bg-sky-50 text-sky-700 border-sky-200',
-    pill: 'bg-sky-500/85 text-white',
+    pill: 'bg-sky-700 text-white', // 5.93:1
     accent: 'bg-sky-300',
   },
   PASS: {
     label: 'Protected',
     icon: 'mdi:shield-check-outline',
     badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    pill: 'bg-emerald-500/85 text-white',
+    pill: 'bg-emerald-700 text-white', // 5.48:1
     accent: 'bg-emerald-500',
   },
   NOT_APPLICABLE: {
     label: 'Not in use',
     icon: 'mdi:minus-circle-outline',
-    badge: 'bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.1)]',
-    pill: 'bg-[rgba(0,0,0,0.32)] text-white',
+    // No component renders STATUS_TOKENS.badge today, but it is kept at a passing value
+    // so turning it on later cannot reintroduce a contrast failure.
+    badge: 'bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.1)]',
+    // Kept the lighter of the two neutrals so it still reads as the quieter state.
+    pill: 'bg-[rgba(0,0,0,0.55)] text-white', // 4.74:1
     accent: 'bg-transparent',
   },
 };
@@ -82,18 +98,22 @@ export const SEVERITY_TOKENS: Record<string, { icon: string; text: string; badge
   },
   high: {
     icon: 'mdi:alert',
-    text: 'text-orange-600 font-semibold',
+    // orange-600 measured 3.56:1 at this size; 700 reaches 5.18:1.
+    text: 'text-orange-700 font-semibold',
     badge: 'bg-orange-50 text-orange-700 border-orange-200',
   },
   medium: {
     icon: 'mdi:minus-circle-outline',
-    text: 'text-[rgba(0,0,0,0.55)] font-medium',
+    // Raised one step so it still outranks low once low itself had to come up.
+    text: 'text-[rgba(0,0,0,0.6)] font-medium',
     badge: 'bg-amber-50 text-amber-700 border-amber-200',
   },
   low: {
     icon: 'mdi:arrow-down-circle-outline',
-    text: 'text-[rgba(0,0,0,0.4)] font-medium',
-    badge: 'bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)]',
+    // Was 0.4 — 2.85:1, the worst text on the page. 0.55 is the first passing step.
+    text: 'text-[rgba(0,0,0,0.55)] font-medium',
+    // Badge label was 0.5 (3.95:1) on a 0.03 tint; 0.6 clears it with margin.
+    badge: 'bg-[rgba(0,0,0,0.03)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.12)]',
   },
 };
 
@@ -126,11 +146,20 @@ export const ATTACK_PATH_ICONS: Record<string, string> = {
   COST_ABUSE: 'mdi:cash-remove',
 };
 
+/**
+ * The score ring and the verdict beside it.
+ *
+ * {@code text} renders at 13px semibold — normal-size text, so it owes 4.5:1. The -600
+ * steps did not reach it (orange 3.56:1, amber 3.19:1, emerald 3.77:1) on what is
+ * arguably the most consequential label on the page, so the verdict colours sit one step
+ * darker than the ring they describe. {@code ring} is a 9px stroke whose value is also
+ * printed as a numeral inside it, so it is a redundant graphic and stays at -500.
+ */
 export const RISK_LEVEL_TOKENS: Record<string, { ring: string; text: string; label: string }> = {
   CRITICAL: { ring: 'stroke-red-500', text: 'text-red-600', label: 'Critical risk' },
-  HIGH: { ring: 'stroke-orange-500', text: 'text-orange-600', label: 'High risk' },
-  MEDIUM: { ring: 'stroke-amber-500', text: 'text-amber-600', label: 'Medium risk' },
-  LOW: { ring: 'stroke-emerald-500', text: 'text-emerald-600', label: 'Low risk' },
+  HIGH: { ring: 'stroke-orange-500', text: 'text-orange-700', label: 'High risk' },
+  MEDIUM: { ring: 'stroke-amber-500', text: 'text-amber-700', label: 'Medium risk' },
+  LOW: { ring: 'stroke-emerald-500', text: 'text-emerald-700', label: 'Low risk' },
   // Not a risk rating. The scan could not read the account, so there is nothing to
   // rate — calling that "critical" would blame the customer for our blind spot.
   UNKNOWN: {
