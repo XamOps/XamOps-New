@@ -171,7 +171,14 @@ const AksDetailsPage: React.FC = () => {
         )}
       </div>
 
-      <AzureCloudK8sHelpModal isOpen={showGuide} onClose={() => setShowGuide(false)} />
+      {/* All three guide variables are already in the URL, so the user types nothing. */}
+      <AzureCloudK8sHelpModal
+        isOpen={showGuide}
+        onClose={() => setShowGuide(false)}
+        clusterName={clusterName ?? undefined}
+        resourceGroup={resourceGroup || undefined}
+        subscriptionId={accountId ?? undefined}
+      />
     </main>
   );
 };

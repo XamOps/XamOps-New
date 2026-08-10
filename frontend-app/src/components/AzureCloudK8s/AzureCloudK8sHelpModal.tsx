@@ -1,16 +1,73 @@
 import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
 import { DialogRoot, DialogPanel } from '../ui';
+import { useAgentInstallConfig, type AgentInstallConfig } from '../../hooks/useAgentInstallConfig';
+
+/** A cluster the user can pick from when the guide is opened without one selected. */
+export interface GuideClusterOption {
+  name: string;
+  resourceGroup: string;
+}
 
 interface AzureCloudK8sHelpModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Prefills the Cluster Name field — passed from the details page. */
+  clusterName?: string;
+  /** Prefills the Resource Group field. */
+  resourceGroup?: string;
+  /** Prefills the Subscription ID field. */
+  subscriptionId?: string;
+  /** When supplied, Cluster Name becomes a picker that fills the resource group too. */
+  clusters?: GuideClusterOption[];
+}
+
+/**
+ * The three placeholders that appear across the guide's commands. Every occurrence is
+ * substituted from a single set of inputs so the user fills each value once instead of
+ * hand-editing it in Steps 1.1, 1.5, 2.2, 3.2 and 4.3 separately — which is how the
+ * wrong cluster name ends up in a ConfigMap and two clusters collide on one
+ * cluster_config_id.
+ */
+export const PLACEHOLDERS = {
+  clusterName: '<CLUSTER_NAME>',
+  resourceGroup: '<RESOURCE_GROUP>',
+  subscriptionId: '<AZURE_SUBSCRIPTION_ID>',
+} as const;
+
+export interface GuideVars {
+  clusterName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+}
+
+const GuideVarsContext = React.createContext<GuideVars>({
+  clusterName: '',
+  resourceGroup: '',
+  subscriptionId: '',
+});
+
+/**
+ * Replaces filled-in placeholders. Blank values are left as the literal token on purpose:
+ * an unmistakable `<CLUSTER_NAME>` in the copied command is far better than a silently
+ * broken one with an empty string where the name should be.
+ */
+export function substituteVars(code: string, vars: GuideVars): string {
+  let out = code;
+  if (vars.clusterName.trim()) out = out.split(PLACEHOLDERS.clusterName).join(vars.clusterName.trim());
+  if (vars.resourceGroup.trim()) out = out.split(PLACEHOLDERS.resourceGroup).join(vars.resourceGroup.trim());
+  if (vars.subscriptionId.trim()) out = out.split(PLACEHOLDERS.subscriptionId).join(vars.subscriptionId.trim());
+  return out;
 }
 
 const CodeBlock: React.FC<{ code: string; title?: string }> = ({ code, title }) => {
   const [copied, setCopied] = useState(false);
+  const vars = React.useContext(GuideVarsContext);
+  // Substituted centrally here so no command block can be missed, and so Copy always
+  // yields exactly what is displayed.
+  const resolved = substituteVars(code, vars);
   const handleCopy = async () => {
-    try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    try { await navigator.clipboard.writeText(resolved); setCopied(true); setTimeout(() => setCopied(false), 2000); }
     catch {}
   };
   return (
@@ -26,7 +83,7 @@ const CodeBlock: React.FC<{ code: string; title?: string }> = ({ code, title }) 
           <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} width={12} className={copied ? 'text-emerald-400' : ''} />
           {copied ? 'Copied!' : 'Copy'}
         </button>
-        <pre className="whitespace-pre leading-relaxed">{code}</pre>
+        <pre className="whitespace-pre leading-relaxed">{resolved}</pre>
       </div>
     </div>
   );
@@ -51,17 +108,222 @@ const CollapsibleSection: React.FC<{ title: string; icon: string; iconColor?: st
   );
 };
 
-const VarNote: React.FC<{ vars: string[] }> = ({ vars }) => (
-  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 flex items-start gap-2">
-    <Icon icon="mdi:alert-outline" width={14} color="#D97706" className="mt-0.5 flex-shrink-0" />
-    <p className="text-[12px] text-amber-800">
-      <strong>Variables to replace:</strong> {vars.join(', ')}
-    </p>
-  </div>
-);
+/**
+ * Reports only the variables this step needs that are still empty. Once they're filled from
+ * the bar at the top the note disappears, rather than telling the user to replace values
+ * that are already substituted in the block below.
+ */
+const VarNote: React.FC<{ vars: string[] }> = ({ vars }) => {
+  const current = React.useContext(GuideVarsContext);
+  const valueFor = (token: string) =>
+    token === PLACEHOLDERS.clusterName ? current.clusterName
+      : token === PLACEHOLDERS.resourceGroup ? current.resourceGroup
+      : token === PLACEHOLDERS.subscriptionId ? current.subscriptionId
+      : '';
+  const missing = vars.filter(v => !valueFor(v).trim());
 
-const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({ isOpen, onClose }) => {
+  if (missing.length === 0) {
+    return (
+      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3 flex items-start gap-2">
+        <Icon icon="mdi:check-circle-outline" width={14} color="#059669" className="mt-0.5 flex-shrink-0" />
+        <p className="text-[12px] text-emerald-800">
+          Values filled in — the commands below are ready to copy as-is.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 flex items-start gap-2">
+      <Icon icon="mdi:alert-outline" width={14} color="#D97706" className="mt-0.5 flex-shrink-0" />
+      <p className="text-[12px] text-amber-800">
+        <strong>Still needed:</strong> {missing.join(', ')} — fill these in at the top of this guide.
+      </p>
+    </div>
+  );
+};
+
+/** Three inputs at the top of the guide that drive every command block below. */
+const VariableBar: React.FC<{
+  vars: GuideVars;
+  onChange: (next: GuideVars) => void;
+  clusters?: GuideClusterOption[];
+  /** Set when the backend URL can't be reached from inside a cluster (local dev). */
+  tunnel?: { url: string; onChange: (next: string) => void; backendUrl: string };
+}> = ({ vars, onChange, clusters, tunnel }) => {
+  const allSet = vars.clusterName.trim() && vars.resourceGroup.trim() && vars.subscriptionId.trim();
+
+  const inputClass =
+    'w-full px-2.5 py-1.5 text-[12px] font-mono border rounded-lg outline-none transition-colors focus:border-indigo-500';
+
+  const fieldBorder = (value: string) =>
+    value.trim() ? 'border-[rgba(0,0,0,0.12)] bg-white' : 'border-amber-300 bg-amber-50';
+
+  return (
+    <div className={`rounded-xl border p-4 mb-4 ${allSet ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/50'}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <Icon icon={allSet ? 'mdi:check-circle-outline' : 'mdi:pencil-outline'} width={14}
+              color={allSet ? '#059669' : '#D97706'} />
+        <span className="text-[12px] font-bold text-[rgba(0,0,0,0.75)]">
+          {allSet ? 'Your cluster details' : 'Enter your cluster details'}
+        </span>
+        <span className="text-[11px] text-[rgba(0,0,0,0.45)]">
+          — applied to every command in this guide
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label htmlFor="guide-cluster-name" className="block text-[11px] font-semibold text-[rgba(0,0,0,0.55)] mb-1">
+            Cluster Name
+          </label>
+          {clusters && clusters.length > 0 ? (
+            <select
+              id="guide-cluster-name"
+              className={`${inputClass} ${fieldBorder(vars.clusterName)}`}
+              value={vars.clusterName}
+              onChange={e => {
+                const picked = clusters.find(c => c.name === e.target.value);
+                // Setting both together prevents pairing a cluster with the wrong group.
+                onChange({
+                  ...vars,
+                  clusterName: e.target.value,
+                  resourceGroup: picked ? picked.resourceGroup : vars.resourceGroup,
+                });
+              }}
+            >
+              <option value="">Select a cluster…</option>
+              {clusters.map(c => (
+                <option key={c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id="guide-cluster-name"
+              type="text"
+              className={`${inputClass} ${fieldBorder(vars.clusterName)}`}
+              placeholder="my-aks-cluster"
+              value={vars.clusterName}
+              onChange={e => onChange({ ...vars, clusterName: e.target.value })}
+            />
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="guide-resource-group" className="block text-[11px] font-semibold text-[rgba(0,0,0,0.55)] mb-1">
+            Resource Group
+          </label>
+          <input
+            id="guide-resource-group"
+            type="text"
+            className={`${inputClass} ${fieldBorder(vars.resourceGroup)}`}
+            placeholder="my-resource-group"
+            value={vars.resourceGroup}
+            onChange={e => onChange({ ...vars, resourceGroup: e.target.value })}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="guide-subscription-id" className="block text-[11px] font-semibold text-[rgba(0,0,0,0.55)] mb-1">
+            Azure Subscription ID
+          </label>
+          <input
+            id="guide-subscription-id"
+            type="text"
+            className={`${inputClass} ${fieldBorder(vars.subscriptionId)}`}
+            placeholder="00000000-0000-0000-0000-000000000000"
+            value={vars.subscriptionId}
+            onChange={e => onChange({ ...vars, subscriptionId: e.target.value })}
+          />
+        </div>
+      </div>
+
+      {!allSet && (
+        <p className="text-[11px] text-amber-800 mt-2.5">
+          Empty fields stay as <code className="bg-amber-100 px-1 rounded">&lt;PLACEHOLDER&gt;</code> tokens in the
+          commands, so nothing silently runs with a missing value.
+        </p>
+      )}
+
+      {tunnel && (
+        <div className="mt-3 pt-3 border-t border-[rgba(0,0,0,0.08)]">
+          <label htmlFor="guide-tunnel-url" className="block text-[11px] font-semibold text-[rgba(0,0,0,0.55)] mb-1">
+            Public tunnel URL
+            <span className="ml-1 font-normal text-[rgba(0,0,0,0.4)]">
+              — required: this backend is at {tunnel.backendUrl}, which a cluster cannot reach
+            </span>
+          </label>
+          <input
+            id="guide-tunnel-url"
+            type="text"
+            className={`w-full px-2.5 py-1.5 text-[12px] font-mono border rounded-lg outline-none transition-colors focus:border-indigo-500 ${
+              tunnel.url.trim() ? 'border-[rgba(0,0,0,0.12)] bg-white' : 'border-red-300 bg-red-50'}`}
+            placeholder="https://your-subdomain.ngrok-free.dev"
+            value={tunnel.url}
+            onChange={e => tunnel.onChange(e.target.value)}
+          />
+          <p className="text-[11px] text-[rgba(0,0,0,0.5)] mt-1.5">
+            Start one with <code className="bg-[rgba(0,0,0,0.05)] px-1 rounded">ngrok http 8080</code> or{' '}
+            <code className="bg-[rgba(0,0,0,0.05)] px-1 rounded">cloudflared tunnel --url http://localhost:8080</code>,
+            then paste the public HTTPS URL here. It replaces{' '}
+            <code className="bg-[rgba(0,0,0,0.05)] px-1 rounded">XAMOPS_SERVER_URL</code> in Step 3.2.
+          </p>
+          {!tunnel.url.trim() && (
+            <p className="text-[11px] text-red-700 mt-1.5">
+              Leaving this empty keeps <code className="bg-red-100 px-1 rounded">{tunnel.backendUrl}</code> in the
+              manifest. Port 8080 is also the agent's own health port, so the agent ends up POSTing to itself and
+              reports a misleading <strong>HTTP 404</strong> rather than a connection error.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** Host without scheme/port, for prose like "pushes outbound to <host>:443". */
+const hostOf = (url: string) => url.replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '');
+
+const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({
+  isOpen, onClose, clusterName, resourceGroup, subscriptionId, clusters,
+}) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'part1' | 'part2' | 'part3' | 'part4'>('overview');
+
+  const [vars, setVars] = useState<GuideVars>({
+    clusterName: clusterName ?? '',
+    resourceGroup: resourceGroup ?? '',
+    subscriptionId: subscriptionId ?? '',
+  });
+
+  // Re-seed when the caller's context changes (e.g. navigating between clusters without
+  // unmounting), but never overwrite something the user has typed.
+  React.useEffect(() => {
+    setVars(prev => ({
+      clusterName: prev.clusterName || clusterName || '',
+      resourceGroup: prev.resourceGroup || resourceGroup || '',
+      subscriptionId: prev.subscriptionId || subscriptionId || '',
+    }));
+  }, [clusterName, resourceGroup, subscriptionId]);
+
+  // Resolves XAMOPS_SERVER_URL and the API key from the running backend profile, so the
+  // manifest below targets whichever environment the user is actually logged into.
+  const { config } = useAgentInstallConfig(isOpen);
+
+  // Local-dev only: the agent runs in Azure and cannot reach a loopback backend, so the
+  // user supplies a public tunnel URL that replaces XAMOPS_SERVER_URL in the manifest.
+  const [tunnelUrl, setTunnelUrl] = useState('');
+
+  /**
+   * What the manifest should actually say. A supplied tunnel URL wins over the backend's
+   * own (unreachable) address; otherwise the profile value is used unchanged.
+   */
+  const effectiveConfig: AgentInstallConfig = React.useMemo(() => {
+    const trimmed = tunnelUrl.trim().replace(/\/+$/, '');
+    if (!config.reachableFromCluster && trimmed) {
+      return { ...config, serverUrl: trimmed, reachableFromCluster: true };
+    }
+    return config;
+  }, [config, tunnelUrl]);
 
   const tabs = [
     { id: 'overview', label: 'Overview',                icon: 'mdi:information-outline' },
@@ -107,19 +369,32 @@ const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({ isOpen,
           ))}
         </div>
 
-        <div className="overflow-y-auto max-h-[60vh]" style={{ overscrollBehavior: 'contain' }}>
-          {activeTab === 'overview' && <OverviewTab />}
-          {activeTab === 'part1'    && <Part1Tab />}
-          {activeTab === 'part2'    && <Part2Tab />}
-          {activeTab === 'part3'    && <Part3Tab />}
-          {activeTab === 'part4'    && <Part4Tab />}
-        </div>
+        <GuideVarsContext.Provider value={vars}>
+          <VariableBar
+            vars={vars}
+            onChange={setVars}
+            clusters={clusters}
+            tunnel={config.reachableFromCluster ? undefined : {
+              url: tunnelUrl,
+              onChange: setTunnelUrl,
+              backendUrl: config.serverUrl,
+            }}
+          />
+
+          <div className="overflow-y-auto max-h-[52vh]" style={{ overscrollBehavior: 'contain' }}>
+            {activeTab === 'overview' && <OverviewTab serverUrl={effectiveConfig.serverUrl} />}
+            {activeTab === 'part1'    && <Part1Tab />}
+            {activeTab === 'part2'    && <Part2Tab />}
+            {activeTab === 'part3'    && <Part3Tab config={effectiveConfig} />}
+            {activeTab === 'part4'    && <Part4Tab />}
+          </div>
+        </GuideVarsContext.Provider>
       </DialogPanel>
     </DialogRoot>
   );
 };
 
-const OverviewTab: React.FC = () => (
+const OverviewTab: React.FC<{ serverUrl: string }> = ({ serverUrl }) => (
   <div className="space-y-5">
     <div className="p-5 bg-blue-50 border border-blue-100 rounded-xl">
       <h3 className="text-[14px] font-bold text-blue-800 mb-2 flex items-center gap-2">
@@ -128,7 +403,7 @@ const OverviewTab: React.FC = () => (
       </h3>
       <p className="text-[13px] text-blue-700">
         The XamOps agent runs inside your AKS cluster and pushes data outbound to{' '}
-        <code className="bg-blue-100 px-1 rounded">live.xamops.com:443</code>.
+        <code className="bg-blue-100 px-1 rounded">{hostOf(serverUrl)}</code>.
         Your cluster never receives inbound connections from XamOps. Works for private AKS clusters,
         VNet-isolated environments, and any Azure network security posture.
       </p>
@@ -142,11 +417,9 @@ const OverviewTab: React.FC = () => (
 │   ├── node-exporter (DaemonSet)← node_cpu, node_memory
 │   ├── falco + falcosidekick    ← security events → Prometheus
 │   └── opencost                 ← cost allocation
-├── default namespace
-│   └── cost-exporter            ← Azure VM pricing metrics
 ├── xamops-system namespace
 │   └── xamops-agent             ← reads K8s API + queries Prometheus
-│       │                           PUSH → live.xamops.com:443
+│       │                           PUSH → ${hostOf(serverUrl)}
 │       └── collectors: k8s-resources, prometheus-metrics, trivy, kubescape, opencost`}</pre>
     </div>
 
@@ -156,9 +429,9 @@ const OverviewTab: React.FC = () => (
       </h4>
       <div className="space-y-3">
         {[
-          { n: '1', color: 'bg-blue-500',   text: 'Prometheus scrapes KSM, node-exporter, cadvisor, Falco, OpenCost, and Azure cost-exporter — all inside the cluster.' },
+          { n: '1', color: 'bg-blue-500',   text: 'Prometheus scrapes KSM, node-exporter, cadvisor, Falco, and OpenCost — all inside the cluster.' },
           { n: '2', color: 'bg-indigo-500', text: 'XamOps Agent queries Prometheus in-cluster and reads the Kubernetes API (nodes, pods, deployments, HPAs, PVCs, events…).' },
-          { n: '3', color: 'bg-purple-500', text: 'Agent POSTs a JSON payload to live.xamops.com/api/v1/agent/ingest (HTTPS, outbound port 443).' },
+          { n: '3', color: 'bg-purple-500', text: `Agent POSTs a JSON payload to ${hostOf(serverUrl)}/api/v1/agent/ingest (HTTPS, outbound).` },
           { n: '4', color: 'bg-emerald-500',text: 'XamOps backend stores data keyed by cluster. Dashboard reads from cache — no direct cluster access needed.' },
         ].map(({ n, color, text }) => (
           <div key={n} className="flex items-start gap-3">
@@ -171,7 +444,7 @@ const OverviewTab: React.FC = () => (
 
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
       {[
-        { part: 'Part 1', color: 'blue',   icon: 'mdi:chart-line',             title: 'Monitoring Stack',  desc: 'Prometheus + KSM + node-exporter + Falco + Cost Exporter + OpenCost' },
+        { part: 'Part 1', color: 'blue',   icon: 'mdi:chart-line',             title: 'Monitoring Stack',  desc: 'Prometheus + KSM + node-exporter + Falco + OpenCost' },
         { part: 'Part 2', color: 'purple', icon: 'mdi:shield-check-outline',   title: 'Security Tools',    desc: 'Trivy (image vuln scanning) + Kubescape (compliance)' },
         { part: 'Part 3', color: 'emerald',icon: 'mdi:robot-outline',           title: 'XamOps Agent',      desc: 'Read-only observability agent — pushes cluster data to XamOps every 5 min' },
         { part: 'Part 4', color: 'indigo', icon: 'mdi:check-circle-outline',   title: 'Verification',      desc: 'Confirm all pods are running and data appears in XamOps dashboard' },
@@ -194,7 +467,7 @@ const Part1Tab: React.FC = () => (
     <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Part 1: In-Cluster Monitoring Stack</h3>
     <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-[12px] text-blue-800 flex items-start gap-2">
       <Icon icon="mdi:information-outline" width={14} className="mt-0.5 flex-shrink-0" />
-      All monitoring tools run in the <code className="bg-blue-100 px-1 rounded">monitoring</code> namespace. Prometheus scrapes KSM, node-exporter, Falco, OpenCost, and the Azure cost-exporter.
+      All monitoring tools run in the <code className="bg-blue-100 px-1 rounded">monitoring</code> namespace. Prometheus scrapes KSM, node-exporter, Falco, and OpenCost.
     </div>
 
     <CollapsibleSection title="Step 1.1: Get AKS Credentials" icon="mdi:key-outline" iconColor="#0891B2">
@@ -236,9 +509,6 @@ extraScrapeConfigs: |
   - job_name: opencost
     static_configs:
       - targets: ['opencost.opencost.svc.cluster.local:9003']
-  - job_name: cost-exporter
-    static_configs:
-      - targets: ['cost-exporter.default.svc.cluster.local:8080']
 EOF`} />
       <CodeBlock code={`helm upgrade --install prometheus prometheus-community/prometheus \\
   --namespace monitoring \\
@@ -252,64 +522,28 @@ helm repo update
 
 helm upgrade --install falco falcosecurity/falco \\
   --namespace falco \\
-  --set driver.kind=ebpf \\
+  --set driver.kind=modern_ebpf \\
   --set falco.json_output=true \\
   --set falcosidekick.enabled=true \\
   --set falcosidekick.config.prometheus.enabled=true \\
   --set falcosidekick.service.port=2801 \\
+  --set falcosidekick.replicaCount=1 \\
   --set tolerations[0].operator=Exists`} />
+      <div className="p-3 bg-purple-50 border border-purple-100 rounded-xl text-[12px] text-purple-800 flex items-start gap-2">
+        <Icon icon="mdi:information-outline" width={14} className="mt-0.5 flex-shrink-0" />
+        <div>
+          <strong>Driver:</strong> Falco 0.44 removed the legacy eBPF probe, so <code className="bg-purple-100 px-1 rounded">driver.kind=ebpf</code> is
+          rejected at chart render time. Use <code className="bg-purple-100 px-1 rounded">modern_ebpf</code> (CO-RE, needs kernel 5.8+) — AKS Ubuntu
+          node images qualify. Fall back to <code className="bg-purple-100 px-1 rounded">kmod</code> only on kernels older than 5.8.
+          <br />
+          <strong>Single sidekick replica</strong> is deliberate: the scrape config above targets the Service by DNS, so multiple replicas would
+          split counter metrics across pods and make{' '}
+          <code className="bg-purple-100 px-1 rounded">falcosecurity_falcosidekick_falco_events_total</code> jump around.
+        </div>
+      </div>
     </CollapsibleSection>
 
-    <CollapsibleSection title="Step 1.5: Install Azure Cost Exporter" icon="mdi:currency-usd" iconColor="#16A34A">
-      <VarNote vars={['<CLUSTER_NAME>', '<AZURE_SUBSCRIPTION_ID>', '<RESOURCE_GROUP>']} />
-      <CodeBlock title="Deploy cost-exporter" code={`kubectl apply -f - << 'EOF'
-apiVersion: v1
-kind: Service
-metadata:
-  name: cost-exporter
-  namespace: default
-spec:
-  selector:
-    app: cost-exporter
-  ports:
-    - port: 8080
-      targetPort: 8080
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cost-exporter
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: cost-exporter
-  template:
-    metadata:
-      labels:
-        app: cost-exporter
-    spec:
-      containers:
-        - name: cost-exporter
-          image: docker.io/xamops/cost-exporter-azure:latest
-          ports:
-            - containerPort: 8080
-          env:
-            - name: CLUSTER_NAME
-              value: "<CLUSTER_NAME>"
-            - name: AZURE_SUBSCRIPTION_ID
-              value: "<AZURE_SUBSCRIPTION_ID>"
-            - name: RESOURCE_GROUP
-              value: "<RESOURCE_GROUP>"
-            - name: CLOUD_PROVIDER
-              value: "AZURE"
-            - name: PORT
-              value: "8080"
-EOF`} />
-    </CollapsibleSection>
-
-    <CollapsibleSection title="Step 1.6: Install OpenCost" icon="mdi:cash-multiple" iconColor="#D97706">
+    <CollapsibleSection title="Step 1.5: Install OpenCost" icon="mdi:cash-multiple" iconColor="#D97706">
       <VarNote vars={['<AZURE_SUBSCRIPTION_ID>']} />
       <CodeBlock title="opencost-values.yaml" code={`cat > opencost-values.yaml << 'EOF'
 opencost:
@@ -349,7 +583,7 @@ helm repo update
 helm upgrade --install trivy-operator aquasecurity/trivy-operator \\
   --namespace trivy-system --create-namespace \\
   --set trivy.ignoreUnfixed=false \\
-  --set trivy.severity=UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \\
+  --set 'trivy.severity=UNKNOWN\\,LOW\\,MEDIUM\\,HIGH\\,CRITICAL' \\
   --set operator.vulnerabilityScanner.enabled=true \\
   --set operator.configAuditScannerEnabled=true
 
@@ -385,13 +619,37 @@ kubectl get workloadconfigurationscansummaries -A --no-headers | head -10`} />
   </div>
 );
 
-const Part3Tab: React.FC = () => (
+const Part3Tab: React.FC<{ config: AgentInstallConfig }> = ({ config }) => (
   <div className="space-y-4">
     <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Part 3: XamOps Observability Agent</h3>
     <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-[12px] text-emerald-800 flex items-start gap-2">
       <Icon icon="mdi:robot-outline" width={14} className="mt-0.5 flex-shrink-0" />
       Same agent binary as EKS and GKE. Set <code className="bg-emerald-100 px-1 rounded">CLOUD_PROVIDER: "AZURE"</code> and <code className="bg-emerald-100 px-1 rounded">COLLECTOR_KARPENTER: "false"</code> (Karpenter is AWS-only).
     </div>
+
+    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[12px] text-slate-700 flex items-start gap-2">
+      <Icon icon="mdi:server-network" width={14} className="mt-0.5 flex-shrink-0" />
+      <div>
+        This manifest targets <code className="bg-slate-200 px-1 rounded">{config.serverUrl}</code> — the
+        environment you are currently signed in to. Data pushed here is only visible in this
+        environment; each one has its own database.
+      </div>
+    </div>
+
+    {!config.reachableFromCluster && (
+      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[12px] text-amber-800 flex items-start gap-2">
+        <Icon icon="mdi:alert-outline" width={14} className="mt-0.5 flex-shrink-0" />
+        <div>
+          <strong>This URL is not reachable from inside a cluster.</strong>{' '}
+          <code className="bg-amber-100 px-1 rounded">{config.serverUrl}</code> resolves to the machine
+          running the agent, not to your development machine, so the agent will never connect.
+          Expose your local backend with a tunnel and substitute the public URL below:
+          <div className="mt-2 font-mono text-[11px] bg-amber-100 rounded p-2">
+            cloudflared tunnel --url http://localhost:8080
+          </div>
+        </div>
+      </div>
+    )}
 
     <CollapsibleSection title="Step 3.1: Create RBAC (read-only)" icon="mdi:key-outline" iconColor="#D97706">
       <CodeBlock title="xamops-agent-rbac.yaml" code={`kubectl apply -f - << 'EOF'
@@ -484,7 +742,7 @@ data:
   COLLECT_INTERVAL: "300"
   PUSH_INTERVAL: "300"
   HEARTBEAT_INTERVAL: "60"
-  XAMOPS_SERVER_URL: "https://live.xamops.com"
+  XAMOPS_SERVER_URL: "${config.serverUrl}"
   CLUSTER_NAME: "<CLUSTER_NAME>"
   CLOUD_ACCOUNT_ID: "<AZURE_SUBSCRIPTION_ID>"
   CLOUD_PROVIDER: "AZURE"
@@ -504,7 +762,7 @@ metadata:
   namespace: xamops-system
 type: Opaque
 stringData:
-  XAMOPS_API_KEY: "xamops_SecureAgentKey2024XamOps"
+  XAMOPS_API_KEY: "${config.apiKey}"
 EOF`} />
     </CollapsibleSection>
 
@@ -570,8 +828,7 @@ kubectl get pods -n xamops-system`} />
           'node_cpu_seconds_total',
           'container_cpu_usage_seconds_total',
           'kube_node_status_capacity',
-          'falco_events_total',
-          'xamops_aks_node_hourly_cost',
+          'falcosecurity_falcosidekick_falco_events_total',
         ].map(m => (
           <div key={m} className="flex items-center gap-2 bg-[rgba(0,0,0,0.02)] rounded-lg p-2 text-[12px]">
             <Icon icon="mdi:check" width={12} color="#16A34A" />

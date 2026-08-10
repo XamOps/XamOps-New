@@ -102,10 +102,21 @@ func (c *prometheusMetricsCollector) collect(ctx context.Context) (DataBatch, er
 	}
 
 	// ── Falco security events ────────────────────────────────────────────────
-	// falco_events_total is the standard counter exposed by Falco + falco-exporter.
-	falcoRows, err := c.queryMatrix(ctx,
-		`sum by (rule, priority, namespace, pod) (increase(falco_events_total[1h]))`)
-	if err == nil {
+	// The setup guides install falcosidekick, which exposes
+	// falcosecurity_falcosidekick_falco_events_total with k8s_ns_name/k8s_pod_name
+	// labels — NOT falco_events_total with namespace/pod, which came from the
+	// now-deprecated falco-exporter. Query the falcosidekick names first, then the
+	// xamops_eks_-prefixed variant (the EKS guide relabels metrics with that
+	// prefix), then plain falco_events_total for anyone still on falco-exporter.
+	for _, falcoQuery := range []string{
+		`sum by (rule, priority, k8s_ns_name, k8s_pod_name) (increase(falcosecurity_falcosidekick_falco_events_total[1h]))`,
+		`sum by (rule, priority, k8s_ns_name, k8s_pod_name) (increase(xamops_eks_falcosecurity_falcosidekick_falco_events_total[1h]))`,
+		`sum by (rule, priority, namespace, pod) (increase(falco_events_total[1h]))`,
+	} {
+		falcoRows, err := c.queryMatrix(ctx, falcoQuery)
+		if err != nil {
+			continue
+		}
 		for _, row := range falcoRows {
 			count, _ := strconv.ParseFloat(row.value, 64)
 			if count == 0 {
@@ -114,11 +125,14 @@ func (c *prometheusMetricsCollector) collect(ctx context.Context) (DataBatch, er
 			metrics.FalcoEvents = append(metrics.FalcoEvents, FalcoEvent{
 				Rule:        row.labels["rule"],
 				Priority:    row.labels["priority"],
-				Namespace:   row.labels["namespace"],
-				Pod:         row.labels["pod"],
+				Namespace:   firstNonEmpty(row.labels["k8s_ns_name"], row.labels["namespace"]),
+				Pod:         firstNonEmpty(row.labels["k8s_pod_name"], row.labels["pod"]),
 				Count:       count,
 				CollectedAt: metrics.CollectedAt,
 			})
+		}
+		if len(metrics.FalcoEvents) > 0 {
+			break
 		}
 	}
 
@@ -245,6 +259,17 @@ func (c *prometheusMetricsCollector) collectCostMetrics(ctx context.Context) *Cl
 }
 
 // ── Prometheus HTTP query helpers ────────────────────────────────────────────
+
+// firstNonEmpty returns the first non-empty string, or "" if all are empty.
+// Used to read a label that different exporters name differently.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 type promQueryRow struct {
 	labels map[string]string

@@ -2,7 +2,9 @@ package com.xammer.billops.service;
 
 import com.xammer.cloud.domain.CreditRequest;
 import com.xammer.cloud.domain.User;
+import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.dto.CreditRequestDto;
+import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.UserRepository;
 import org.slf4j.Logger; // ADDED
@@ -14,11 +16,16 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional; // ADDED
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,6 +46,13 @@ public class CreditRequestService {
     @Autowired
     private AccountAccessHelper accountAccessHelper;
 
+    @Autowired
+    private CloudAccountRepository cloudAccountRepository;
+
+    /** Requests are submitted with a free-form id, e.g. "GCP: my-project (011DDB-9E3A99)". */
+    private static final Pattern PROVIDER_PREFIX = Pattern.compile("^(aws|gcp|google|azure)\\s*[:\\-]\\s*",
+            Pattern.CASE_INSENSITIVE);
+
     @Transactional
     @CacheEvict(value = "creditRequests", allEntries = true)
     public CreditRequestDto createCreditRequest(CreditRequestDto creditRequestDto) {
@@ -58,7 +72,7 @@ public class CreditRequestService {
 
         // Omitted for brevity...
 
-        return convertToDto(savedRequest);
+        return convertToDto(savedRequest, resolveAccounts(savedRequest));
     }
 
     // --- NEW: Admin List (Cache-Only) ---
@@ -74,9 +88,7 @@ public class CreditRequestService {
     @CachePut(value = "creditRequests", key = "'adminList'")
     public List<CreditRequestDto> getAllCreditRequestsAndCache() {
         logger.debug("Fetching FRESH 'adminList' credit requests and updating cache");
-        return creditRequestRepository.findAllOrderBySubmittedDateDesc().stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+        return toDtos(creditRequestRepository.findAllOrderBySubmittedDateDesc());
     }
 
     // --- NEW: User List (Cache-Only) ---
@@ -92,9 +104,7 @@ public class CreditRequestService {
     @CachePut(value = "creditRequests", key = "#userId")
     public List<CreditRequestDto> getCreditRequestsByUserIdAndCache(Long userId) {
         logger.debug("Fetching FRESH credit requests for user: {} and updating cache", userId);
-        return creditRequestRepository.findByUserId(userId).stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+        return toDtos(creditRequestRepository.findByUserId(userId));
     }
 
     @Transactional
@@ -104,7 +114,7 @@ public class CreditRequestService {
                 .orElseThrow(() -> new RuntimeException("Credit Request not found"));
         creditRequest.setStatus(status);
         CreditRequest updatedRequest = creditRequestRepository.save(creditRequest);
-        return convertToDto(updatedRequest);
+        return convertToDto(updatedRequest, resolveAccounts(updatedRequest));
     }
 
     /**
@@ -121,7 +131,81 @@ public class CreditRequestService {
                 .collect(Collectors.toList());
     }
 
-    private CreditRequestDto convertToDto(CreditRequest creditRequest) {
+    private List<CreditRequestDto> toDtos(List<CreditRequest> requests) {
+        Map<String, CloudAccount> accountsByKey = resolveAccounts(requests);
+        return requests.stream()
+                .map(request -> convertToDto(request, accountsByKey))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Looks up the cloud accounts behind a batch of credit requests in a single query, keyed by
+     * every provider identifier they expose so a request can be matched whichever cloud it targets.
+     */
+    private Map<String, CloudAccount> resolveAccounts(Collection<CreditRequest> requests) {
+        Set<String> keys = requests.stream()
+                .map(request -> normalizeAccountKey(request.getAwsAccountId()))
+                .filter(key -> !key.isEmpty())
+                .collect(Collectors.toSet());
+        if (keys.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, CloudAccount> accountsByKey = new HashMap<>();
+        try {
+            for (CloudAccount account : cloudAccountRepository.findByAnyCloudIdIn(keys)) {
+                indexAccount(accountsByKey, account.getAwsAccountId(), account);
+                indexAccount(accountsByKey, account.getGcpProjectId(), account);
+                indexAccount(accountsByKey, account.getAzureSubscriptionId(), account);
+            }
+        } catch (Exception e) {
+            // Names are cosmetic - never fail the list because of them.
+            logger.warn("Could not resolve cloud account names for credit requests: {}", e.getMessage());
+        }
+        return accountsByKey;
+    }
+
+    private Map<String, CloudAccount> resolveAccounts(CreditRequest request) {
+        return resolveAccounts(Collections.singletonList(request));
+    }
+
+    private static void indexAccount(Map<String, CloudAccount> accountsByKey, String identifier,
+            CloudAccount account) {
+        if (identifier != null && !identifier.trim().isEmpty()) {
+            accountsByKey.putIfAbsent(identifier.trim().toLowerCase(), account);
+        }
+    }
+
+    /**
+     * Credit requests store whatever the user typed, e.g. "GCP: my-project (011DDB-9E3A99-DE0B85)".
+     * Strip the provider prefix and any trailing parenthetical so the value can be matched against
+     * cloud_account rows.
+     */
+    private static String normalizeAccountKey(String rawAccountId) {
+        if (rawAccountId == null) {
+            return "";
+        }
+        String value = PROVIDER_PREFIX.matcher(rawAccountId.trim()).replaceFirst("");
+        int parenthesis = value.indexOf('(');
+        if (parenthesis > 0) {
+            value = value.substring(0, parenthesis);
+        }
+        return value.trim();
+    }
+
+    private static String providerHint(String rawAccountId) {
+        if (rawAccountId == null) {
+            return null;
+        }
+        Matcher matcher = PROVIDER_PREFIX.matcher(rawAccountId.trim());
+        if (!matcher.find()) {
+            return null;
+        }
+        String hint = matcher.group(1).toUpperCase();
+        return "GOOGLE".equals(hint) ? "GCP" : hint;
+    }
+
+    private CreditRequestDto convertToDto(CreditRequest creditRequest, Map<String, CloudAccount> accountsByKey) {
         CreditRequestDto dto = new CreditRequestDto();
         dto.setId(creditRequest.getId());
         dto.setAwsAccountId(creditRequest.getAwsAccountId());
@@ -132,6 +216,14 @@ public class CreditRequestService {
         dto.setSubmittedDate(creditRequest.getSubmittedDate());
         if (creditRequest.getUser() != null) {
             dto.setUserId(creditRequest.getUser().getId());
+        }
+
+        CloudAccount account = accountsByKey.get(normalizeAccountKey(creditRequest.getAwsAccountId()).toLowerCase());
+        if (account != null) {
+            dto.setAccountName(account.getAccountName());
+            dto.setProvider(account.getProvider());
+        } else {
+            dto.setProvider(providerHint(creditRequest.getAwsAccountId()));
         }
         return dto;
     }
