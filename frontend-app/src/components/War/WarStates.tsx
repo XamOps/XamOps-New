@@ -15,12 +15,12 @@ export const WarLoadingState: React.FC<{
   <div className="space-y-3">
     <div className={`${CARD} p-6`}>
       <div className="flex items-center gap-2.5 mb-5">
-        <Icon icon="mdi:radar" width={16} className="text-[rgba(0,0,0,0.45)] animate-spin" />
+        <Icon icon="mdi:radar" width={16} className="text-[rgba(0,0,0,0.6)] animate-spin" />
         <div>
           <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.78)]">
             {isRefreshing ? 'Re-scanning your infrastructure' : 'Reviewing your attack surface'}
           </p>
-          <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">
+          <p className="text-[12px] text-[rgba(0,0,0,0.6)] mt-0.5">
             Evaluating {baselineSize} controls across your infrastructure. A first scan
             can take up to two minutes.
           </p>
@@ -88,10 +88,10 @@ const EmptyShell: React.FC<{
         frameClass ?? 'bg-[rgba(0,0,0,0.04)] border-[#e5e7eb]'
       }`}
     >
-      <Icon icon={icon} width={28} className={iconClass ?? 'text-[rgba(0,0,0,0.45)]'} />
+      <Icon icon={icon} width={28} className={iconClass ?? 'text-[rgba(0,0,0,0.6)]'} />
     </div>
     <h3 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">{title}</h3>
-    <p className="text-[13px] text-[rgba(0,0,0,0.4)] mb-6 text-center max-w-sm leading-relaxed">
+    <p className="text-[13px] text-[rgba(0,0,0,0.6)] mb-6 text-center max-w-sm leading-relaxed">
       {body}
     </p>
     {action}

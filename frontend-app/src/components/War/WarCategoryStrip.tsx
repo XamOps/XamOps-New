@@ -62,7 +62,7 @@ const WarCategoryStrip: React.FC<Props> = ({ categories, activeCategory, onSelec
       <div className="flex items-center gap-3 mb-3">
         <span className={`${EYEBROW} whitespace-nowrap`}>Control families</span>
         <div className="h-px bg-[#e5e7eb] flex-1 min-w-[20px]" />
-        <span className="text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap hidden sm:block">
+        <span className="text-[11px] text-[rgba(0,0,0,0.55)] whitespace-nowrap hidden sm:block">
           A dash means too few controls produced a verdict to score
         </span>
       </div>
@@ -90,7 +90,7 @@ const WarCategoryStrip: React.FC<Props> = ({ categories, activeCategory, onSelec
                 <Icon
                   icon={CATEGORY_ICONS[category.category] ?? 'mdi:shield-outline'}
                   width={14}
-                  className="text-[rgba(0,0,0,0.5)] shrink-0 mt-0.5"
+                  className="text-[rgba(0,0,0,0.6)] shrink-0 mt-0.5"
                 />
                 <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)] leading-snug">
                   {category.category}
@@ -100,13 +100,13 @@ const WarCategoryStrip: React.FC<Props> = ({ categories, activeCategory, onSelec
               <div className="mt-2.5 flex items-end justify-between">
                 <span
                   className={`text-[20px] font-bold leading-none tabular-nums ${
-                    assessable ? scoreTone(category.score) : 'text-[rgba(0,0,0,0.25)]'
+                    assessable ? scoreTone(category.score) : 'text-[rgba(0,0,0,0.45)]'
                   }`}
                 >
                   {assessable ? category.score : '—'}
-                  <span className="text-[10.5px] font-medium text-[rgba(0,0,0,0.3)]">/100</span>
+                  <span className="text-[10.5px] font-medium text-[rgba(0,0,0,0.55)]">/100</span>
                 </span>
-                <span className="text-[10.5px] text-[rgba(0,0,0,0.4)] tabular-nums">
+                <span className="text-[10.5px] text-[rgba(0,0,0,0.6)] tabular-nums">
                   {open > 0 ? `${open} open` : 'all clear'}
                 </span>
               </div>
@@ -124,7 +124,7 @@ const WarCategoryStrip: React.FC<Props> = ({ categories, activeCategory, onSelec
                 )}
               </div>
 
-              <div className="mt-2 flex items-center gap-2 text-[10px] text-[rgba(0,0,0,0.35)] flex-wrap tabular-nums">
+              <div className="mt-2 flex items-center gap-2 text-[10px] text-[rgba(0,0,0,0.55)] flex-wrap tabular-nums">
                 <span className="text-emerald-600 font-medium">{category.passed} pass</span>
                 {category.failed > 0 && (
                   <span className="text-red-600 font-medium">{category.failed} fail</span>

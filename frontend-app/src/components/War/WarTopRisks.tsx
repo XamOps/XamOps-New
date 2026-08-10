@@ -41,14 +41,14 @@ const WarTopRisks: React.FC<Props> = ({
             <Icon
               icon={nothingChecked ? 'mdi:shield-search' : 'mdi:shield-check'}
               width={19}
-              className={nothingChecked ? 'text-[rgba(0,0,0,0.45)]' : 'text-emerald-600'}
+              className={nothingChecked ? 'text-[rgba(0,0,0,0.6)]' : 'text-emerald-600'}
             />
           </div>
           <div className="min-w-0">
             <h2 className="text-[13.5px] font-semibold text-[rgba(0,0,0,0.88)]">
               {nothingChecked ? 'No confirmed exposures yet' : 'No open exposures'}
             </h2>
-            <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5 leading-relaxed">
+            <p className="text-[12px] text-[rgba(0,0,0,0.6)] mt-0.5 leading-relaxed">
               {nothingChecked
                 ? `${unverifiedCount} controls could not be checked, so this is not an `
                   + 'all-clear. Resolve the scan problem above and re-run.'
@@ -72,7 +72,7 @@ const WarTopRisks: React.FC<Props> = ({
       <div className="flex items-center gap-3 mb-3">
         <span className={`${EYEBROW} whitespace-nowrap`}>Fix these first</span>
         <div className="h-px bg-[#e5e7eb] flex-1 min-w-[20px]" />
-        <span className="text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap hidden sm:block">
+        <span className="text-[11px] text-[rgba(0,0,0,0.55)] whitespace-nowrap hidden sm:block">
           Ranked by severity, failure type and resources affected
         </span>
       </div>
@@ -104,11 +104,11 @@ const WarTopRisks: React.FC<Props> = ({
                   </span>
                 </div>
                 {finding.summary && (
-                  <p className="text-[11.5px] text-[rgba(0,0,0,0.45)] mt-0.5 leading-snug">
+                  <p className="text-[11.5px] text-[rgba(0,0,0,0.6)] mt-0.5 leading-snug">
                     {finding.summary}
                   </p>
                 )}
-                <div className="mt-1 flex items-center gap-2 text-[10px] text-[rgba(0,0,0,0.35)] flex-wrap">
+                <div className="mt-1 flex items-center gap-2 text-[10px] text-[rgba(0,0,0,0.55)] flex-wrap">
                   <span className="font-mono">{finding.controlId}</span>
                   <span aria-hidden="true">·</span>
                   <span className="truncate">{finding.attackPathLabels.join(', ')}</span>
@@ -124,7 +124,7 @@ const WarTopRisks: React.FC<Props> = ({
               </div>
 
               <span
-                className="text-[10px] text-[rgba(0,0,0,0.3)] shrink-0 mt-1 tabular-nums"
+                className="text-[10px] text-[rgba(0,0,0,0.55)] shrink-0 mt-1 tabular-nums"
                 title="Risk weight: severity, failure type and affected resource count"
               >
                 wt {finding.riskWeight}
@@ -184,12 +184,12 @@ const ActionList: React.FC<{
 }> = ({ icon, title, description, actions }) => (
   <div>
     <div className="flex items-center gap-1.5 mb-1.5">
-      <Icon icon={icon} width={13} className="text-[rgba(0,0,0,0.4)]" />
+      <Icon icon={icon} width={13} className="text-[rgba(0,0,0,0.6)]" />
       <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.6)] uppercase tracking-widest">
         {title}
       </span>
     </div>
-    <p className="text-[11.5px] text-[rgba(0,0,0,0.45)] mb-2 leading-relaxed max-w-3xl">
+    <p className="text-[11.5px] text-[rgba(0,0,0,0.6)] mb-2 leading-relaxed max-w-3xl">
       {description}
     </p>
     <div className="flex flex-wrap gap-1.5">

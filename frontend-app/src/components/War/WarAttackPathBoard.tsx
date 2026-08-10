@@ -35,13 +35,13 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
       <div className="flex items-center gap-3 mb-3">
         <span className={`${EYEBROW} whitespace-nowrap`}>Attack paths</span>
         <div className="h-px bg-[#e5e7eb] flex-1 min-w-[20px]" />
-        <span className="text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap hidden sm:block">
+        <span className="text-[11px] text-[rgba(0,0,0,0.55)] whitespace-nowrap hidden sm:block">
           How a failed control gets monetised
         </span>
         {activePath !== 'All' && (
           <button
             onClick={() => onSelect('All')}
-            className="text-[11.5px] font-medium text-[rgba(0,0,0,0.5)] underline underline-offset-2 hover:text-[rgba(0,0,0,0.88)] transition-colors whitespace-nowrap"
+            className="text-[11.5px] font-medium text-[rgba(0,0,0,0.6)] underline underline-offset-2 hover:text-[rgba(0,0,0,0.88)] transition-colors whitespace-nowrap"
           >
             Clear
           </button>
@@ -74,7 +74,7 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
                   <Icon
                     icon={ATTACK_PATH_ICONS[path.path] ?? 'mdi:shield-outline'}
                     width={14}
-                    className="text-[rgba(0,0,0,0.5)] shrink-0"
+                    className="text-[rgba(0,0,0,0.6)] shrink-0"
                   />
                   <span className="text-[12.5px] font-semibold text-[rgba(0,0,0,0.88)] truncate">
                     {path.label}
@@ -87,7 +87,7 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
                 </span>
               </div>
 
-              <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1.5 leading-snug line-clamp-2">
+              <p className="text-[11px] text-[rgba(0,0,0,0.6)] mt-1.5 leading-snug line-clamp-2">
                 {path.description}
               </p>
 
@@ -95,7 +95,7 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
                 <span className="text-[20px] font-bold text-black leading-none tabular-nums">
                   {openCount}
                 </span>
-                <span className="text-[10.5px] text-[rgba(0,0,0,0.4)]">
+                <span className="text-[10.5px] text-[rgba(0,0,0,0.6)]">
                   of {path.total} not confirmed safe
                 </span>
               </div>
@@ -127,7 +127,7 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
                     {path.failed} failing · {path.worstSeverity}
                   </span>
                 ) : path.unverified > 0 ? (
-                  <span className="text-[10.5px] text-[rgba(0,0,0,0.4)] uppercase tracking-wide">
+                  <span className="text-[10.5px] text-[rgba(0,0,0,0.6)] uppercase tracking-wide">
                     {path.unverified} unverified
                   </span>
                 ) : path.state === 'NEEDS_REVIEW' ? (
@@ -140,7 +140,7 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
                   </span>
                 )}
                 {path.affectedResources > 0 && (
-                  <span className="text-[10px] text-[rgba(0,0,0,0.35)] shrink-0 tabular-nums">
+                  <span className="text-[10px] text-[rgba(0,0,0,0.55)] shrink-0 tabular-nums">
                     {path.affectedResources} res
                   </span>
                 )}

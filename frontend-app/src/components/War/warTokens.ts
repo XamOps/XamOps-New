@@ -7,8 +7,28 @@
  * relies on colour alone.
  *
  * Second, these hold the house style constants so components don't re-derive them.
- * The palette is the same rgba-alpha neutral ladder used by BillOpsTickets and
- * AddAccount (0.88 → 0.6 → 0.45 → 0.35), not Tailwind's slate/gray scale.
+ * The palette is the rgba-alpha neutral ladder shared with BillOpsTickets and
+ * AddAccount, not Tailwind's slate/gray scale.
+ *
+ * <h3>The neutral floor for text</h3>
+ * The ladder used to run down to 0.18, which put most of this page's supporting copy
+ * below WCAG AA — section eyebrows at 2.44:1, body copy at 3.35:1, risk weights at
+ * 2.11:1. Text now uses four steps and nothing below 0.55:
+ *
+ * <pre>
+ *   0.88  16.6:1  titles, row headings, values          primary
+ *   0.70   8.5:1  emphasised secondary                  strong
+ *   0.60   5.7:1  body copy, descriptions, data         body
+ *   0.55   4.7:1  metadata, eyebrows, column headers    muted   <- floor
+ * </pre>
+ *
+ * 0.45 (3.35:1) is permitted only for non-text graphics and large text, both of which
+ * owe 3:1 rather than 4.5:1 — the disclosure chevrons, the unassessable score ring, and
+ * the "—" placeholders at 20px/30px bold. Never use it for body-size text.
+ *
+ * Values at or below 0.16 are borders, dividers and fills. They carry no information and
+ * are exempt, with one exception: a focus indicator is a graphical object and owes 3:1,
+ * so {@link SELECT_CLS} and the inputs focus to 0.55 rather than the old 0.4 (2.85:1).
  */
 
 import type { WarPathState, WarStatus } from '../../types/war';
@@ -163,7 +183,7 @@ export const RISK_LEVEL_TOKENS: Record<string, { ring: string; text: string; lab
   // Not a risk rating. The scan could not read the account, so there is nothing to
   // rate — calling that "critical" would blame the customer for our blind spot.
   UNKNOWN: {
-    ring: 'stroke-[rgba(0,0,0,0.2)]',
+    ring: 'stroke-[rgba(0,0,0,0.45)]',
     text: 'text-[rgba(0,0,0,0.6)]',
     label: 'Unable to assess',
   },
@@ -181,11 +201,11 @@ export const CARD_ANCHOR =
 
 /** Section eyebrow above a panel. */
 export const EYEBROW =
-  'text-[11px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest';
+  'text-[11px] font-semibold text-[rgba(0,0,0,0.55)] uppercase tracking-widest';
 
 /** Column header inside a list. */
 export const COL_HEADER =
-  'text-[10px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-widest';
+  'text-[10px] font-semibold text-[rgba(0,0,0,0.6)] uppercase tracking-widest';
 
 export const BTN_PRIMARY =
   'flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] text-white rounded-md '
@@ -199,7 +219,7 @@ export const BTN_SECONDARY =
 export const SELECT_CLS =
   'h-8 pl-3 pr-8 rounded-lg border border-[#e5e7eb] bg-white text-[12px] font-medium '
   + 'text-[rgba(0,0,0,0.7)] appearance-none focus:outline-none '
-  + 'focus:border-[rgba(0,0,0,0.4)] cursor-pointer';
+  + 'focus:border-[rgba(0,0,0,0.55)] cursor-pointer';
 
 /**
  * Shared column template for the findings list. The sticky header and every row use

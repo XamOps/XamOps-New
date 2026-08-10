@@ -65,12 +65,12 @@ const WarScoreHeader: React.FC<Props> = ({ report }) => {
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <span
                 className={`text-[30px] font-bold leading-none tabular-nums ${
-                  report.assessable ? 'text-black' : 'text-[rgba(0,0,0,0.25)]'
+                  report.assessable ? 'text-black' : 'text-[rgba(0,0,0,0.45)]'
                 }`}
               >
                 {report.assessable ? report.warScore : '—'}
               </span>
-              <span className="text-[9.5px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest mt-1">
+              <span className="text-[9.5px] font-semibold text-[rgba(0,0,0,0.55)] uppercase tracking-widest mt-1">
                 WAR score
               </span>
             </div>
@@ -84,7 +84,7 @@ const WarScoreHeader: React.FC<Props> = ({ report }) => {
               />
               <span>{token.label}</span>
             </div>
-            <p className="mt-1.5 text-[12px] text-[rgba(0,0,0,0.45)] leading-relaxed">
+            <p className="mt-1.5 text-[12px] text-[rgba(0,0,0,0.6)] leading-relaxed">
               {report.assessable ? (
                 <>
                   Weighted pass rate across the {report.verifiedControls} controls this scan
@@ -139,18 +139,18 @@ const WarScoreHeader: React.FC<Props> = ({ report }) => {
       <div className="mt-5 pt-4 border-t border-[rgba(0,0,0,0.06)] flex flex-wrap items-center gap-x-5 gap-y-2">
         <Meta icon="mdi:cloud-outline">
           <span className="font-semibold text-[rgba(0,0,0,0.72)]">{report.provider}</span>
-          <span className="font-mono text-[10.5px] text-[rgba(0,0,0,0.35)]">
+          <span className="font-mono text-[10.5px] text-[rgba(0,0,0,0.55)]">
             {report.accountId}
           </span>
           {report.accountName && (
-            <span className="text-[rgba(0,0,0,0.5)]">{report.accountName}</span>
+            <span className="text-[rgba(0,0,0,0.6)]">{report.accountName}</span>
           )}
         </Meta>
 
         <Meta icon="mdi:map-marker-outline">
           {report.scannedRegions.length} region
           {report.scannedRegions.length === 1 ? '' : 's'}
-          <span className="font-mono text-[10.5px] text-[rgba(0,0,0,0.35)]">
+          <span className="font-mono text-[10.5px] text-[rgba(0,0,0,0.55)]">
             {report.scannedRegions.join(', ')}
           </span>
         </Meta>
@@ -188,7 +188,7 @@ const Stat: React.FC<{
       <span className="truncate">{label}</span>
     </div>
     <div className="mt-1 text-[22px] font-bold text-black leading-none tabular-nums">{value}</div>
-    <div className="text-[10px] text-[rgba(0,0,0,0.35)] leading-tight mt-1 truncate">{hint}</div>
+    <div className="text-[10px] text-[rgba(0,0,0,0.55)] leading-tight mt-1 truncate">{hint}</div>
   </div>
 );
 
@@ -199,10 +199,10 @@ const Meta: React.FC<{
 }> = ({ icon, emphasis, children }) => (
   <span
     className={`flex items-center gap-1.5 text-[11.5px] ${
-      emphasis ? 'font-semibold text-[rgba(0,0,0,0.6)]' : 'text-[rgba(0,0,0,0.45)]'
+      emphasis ? 'font-semibold text-[rgba(0,0,0,0.6)]' : 'text-[rgba(0,0,0,0.6)]'
     }`}
   >
-    <Icon icon={icon} width={13} className="text-[rgba(0,0,0,0.3)] shrink-0" />
+    <Icon icon={icon} width={13} className="text-[rgba(0,0,0,0.55)] shrink-0" />
     {children}
   </span>
 );

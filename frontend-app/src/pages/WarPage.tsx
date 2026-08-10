@@ -93,12 +93,12 @@ const WarPage: React.FC<WarPageProps> = ({ provider, baselineSize }) => {
       <div className="flex items-center gap-3">
         {/* The Topbar already renders the page title from the route, so this block
             carries only the subtitle and the actions. */}
-        <span className="hidden lg:block text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap pr-3 border-r border-[rgba(0,0,0,0.12)]">
+        <span className="hidden lg:block text-[11px] text-[rgba(0,0,0,0.55)] whitespace-nowrap pr-3 border-r border-[rgba(0,0,0,0.12)]">
           Workload Attack-surface Review
         </span>
 
         {report && (
-          <span className="hidden xl:flex items-center gap-1.5 text-[11px] text-[rgba(0,0,0,0.35)]">
+          <span className="hidden xl:flex items-center gap-1.5 text-[11px] text-[rgba(0,0,0,0.55)]">
             <Icon icon="mdi:clock-outline" width={12} />
             {report.generatedAt}
           </span>
@@ -107,7 +107,7 @@ const WarPage: React.FC<WarPageProps> = ({ provider, baselineSize }) => {
         <button
           onClick={exportCsv}
           disabled={!report}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium border bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)] hover:border-[rgba(0,0,0,0.18)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium border bg-white text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.12)] hover:border-[rgba(0,0,0,0.18)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Icon icon="mdi:download-outline" width={12} />
           <span className="hidden lg:inline">Export CSV</span>
@@ -242,7 +242,7 @@ const ScanWarnings: React.FC<{ warnings: string[] }> = ({ warnings }) => {
         aria-expanded={isOpen}
         className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-[#fafafa] transition-colors rounded-xl"
       >
-        <Icon icon="mdi:information-outline" width={13} className="text-[rgba(0,0,0,0.35)]" />
+        <Icon icon="mdi:information-outline" width={13} className="text-[rgba(0,0,0,0.55)]" />
         <span className="text-[12px] font-medium text-[rgba(0,0,0,0.6)]">
           {warnings.length} region or service check
           {warnings.length === 1 ? '' : 's'} did not complete
@@ -250,14 +250,14 @@ const ScanWarnings: React.FC<{ warnings: string[] }> = ({ warnings }) => {
         <Icon
           icon={isOpen ? 'mdi:chevron-up' : 'mdi:chevron-down'}
           width={15}
-          className="text-[rgba(0,0,0,0.25)] ml-auto"
+          className="text-[rgba(0,0,0,0.45)] ml-auto"
         />
       </button>
 
       {isOpen && (
         <ul className="px-4 pb-3 pt-1 space-y-1 border-t border-[#e5e7eb] max-h-64 overflow-y-auto">
           {warnings.map((warning, i) => (
-            <li key={i} className="text-[10.5px] font-mono text-[rgba(0,0,0,0.45)] leading-relaxed">
+            <li key={i} className="text-[10.5px] font-mono text-[rgba(0,0,0,0.6)] leading-relaxed">
               {warning}
             </li>
           ))}

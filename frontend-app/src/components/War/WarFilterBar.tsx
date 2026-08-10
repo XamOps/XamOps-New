@@ -56,7 +56,7 @@ const WarFilterBar: React.FC<Props> = ({
           <Icon
             icon="mdi:magnify"
             width={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)] pointer-events-none"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.55)] pointer-events-none"
           />
           <input
             type="text"
@@ -64,13 +64,13 @@ const WarFilterBar: React.FC<Props> = ({
             onChange={(e) => onChange('search', e.target.value)}
             placeholder="Search controls, findings and evidence"
             aria-label="Search controls"
-            className="w-full h-8 pl-8 pr-8 rounded-lg border border-[#e5e7eb] bg-[#fafafa] text-[12px] text-[rgba(0,0,0,0.8)] placeholder:text-[rgba(0,0,0,0.3)] focus:outline-none focus:bg-white focus:border-[rgba(0,0,0,0.4)] transition-colors"
+            className="w-full h-8 pl-8 pr-8 rounded-lg border border-[#e5e7eb] bg-[#fafafa] text-[12px] text-[rgba(0,0,0,0.8)] placeholder:text-[rgba(0,0,0,0.55)] focus:outline-none focus:bg-white focus:border-[rgba(0,0,0,0.55)] transition-colors"
           />
           {filters.search && (
             <button
               onClick={() => onChange('search', '')}
               aria-label="Clear search"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.7)] transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.55)] hover:text-[rgba(0,0,0,0.7)] transition-colors"
             >
               <Icon icon="mdi:close-circle" width={14} />
             </button>
@@ -87,7 +87,7 @@ const WarFilterBar: React.FC<Props> = ({
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
                 filters.status === segment.value
                   ? 'bg-white text-[rgba(0,0,0,0.88)] shadow-sm'
-                  : 'text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)]'
+                  : 'text-[rgba(0,0,0,0.6)] hover:text-[rgba(0,0,0,0.7)]'
               }`}
             >
               <Icon icon={segment.icon} width={12} />
@@ -111,7 +111,7 @@ const WarFilterBar: React.FC<Props> = ({
           <Icon
             icon="mdi:chevron-down"
             width={13}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)] pointer-events-none"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.55)] pointer-events-none"
           />
         </div>
 
@@ -133,7 +133,7 @@ const WarFilterBar: React.FC<Props> = ({
           <Icon
             icon="mdi:chevron-down"
             width={13}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)] pointer-events-none"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.55)] pointer-events-none"
           />
         </div>
 
@@ -153,11 +153,11 @@ const WarFilterBar: React.FC<Props> = ({
           <Icon
             icon="mdi:chevron-down"
             width={13}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)] pointer-events-none"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.55)] pointer-events-none"
           />
         </div>
 
-        <span className="text-[11.5px] font-medium text-[rgba(0,0,0,0.5)] whitespace-nowrap tabular-nums ml-auto pr-1">
+        <span className="text-[11.5px] font-medium text-[rgba(0,0,0,0.6)] whitespace-nowrap tabular-nums ml-auto pr-1">
           {resultCount} of {report.totalControls}
         </span>
       </div>
@@ -165,7 +165,7 @@ const WarFilterBar: React.FC<Props> = ({
       {/* Active attack-path chip, set by clicking a card above */}
       {filters.attackPath !== 'All' && (
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest">
+          <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.55)] uppercase tracking-widest">
             Attack path
           </span>
           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-[rgba(0,0,0,0.16)] text-[10.5px] font-semibold text-[rgba(0,0,0,0.6)]">
@@ -173,7 +173,7 @@ const WarFilterBar: React.FC<Props> = ({
             <button
               onClick={() => onChange('attackPath', 'All')}
               aria-label="Clear attack path filter"
-              className="text-[rgba(0,0,0,0.3)] hover:text-[rgba(0,0,0,0.7)] transition-colors"
+              className="text-[rgba(0,0,0,0.55)] hover:text-[rgba(0,0,0,0.7)] transition-colors"
             >
               <Icon icon="mdi:close" width={12} />
             </button>
@@ -181,7 +181,7 @@ const WarFilterBar: React.FC<Props> = ({
           {isFiltered && (
             <button
               onClick={onReset}
-              className="text-[11.5px] font-medium text-[rgba(0,0,0,0.5)] underline underline-offset-2 hover:text-[rgba(0,0,0,0.88)] transition-colors ml-auto"
+              className="text-[11.5px] font-medium text-[rgba(0,0,0,0.6)] underline underline-offset-2 hover:text-[rgba(0,0,0,0.88)] transition-colors ml-auto"
             >
               Reset filters
             </button>

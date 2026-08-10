@@ -50,12 +50,12 @@ const WarFindingsTable: React.FC<Props> = ({ findings, onResetFilters }) => {
       <div className={CARD}>
         <div className="flex flex-col items-center justify-center py-14 text-center px-6">
           <div className="w-11 h-11 bg-[rgba(0,0,0,0.04)] rounded-xl flex items-center justify-center mb-3">
-            <Icon icon="mdi:filter-remove-outline" width={22} className="text-[rgba(0,0,0,0.35)]" />
+            <Icon icon="mdi:filter-remove-outline" width={22} className="text-[rgba(0,0,0,0.55)]" />
           </div>
           <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.78)] mb-1">
             No controls match these filters
           </p>
-          <p className="text-[12px] text-[rgba(0,0,0,0.45)] mb-4">
+          <p className="text-[12px] text-[rgba(0,0,0,0.6)] mb-4">
             Widen the filters, or switch the status filter to show all controls.
           </p>
           <button onClick={onResetFilters} className={BTN_PRIMARY}>
@@ -97,7 +97,7 @@ const WarFindingsTable: React.FC<Props> = ({ findings, onResetFilters }) => {
 
       {/* Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-[#f9fafb] border-t border-[#e5e7eb] rounded-b-xl">
-        <span className="text-[11.5px] font-medium text-[rgba(0,0,0,0.5)] tabular-nums">
+        <span className="text-[11.5px] font-medium text-[rgba(0,0,0,0.6)] tabular-nums">
           Showing {rangeStart}–{rangeEnd} of {findings.length}
         </span>
 
@@ -107,7 +107,7 @@ const WarFindingsTable: React.FC<Props> = ({ findings, onResetFilters }) => {
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
               aria-label="Rows per page"
-              className="h-7 pl-2 pr-6 rounded-md border border-[#e5e7eb] bg-white text-[11.5px] font-medium text-[rgba(0,0,0,0.6)] appearance-none focus:outline-none focus:border-[rgba(0,0,0,0.4)] cursor-pointer"
+              className="h-7 pl-2 pr-6 rounded-md border border-[#e5e7eb] bg-white text-[11.5px] font-medium text-[rgba(0,0,0,0.6)] appearance-none focus:outline-none focus:border-[rgba(0,0,0,0.55)] cursor-pointer"
             >
               {PAGE_SIZE_OPTIONS.map((n) => (
                 <option key={n} value={n}>{n} / page</option>
@@ -116,7 +116,7 @@ const WarFindingsTable: React.FC<Props> = ({ findings, onResetFilters }) => {
             <Icon
               icon="mdi:chevron-down"
               width={12}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)] pointer-events-none"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.55)] pointer-events-none"
             />
           </div>
 
@@ -195,11 +195,11 @@ const WarFindingRow: React.FC<{
         {/* Control — the row title */}
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-[9.5px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest">
+            <span className="text-[9.5px] font-semibold text-[rgba(0,0,0,0.55)] uppercase tracking-widest">
               {finding.controlId}
             </span>
             {!finding.automated && (
-              <span className="text-[9px] font-semibold text-[rgba(0,0,0,0.3)] uppercase tracking-widest">
+              <span className="text-[9px] font-semibold text-[rgba(0,0,0,0.55)] uppercase tracking-widest">
                 not auto-checked
               </span>
             )}
@@ -208,7 +208,7 @@ const WarFindingRow: React.FC<{
             {finding.title}
           </p>
           {finding.summary && (
-            <p className="text-[11.5px] text-[rgba(0,0,0,0.45)] truncate leading-snug mt-0.5">
+            <p className="text-[11.5px] text-[rgba(0,0,0,0.6)] truncate leading-snug mt-0.5">
               {finding.summary}
             </p>
           )}
@@ -247,7 +247,7 @@ const WarFindingRow: React.FC<{
         </span>
 
         {/* Affected resources */}
-        <span className="hidden lg:block text-[11px] font-medium text-[rgba(0,0,0,0.42)] whitespace-nowrap tabular-nums">
+        <span className="hidden lg:block text-[11px] font-medium text-[rgba(0,0,0,0.6)] whitespace-nowrap tabular-nums">
           {finding.affectedCount > 0
             ? `${finding.affectedCount}${finding.scannedCount > 0 ? ` / ${finding.scannedCount}` : ''}`
             : '—'}
@@ -256,7 +256,7 @@ const WarFindingRow: React.FC<{
         <Icon
           icon={isExpanded ? 'mdi:chevron-up' : 'mdi:chevron-down'}
           width={16}
-          className="text-[rgba(0,0,0,0.18)] group-hover:text-[rgba(0,0,0,0.7)] transition-all"
+          className="text-[rgba(0,0,0,0.45)] group-hover:text-[rgba(0,0,0,0.7)] transition-all"
         />
       </div>
 
@@ -273,7 +273,7 @@ const WarFindingRow: React.FC<{
               </span>
             ))}
             {finding.region && (
-              <span className="text-[10.5px] font-mono text-[rgba(0,0,0,0.35)] ml-1">
+              <span className="text-[10.5px] font-mono text-[rgba(0,0,0,0.55)] ml-1">
                 {finding.region}
               </span>
             )}
@@ -281,7 +281,7 @@ const WarFindingRow: React.FC<{
 
           {finding.evidence.length > 0 && (
             <section>
-              <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest">
+              <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.55)] uppercase tracking-widest">
                 What we found
               </span>
               <ul className="mt-2 space-y-1">
@@ -297,7 +297,7 @@ const WarFindingRow: React.FC<{
               {hiddenEvidence > 0 && (
                 <button
                   onClick={() => setShowAllEvidence((v) => !v)}
-                  className="mt-2 text-[11.5px] font-medium text-[rgba(0,0,0,0.5)] underline underline-offset-2 hover:text-[rgba(0,0,0,0.88)] transition-colors"
+                  className="mt-2 text-[11.5px] font-medium text-[rgba(0,0,0,0.6)] underline underline-offset-2 hover:text-[rgba(0,0,0,0.88)] transition-colors"
                 >
                   {showAllEvidence ? 'Show fewer' : `Show ${hiddenEvidence} more`}
                 </button>
@@ -310,7 +310,7 @@ const WarFindingRow: React.FC<{
               <Icon
                 icon="mdi:key-alert-outline"
                 width={15}
-                className="text-[rgba(0,0,0,0.45)] mt-0.5 shrink-0"
+                className="text-[rgba(0,0,0,0.6)] mt-0.5 shrink-0"
               />
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.6)] mb-1">
@@ -329,7 +329,7 @@ const WarFindingRow: React.FC<{
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <section>
-              <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest">
+              <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.55)] uppercase tracking-widest">
                 How to fix it
               </span>
               <p className="mt-1.5 text-[12.5px] text-[rgba(0,0,0,0.6)] leading-relaxed">
@@ -339,7 +339,7 @@ const WarFindingRow: React.FC<{
 
             <section>
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest">
+                <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.55)] uppercase tracking-widest">
                   What it costs if you don&apos;t
                 </span>
                 <span
@@ -355,7 +355,7 @@ const WarFindingRow: React.FC<{
           </div>
 
           <div className="flex items-center justify-between gap-4 flex-wrap pt-1 border-t border-[rgba(0,0,0,0.06)]">
-            <span className="text-[11px] text-[rgba(0,0,0,0.35)] pt-2">
+            <span className="text-[11px] text-[rgba(0,0,0,0.55)] pt-2">
               <span className="uppercase tracking-widest font-semibold">Services:</span>{' '}
               {finding.tools}
             </span>
@@ -364,7 +364,7 @@ const WarFindingRow: React.FC<{
                 href={finding.reference}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[11.5px] font-medium text-[rgba(0,0,0,0.5)] underline underline-offset-2 hover:text-[rgba(0,0,0,0.88)] transition-colors flex items-center gap-1 pt-2"
+                className="text-[11.5px] font-medium text-[rgba(0,0,0,0.6)] underline underline-offset-2 hover:text-[rgba(0,0,0,0.88)] transition-colors flex items-center gap-1 pt-2"
               >
                 AWS documentation
                 <Icon icon="mdi:open-in-new" width={11} />
