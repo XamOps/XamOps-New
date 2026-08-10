@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { WarFinding } from '../../types/war';
 import {
@@ -14,6 +14,13 @@ import {
 interface Props {
   findings: WarFinding[];
   onResetFilters: () => void;
+  /**
+   * Control to jump to, set when the reader arrives from the fix list in another tab.
+   * The table pages to it, expands it and scrolls it into view.
+   */
+  focusControlId?: string | null;
+  /** Called once the jump has been performed, so the request is not replayed. */
+  onFocusHandled?: () => void;
 }
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
@@ -26,16 +33,50 @@ const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
  * passwords and no MFA device is something an engineer can act on without re-deriving
  * the finding. Paginated because 86 unpaginated rows buries the filter bar.
  */
-const WarFindingsTable: React.FC<Props> = ({ findings, onResetFilters }) => {
+const WarFindingsTable: React.FC<Props> = ({
+  findings, onResetFilters, focusControlId, onFocusHandled,
+}) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const totalPages = Math.max(1, Math.ceil(findings.length / pageSize));
   const currentPage = Math.min(page, totalPages);
 
   // Filters changing underneath a deep page would otherwise leave an empty view.
   useEffect(() => setPage(1), [findings.length, pageSize]);
+
+  /**
+   * Arriving from the fix list in another tab.
+   *
+   * The target is rarely on page 1 — this is 86 controls at 15 a page — so page to it
+   * first, then expand, then scroll. Without the paging step the row is not mounted and
+   * the jump silently does nothing.
+   */
+  useEffect(() => {
+    if (!focusControlId) return;
+
+    const index = findings.findIndex((f) => f.controlId === focusControlId);
+    if (index === -1) {
+      // Filtered out entirely, so there is nothing to reveal. Release the request.
+      onFocusHandled?.();
+      return;
+    }
+
+    setPage(Math.floor(index / pageSize) + 1);
+    setExpandedId(focusControlId);
+
+    // Defer past the paging re-render so the row exists before scrolling to it.
+    const raf = requestAnimationFrame(() => {
+      rowRefs.current[focusControlId]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+      onFocusHandled?.();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [focusControlId, findings, pageSize, onFocusHandled]);
 
   const paged = useMemo(
     () => findings.slice((currentPage - 1) * pageSize, currentPage * pageSize),
@@ -88,6 +129,7 @@ const WarFindingsTable: React.FC<Props> = ({ findings, onResetFilters }) => {
             key={finding.controlId}
             finding={finding}
             isExpanded={expandedId === finding.controlId}
+            rowRef={(el) => { rowRefs.current[finding.controlId] = el; }}
             onToggle={() =>
               setExpandedId((prev) => (prev === finding.controlId ? null : finding.controlId))
             }
@@ -154,7 +196,8 @@ const WarFindingRow: React.FC<{
   finding: WarFinding;
   isExpanded: boolean;
   onToggle: () => void;
-}> = ({ finding, isExpanded, onToggle }) => {
+  rowRef?: (el: HTMLDivElement | null) => void;
+}> = ({ finding, isExpanded, onToggle, rowRef }) => {
   const [showAllEvidence, setShowAllEvidence] = useState(false);
 
   const status = STATUS_TOKENS[finding.status];
@@ -166,7 +209,7 @@ const WarFindingRow: React.FC<{
   const hiddenEvidence = finding.evidence.length - EVIDENCE_PREVIEW;
 
   return (
-    <div>
+    <div ref={rowRef}>
       <div
         role="button"
         tabIndex={0}
@@ -178,7 +221,7 @@ const WarFindingRow: React.FC<{
             onToggle();
           }
         }}
-        className={`${FINDINGS_GRID} relative px-4 py-3 cursor-pointer group transition-colors hover:bg-[#fafafa] focus:outline-none focus-visible:bg-[#f5f5f5] ${
+        className={`${FINDINGS_GRID} relative px-4 py-3 cursor-pointer group transition-colors hover:bg-[#fafafa] focus:outline-none focus-visible:bg-[#f5f5f5] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgba(0,0,0,0.55)] ${
           isExpanded ? 'bg-[#fafafa]' : ''
         }`}
       >

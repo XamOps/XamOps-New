@@ -7,6 +7,14 @@ interface Props {
   paths: WarAttackPathSummary[];
   activePath: string;
   onSelect: (path: string) => void;
+  /**
+   * Show the worst control ids on each card and drop the description clamp.
+   *
+   * The board is the whole tab now rather than one of five stacked panels, so there is
+   * room for the detail the payload already carried — {@code topControlIds} has been in
+   * the DTO since the first version and was never rendered anywhere.
+   */
+  detailed?: boolean;
 }
 
 /**
@@ -27,7 +35,9 @@ const openCountOf = (path: WarAttackPathSummary): number =>
  * that spans IAM, network and detection controls at once. Selecting a card filters the
  * findings table and scrolls to it.
  */
-const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) => {
+const WarAttackPathBoard: React.FC<Props> = ({
+  paths, activePath, onSelect, detailed = false,
+}) => {
   if (paths.length === 0) return null;
 
   return (
@@ -87,7 +97,11 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
                 </span>
               </div>
 
-              <p className="text-[11px] text-[rgba(0,0,0,0.6)] mt-1.5 leading-snug line-clamp-2">
+              <p
+                className={`text-[11px] text-[rgba(0,0,0,0.6)] mt-1.5 leading-snug ${
+                  detailed ? '' : 'line-clamp-2'
+                }`}
+              >
                 {path.description}
               </p>
 
@@ -141,10 +155,29 @@ const WarAttackPathBoard: React.FC<Props> = ({ paths, activePath, onSelect }) =>
                 )}
                 {path.affectedResources > 0 && (
                   <span className="text-[10px] text-[rgba(0,0,0,0.55)] shrink-0 tabular-nums">
-                    {path.affectedResources} res
+                    {path.affectedResources} resource{path.affectedResources === 1 ? '' : 's'}
                   </span>
                 )}
               </div>
+
+              {/* The specific controls driving this path's state. */}
+              {detailed && path.topControlIds.length > 0 && (
+                <div className="mt-2.5 pt-2.5 border-t border-[rgba(0,0,0,0.06)]">
+                  <span className="text-[9.5px] font-semibold text-[rgba(0,0,0,0.55)] uppercase tracking-widest">
+                    Worst controls
+                  </span>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {path.topControlIds.map((id) => (
+                      <code
+                        key={id}
+                        className="text-[9.5px] font-mono bg-[#fafafa] border border-[#e5e7eb] rounded px-1.5 py-0.5 text-[rgba(0,0,0,0.6)]"
+                      >
+                        {id}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+              )}
             </button>
           );
         })}

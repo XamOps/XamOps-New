@@ -5,10 +5,9 @@ import { CARD, EYEBROW, severityToken, STATUS_TOKENS } from './warTokens';
 
 interface Props {
   risks: WarFinding[];
-  deniedActions: string[];
-  /** Non-authorization failures. Present so this card can avoid mislabelling them. */
-  blockedActions: string[];
   unverifiedCount: number;
+  /** Opens this finding in the controls tab. */
+  onSelectFinding?: (controlId: string) => void;
 }
 
 /**
@@ -17,12 +16,13 @@ interface Props {
  * Ranked by risk weight: advisory severity, doubled for a hard failure, nudged by how
  * many resources are affected. Showing the weight makes the ordering auditable rather
  * than asking the reader to trust it.
+ *
+ * The permission and connectivity lists that used to hang off the bottom of this card now
+ * live in the Scan health tab. They describe our access to the account, not the account's
+ * exposure, and mixing the two put "grant us iam:ListUsers" directly under "fix these
+ * first" as though it were a remediation step.
  */
-const WarTopRisks: React.FC<Props> = ({
-  risks, deniedActions, blockedActions, unverifiedCount,
-}) => {
-  const hasActionLists = deniedActions.length > 0 || blockedActions.length > 0;
-
+const WarTopRisks: React.FC<Props> = ({ risks, unverifiedCount, onSelectFinding }) => {
   if (risks.length === 0) {
     // "Nothing to fix" and "nothing was checked" look identical if you only count
     // failures, so the unverified case gets its own wording.
@@ -51,18 +51,12 @@ const WarTopRisks: React.FC<Props> = ({
             <p className="text-[12px] text-[rgba(0,0,0,0.6)] mt-0.5 leading-relaxed">
               {nothingChecked
                 ? `${unverifiedCount} controls could not be checked, so this is not an `
-                  + 'all-clear. Resolve the scan problem above and re-run.'
+                  + 'all-clear. See the Scan health tab for what blocked them, then re-scan.'
                 : 'Every verified control passed. Manual-review controls still need a '
                   + 'human sign-off.'}
             </p>
           </div>
         </div>
-
-        {hasActionLists && (
-          <div className="mt-4 pt-4 border-t border-[rgba(0,0,0,0.06)] space-y-4">
-            <ActionLists deniedActions={deniedActions} blockedActions={blockedActions} />
-          </div>
-        )}
       </div>
     );
   }
@@ -83,7 +77,17 @@ const WarTopRisks: React.FC<Props> = ({
           const severity = severityToken(finding.severity);
 
           return (
-            <li key={finding.controlId} className="flex items-start gap-3 px-4 py-2.5">
+            <li key={finding.controlId}>
+            <button
+              type="button"
+              onClick={() => onSelectFinding?.(finding.controlId)}
+              disabled={!onSelectFinding}
+              aria-label={`Open ${finding.controlId} in the controls tab`}
+              className="w-full text-left flex items-start gap-3 px-4 py-2.5 transition-colors
+                hover:bg-[#fafafa] focus:outline-none focus-visible:ring-2
+                focus-visible:ring-inset focus-visible:ring-[rgba(0,0,0,0.55)]
+                disabled:hover:bg-transparent disabled:cursor-default"
+            >
               <span className="w-5 h-5 rounded-md bg-[rgba(0,0,0,0.06)] text-[10px] font-bold text-[rgba(0,0,0,0.6)] flex items-center justify-center shrink-0 mt-0.5 tabular-nums">
                 {index + 1}
               </span>
@@ -123,86 +127,28 @@ const WarTopRisks: React.FC<Props> = ({
                 </div>
               </div>
 
+              {/* Spelled out: "wt 24" read as a typo or a unit rather than a rank input. */}
               <span
-                className="text-[10px] text-[rgba(0,0,0,0.55)] shrink-0 mt-1 tabular-nums"
+                className="text-[10px] text-[rgba(0,0,0,0.55)] shrink-0 mt-1 tabular-nums whitespace-nowrap"
                 title="Risk weight: severity, failure type and affected resource count"
               >
-                wt {finding.riskWeight}
+                weight {finding.riskWeight}
               </span>
+
+              {onSelectFinding && (
+                <Icon
+                  icon="mdi:chevron-right"
+                  width={15}
+                  className="text-[rgba(0,0,0,0.45)] shrink-0 mt-1"
+                />
+              )}
+            </button>
             </li>
           );
         })}
       </ol>
-
-      {hasActionLists && (
-        <div className="mt-4 pt-4 border-t border-[rgba(0,0,0,0.06)] space-y-4">
-          <ActionLists deniedActions={deniedActions} blockedActions={blockedActions} />
-        </div>
-      )}
     </div>
   );
 };
-
-/**
- * Only genuine IAM denials are presented as permissions to grant. Actions that failed
- * on expired credentials or an unreachable endpoint are listed separately, because
- * granting them would not change the outcome.
- */
-const ActionLists: React.FC<{
-  deniedActions: string[];
-  blockedActions: string[];
-}> = ({ deniedActions, blockedActions }) => (
-  <>
-    {deniedActions.length > 0 && (
-      <ActionList
-        icon="mdi:key-alert-outline"
-        title={`${deniedActions.length} permission${deniedActions.length === 1 ? '' : 's'} missing`}
-        description="The role was denied these actions. Grant them to the XamOps role so the
-          score reflects reality instead of coverage gaps."
-        actions={deniedActions}
-      />
-    )}
-
-    {blockedActions.length > 0 && (
-      <ActionList
-        icon="mdi:cloud-off-outline"
-        title={`${blockedActions.length} call${blockedActions.length === 1 ? '' : 's'} could not reach AWS`}
-        description="These are not permission problems — the calls failed before
-          authorization. Granting them would change nothing; fix the cause reported above,
-          then re-scan."
-        actions={blockedActions}
-      />
-    )}
-  </>
-);
-
-const ActionList: React.FC<{
-  icon: string;
-  title: string;
-  description: string;
-  actions: string[];
-}> = ({ icon, title, description, actions }) => (
-  <div>
-    <div className="flex items-center gap-1.5 mb-1.5">
-      <Icon icon={icon} width={13} className="text-[rgba(0,0,0,0.6)]" />
-      <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.6)] uppercase tracking-widest">
-        {title}
-      </span>
-    </div>
-    <p className="text-[11.5px] text-[rgba(0,0,0,0.6)] mb-2 leading-relaxed max-w-3xl">
-      {description}
-    </p>
-    <div className="flex flex-wrap gap-1.5">
-      {actions.map((action) => (
-        <code
-          key={action}
-          className="text-[10px] font-mono bg-[#fafafa] border border-[#e5e7eb] rounded px-1.5 py-0.5 text-[rgba(0,0,0,0.6)]"
-        >
-          {action}
-        </code>
-      ))}
-    </div>
-  </div>
-);
 
 export default WarTopRisks;
