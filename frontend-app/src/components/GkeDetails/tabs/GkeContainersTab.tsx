@@ -159,8 +159,10 @@ const GkeContainersTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
                       {c.restartCount}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-right text-sm text-gray-700">{(c.cpuUsage * 1000).toFixed(1)}</td>
-                  <td className="px-6 py-4 text-right text-sm text-gray-700">{(c.memoryUsage / 1048576).toFixed(1)}</td>
+                  {/* cpuUsage is already millicores (the CPU (M) column) and memoryUsage
+                      is bytes — do not rescale CPU again. */}
+                  <td className="px-6 py-4 text-right text-sm text-gray-700">{(c.cpuUsage ?? 0).toFixed(1)}</td>
+                  <td className="px-6 py-4 text-right text-sm text-gray-700">{((c.memoryUsage ?? 0) / 1048576).toFixed(1)}</td>
                 </tr>
               ))}
               {paginated.length === 0 && (

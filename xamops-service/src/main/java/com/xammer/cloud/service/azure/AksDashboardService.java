@@ -3,10 +3,16 @@ package com.xammer.cloud.service.azure;
 import com.azure.resourcemanager.AzureResourceManager;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesCluster;
+import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.azure.AksDashboardDto;
 import com.xammer.cloud.dto.gcp.GkeDashboardDto;
+import com.xammer.cloud.dto.k8s.KubescapeDashboard;
+import com.xammer.cloud.dto.k8s.TrivyDashboard;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
+import com.xammer.cloud.service.AgentDataTransformerService;
+import com.xammer.cloud.service.AgentK8sDashboardMapper;
 import com.xammer.cloud.service.PrometheusService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +31,9 @@ public class AksDashboardService {
     private final CloudAccountRepository cloudAccountRepository;
     private final KubernetesClusterRepository kubernetesClusterRepository;
     private final PrometheusService prometheusService;
+    private final KubernetesClusterConfigRepository kubernetesClusterConfigRepository;
+    private final AgentDataTransformerService agentDataTransformerService;
+    private final AgentK8sDashboardMapper agentK8sDashboardMapper;
 
     public AksDashboardDto getDashboard(String subscriptionId, String clusterName, String resourceGroup) {
         log.info("Building AKS dashboard for cluster {} in resource group {} (subscription {})",
@@ -78,14 +87,22 @@ public class AksDashboardService {
             dto.setNodePools(Collections.emptyList());
         }
 
-        // Check Prometheus connection
+        // ── Data source 1: XamOps agent (the only path AKS onboarding actually creates)
+        // AKS clusters are agent-onboarded and auto-register on first push, so their
+        // data lives in agent_data_cache. Nothing sets kubernetes_cluster.prometheus_url
+        // for them, which is why this used to report "not connected" while the agent was
+        // pushing valid data every interval.
+        boolean populatedFromAgent = populateFromAgentData(dto, account.getId(), clusterName);
+
+        // ── Data source 2: direct Prometheus (kubeconfig-style onboarding)
+        // Requires prometheus_url to be set AND the XamOps server to reach the cluster's
+        // Prometheus inbound. Still supported, and still authoritative when available.
         Optional<KubernetesCluster> saved =
                 kubernetesClusterRepository.findByCloudAccount_IdAndClusterName(account.getId(), clusterName);
         String promUrl = saved.map(KubernetesCluster::getPrometheusUrl).orElse(null);
-        dto.setConnected(promUrl != null && !promUrl.isBlank());
+        boolean hasPrometheus = promUrl != null && !promUrl.isBlank();
 
-        // Populate Prometheus metrics if connected
-        if (dto.isConnected()) {
+        if (hasPrometheus) {
             try { dto.setOverview(buildOverview(promUrl, clusterName)); } catch (Exception ignored) {}
             try { dto.setWorkloadHealth(buildWorkloadHealth(promUrl, clusterName)); } catch (Exception ignored) {}
             try { dto.setResourceUtilization(buildResourceUtilization(promUrl, clusterName)); } catch (Exception ignored) {}
@@ -95,7 +112,92 @@ public class AksDashboardService {
             try { dto.setSecurityMetrics(buildSecurityMetrics(promUrl, clusterName)); } catch (Exception ignored) {}
         }
 
+        dto.setConnected(hasPrometheus || populatedFromAgent);
         return dto;
+    }
+
+    /**
+     * Populates the dashboard sections from the agent's cached batches.
+     *
+     * <p>Each section is mapped independently and failures are swallowed per-section, so a
+     * malformed batch degrades that tab rather than blanking the whole dashboard — the same
+     * contract the Prometheus path above uses.
+     *
+     * @return true if at least one section was populated, meaning the cluster genuinely
+     *         has monitoring data and should not be shown as disconnected
+     */
+    private boolean populateFromAgentData(AksDashboardDto dto, Long cloudAccountId, String clusterName) {
+        Optional<KubernetesClusterConfig> configOpt =
+                kubernetesClusterConfigRepository.findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
+        if (configOpt.isEmpty()) {
+            log.debug("No cluster config for AKS cluster {} — skipping agent data", clusterName);
+            return false;
+        }
+
+        Long configId = configOpt.get().getId();
+        if (!agentDataTransformerService.hasAgentData(configId)) {
+            log.debug("No agent data cached for AKS cluster {} (configId={})", clusterName, configId);
+            return false;
+        }
+
+        AgentDataTransformerService.K8sResourcesResult k8s;
+        try {
+            k8s = agentDataTransformerService.transformK8sResources(configId);
+        } catch (Exception e) {
+            log.warn("Failed to read agent k8s-resources for AKS cluster {}: {}", clusterName, e.getMessage());
+            return false;
+        }
+
+        // k8s-resources is the batch every other section derives from. Without nodes or
+        // pods there is nothing to show, so report not-connected rather than empty tabs.
+        if (k8s.getTotalNodes() == 0 && k8s.getTotalPods() == 0) {
+            log.debug("Agent data present but empty for AKS cluster {}", clusterName);
+            return false;
+        }
+
+        AgentDataTransformerService.PrometheusMetricsResult prom = null;
+        try {
+            prom = agentDataTransformerService.transformPrometheusMetrics(configId);
+        } catch (Exception e) {
+            log.debug("No agent prometheus-metrics for AKS cluster {}: {}", clusterName, e.getMessage());
+        }
+
+        final AgentDataTransformerService.PrometheusMetricsResult promMetrics = prom;
+        try { dto.setOverview(agentK8sDashboardMapper.buildOverview(k8s, promMetrics)); } catch (Exception ignored) {}
+        try { dto.setWorkloadHealth(agentK8sDashboardMapper.buildWorkloadHealth(k8s)); } catch (Exception ignored) {}
+        try { dto.setResourceUtilization(agentK8sDashboardMapper.buildResourceUtilization(k8s)); } catch (Exception ignored) {}
+        try { dto.setNodeMetrics(agentK8sDashboardMapper.buildNodeMetrics(k8s)); } catch (Exception ignored) {}
+        try { dto.setContainerMetrics(agentK8sDashboardMapper.buildContainerMetrics(k8s)); } catch (Exception ignored) {}
+
+        // Security: Trivy and Kubescape come from their own batches, Falco events ride
+        // along in prometheus-metrics. Each is optional — a cluster running only Trivy
+        // still gets a populated section with the other two flagged as not running.
+        TrivyDashboard trivy = null;
+        try {
+            trivy = agentDataTransformerService.transformTrivyData(configId);
+        } catch (Exception e) {
+            log.debug("No agent Trivy data for AKS cluster {}: {}", clusterName, e.getMessage());
+        }
+        KubescapeDashboard kubescape = null;
+        try {
+            kubescape = agentDataTransformerService.transformKubescapeData(configId);
+        } catch (Exception e) {
+            log.debug("No agent Kubescape data for AKS cluster {}: {}", clusterName, e.getMessage());
+        }
+        try {
+            dto.setSecurityMetrics(
+                    agentK8sDashboardMapper.buildSecurityMetrics(trivy, kubescape, promMetrics));
+        } catch (Exception ignored) {}
+
+        // Agent reports the live server version; prefer it over the Azure SDK's channel
+        // value (e.g. "1.35" from the SDK vs "1.35.6" actually running).
+        if (k8s.getK8sVersion() != null && !k8s.getK8sVersion().isBlank()) {
+            dto.setVersion(k8s.getK8sVersion());
+        }
+
+        log.info("AKS dashboard for {} populated from agent data: {} nodes, {} pods, {} namespaces",
+                clusterName, k8s.getTotalNodes(), k8s.getTotalPods(), k8s.getTotalNamespaces());
+        return true;
     }
 
     // ── Prometheus builder methods (cloud-agnostic — copied from GkeDashboardService) ──

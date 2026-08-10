@@ -144,12 +144,12 @@ export const demoBillopsAdminCredits = {
 
 // ─── /api/billops/credits/admin/all  (flat array for useBillOpsAdminCredits) ─
 export const demoAdminCreditRequests: AdminCreditRequest[] = [
-  { id: 1, awsAccountId: '123456789012',     expectedCredits: 2400, services: 'EC2, RDS',       useCase: 'Service disruption compensation during maintenance window',    priority: 'high',   userId: 10, submittedDate: '2026-03-15', status: 'approved' },
-  { id: 2, awsAccountId: '234567890123',     expectedCredits: 1200, services: 'CloudFront, S3', useCase: 'Early payment discount for Q1 commitment',                   priority: 'medium', userId: 11, submittedDate: '2026-04-01', status: 'documentation_review' },
-  { id: 3, awsAccountId: '345678901234',     expectedCredits: 800,  services: 'Lambda, S3',     useCase: 'Promotional credit for new workload migration',               priority: 'low',    userId: 12, submittedDate: '2026-02-20', status: 'approved' },
-  { id: 4, awsAccountId: 'proj-lumina-prod', expectedCredits: 500,  services: 'GCS, BigQuery',  useCase: 'Referral bonus for client onboarding',                       priority: 'low',    userId: 17, submittedDate: '2026-04-10', status: 'technical_verification' },
-  { id: 5, awsAccountId: 'sub-cloudbase-001',expectedCredits: 950,  services: 'Azure VMs, AKS', useCase: 'Cost optimization trial for Azure workload consolidation',    priority: 'medium', userId: 14, submittedDate: '2026-04-20', status: 'submitted' },
-  { id: 6, awsAccountId: '456789012345',     expectedCredits: 600,  services: 'EC2, EBS',       useCase: 'Credit for unplanned over-provisioning in March',            priority: 'medium', userId: 16, submittedDate: '2026-03-28', status: 'documentation_review' },
+  { id: 1, awsAccountId: '123456789012',     accountName: 'Apex Corp Production',  provider: 'AWS',   expectedCredits: 2400, services: 'EC2, RDS',       useCase: 'Service disruption compensation during maintenance window',    priority: 'high',   userId: 10, submittedDate: '2026-03-15', status: 'approved' },
+  { id: 2, awsAccountId: '234567890123',     accountName: 'NexGen Cloud Main',     provider: 'AWS',   expectedCredits: 1200, services: 'CloudFront, S3', useCase: 'Early payment discount for Q1 commitment',                   priority: 'medium', userId: 11, submittedDate: '2026-04-01', status: 'documentation_review' },
+  { id: 3, awsAccountId: '345678901234',     accountName: 'Sigma Tech AWS Staging',provider: 'AWS',   expectedCredits: 800,  services: 'Lambda, S3',     useCase: 'Promotional credit for new workload migration',               priority: 'low',    userId: 12, submittedDate: '2026-02-20', status: 'approved' },
+  { id: 4, awsAccountId: 'proj-lumina-prod', accountName: 'Lumina GCP Primary',    provider: 'GCP',   expectedCredits: 500,  services: 'GCS, BigQuery',  useCase: 'Referral bonus for client onboarding',                       priority: 'low',    userId: 17, submittedDate: '2026-04-10', status: 'technical_verification' },
+  { id: 5, awsAccountId: 'sub-cloudbase-001',accountName: 'CloudBase Azure East',  provider: 'AZURE', expectedCredits: 950,  services: 'Azure VMs, AKS', useCase: 'Cost optimization trial for Azure workload consolidation',    priority: 'medium', userId: 14, submittedDate: '2026-04-20', status: 'submitted' },
+  { id: 6, awsAccountId: '456789012345',     accountName: 'Orbit Prod AWS',        provider: 'AWS',   expectedCredits: 600,  services: 'EC2, EBS',       useCase: 'Credit for unplanned over-provisioning in March',            priority: 'medium', userId: 16, submittedDate: '2026-03-28', status: 'documentation_review' },
 ];
 
 // ─── /api/billops/admin/tickets ──────────────────────────────────────────────

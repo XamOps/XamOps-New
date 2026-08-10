@@ -119,9 +119,13 @@ const AzureCloudK8sPage: React.FC = () => {
         />
         <AzureCloudK8sIntegrations />
       </motion.div>
+      {/* No cluster is selected here, so offer a picker. Choosing one fills the resource
+          group too, which avoids pairing a cluster with the wrong group. */}
       <AzureCloudK8sHelpModal
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}
+        subscriptionId={selectedAccountId ?? undefined}
+        clusters={clusters.map(c => ({ name: c.name, resourceGroup: c.resourceGroup }))}
       />
     </main>
   );

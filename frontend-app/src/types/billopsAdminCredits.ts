@@ -17,6 +17,10 @@ export type AdminCreditStatus =
 export interface AdminCreditRequest {
   id: number;
   awsAccountId: string;
+  /** Resolved from cloud_account; absent when the submitted id is not linked to an account */
+  accountName?: string | null;
+  /** AWS / GCP / AZURE, resolved from the account or inferred from the submitted id */
+  provider?: string | null;
   expectedCredits: number;
   services: string;
   useCase: string;

@@ -238,16 +238,18 @@ const GkeNodesTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
                       <div>
                         <div className="flex justify-between text-xs text-gray-500 mb-1">
                           <span>CPU</span>
-                          <span className="font-medium text-gray-700">{(node.cpuUsageMillicores ?? (node.cpuUsage != null ? node.cpuUsage * 1000 : 0)).toFixed(0)}m</span>
+                          <span className="font-medium text-gray-700">{(node.cpuUsageMillicores ?? 0).toFixed(0)}m</span>
                         </div>
-                        <UtilBar value={Math.round((node.cpuUsage ?? 0) * 100)} />
+                        {/* cpuUsage/memoryUsage are already percentages (0-100) — both the
+                            Prometheus path and the agent mapper store them that way. */}
+                        <UtilBar value={Math.round(node.cpuUsage ?? 0)} />
                       </div>
                       <div>
                         <div className="flex justify-between text-xs text-gray-500 mb-1">
                           <span>Memory</span>
                           <span className="font-medium text-gray-700">{((node.memoryCapacity ?? 0) / 1073741824).toFixed(1)} GB cap.</span>
                         </div>
-                        <UtilBar value={Math.round((node.memoryUsage ?? 0) * 100)} />
+                        <UtilBar value={Math.round(node.memoryUsage ?? 0)} />
                       </div>
                     </div>
                   </div>

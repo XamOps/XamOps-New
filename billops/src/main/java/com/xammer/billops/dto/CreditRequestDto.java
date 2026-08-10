@@ -8,6 +8,8 @@ public class CreditRequestDto {
     // --- START OF FINAL FIX ---
     private String awsAccountId; // Reverted
     // --- END OF FINAL FIX ---
+    private String accountName; // Resolved from cloud_account, null when the id is not linked
+    private String provider; // AWS / GCP / AZURE, resolved or inferred from the submitted id
     private BigDecimal expectedCredits;
     private String services;
     private String useCase;
@@ -26,6 +28,12 @@ public class CreditRequestDto {
     public String getAwsAccountId() { return awsAccountId; }
     public void setAwsAccountId(String awsAccountId) { this.awsAccountId = awsAccountId; }
     // --- END OF FINAL FIX ---
+
+    public String getAccountName() { return accountName; }
+    public void setAccountName(String accountName) { this.accountName = accountName; }
+
+    public String getProvider() { return provider; }
+    public void setProvider(String provider) { this.provider = provider; }
 
     public BigDecimal getExpectedCredits() { return expectedCredits; }
     public void setExpectedCredits(BigDecimal expectedCredits) { this.expectedCredits = expectedCredits; }

@@ -6,7 +6,9 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesCluster;
 import com.xammer.cloud.dto.azure.AksClusterDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
+import com.xammer.cloud.service.AgentDataTransformerService;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,15 +31,21 @@ public class AksService {
     private final CloudAccountRepository cloudAccountRepository;
     private final KubernetesClusterRepository kubernetesClusterRepository;
     private final RedisCacheService redisCacheService;
+    private final KubernetesClusterConfigRepository kubernetesClusterConfigRepository;
+    private final AgentDataTransformerService agentDataTransformerService;
 
     public AksService(AzureClientProvider azureClientProvider,
                       CloudAccountRepository cloudAccountRepository,
                       KubernetesClusterRepository kubernetesClusterRepository,
-                      RedisCacheService redisCacheService) {
+                      RedisCacheService redisCacheService,
+                      KubernetesClusterConfigRepository kubernetesClusterConfigRepository,
+                      AgentDataTransformerService agentDataTransformerService) {
         this.azureClientProvider = azureClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.kubernetesClusterRepository = kubernetesClusterRepository;
         this.redisCacheService = redisCacheService;
+        this.kubernetesClusterConfigRepository = kubernetesClusterConfigRepository;
+        this.agentDataTransformerService = agentDataTransformerService;
     }
 
     /**
@@ -69,12 +77,33 @@ public class AksService {
 
             AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
 
+            // A cluster counts as connected if EITHER data source is live.
+            //
+            // 1. prometheus_url set — the kubeconfig-style path, where the XamOps server
+            //    queries the cluster's Prometheus directly.
+            // 2. the agent has pushed data — the only path AKS onboarding actually creates.
+            //
+            // Checking only (1) meant every agent-onboarded cluster showed "Deploy Agent"
+            // forever, even while its agent was pushing every interval, because nothing
+            // in the guide or the UI ever sets prometheus_url for AKS.
             Set<String> connectedNames = kubernetesClusterRepository
                     .findByCloudAccountId(account.getId())
                     .stream()
-                    .filter(c -> c.getPrometheusUrl() != null)
+                    .filter(c -> c.getPrometheusUrl() != null && !c.getPrometheusUrl().isBlank())
                     .map(KubernetesCluster::getClusterName)
                     .collect(Collectors.toSet());
+
+            kubernetesClusterConfigRepository.findByCloudAccountId(account.getId())
+                    .forEach(cfg -> {
+                        try {
+                            if (agentDataTransformerService.hasAgentData(cfg.getId())) {
+                                connectedNames.add(cfg.getClusterName());
+                            }
+                        } catch (Exception e) {
+                            log.warn("Could not check agent data for cluster {}: {}",
+                                    cfg.getClusterName(), e.getMessage());
+                        }
+                    });
 
             List<AksClusterDto> result = StreamSupport
                     .stream(azure.kubernetesClusters().list().spliterator(), false)
