@@ -6,13 +6,19 @@
   "scripts": {
     "dev": "vite",
     "dev:billops": "cross-env VITE_AUTH_PORT=8082 vite",
-    "build": "tsc && vite build",
+    "build": "npm run icons:bundle && tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "icons:bundle": "node scripts/generate-icon-bundle.mjs"
   },
   "devDependencies": {
+    "@iconify-json/logos": "1.2.12",
+    "@iconify-json/lucide": "1.2.121",
+    "@iconify-json/mdi": "1.2.3",
+    "@iconify-json/simple-icons": "1.2.93",
+    "@iconify/utils": "3.1.4",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -30,6 +36,7 @@
     "cross-env": "^7.0.3",
     "jsdom": "^29.1.1",
     "postcss": "^8.4.38",
+    "shadcn": "4.16.1",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.9.3",
     "vite": "^5.4.18",

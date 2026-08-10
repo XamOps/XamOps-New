@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '@iconify/react';
 import type { ThreatOverview, ThreatStoriesSummary, ThreatStory } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
+import { telemetryMark, ResourceIcon, type Mark } from '../../utils/resourceBranding';
 
 interface Props {
   data: ThreatOverview | null;
@@ -200,7 +201,8 @@ const ThreatsDashboard: React.FC<Props> = ({
           ) : (
             <div className="space-y-2">
               {data.bySource.map((s) => (
-                <BarRow key={s.source} label={s.source} count={s.count} max={sourceMax} colour="bg-cyan-500" />
+                <BarRow key={s.source} label={s.source} count={s.count} max={sourceMax}
+                        colour="bg-cyan-500" mark={telemetryMark(s.source)} />
               ))}
             </div>
           )}
@@ -236,11 +238,15 @@ const FunnelStage: React.FC<{
   </div>
 );
 
-const BarRow: React.FC<{ label: string; count: number; max: number; colour: string }> = ({
-  label, count, max, colour,
-}) => (
+const BarRow: React.FC<{
+  label: string; count: number; max: number; colour: string; mark?: Mark;
+}> = ({ label, count, max, colour, mark }) => (
   <div className="flex items-center gap-3">
-    <span className="w-40 flex-shrink-0 text-[11px] text-gray-600 truncate" title={label}>{label}</span>
+    <span className="w-40 flex-shrink-0 flex items-center gap-1.5 text-[11px] text-gray-600"
+          title={label}>
+      {mark && <ResourceIcon mark={mark} className="flex-shrink-0" />}
+      <span className="truncate">{label}</span>
+    </span>
     <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
       <div className={`h-full ${colour} rounded-full`} style={{ width: `${(count / max) * 100}%` }} />
     </div>

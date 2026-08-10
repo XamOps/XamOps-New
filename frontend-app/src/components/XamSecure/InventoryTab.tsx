@@ -6,6 +6,7 @@ import type {
 import InventoryAssetDrawer from './InventoryAssetDrawer';
 import ResourceLink from './ResourceLink';
 import { useResourceDrawer } from './useResourceDrawer';
+import { categoryMark, resourceMark, ResourceIcon, type Mark } from '../../utils/resourceBranding';
 
 interface Props {
   data: PageResp<InventoryAsset> | null;
@@ -30,22 +31,10 @@ const subLabel = (s: string) => SUBCAT_META[s]?.label ?? s.replace(/_/g, ' ');
 const subIcon = (s: string) => SUBCAT_META[s]?.icon ?? 'mdi:lan';
 
 /** Icon + readable label per Upwind asset category. */
-const CATEGORY_META: Record<string, { label: string; icon: string }> = {
-  compute_platform: { label: 'Compute', icon: 'mdi:server' },
-  networking: { label: 'Networking', icon: 'mdi:lan' },
-  storage: { label: 'Storage', icon: 'mdi:database' },
-  security: { label: 'Security', icon: 'mdi:shield-lock' },
-  monitoring: { label: 'Monitoring', icon: 'mdi:chart-line' },
-  messaging: { label: 'Messaging', icon: 'mdi:email-outline' },
-  database: { label: 'Database', icon: 'mdi:database-outline' },
-  identity: { label: 'Identity', icon: 'mdi:account-key' },
-  ai: { label: 'AI', icon: 'mdi:brain' },
-};
-
+// Category labels and marks come from the shared branding map, so the rail, the asset table,
+// Threats and the resource drawers cannot drift apart.
 const catLabel = (c: string | null): string =>
-  c ? (CATEGORY_META[c]?.label ?? c.replace(/_/g, ' ')) : 'Uncategorized';
-const catIcon = (c: string | null): string =>
-  (c && CATEGORY_META[c]?.icon) || 'mdi:cube-outline';
+  (c ? categoryMark(c).label : 'Uncategorized');
 
 const InventoryTab: React.FC<Props> = ({
   data, categories, risk, network, isLoading, onLoad, loadResourceDetail,
@@ -96,12 +85,13 @@ const InventoryTab: React.FC<Props> = ({
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Catalog</p>
         </div>
         <nav className="p-2 space-y-0.5 max-h-[70vh] overflow-auto">
-          <RailItem label="All assets" icon="mdi:view-grid-outline" count={total}
+          <RailItem label="All assets" mark={{ icon: 'mdi:view-grid-outline', color: '#6b7280', label: 'All assets' }}
+                    count={total}
                     active={activeCategory === ''} onClick={() => pick('')} />
           {cats.map((c) => (
             <RailItem key={c.category ?? 'uncategorized'}
                       label={catLabel(c.category)}
-                      icon={catIcon(c.category)}
+                      mark={categoryMark(c.category)}
                       count={c.count}
                       active={activeCategory === (c.category ?? '')}
                       onClick={() => pick(c.category ?? '')} />
@@ -142,7 +132,14 @@ const InventoryTab: React.FC<Props> = ({
                   <td className="px-5 py-3 text-gray-800 max-w-xs">
                     <ResourceLink resourceId={a.cloudResourceId} label={a.name} onOpen={open} />
                   </td>
-                  <td className="px-5 py-3 text-gray-600">{a.label}</td>
+                  <td className="px-5 py-3 text-gray-600">
+                    {/* The raw value stays on the title attribute: it is what the Upwind API
+                        and our own filters key on, so it must remain discoverable. */}
+                    <span className="flex items-center gap-1.5 min-w-0" title={a.label ?? ''}>
+                      <ResourceIcon mark={resourceMark(a.label)} className="flex-shrink-0" />
+                      <span className="truncate">{resourceMark(a.label).label}</span>
+                    </span>
+                  </td>
                   <td className="px-5 py-3 text-gray-600">{a.assetSubCategory}</td>
                   <td className="px-5 py-3 text-gray-600">{a.cloudProvider}</td>
                   <td className="px-5 py-3 text-gray-600">{a.region}</td>
@@ -265,8 +262,9 @@ const ViewTab: React.FC<{ label: string; active: boolean; onClick: () => void }>
   </button>
 );
 
-const RailItem: React.FC<{ label: string; icon: string; count: number; active: boolean; onClick: () => void }> =
-  ({ label, icon, count, active, onClick }) => (
+const RailItem: React.FC<{
+  label: string; mark: Mark; count: number; active: boolean; onClick: () => void;
+}> = ({ label, mark, count, active, onClick }) => (
     <button
       onClick={onClick}
       className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs transition-colors ${
@@ -274,7 +272,7 @@ const RailItem: React.FC<{ label: string; icon: string; count: number; active: b
       }`}
     >
       <span className="flex items-center gap-2 min-w-0">
-        <Icon icon={icon} width={14} className="flex-shrink-0" />
+        <ResourceIcon mark={mark} className="flex-shrink-0" />
         <span className="truncate">{label}</span>
       </span>
       <span className={`text-[10px] font-semibold ${active ? 'text-gray-300' : 'text-gray-400'}`}>{count}</span>

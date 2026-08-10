@@ -8,6 +8,9 @@ import java.net.InetAddress;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -87,10 +90,39 @@ public class UpwindSyncLease {
             return true;
         }
 
+        // Heartbeat. Without it the TTL has to be guessed against the slowest possible sync,
+        // and guessing low is not a benign failure: the full sync reconciles domain by domain
+        // with API endpoints last, so once the lease lapses mid-run every later mark-resolved
+        // pass stands down and stale rows are never cleaned. Measured on UAT: 15,325 endpoint
+        // rows held for an account the API returns 4,919 for.
+        //
+        // Renewing keeps a live run's lease valid for as long as it is actually working, while
+        // a crashed instance stops renewing and its lease still expires on schedule, so
+        // takeover behaviour is unchanged.
+        ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "upwind-lease-" + name);
+            t.setDaemon(true);
+            return t;
+        });
+        long periodSeconds = Math.max(30L, ttl.getSeconds() / 3);
+        heartbeat.scheduleAtFixedRate(() -> {
+            try {
+                Instant beat = Instant.now();
+                if (lockRepo.renew(name, holder, beat, beat.plus(ttl)) == 0) {
+                    // Lost it: expired before this tick, or taken over. stillHeld() reports
+                    // the same thing to the task, which is what makes it stand down.
+                    log.warn("[Upwind] {} lease renewal found no lease held by {}", name, holder);
+                }
+            } catch (Exception e) {
+                log.warn("[Upwind] {} lease renewal failed: {}", name, e.getMessage());
+            }
+        }, periodSeconds, periodSeconds, TimeUnit.SECONDS);
+
         try {
             task.run(() -> stillHeld(name));
             return true;
         } finally {
+            heartbeat.shutdownNow();
             try {
                 lockRepo.release(name, holder, Instant.now());
             } catch (Exception e) {

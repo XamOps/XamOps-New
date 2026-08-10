@@ -75,6 +75,23 @@ public interface UpwindThreatDetectionRepository extends JpaRepository<UpwindThr
            "AND d.resourceId IS NOT NULL")
     long countDistinctResources(@Param("accountIds") List<String> accountIds);
 
+    /**
+     * Projection for the Detections group-by dimensions Upwind offers: Threat (the detection
+     * title), Resource, and Account.
+     *
+     * Columns: title, severity, resourceId, resourceName, resourceType, cloudAccountId,
+     *          category, occurrenceCount, firstSeenTime, lastSeenTime
+     *
+     * Grouped in Java for the same reason as the dashboard facets: the interesting keys are
+     * text columns that need a worst-severity and first/last-seen rollup per group, and the
+     * detection table is small enough that one projection scan beats several grouped queries.
+     */
+    @Query("SELECT d.title, d.severity, d.resourceId, d.resourceName, d.resourceType, " +
+           "d.cloudAccountId, d.category, d.occurrenceCount, d.firstSeenTime, d.lastSeenTime " +
+           "FROM UpwindThreatDetection d WHERE d.cloudAccountId IN :accountIds " +
+           "AND d.upwindId <> 'uwnd-smoke'")
+    List<Object[]> findGroupingFacets(@Param("accountIds") List<String> accountIds);
+
     /** Detections against one resource — powers the unified resource view. */
     @Query("SELECT d FROM UpwindThreatDetection d WHERE d.cloudAccountId IN :accountIds " +
            "AND d.resourceId = :resourceId AND d.upwindId <> 'uwnd-smoke' " +

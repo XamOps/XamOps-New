@@ -186,7 +186,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
       <DialogPanel
         title={
           <div className="flex items-center gap-2">
-            <Icon icon={step === 'success' ? 'mdi:check-circle-outline' : isEditing ? 'mdi:pencil-outline' : 'mdi:plug-outline'} width={18} color={step === 'success' ? '#16a34a' : '#4F46E5'} />
+            <Icon icon={step === 'success' ? 'mdi:check-circle-outline' : isEditing ? 'mdi:pencil-outline' : 'mdi:power-plug-outline'} width={18} color={step === 'success' ? '#16a34a' : '#4F46E5'} />
             <span>{step === 'success' ? (isEditing ? 'Provider Updated' : 'Setup Complete') : isEditing ? `Edit Provider — ${editProvider?.displayName ?? editProvider?.provider}` : 'Connect LLM Provider'}</span>
           </div>
         }
@@ -208,7 +208,7 @@ const LLMProviderSetupModal: React.FC<LLMProviderSetupModalProps> = ({
                     <>
                       <button onClick={handleTestConnection} disabled={isTesting}
                         className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors disabled:opacity-50">
-                        {isTesting ? <Icon icon="mdi:loading" width={14} className="animate-spin" /> : <Icon icon="mdi:plug-outline" width={14} />}
+                        {isTesting ? <Icon icon="mdi:loading" width={14} className="animate-spin" /> : <Icon icon="mdi:power-plug-outline" width={14} />}
                         {isTesting ? 'Testing…' : 'Test Connection'}
                       </button>
                       <button onClick={handleSave} disabled={isSaving}

@@ -97,7 +97,7 @@ export function JobAnalytics({ jobs }: JobAnalyticsProps) {
     {
       label: 'Total Jobs',
       value: analytics.totalJobs,
-      icon: 'mdi:film-sync',
+      icon: 'mdi:movie-open-outline',
       iconBg: 'bg-blue-50',
       iconColor: 'text-blue-500',
     },

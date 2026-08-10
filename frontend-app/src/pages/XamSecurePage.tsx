@@ -26,7 +26,12 @@ export const XAMSECURE_TABS: { id: XamSecureTab; label: string }[] = [
   { id: 'api-security', label: 'APIs' },
   { id: 'identities', label: 'Identities' },
   { id: 'threats', label: 'Threats' },
-  { id: 'components', label: 'Components' },
+  // "Packages", not "Components". Upwind's Components area is sensor and agent fleet
+  // management (Sensors / Cloud Scanners / Integrations / Workflows, with health and
+  // coverage); this tab is a software bill of materials. Sharing their label implied parity
+  // with a feature we cannot build — nine candidate sensor endpoints all return 404, so there
+  // is no API behind their version.
+  { id: 'components', label: 'Packages' },
   // Workflows & Onboarding remain valid routes (deep-link reachable) but are not in the
   // sidebar nav — they map to Upwind's Settings area, not its security nav.
   { id: 'workflows', label: 'Workflows' },
@@ -51,11 +56,13 @@ const XamSecurePage: React.FC = () => {
   // Held here so paging these server-filtered tables preserves the active severity filter.
   const [postureSeverity, setPostureSeverity] = useState('');
   const [cveSeverity, setCveSeverity] = useState('');
+  const [cveView, setCveView] = useState('');
 
   const {
     summary, issues, attackSurface, threats, vulnDashboard, vulnByCve, posture, inventory,
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
+    vulnGroups, loadVulnGroups, threatGroups, loadThreatGroups,
     noAccountSelected,
     isLoading, refresh, loadIssueDetail, loadResourceDetail, loadStoryDetail,
     loadThreats, loadVulnByCve, loadCveFindings, loadPosture, loadInventory,
@@ -150,14 +157,19 @@ const XamSecurePage: React.FC = () => {
                           onPage={(p) => loadThreats(p)} onArchive={archiveThreat}
                           loadResourceDetail={loadResourceDetail}
                           onOpenStory={openStory}
-                          onTrendRange={(d) => { void loadThreatOverview(true, d); }} />
+                          onTrendRange={(d) => { void loadThreatOverview(true, d); }}
+                          groups={threatGroups}
+                          onGroupBy={(d) => { void loadThreatGroups(d); }} />
         )}
         {activeTab === 'vulnerabilities' && (
           <VulnerabilitiesTab dashboard={vulnDashboard} byCve={vulnByCve} isLoading={isLoading}
-                              onCvePage={(p) => loadVulnByCve(p, cveSeverity)}
+                              onCvePage={(p) => loadVulnByCve(p, cveSeverity, cveView)}
                               loadCveFindings={loadCveFindings}
                               loadResourceDetail={loadResourceDetail}
-                              onCveSeverity={(s) => { setCveSeverity(s); loadVulnByCve(0, s); }} />
+                              onCveSeverity={(s) => { setCveSeverity(s); loadVulnByCve(0, s, cveView); }}
+                              onCveView={(v) => { setCveView(v); setCveSeverity(''); loadVulnByCve(0, '', v); }}
+                              groups={vulnGroups}
+                              onGroupBy={(d, p) => { void loadVulnGroups(d, p ?? 0); }} />
         )}
         {activeTab === 'posture' && (
           <ConfigurationsTab dashboard={configDashboard} posture={posture} compliance={compliance}

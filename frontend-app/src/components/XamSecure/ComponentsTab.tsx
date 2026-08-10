@@ -2,13 +2,22 @@ import React, { useMemo, useState } from 'react';
 import type { SbomComponent } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
 import ComponentDrawer from './ComponentDrawer';
+import { packageMark, ResourceIcon } from '../../utils/resourceBranding';
 
 interface Props {
   data: SbomComponent[] | null;
   isLoading: boolean;
 }
 
-/** Software components (SBOM) — mirrors Upwind's Components view. */
+/**
+ * Software bill of materials: packages, versions, licences, and which are loaded at runtime.
+ *
+ * Surfaced as "Packages". It does NOT mirror Upwind's Components view, which the earlier
+ * comment here claimed — theirs is sensor and agent fleet management (Sensors, Cloud Scanners,
+ * Integrations, Workflows, with coverage and health). No API exposes that: nine candidate
+ * sensor paths all 404, so their version is not buildable and sharing the label only implied
+ * a gap where there is none.
+ */
 const ComponentsTab: React.FC<Props> = ({ data, isLoading }) => {
   const all = data ?? [];
   const [query, setQuery] = useState('');
@@ -81,7 +90,15 @@ const ComponentsTab: React.FC<Props> = ({ data, isLoading }) => {
                 <tr key={`${c.name}-${c.version}-${i}`}
                     className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
                     onClick={() => setSelected(c)}>
-                  <td className="px-5 py-3 font-medium text-gray-800 max-w-xs truncate">{c.name ?? '—'}</td>
+                  <td className="px-5 py-3 font-medium text-gray-800">
+                    {/* Marked by upstream project, matched on prefix: busybox-binsh,
+                        alpine-baselayout-data and libssl3 all belong to a project with a mark,
+                        which exact-name matching would miss. */}
+                    <span className="flex items-center gap-1.5 min-w-0" title={c.name ?? ''}>
+                      <ResourceIcon mark={packageMark(c.name)} className="flex-shrink-0" />
+                      <span className="truncate max-w-xs">{c.name ?? '—'}</span>
+                    </span>
+                  </td>
                   <td className="px-5 py-3 font-mono text-gray-600">{c.version ?? '—'}</td>
                   <td className="px-5 py-3 text-gray-500">{c.packageManager ?? '—'}</td>
                   <td className="px-5 py-3 text-gray-500">{c.framework ?? '—'}</td>

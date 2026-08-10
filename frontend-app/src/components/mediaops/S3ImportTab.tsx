@@ -134,7 +134,7 @@ function PreviewModal({ file, accountId, onClose, onTranscode }: PreviewModalPro
               onClick={() => onTranscode(file, url)}
               className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-bold bg-[rgba(0,0,0,0.88)] text-white rounded-xl hover:bg-[rgba(0,0,0,0.75)] transition-colors"
             >
-              <Icon icon="mdi:film-sync" className="text-sm" />
+              <Icon icon="mdi:movie-open-outline" className="text-sm" />
               Transcode This
             </button>
           )}
@@ -178,7 +178,7 @@ function TranscodeDialog({ file, presignedUrl, onClose, onSubmit }: TranscodeDia
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(0,0,0,0.08)]">
           <div className="flex items-center gap-2">
-            <Icon icon="mdi:film-sync" className="text-[rgba(0,0,0,0.5)]" />
+            <Icon icon="mdi:movie-open-outline" className="text-[rgba(0,0,0,0.5)]" />
             <p className="text-[13px] font-bold text-[rgba(0,0,0,0.88)]">Transcode from S3</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.05)]">
@@ -283,7 +283,7 @@ function FileCard({ file, onPreview, onTranscode }: {
         </button>
         <button onClick={() => onTranscode(file)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold bg-[rgba(0,0,0,0.88)] text-white rounded-lg hover:bg-[rgba(0,0,0,0.75)] transition-colors">
-          <Icon icon="mdi:film-sync" className="text-sm" /> Transcode
+          <Icon icon="mdi:movie-open-outline" className="text-sm" /> Transcode
         </button>
       </div>
     </div>

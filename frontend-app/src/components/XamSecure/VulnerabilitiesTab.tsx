@@ -6,6 +6,7 @@ import type { FunnelStage } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
 import type {
   PageResp, VulnerabilityDashboard, CveGroupRow, CveResourceFinding, ResourceDetail,
+  VulnGroupPage, VulnGroupDimension,
 } from '../../types/xamsecure';
 import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
@@ -13,6 +14,7 @@ import ResourceLink from './ResourceLink';
 import FilterChips, { SEVERITY_TINT } from './FilterChips';
 import { useResourceDrawer } from './useResourceDrawer';
 import VulnFindingDrawer from './VulnFindingDrawer';
+import VulnGroupTable from './VulnGroupTable';
 
 /** Upwind severity palette. */
 const SEV_COLOR = { Critical: '#dc2626', High: '#f97316', Medium: '#eab308', Other: '#3b82f6' } as const;
@@ -26,6 +28,11 @@ interface Props {
   loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
   /** Server-side severity filter for the CVE list (it is paginated). */
   onCveSeverity?: (severity: string) => void;
+  /** Server-side saved-view filter: '' for all CVEs, 'runtime' for runtime-exposed only. */
+  onCveView?: (view: string) => void;
+  /** Findings grouped by something other than CVE. */
+  groups?: VulnGroupPage | null;
+  onGroupBy?: (dimension: VulnGroupDimension, page?: number) => void;
 }
 
 const WORKLOAD_LABEL: Record<string, string> = {
@@ -46,8 +53,10 @@ const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString(
 
 const VulnerabilitiesTab: React.FC<Props> = ({
   dashboard, byCve, isLoading, onCvePage, loadCveFindings, loadResourceDetail, onCveSeverity,
+  onCveView, groups, onGroupBy,
 }) => {
   const [view, setView] = useState<'dashboard' | 'findings'>('dashboard');
+  const [groupBy, setGroupBy] = useState<'cve' | VulnGroupDimension>('cve');
   // Which affected-resource row has its full finding panel open.
   const [openFinding, setOpenFinding] =
     useState<{ cve: CveGroupRow; finding: CveResourceFinding } | null>(null);
@@ -189,10 +198,44 @@ const VulnerabilitiesTab: React.FC<Props> = ({
           </div>
         </div>
       ) : (
-        <CveFindings byCve={byCve} isLoading={isLoading} onPage={onCvePage}
-                     loadCveFindings={loadCveFindings} onOpenResource={open}
-                     onSeverity={onCveSeverity}
-                     onOpenFinding={(cve, finding) => setOpenFinding({ cve, finding })} />
+        <>
+          {/* Group by, as Upwind offers it. CVE stays the default because it is the only
+              dimension with a drill-down; the others are rollups. */}
+          {onGroupBy && (
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                Group by
+              </span>
+              {(['cve', 'image', 'package', 'resource'] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  aria-pressed={groupBy === d}
+                  onClick={() => {
+                    setGroupBy(d);
+                    if (d !== 'cve') onGroupBy(d, 0);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors
+                              focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${
+                    groupBy === d
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+                >
+                  {d === 'cve' ? 'CVE' : d.charAt(0).toUpperCase() + d.slice(1)}
+                </button>
+              ))}
+            </div>
+          )}
+          {groupBy === 'cve' ? (
+            <CveFindings byCve={byCve} isLoading={isLoading} onPage={onCvePage}
+                         loadCveFindings={loadCveFindings} onOpenResource={open}
+                         onSeverity={onCveSeverity} onView={onCveView}
+                         onOpenFinding={(cve, finding) => setOpenFinding({ cve, finding })} />
+          ) : (
+            <VulnGroupTable data={groups} dimension={groupBy} isLoading={isLoading}
+                            onPage={(p) => onGroupBy?.(groupBy, p)} />
+          )}
+        </>
       )}
       {openFinding && (
         <VulnFindingDrawer cve={openFinding.cve} finding={openFinding.finding}
@@ -214,11 +257,13 @@ const CveFindings: React.FC<{
   onSeverity?: (severity: string) => void;
   /** Opens the vulnerability-finding panel for one affected resource under a CVE. */
   onOpenFinding?: (cve: CveGroupRow, finding: CveResourceFinding) => void;
+  onView?: (view: string) => void;
 }> = ({
-  byCve, isLoading, onPage, loadCveFindings, onOpenResource, onSeverity, onOpenFinding,
+  byCve, isLoading, onPage, loadCveFindings, onOpenResource, onSeverity, onOpenFinding, onView,
 }) => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [severity, setSeverity] = useState<string | null>(null);
+  const runtimeOnly = byCve?.view === 'runtime';
   const [drill, setDrill] = useState<Record<string, CveResourceFinding[] | 'loading'>>({});
   const rows = byCve?.content ?? [];
 
@@ -251,9 +296,26 @@ const CveFindings: React.FC<{
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+      <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray-200">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">CVEs</p>
-        {byCve && <span className="text-[10px] text-gray-400">{byCve.totalElements} CVEs</span>}
+        <div className="flex items-center gap-2">
+          {/* Upwind's Findings view opens on a saved "Runtime exposure vulnerabilities" filter,
+              which is why their console shows tens of CVEs where an unfiltered list shows
+              thousands. Same narrowing, offered explicitly rather than as a hidden default, so
+              the installed total stays reachable. */}
+          {onView && byCve?.runtimeExposedCount != null && (
+            <div className="flex items-center gap-1">
+              <ViewChip label="All" count={byCve.totalCveCount}
+                        active={!runtimeOnly}
+                        onClick={() => { setSeverity(null); setExpanded(null); onView(''); }} />
+              <ViewChip label="Runtime exposed" count={byCve.runtimeExposedCount}
+                        active={runtimeOnly}
+                        title="Package loaded at runtime on a workload that takes inbound traffic"
+                        onClick={() => { setSeverity(null); setExpanded(null); onView('runtime'); }} />
+            </div>
+          )}
+          {byCve && <span className="text-[10px] text-gray-400">{byCve.totalElements} CVEs</span>}
+        </div>
       </div>
       {onSeverity && severityGroups.length > 1 && (
         <div className="px-5 py-3 border-b border-gray-100">
@@ -275,8 +337,10 @@ const CveFindings: React.FC<{
               <th className="px-3 py-2.5">Severity</th>
               <th className="px-3 py-2.5">CVSS</th>
               <th className="px-3 py-2.5">Risk</th>
+              <th className="px-3 py-2.5">Runtime</th>
               <th className="px-3 py-2.5">Findings</th>
               <th className="px-3 py-2.5">Affected resources</th>
+              <th className="px-3 py-2.5">Affected images</th>
               <th className="px-3 py-2.5">First seen</th>
             </tr>
           </thead>
@@ -304,13 +368,38 @@ const CveFindings: React.FC<{
                       {!c.exploitable && (c.epssScore == null || c.epssScore < 0.5) && <span className="text-gray-300">—</span>}
                     </span>
                   </td>
+                  <td className="px-3 py-3">
+                    <span className="flex items-center gap-1.5 text-gray-400">
+                      {c.packageInUse && (
+                        <span title="Package loaded by a running process">
+                          <Icon icon="mdi:play-circle-outline" width={13} className="text-emerald-600" />
+                        </span>
+                      )}
+                      {c.internetExposed && (
+                        <span title="Workload takes inbound traffic">
+                          <Icon icon="mdi:earth" width={13} className="text-orange-500" />
+                        </span>
+                      )}
+                      {c.functionsInUse && (
+                        <span title="Vulnerable function observed executing">
+                          <Icon icon="mdi:function-variant" width={13} className="text-red-600" />
+                        </span>
+                      )}
+                      {!c.packageInUse && !c.internetExposed && !c.functionsInUse
+                        && <span className="text-gray-300">—</span>}
+                    </span>
+                  </td>
                   <td className="px-3 py-3 font-semibold text-gray-700">{c.findingsCount}</td>
                   <td className="px-3 py-3 font-semibold text-gray-700">{c.resourceCount}</td>
+                  {/* Zero is meaningful: host and serverless findings carry no image. */}
+                  <td className="px-3 py-3 text-gray-600">
+                    {c.imageCount > 0 ? c.imageCount : <span className="text-gray-300">—</span>}
+                  </td>
                   <td className="px-3 py-3 whitespace-nowrap text-gray-500">{fmtDate(c.firstSeen)}</td>
                 </tr>
                 {expanded === c.cveId && (
                   <tr className="bg-gray-50/60">
-                    <td colSpan={8} className="px-8 py-3">
+                    <td colSpan={10} className="px-8 py-3">
                       {drill[c.cveId] === 'loading' ? (
                         <p className="text-[11px] text-gray-400 py-2">Loading affected resources...</p>
                       ) : (
@@ -324,8 +413,12 @@ const CveFindings: React.FC<{
               </React.Fragment>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={8} className="px-5 py-12 text-center text-gray-400">
-                {isLoading ? 'Loading CVEs...' : 'No vulnerabilities for the selected account.'}
+              <tr><td colSpan={10} className="px-5 py-12 text-center text-gray-400">
+                {isLoading
+                  ? 'Loading CVEs...'
+                  : runtimeOnly
+                    ? 'No CVEs are runtime-exposed in this account. Switch to All to see installed CVEs.'
+                    : 'No vulnerabilities for the selected account.'}
               </td></tr>
             )}
           </tbody>
@@ -606,6 +699,26 @@ const ViewTab: React.FC<{ label: string; active: boolean; onClick: () => void }>
           className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
             active ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
     {label}
+  </button>
+);
+
+/** Saved-view selector for the CVE list. Two views today: everything, and runtime-exposed. */
+const ViewChip: React.FC<{
+  label: string; count?: number; active: boolean; title?: string; onClick: () => void;
+}> = ({ label, count, active, title, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={title}
+    aria-pressed={active}
+    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold
+                transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${
+      active ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+  >
+    {label}
+    {count != null && (
+      <span className={active ? 'text-gray-300' : 'text-gray-400'}>{count.toLocaleString()}</span>
+    )}
   </button>
 );
 

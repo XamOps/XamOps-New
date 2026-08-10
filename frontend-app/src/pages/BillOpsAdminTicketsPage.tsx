@@ -762,7 +762,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
               title="Click to filter by SLA Breached"
             >
               <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${stats.breached > 0 ? 'bg-red-50' : 'bg-[rgba(0,0,0,0.04)]'}`}>
-                <Icon icon="mdi:alert-triangle-outline" width={16} className={stats.breached > 0 ? 'text-red-500' : 'text-[rgba(0,0,0,0.3)]'} />
+                <Icon icon="mdi:alert-outline" width={16} className={stats.breached > 0 ? 'text-red-500' : 'text-[rgba(0,0,0,0.3)]'} />
               </div>
               <div>
                 <p className={`text-xl font-bold leading-none ${stats.breached > 0 ? 'text-red-600' : 'text-[rgba(0,0,0,0.4)]'}`}>
@@ -837,7 +837,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
                 : 'bg-white text-[rgba(0,0,0,0.5)] border-[rgba(0,0,0,0.12)]'
             }`}
           >
-            <Icon icon="mdi:alert-triangle-outline" width={11} />
+            <Icon icon="mdi:alert-outline" width={11} />
             SLA Breached
             {stats.breached > 0 && (
               <span className={`inline-flex items-center justify-center w-4 h-4 rounded text-[9px] font-semibold ${

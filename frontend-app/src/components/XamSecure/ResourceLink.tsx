@@ -1,12 +1,13 @@
 import React from 'react';
 import { Icon } from '@iconify/react';
+import { resourceMark, ResourceIcon } from '../../utils/resourceBranding';
 
 interface Props {
   resourceId: string | null | undefined;
   label: string | null | undefined;
   /** Omit where no resource drawer is available; the name then renders as plain text. */
   onOpen?: (resourceId: string) => void;
-  /** Secondary line under the name, e.g. the resource type. */
+  /** Secondary line under the name: a resource type or a provider name. Both are branded. */
   sub?: string | null;
 }
 
@@ -38,7 +39,15 @@ const ResourceLink: React.FC<Props> = ({ resourceId, label, onOpen, sub }) => {
       ) : (
         <span className="font-medium text-gray-700">{text}</span>
       )}
-      {sub && <span className="block text-[10px] text-gray-400">{sub}</span>}
+      {sub && (
+        // Marked and humanised. This line was raw values like AWS_SECURITY_GROUP or
+        // KUBERNETES_DEPLOYMENT, which are the API's vocabulary rather than a reader's; the raw
+        // string stays on the title for anyone matching it against a filter or the API.
+        <span className="flex items-center gap-1 text-[10px] text-gray-400" title={sub}>
+          <ResourceIcon mark={resourceMark(sub)} size={11} className="flex-shrink-0 opacity-80" />
+          <span className="truncate">{resourceMark(sub).label}</span>
+        </span>
+      )}
     </>
   );
 };

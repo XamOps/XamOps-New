@@ -107,7 +107,7 @@ function useActiveTab(): Tab {
 
 const TAB_DEFS: { id: Tab; label: string; icon: string; path: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'mdi:view-dashboard-outline', path: '/media-ops' },
-  { id: 'transcode', label: 'Transcode', icon: 'mdi:film-sync', path: '/media-ops/transcode' },
+  { id: 'transcode', label: 'Transcode', icon: 'mdi:movie-open-outline', path: '/media-ops/transcode' },
   { id: 'streams', label: 'Live Streams', icon: 'mdi:broadcast', path: '/media-ops/streams' },
   { id: 'storage', label: 'Storage', icon: 'mdi:folder-play-outline', path: '/media-ops/storage' },
   { id: 'cost-savings', label: 'Cost Savings', icon: 'mdi:piggy-bank-outline', path: '/media-ops/cost-savings' },
@@ -214,7 +214,7 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
 
   const stats = [
     { label: 'Active Streams', value: overview?.liveStreams ?? '—', icon: 'mdi:broadcast', sub: 'Live right now', tooltip: 'Number of currently active RTMP/HLS live streams.' },
-    { label: 'Jobs Running', value: overview?.processingJobs ?? '—', icon: 'mdi:film-sync', sub: 'Transcoding now', tooltip: 'Transcoding jobs currently in progress.' },
+    { label: 'Jobs Running', value: overview?.processingJobs ?? '—', icon: 'mdi:movie-open-outline', sub: 'Transcoding now', tooltip: 'Transcoding jobs currently in progress.' },
     { label: 'Jobs Completed', value: overview?.completedJobs ?? '—', icon: 'mdi:check-circle-outline', sub: 'Total completed', tooltip: 'Jobs that finished successfully.' },
     { label: 'Total Viewers', value: overview?.totalViewers ?? '—', icon: 'mdi:account-group-outline', sub: 'Across all streams', tooltip: 'Total concurrent viewers across all live streams.' },
     { label: 'Storage Used', value: storageStr, icon: 'mdi:database-outline', sub: 'Media storage', tooltip: 'Total media storage consumed.' },
@@ -267,7 +267,7 @@ function OverviewTab({ overview, jobs, streams, loadingOverview, loadingJobs, lo
         <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
             <div className="flex items-center gap-2">
-              <Icon icon="mdi:film-sync" className="text-[rgba(0,0,0,0.4)] text-base" />
+              <Icon icon="mdi:movie-open-outline" className="text-[rgba(0,0,0,0.4)] text-base" />
               <span className="text-[13px] font-bold text-[rgba(0,0,0,0.88)]">Recent Transcoding Jobs</span>
             </div>
             <span className="text-[11px] text-[rgba(0,0,0,0.4)]">{jobs.length} total</span>

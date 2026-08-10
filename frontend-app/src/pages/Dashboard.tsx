@@ -137,7 +137,7 @@ export const Dashboard: React.FC = () => {
       <div className="fixed inset-0 flex items-center justify-center bg-red-50 text-red-700 z-50">
         <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
           <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-rose-50 border border-rose-100 rounded-xl">
-            <Icon icon="mdi:alert-triangle-outline" width={28} color="#F43F5E" />
+            <Icon icon="mdi:alert-outline" width={28} color="#F43F5E" />
           </div>
           <h2 className="text-xl font-bold text-center mb-4 text-[rgba(0,0,0,0.88)]">Connection Error</h2>
           <p className="text-center text-[rgba(0,0,0,0.5)] text-sm mb-6">{error.message}</p>

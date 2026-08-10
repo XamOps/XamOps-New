@@ -573,11 +573,13 @@ class XamSecureServiceTest {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
         org.springframework.data.domain.Page<com.xammer.cloud.domain.UpwindInventoryAsset> empty =
             org.springframework.data.domain.Page.empty();
-        when(inventoryRepo.findByCloudAccountIdInOrderByNameAsc(eq(List.of("111")), any()))
+        // findActiveByAccounts, not the old unfiltered derived method: the table has to agree
+        // with the category rail and the Assets tile, which both count ACTIVE only.
+        when(inventoryRepo.findActiveByAccounts(eq(List.of("111")), any()))
             .thenReturn(empty);
         var page = service.getInventory(1L, null, null, 0, 50);
         assertNotNull(page);
-        verify(inventoryRepo).findByCloudAccountIdInOrderByNameAsc(eq(List.of("111")), any());
+        verify(inventoryRepo).findActiveByAccounts(eq(List.of("111")), any());
     }
 
     @Test
@@ -770,6 +772,137 @@ class XamSecureServiceTest {
         assertEquals(1L, last.get("high"));
         assertEquals(1L, last.get("other"));                 // MEDIUM banded into "other"
         assertEquals(0L, trend.get(0).get("critical"));
+    }
+
+    /** Projection row for findAllForCveGrouping (14 columns; last three are runtime flags). */
+    private static Object[] cveRow(String cveId, String severity, String resourceId,
+                                   Boolean inUse, Boolean exposed, Boolean functionsInUse) {
+        return new Object[]{cveId, cveId + " name", severity, "9.8", Boolean.TRUE, "0.5",
+                resourceId, resourceId, "KUBERNETES_DEPLOYMENT",
+                java.time.Instant.parse("2026-08-01T00:00:00Z"),
+                java.time.Instant.parse("2026-08-05T00:00:00Z"),
+                inUse, exposed, functionsInUse};
+    }
+
+    @Test
+    void cveViewRuntimeKeepsOnlyReachableCvesAndReportsBothTotals() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(vulnRepo.findAllForCveGrouping(List.of("111"))).thenReturn(List.of(
+                // Reachable: loaded and behind ingress.
+                cveRow("CVE-1", "CRITICAL", "res-a", true, true, false),
+                // Loaded but not exposed.
+                cveRow("CVE-2", "CRITICAL", "res-b", true, false, false),
+                // Exposed but never loaded.
+                cveRow("CVE-3", "HIGH", "res-c", false, true, false),
+                // Neither.
+                cveRow("CVE-4", "LOW", "res-d", false, false, false)));
+
+        var all = service.getVulnerabilitiesByCve(1L, null, "", 0, 50, null);
+        assertEquals(4, all.get("totalElements"));
+        assertEquals("all", all.get("view"));
+        // Both totals are reported regardless of the active view, so the toggle can be labelled.
+        assertEquals(4, all.get("totalCveCount"));
+        assertEquals(1L, all.get("runtimeExposedCount"));
+
+        var runtime = service.getVulnerabilitiesByCve(1L, null, "", 0, 50, "runtime");
+        assertEquals("runtime", runtime.get("view"));
+        assertEquals(1, runtime.get("totalElements"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<java.util.Map<String, Object>>) runtime.get("content");
+        assertEquals("CVE-1", rows.get(0).get("cveId"));
+        assertEquals(true, rows.get(0).get("runtimeExposed"));
+        // Unknown view values must not silently filter anything out.
+        assertEquals(4, service.getVulnerabilitiesByCve(1L, null, "", 0, 50, "nonsense")
+                .get("totalElements"));
+    }
+
+    @Test
+    void cveRuntimeFlagsAreOrredAcrossFindings() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        // One CVE, two findings: neither is both in-use AND exposed on its own, but the CVE is
+        // reachable because one instance is loaded and another sits behind ingress.
+        when(vulnRepo.findAllForCveGrouping(List.of("111"))).thenReturn(List.of(
+                cveRow("CVE-9", "HIGH", "res-a", true, false, false),
+                cveRow("CVE-9", "HIGH", "res-b", false, true, false)));
+
+        var runtime = service.getVulnerabilitiesByCve(1L, null, "", 0, 50, "runtime");
+        assertEquals(1, runtime.get("totalElements"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<java.util.Map<String, Object>>) runtime.get("content");
+        assertEquals(2, rows.get(0).get("findingsCount"));
+        assertEquals(2, rows.get(0).get("resourceCount"));
+    }
+
+    @Test
+    void vulnerabilityGroupsRollUpByImageAndOrRuntimeFlags() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        // groupByImage columns: key, secondary, severity, cveId, resourceId, exploitable,
+        //                       packageInUse, internetExposed
+        when(vulnRepo.groupByImage(List.of("111"))).thenReturn(List.of(
+                new Object[]{"api", "v1.2", "HIGH", "CVE-1", "res-a", true, true, false},
+                new Object[]{"api", "v1.2", "CRITICAL", "CVE-2", "res-b", false, false, true},
+                new Object[]{"worker", "v3", "LOW", "CVE-3", "res-c", false, false, false}));
+
+        var out = service.getVulnerabilityGroups(1L, null, "image", 0, 50);
+
+        assertEquals("image", out.get("dimension"));
+        assertEquals(2, out.get("totalElements"));
+        @SuppressWarnings("unchecked")
+        var rows = (List<java.util.Map<String, Object>>) out.get("content");
+        // Worst severity wins the group, so "api" (CRITICAL) sorts above "worker" (LOW).
+        var api = rows.get(0);
+        assertEquals("api", api.get("key"));
+        assertEquals("CRITICAL", api.get("severity"));
+        assertEquals(2, api.get("cveCount"));
+        assertEquals(2, api.get("findingsCount"));
+        assertEquals(2, api.get("resourceCount"));
+        // Flags are OR-ed: neither finding is both in-use AND exposed, but the image is both.
+        assertEquals(true, api.get("packageInUse"));
+        assertEquals(true, api.get("internetExposed"));
+        assertEquals(true, api.get("runtimeExposed"));
+        assertEquals("worker", rows.get(1).get("key"));
+    }
+
+    @Test
+    void vulnerabilityGroupsRejectUnknownDimensionRatherThanDefaulting() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        var out = service.getVulnerabilityGroups(1L, null, "colour", 0, 50);
+        // Must not quietly return images: a typo would look like real data for the wrong axis.
+        assertEquals(0, out.get("totalElements"));
+        assertEquals("colour", out.get("dimension"));
+        verify(vulnRepo, never()).groupByImage(anyList());
+    }
+
+    @Test
+    void threatGroupsRollUpByThreatAndResource() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        // findGroupingFacets columns: title, severity, resourceId, resourceName, resourceType,
+        //                             cloudAccountId, category, occurrences, firstSeen, lastSeen
+        var t0 = java.time.Instant.parse("2026-08-01T00:00:00Z");
+        var t1 = java.time.Instant.parse("2026-08-05T00:00:00Z");
+        when(detectionRepo.findGroupingFacets(List.of("111"))).thenReturn(List.of(
+                new Object[]{"Reverse shell", "HIGH", "r1", "web-1", "K8S", "111", "SENSOR", 3, t0, t1},
+                new Object[]{"Reverse shell", "CRITICAL", "r2", "web-2", "K8S", "111", "SENSOR", 1, t0, t1},
+                new Object[]{"MFA disabled", "MEDIUM", "r3", "user-1", "IAM", "111", "CLOUD_TRAIL", 2, t0, t0}));
+
+        var byThreat = service.getThreatGroups(1L, null, "threat");
+        @SuppressWarnings("unchecked")
+        var groups = (List<java.util.Map<String, Object>>) byThreat.get("groups");
+        assertEquals(2, groups.size());
+        var shell = groups.get(0);
+        assertEquals("Reverse shell", shell.get("key"));
+        assertEquals("CRITICAL", shell.get("severity"));   // worst in the group
+        assertEquals(2, shell.get("detections"));
+        assertEquals(4, shell.get("occurrences"));         // occurrence counts summed
+        assertEquals(2, shell.get("resourceCount"));
+
+        var byResource = service.getThreatGroups(1L, null, "resource");
+        @SuppressWarnings("unchecked")
+        var resources = (List<java.util.Map<String, Object>>) byResource.get("groups");
+        assertEquals(3, resources.size());                  // one row per resource
+
+        // Unknown dimension yields nothing rather than silently grouping by threat.
+        assertTrue(((List<?>) service.getThreatGroups(1L, null, "weather").get("groups")).isEmpty());
     }
 
     @Test

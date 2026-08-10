@@ -186,7 +186,7 @@ const GcpSecurityPage: React.FC = () => {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-7 h-7 rounded-full flex items-center justify-center bg-purple-500">
-                      <Icon icon="mdi:account-shield" width={16} className="text-white" />
+                      <Icon icon="mdi:shield-account" width={16} className="text-white" />
                     </div>
                     <span className="text-sm font-bold text-white">IAM Policy Drift</span>
                   </div>

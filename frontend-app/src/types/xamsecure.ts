@@ -10,6 +10,10 @@ export interface PageResp<T> {
    * active filter. Present on endpoints that back group-by chips (currently by-CVE).
    */
   severityCounts?: Record<string, number>;
+  /** by-CVE only: totals before any view filter, so a toggle can be labelled with its count. */
+  totalCveCount?: number;
+  runtimeExposedCount?: number;
+  view?: 'all' | 'runtime';
 }
 
 export interface ThreatDetection {
@@ -78,10 +82,63 @@ export interface CveGroupRow {
   cvssScore: number | null;
   epssScore: number | null;
   exploitable: boolean;
+  /** Distinct container images affected by this CVE. */
+  imageCount: number;
+  /** Runtime reachability, OR-ed across the CVE's findings. */
+  packageInUse: boolean;
+  internetExposed: boolean;
+  functionsInUse: boolean;
+  /** packageInUse && internetExposed — what Upwind calls a runtime-exposure vulnerability. */
+  runtimeExposed: boolean;
   findingsCount: number;
   resourceCount: number;
   firstSeen: string | null;
   lastScan: string | null;
+}
+
+/**
+ * One image / package / resource with its vulnerability rollup — the group-by dimensions
+ * Upwind offers next to CVE. Severity is the worst in the group; runtime flags are OR-ed,
+ * because one reachable member is enough to make the group worth attention.
+ */
+export interface VulnGroupRow {
+  key: string;
+  /** Image tag, package version, or resource type depending on the dimension. */
+  secondary: string | null;
+  severity: Severity | null;
+  cveCount: number;
+  findingsCount: number;
+  resourceCount: number;
+  exploitable: boolean;
+  packageInUse: boolean;
+  internetExposed: boolean;
+  runtimeExposed: boolean;
+}
+
+export type VulnGroupDimension = 'image' | 'package' | 'resource';
+
+export interface VulnGroupPage extends PageResp<VulnGroupRow> {
+  dimension: VulnGroupDimension;
+}
+
+/** One threat / resource / account with its detection rollup. */
+export interface ThreatGroupRow {
+  key: string;
+  secondary: string | null;
+  severity: Severity | null;
+  detections: number;
+  occurrences: number;
+  resourceCount: number;
+  accountCount: number;
+  firstSeenTime: string | null;
+  lastSeenTime: string | null;
+}
+
+export type ThreatGroupDimension = 'threat' | 'resource' | 'account';
+
+export interface ThreatGroups {
+  dimension: ThreatGroupDimension;
+  groups: ThreatGroupRow[];
 }
 
 /** Drill-down row: one per affected RESOURCE for a CVE (packages summarised). */
@@ -96,6 +153,9 @@ export interface CveResourceFinding {
   firstSeenTime: string | null;
   lastScanTime: string | null;
   packageName?: string | null;     // single package name, or "N packages"
+  /** Base-image OS, for the distro mark in the drill-down. Null on host findings. */
+  imageOsName?: string | null;
+  imageOsVersion?: string | null;
   packageCount?: number | null;
   packageVersion?: string | null;
   inUse?: boolean | null;
@@ -238,6 +298,13 @@ export interface ApiEndpoint {
   statusCodes: string[];
 }
 
+/**
+ * A detection policy from either of Upwind's two sets.
+ *
+ * `kind` distinguishes them because they are separate lists, not versions of each other:
+ * CLASSIC is the v1 /threat-policies list and POLICY is the v2 search. Upwind's console shows
+ * both and counts them together, so reading only v1 under-reported the total.
+ */
 export interface ThreatPolicy {
   id: string;
   displayName: string | null;
@@ -246,6 +313,10 @@ export interface ThreatPolicy {
   openIssues: number;
   managedBy: string | null;
   enabled: boolean;
+  kind: 'CLASSIC' | 'POLICY';
+  /** v2 only. */
+  severity: Severity | null;
+  description: string | null;
 }
 
 export interface Workflow {

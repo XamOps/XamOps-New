@@ -290,7 +290,7 @@ const SonarQubePage: React.FC = () => {
                 { icon: 'mdi:shield-alert-outline', val: `${metrics.vulnerabilities || 0} Vuln${(metrics.vulnerabilities || 0) !== 1 ? 's' : ''}`, ok: (metrics.vulnerabilities || 0) === 0 },
                 { icon: 'mdi:crosshairs',           val: `${coverage}% Coverage`, ok: coverage >= 80 },
                 { icon: 'mdi:clock-outline',        val: `${formatTechDebt(metrics.techDebt)} Debt`, ok: null },
-                { icon: 'mdi:smoke-detector-variant-outline', val: `${fmtNum(metrics.codeSmells)} Smell${(metrics.codeSmells || 0) !== 1 ? 's' : ''}`, ok: (metrics.codeSmells || 0) === 0 },
+                { icon: 'mdi:smoke-detector-variant', val: `${fmtNum(metrics.codeSmells)} Smell${(metrics.codeSmells || 0) !== 1 ? 's' : ''}`, ok: (metrics.codeSmells || 0) === 0 },
               ].map(item => (
                 <span key={item.val}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 border rounded-full text-[12px] font-semibold ${

@@ -152,6 +152,70 @@ public class UpwindApiClient {
      */
     static final int PAGE_SIZE = 1000;
 
+    /** Outcome of a streaming walk: how many items were handed to the sink, and whether the
+     *  page cap cut it short. Deliberately carries no items — that is the point. */
+    public record StreamResult(int count, boolean truncated) { }
+
+    /**
+     * Walks a paged v1 collection and hands each item to {@code sink}, holding only one page in
+     * memory at a time.
+     *
+     * {@link #fetchAllPaged} accumulates the entire result before returning, which does not
+     * survive real volume: vulnerability-findings measured 161,424 items for a single account
+     * on 2026-08-05, and the walk is org-wide. At 600 pages of 1000 that list can reach 600k
+     * Jackson nodes, and an OutOfMemoryError is an Error rather than an Exception, so it slips
+     * past the per-domain catch blocks in UpwindSyncService and kills the whole run — taking
+     * the domains that come after it with it.
+     *
+     * Streaming bounds memory to one page whatever the total volume.
+     */
+    public StreamResult streamAllPaged(String path, int maxPages,
+                                       java.util.function.Consumer<JsonNode> sink) {
+        String url = apiBaseUrl + "/v1/organizations/" + orgId + path
+                + (path.contains("?") ? "&" : "?") + "per-page=" + PAGE_SIZE;
+        int pages = 0;
+        int count = 0;
+        while (url != null && pages < maxPages) {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(getToken());
+            headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
+            ResponseEntity<String> resp = exchangeWithRetry(
+                    URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
+            try {
+                JsonNode body = objectMapper.readTree(resp.getBody());
+                if (body.isArray()) {
+                    for (JsonNode item : body) {
+                        sink.accept(item);
+                        count++;
+                    }
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException("Upwind response was not valid JSON for " + path, e);
+            }
+            url = nextLink(resp.getHeaders());
+            pages++;
+        }
+        boolean truncated = url != null;
+        if (truncated) {
+            log.warn("[Upwind] {} hit the {}-page cap with more pages available — streamed {} "
+                    + "items; treating result as incomplete (skipping mark-resolved)",
+                    path, maxPages, count);
+        }
+        return new StreamResult(count, truncated);
+    }
+
+    /** Streaming form of {@link #fetchVulnerabilityFindingsPaged}. */
+    public StreamResult streamVulnerabilityFindings(int maxPages,
+                                                    java.util.function.Consumer<JsonNode> sink) {
+        return streamAllPaged("/vulnerability-findings", maxPages, sink);
+    }
+
+    /** Streaming form of {@link #fetchConfigurationFindingsPaged}. */
+    public StreamResult streamConfigurationFindings(String status, int maxPages,
+                                                    java.util.function.Consumer<JsonNode> sink) {
+        return streamAllPaged("/configuration-findings?status=" + status, maxPages, sink);
+    }
+
     /** As {@link #fetchAll}, but also reports whether the page cap cut the fetch short. */
     public FetchResult fetchAllPaged(String path, int maxPages) {
         List<JsonNode> items = new ArrayList<>();
@@ -282,6 +346,42 @@ public class UpwindApiClient {
      *
      * @return items plus a truncation flag, so an incomplete walk can skip mark-resolved.
      */
+    /**
+     * Detection policies from the v2 search, which is a DIFFERENT set from the v1
+     * {@code /threat-policies} list — not a replacement for it.
+     *
+     * Upwind's console splits them: "Classic Policies" is the v1 list (49 for this org) and
+     * "Policies" is this one (32), and its Policies tab header counts both (81). Reading only
+     * v1 therefore under-reported by the whole v2 set.
+     *
+     * Verified live 2026-08-05: an empty {@code conditions} array is required — omitting the
+     * field returns 400 "Field 'conditions': must not be null".
+     */
+    public List<JsonNode> searchThreatPolicies(int maxItems) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/threats/policies/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(
+                    java.util.Map.of("conditions", java.util.List.of()));
+            while (url != null && items.size() < maxItems) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            // Non-fatal: the caller still has the v1 list, so a failure here narrows the
+            // policy view rather than emptying it.
+            log.warn("[Upwind] v2 threat policy search failed: {}", e.getMessage());
+        }
+        return items;
+    }
+
     public FetchResult searchApiEndpoints(String cloudAccountId, int maxItems) {
         java.util.List<JsonNode> items = new java.util.ArrayList<>();
         String base = apiBaseUrl + "/v2/organizations/" + orgId

@@ -129,6 +129,30 @@ class UpwindSyncServiceTest {
         "{\"id\":\"fnd-1\",\"status\":\"FAIL\",\"resource\":{\"cloud_account_id\":\"111\"}}";
 
     /** Reflection-free builder for the client's package-private FetchResult constructor. */
+
+    /**
+     * Stubs the streaming vulnerability walk. The production code streams rather than
+     * accumulating, because holding the whole collection was an OutOfMemoryError at real
+     * volume — so the mock has to drive the consumer, not return a list.
+     */
+    private void stubVulnStream(java.util.List<JsonNode> items, boolean truncated) {
+        when(apiClient.streamVulnerabilityFindings(anyInt(), any())).thenAnswer(inv -> {
+            java.util.function.Consumer<JsonNode> sink = inv.getArgument(1);
+            items.forEach(sink);
+            return new UpwindApiClient.StreamResult(items.size(), truncated);
+        });
+    }
+
+    /** As {@link #stubVulnStream}, for one posture status. */
+    private void stubPostureStream(String status, java.util.List<JsonNode> items, boolean truncated) {
+        when(apiClient.streamConfigurationFindings(
+                status == null ? anyString() : eq(status), anyInt(), any())).thenAnswer(inv -> {
+            java.util.function.Consumer<JsonNode> sink = inv.getArgument(2);
+            items.forEach(sink);
+            return new UpwindApiClient.StreamResult(items.size(), truncated);
+        });
+    }
+
     private static UpwindApiClient.FetchResult result(java.util.List<JsonNode> items, boolean truncated) {
         return new UpwindApiClient.FetchResult(items, truncated);
     }
@@ -137,10 +161,8 @@ class UpwindSyncServiceTest {
     void syncAllMarksStaleVulnsResolved() {
         when(apiClient.isConfigured()).thenReturn(true);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
-        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
-                .thenReturn(result(List.of(parse(VULN_JSON)), false));
-        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
-                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
+        stubVulnStream(List.of(parse(VULN_JSON)), false);
+        stubPostureStream(null, List.of(parse(POSTURE_JSON)), false);
 
         service.syncAll();
 
@@ -152,10 +174,8 @@ class UpwindSyncServiceTest {
     void syncAllSkipsResolveWhenFetchEmpty() {
         when(apiClient.isConfigured()).thenReturn(true);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
-        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
-                .thenReturn(result(Collections.emptyList(), false));
-        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
-                .thenReturn(result(Collections.emptyList(), false));
+        stubVulnStream(Collections.emptyList(), false);
+        stubPostureStream(null, Collections.emptyList(), false);
 
         service.syncAll();
 
@@ -187,6 +207,62 @@ class UpwindSyncServiceTest {
         verify(apiEndpointRepo).markResolvedNotSyncedSince(eq("111"), any());
     }
 
+    /**
+     * The outage this guard exists to prevent: reconciliation had been standing down whenever
+     * the lease lapsed mid-sync, a lease heartbeat turned it back on, and the next run archived
+     * a table full of rows the fetch never re-covered — emptying every XamSecure tab.
+     *
+     * A complete walk is not evidence the walk saw everything: it only means no page cap was
+     * hit. An auth or scope change yields a small, complete, wrong result.
+     */
+    @Test
+    void archivingIsRefusedWhenTheRunCoversTooLittleOfWhatWeHold() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
+        stubVulnStream(List.of(parse(VULN_JSON)), false);
+        stubPostureStream(null, List.of(parse(POSTURE_JSON)), false);
+        // One finding fetched against 10,000 held: 0.01% coverage, far under the floor.
+        when(vulnRepo.countOpen()).thenReturn(10_000L);
+        when(postureRepo.countLive()).thenReturn(10_000L);
+
+        service.syncAll();
+
+        verify(vulnRepo, never()).markResolvedNotSyncedSince(any());
+        verify(postureRepo, never()).markResolvedNotSyncedSince(any());
+    }
+
+    @Test
+    void archivingProceedsWhenTheRunCoversEnough() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
+        stubVulnStream(List.of(parse(VULN_JSON)), false);
+        stubPostureStream(null, List.of(parse(POSTURE_JSON)), false);
+        // One fetched against one held is full coverage; a genuinely emptied estate still
+        // reconciles, which is the case the guard must not block.
+        when(vulnRepo.countOpen()).thenReturn(1L);
+        when(postureRepo.countLive()).thenReturn(2L);   // FAIL+PASS walks upsert twice
+
+        service.syncAll();
+
+        verify(vulnRepo).markResolvedNotSyncedSince(any());
+        verify(postureRepo).markResolvedNotSyncedSince(any());
+    }
+
+    @Test
+    void endpointArchivingIsRefusedPerAccountWhenCoverageIsTooLow() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
+        when(apiClient.searchApiEndpoints(eq("111"), anyInt()))
+                .thenReturn(result(List.of(parse("{\"id\":\"rt-1\"}")), false));
+        when(apiEndpointRepo.countActiveByAccount("111")).thenReturn(15_000L);
+
+        service.syncApiEndpoints();
+
+        // Still upserted — refusing to archive must not stop us storing what we did fetch.
+        verify(apiEndpointRepo).save(any());
+        verify(apiEndpointRepo, never()).markResolvedNotSyncedSince(any(), any());
+    }
+
     @Test
     void syncApiEndpointsSkipsReconcileWhenTruncated() {
         when(apiClient.isConfigured()).thenReturn(true);
@@ -215,10 +291,8 @@ class UpwindSyncServiceTest {
         // that is what collapsed Issues/Attack Surface to a single page of S3 findings.
         when(apiClient.isConfigured()).thenReturn(true);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
-        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
-                .thenReturn(result(List.of(parse(VULN_JSON)), true));
-        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
-                .thenReturn(result(List.of(parse(POSTURE_JSON)), true));
+        stubVulnStream(List.of(parse(VULN_JSON)), true);
+        stubPostureStream(null, List.of(parse(POSTURE_JSON)), true);
 
         service.syncAll();
 
@@ -406,10 +480,8 @@ class UpwindSyncServiceTest {
                 + "\"namespace\":\"investigation-uat\","
                 + "\"internet_exposure\":{\"ingress\":{\"exposed\":true,"
                 + "\"active_communication\":false}}}}";
-        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
-                .thenReturn(result(List.of(parse(json)), false));
-        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
-                .thenReturn(result(Collections.emptyList(), false));
+        stubVulnStream(List.of(parse(json)), false);
+        stubPostureStream(null, Collections.emptyList(), false);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
         when(vulnRepo.findByUpwindId("uvf-1")).thenReturn(Optional.empty());
 
@@ -451,11 +523,10 @@ class UpwindSyncServiceTest {
     void syncVulnerabilitiesDistinguishesEmptyFunctionsFromAbsent() {
         when(apiClient.isConfigured()).thenReturn(true);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
-        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
-                .thenReturn(result(Collections.emptyList(), false));
-        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt())).thenReturn(result(List.of(parse(
+        stubPostureStream(null, Collections.emptyList(), false);
+        stubVulnStream(List.of(parse(
                 "{\"id\":\"uvf-2\",\"vulnerability\":{\"nvd_cve_id\":\"CVE-1\","
-                + "\"exploitable_functions_in_use\":[]},\"resource\":{},\"package\":{}}")), false));
+                + "\"exploitable_functions_in_use\":[]},\"resource\":{},\"package\":{}}")), false);
         when(vulnRepo.findByUpwindId("uvf-2")).thenReturn(Optional.empty());
 
         service.syncAll();
@@ -479,14 +550,13 @@ class UpwindSyncServiceTest {
     @Test
     void syncPostureFetchesBothFailAndPassStatuses() {
         when(apiClient.isConfigured()).thenReturn(true);
-        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
-                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
+        stubPostureStream(null, List.of(parse(POSTURE_JSON)), false);
 
         service.syncPosture();
 
         ArgumentCaptor<String> statuses = ArgumentCaptor.forClass(String.class);
         verify(apiClient, times(2))
-                .fetchConfigurationFindingsPaged(statuses.capture(), anyInt());
+                .streamConfigurationFindings(statuses.capture(), anyInt(), any());
         assertEquals(List.of("FAIL", "PASS"), statuses.getAllValues());
     }
 
@@ -494,10 +564,8 @@ class UpwindSyncServiceTest {
     @Test
     void syncPostureSkipsReconcileWhenAnyStatusTruncated() {
         when(apiClient.isConfigured()).thenReturn(true);
-        when(apiClient.fetchConfigurationFindingsPaged(eq("FAIL"), anyInt()))
-                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
-        when(apiClient.fetchConfigurationFindingsPaged(eq("PASS"), anyInt()))
-                .thenReturn(result(List.of(parse(POSTURE_JSON)), true));
+        stubPostureStream("FAIL", List.of(parse(POSTURE_JSON)), false);
+        stubPostureStream("PASS", List.of(parse(POSTURE_JSON)), true);
 
         service.syncPosture();
 
@@ -507,8 +575,7 @@ class UpwindSyncServiceTest {
     @Test
     void syncPostureReconcilesWhenEveryStatusCompleted() {
         when(apiClient.isConfigured()).thenReturn(true);
-        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
-                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
+        stubPostureStream(null, List.of(parse(POSTURE_JSON)), false);
 
         service.syncPosture();
 
@@ -529,10 +596,8 @@ class UpwindSyncServiceTest {
                 + "\"cloud_account_id\":\"605134457560\","
                 + "\"cluster_id\":\"4122e4ce-1ca2-408a-8fb9-fff348a8c525\","
                 + "\"namespace\":\"pr-3193\"}}";
-        when(apiClient.fetchConfigurationFindingsPaged(eq("FAIL"), anyInt()))
-                .thenReturn(result(List.of(parse(k8s)), false));
-        when(apiClient.fetchConfigurationFindingsPaged(eq("PASS"), anyInt()))
-                .thenReturn(result(Collections.emptyList(), false));
+        stubPostureStream("FAIL", List.of(parse(k8s)), false);
+        stubPostureStream("PASS", Collections.emptyList(), false);
         when(postureRepo.findByUpwindId("fnd-k8s")).thenReturn(Optional.empty());
 
         service.syncPosture();
@@ -548,10 +613,8 @@ class UpwindSyncServiceTest {
     @Test
     void syncPostureLeavesKubernetesFieldsNullForCloudResources() {
         when(apiClient.isConfigured()).thenReturn(true);
-        when(apiClient.fetchConfigurationFindingsPaged(eq("FAIL"), anyInt()))
-                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
-        when(apiClient.fetchConfigurationFindingsPaged(eq("PASS"), anyInt()))
-                .thenReturn(result(Collections.emptyList(), false));
+        stubPostureStream("FAIL", List.of(parse(POSTURE_JSON)), false);
+        stubPostureStream("PASS", Collections.emptyList(), false);
 
         service.syncPosture();
 
@@ -571,10 +634,8 @@ class UpwindSyncServiceTest {
     void reconciliationIsSkippedWhenTheSyncLeaseWasLost() {
         when(apiClient.isConfigured()).thenReturn(true);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
-        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
-                .thenReturn(result(List.of(parse(VULN_JSON)), false));
-        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
-                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
+        stubVulnStream(List.of(parse(VULN_JSON)), false);
+        stubPostureStream(null, List.of(parse(POSTURE_JSON)), false);
         when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
         when(apiClient.searchInventory(anyList(), anyInt()))
                 .thenReturn(List.of(parse("{\"id\":\"uwr-1\",\"cloud_account_id\":\"111\"}")));
@@ -594,10 +655,8 @@ class UpwindSyncServiceTest {
     void reconciliationRunsWhenTheLeaseIsStillHeld() {
         when(apiClient.isConfigured()).thenReturn(true);
         when(apiClient.fetchThreatDetections(anyInt())).thenReturn(Collections.emptyList());
-        when(apiClient.fetchVulnerabilityFindingsPaged(anyInt()))
-                .thenReturn(result(List.of(parse(VULN_JSON)), false));
-        when(apiClient.fetchConfigurationFindingsPaged(anyString(), anyInt()))
-                .thenReturn(result(List.of(parse(POSTURE_JSON)), false));
+        stubVulnStream(List.of(parse(VULN_JSON)), false);
+        stubPostureStream(null, List.of(parse(POSTURE_JSON)), false);
         when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
         when(apiClient.searchInventory(anyList(), anyInt()))
                 .thenReturn(List.of(parse("{\"id\":\"uwr-1\",\"cloud_account_id\":\"111\"}")));

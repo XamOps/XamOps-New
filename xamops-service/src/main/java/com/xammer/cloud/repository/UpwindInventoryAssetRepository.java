@@ -23,10 +23,28 @@ public interface UpwindInventoryAssetRepository extends JpaRepository<UpwindInve
      */
     Optional<UpwindInventoryAsset> findByCloudResourceId(String cloudResourceId);
 
-    Page<UpwindInventoryAsset> findByCloudAccountIdInOrderByNameAsc(List<String> accountIds, Pageable pageable);
+    /**
+     * The Inventory table, ACTIVE only.
+     *
+     * The status filter is not optional: every other inventory read has it (countByCategory,
+     * countBySubCategory, riskRollup, the identity and elevated-privilege lists), so without it
+     * the table total disagreed with the category rail and the Assets tile on the same screen —
+     * measured on UAT as 2,136 against 1,867, the difference being archived assets.
+     */
+    @Query("SELECT a FROM UpwindInventoryAsset a WHERE a.cloudAccountId IN :accountIds " +
+           "AND a.status = 'ACTIVE' ORDER BY a.name ASC")
+    Page<UpwindInventoryAsset> findActiveByAccounts(@Param("accountIds") List<String> accountIds,
+                                                    Pageable pageable);
 
-    Page<UpwindInventoryAsset> findByCloudAccountIdInAndAssetCategoryOrderByNameAsc(
-            List<String> accountIds, String assetCategory, Pageable pageable);
+    @Query("SELECT a FROM UpwindInventoryAsset a WHERE a.cloudAccountId IN :accountIds " +
+           "AND a.status = 'ACTIVE' AND a.assetCategory = :assetCategory ORDER BY a.name ASC")
+    Page<UpwindInventoryAsset> findActiveByAccountsAndCategory(
+            @Param("accountIds") List<String> accountIds,
+            @Param("assetCategory") String assetCategory, Pageable pageable);
+
+    /** Live rows, for the archive safety guard (see UpwindSyncService#archiveIsSafe). */
+    @Query("SELECT COUNT(a) FROM UpwindInventoryAsset a WHERE a.status = 'ACTIVE'")
+    long countActive();
 
     @Query("SELECT a.assetCategory, COUNT(a) FROM UpwindInventoryAsset a " +
            "WHERE a.cloudAccountId IN :accountIds AND a.status = 'ACTIVE' GROUP BY a.assetCategory")
