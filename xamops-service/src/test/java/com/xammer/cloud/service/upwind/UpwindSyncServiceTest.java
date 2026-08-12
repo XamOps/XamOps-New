@@ -21,6 +21,9 @@ import static org.mockito.Mockito.*;
 
 class UpwindSyncServiceTest {
 
+    /** Matches the production default; the age-fallback tests assert against this. */
+    private static final long STALE_GRACE_HOURS = 24;
+
     private UpwindApiClient apiClient;
     private UpwindThreatDetectionRepository detectionRepo;
     private UpwindVulnerabilityFindingRepository vulnRepo;
@@ -55,7 +58,8 @@ class UpwindSyncServiceTest {
         when(apiEndpointRepo.findByUpwindId(any())).thenReturn(Optional.empty());
         when(connectionRepo.findAll()).thenReturn(Collections.emptyList());
         service = new UpwindSyncService(apiClient, detectionRepo, vulnRepo, postureRepo,
-                syncStateRepo, inventoryRepo, apiEndpointRepo, connectionRepo);
+                syncStateRepo, inventoryRepo, apiEndpointRepo, connectionRepo,
+                STALE_GRACE_HOURS);
     }
 
     private JsonNode parse(String json) {
@@ -282,10 +286,20 @@ class UpwindSyncServiceTest {
         when(vulnRepo.countOpen()).thenReturn(10_000L);
         when(postureRepo.countLive()).thenReturn(10_000L);
 
+        java.time.Instant before = java.time.Instant.now();
         service.syncAll();
 
-        verify(vulnRepo, never()).markResolvedNotSyncedSince(any());
-        verify(postureRepo, never()).markResolvedNotSyncedSince(any());
+        // Low coverage must NOT archive against this run — but rows no complete fetch has
+        // returned for the grace window are stale on their own evidence, so the pass still runs
+        // with the older cutoff. Refusing outright is what left 15,325 endpoint rows stuck
+        // against an API returning 4,919.
+        ArgumentCaptor<java.time.Instant> vulnCutoff = ArgumentCaptor.forClass(java.time.Instant.class);
+        verify(vulnRepo).markResolvedNotSyncedSince(vulnCutoff.capture());
+        assertTrue(vulnCutoff.getValue().isBefore(before.minus(java.time.Duration.ofHours(23))),
+                "expected the age cutoff, not this run's start");
+        ArgumentCaptor<java.time.Instant> postureCutoff = ArgumentCaptor.forClass(java.time.Instant.class);
+        verify(postureRepo).markResolvedNotSyncedSince(postureCutoff.capture());
+        assertTrue(postureCutoff.getValue().isBefore(before.minus(java.time.Duration.ofHours(23))));
     }
 
     @Test
@@ -313,11 +327,17 @@ class UpwindSyncServiceTest {
                 .thenReturn(result(List.of(parse("{\"id\":\"rt-1\"}")), false));
         when(apiEndpointRepo.countActiveByAccount("111")).thenReturn(15_000L);
 
+        java.time.Instant before = java.time.Instant.now();
         service.syncApiEndpoints();
 
-        // Still upserted — refusing to archive must not stop us storing what we did fetch.
+        // Still upserted — a low-coverage run must not stop us storing what we did fetch.
         verify(apiEndpointRepo).save(any());
-        verify(apiEndpointRepo, never()).markResolvedNotSyncedSince(any(), any());
+        // And it archives against the age cutoff, which is what finally clears an account
+        // carrying rows from the period when reconciliation was being skipped.
+        ArgumentCaptor<java.time.Instant> cutoff = ArgumentCaptor.forClass(java.time.Instant.class);
+        verify(apiEndpointRepo).markResolvedNotSyncedSince(eq("111"), cutoff.capture());
+        assertTrue(cutoff.getValue().isBefore(before.minus(java.time.Duration.ofHours(23))),
+                "expected the age cutoff, not this run's start");
     }
 
     @Test

@@ -63,7 +63,9 @@ public class UpwindSyncService {
                              UpwindSyncStateRepository syncStateRepo,
                              UpwindInventoryAssetRepository inventoryRepo,
                              UpwindApiEndpointRepository apiEndpointRepo,
-                             UpwindAccountConnectionRepository connectionRepo) {
+                             UpwindAccountConnectionRepository connectionRepo,
+                             @org.springframework.beans.factory.annotation.Value(
+                                     "${upwind.sync.stale-grace-hours:24}") long staleGraceHours) {
         this.apiClient = apiClient;
         this.detectionRepo = detectionRepo;
         this.vulnRepo = vulnRepo;
@@ -72,6 +74,7 @@ public class UpwindSyncService {
         this.inventoryRepo = inventoryRepo;
         this.apiEndpointRepo = apiEndpointRepo;
         this.connectionRepo = connectionRepo;
+        this.staleGrace = java.time.Duration.ofHours(Math.max(1L, staleGraceHours));
     }
 
     public void syncDetections() {
@@ -116,9 +119,9 @@ public class UpwindSyncService {
             // Reconcile only on a COMPLETE fetch: a truncated page walk would archive
             // every finding we simply never re-read. And only while we still hold the lease.
             if (res.count() > 0 && !res.truncated()
-                    && mayReconcile(canReconcile, "vulnerabilities")
-                    && archiveIsSafe("VULNERABILITIES", res.count(), vulnRepo.countOpen())) {
-                vulnRepo.markResolvedNotSyncedSince(runStart);
+                    && mayReconcile(canReconcile, "vulnerabilities")) {
+                archiveWithGuard("VULNERABILITIES", res.count(), vulnRepo.countOpen(), runStart,
+                        vulnRepo::markResolvedNotSyncedSince);
             }
             log.info("[Upwind] Vulnerability sync upserted {} findings (complete={})",
                     res.count(), !res.truncated());
@@ -154,8 +157,52 @@ public class UpwindSyncService {
     static final double ARCHIVE_MIN_COVERAGE = 0.5;
 
     /**
-     * Whether a mark-resolved pass may archive, given how much of the existing data this run
-     * actually re-covered.
+     * How long a row may go unseen by COMPLETE fetches before it is archived regardless of
+     * coverage.
+     *
+     * The coverage guard alone cannot distinguish two cases that look identical in the numbers:
+     * a fetch that is small because it is broken, and a fetch that is small because we are
+     * carrying rows accumulated while reconciliation was being skipped. Refusing both leaves the
+     * second stuck for ever — measured on UAT, 15,325 live endpoint rows for an account the API
+     * returns 4,919 for, which is 32% coverage and permanently below the floor.
+     *
+     * Age separates them where a ratio cannot. A row that several consecutive complete walks have
+     * not returned is gone by any reasonable reading, and this pass can never touch fresh data
+     * because fresh data has a recent synced_at by definition. Default is 4x the 6h sync
+     * interval, so a couple of failed or partial runs cannot trigger it.
+     *
+     * Worst case, if a fetch is genuinely broken for this long, is a day of under-reporting
+     * followed by automatic recovery: archiving sets status, and the next good sync upserts the
+     * rows back to live.
+     */
+    private final java.time.Duration staleGrace;
+
+    /**
+     * Runs the archive pass for a domain, choosing the cutoff by how much of the existing data
+     * this run re-covered.
+     *
+     * Full coverage archives against this run's start, which is the normal case. Low coverage
+     * falls back to the age cutoff instead of refusing outright: the fetch might be wrong, so we
+     * will not trust it about rows it just missed, but rows no complete fetch has returned for
+     * {@link #staleGrace} are stale on their own evidence.
+     *
+     * @param archive given the cutoff to archive before
+     */
+    private void archiveWithGuard(String domain, long fetched, long existing,
+                                  Instant runStart, java.util.function.Consumer<Instant> archive) {
+        if (archiveIsSafe(domain, fetched, existing)) {
+            archive.accept(runStart);
+            return;
+        }
+        Instant cutoff = Instant.now().minus(staleGrace);
+        log.warn("[Upwind] {} falling back to the age cutoff ({}h): archiving only rows no "
+                + "complete fetch has returned since {}", domain, staleGrace.toHours(), cutoff);
+        archive.accept(cutoff);
+    }
+
+    /**
+     * Whether a mark-resolved pass may archive against THIS RUN, given how much of the existing
+     * data it re-covered.
      *
      * @param fetched  rows this run upserted for the domain
      * @param existing live rows already held
@@ -164,9 +211,9 @@ public class UpwindSyncService {
         if (existing <= 0) return true;                 // nothing to lose
         double coverage = (double) fetched / existing;
         if (coverage < ARCHIVE_MIN_COVERAGE) {
-            log.error("[Upwind] {} archiving REFUSED — this run covered {} of {} live rows "
-                    + "({}%), below the {}% floor. Stale rows are kept rather than risk wiping "
-                    + "data the fetch simply missed.",
+            log.error("[Upwind] {} will not archive against this run — it covered {} of {} live "
+                    + "rows ({}%), below the {}% floor. Falling back to the age cutoff so a bad "
+                    + "fetch cannot wipe rows it merely missed.",
                     domain, fetched, existing, Math.round(coverage * 100),
                     Math.round(ARCHIVE_MIN_COVERAGE * 100));
             recordArchiveRefused(domain, fetched, existing);
@@ -241,10 +288,11 @@ public class UpwindSyncService {
                 log.info("[Upwind] Posture sync fetched {} {} findings (complete={})",
                         res.count(), status, !res.truncated());
             }
-            if (upserted > 0 && allComplete && mayReconcile(canReconcile, "posture")
-                    && archiveIsSafe("POSTURE", upserted, postureRepo.countLive())) {
-                int resolved = postureRepo.markResolvedNotSyncedSince(runStart);
-                log.info("[Upwind] Posture sync archived {} findings no longer reported", resolved);
+            if (upserted > 0 && allComplete && mayReconcile(canReconcile, "posture")) {
+                final int[] resolved = new int[1];
+                archiveWithGuard("POSTURE", upserted, postureRepo.countLive(), runStart,
+                        cutoff -> resolved[0] = postureRepo.markResolvedNotSyncedSince(cutoff));
+                log.info("[Upwind] Posture sync archived {} findings no longer reported", resolved[0]);
             }
             log.info("[Upwind] Posture sync upserted {} findings across {} (complete={})",
                     upserted, POSTURE_STATUSES, allComplete);
@@ -301,10 +349,10 @@ public class UpwindSyncService {
                     synced++;
                 }
                 if (!res.items().isEmpty() && !res.truncated()
-                        && mayReconcile(canReconcile, "API endpoints")
-                        && archiveIsSafe("API_ENDPOINTS", res.items().size(),
-                                apiEndpointRepo.countActiveByAccount(accountId))) {
-                    apiEndpointRepo.markResolvedNotSyncedSince(accountId, runStart);
+                        && mayReconcile(canReconcile, "API endpoints")) {
+                    archiveWithGuard("API_ENDPOINTS", res.items().size(),
+                            apiEndpointRepo.countActiveByAccount(accountId), runStart,
+                            cutoff -> apiEndpointRepo.markResolvedNotSyncedSince(accountId, cutoff));
                 }
                 allComplete &= !res.truncated();
             }
@@ -409,9 +457,9 @@ public class UpwindSyncService {
                     syncedCount++;
                 }
             }
-            if (syncedCount > 0 && mayReconcile(canReconcile, "inventory")
-                    && archiveIsSafe("INVENTORY", syncedCount, inventoryRepo.countActive())) {
-                inventoryRepo.markResolvedNotSyncedSince(runStart);
+            if (syncedCount > 0 && mayReconcile(canReconcile, "inventory")) {
+                archiveWithGuard("INVENTORY", syncedCount, inventoryRepo.countActive(), runStart,
+                        inventoryRepo::markResolvedNotSyncedSince);
             }
             log.info("[Upwind] Inventory sync upserted {} assets across {} account(s)",
                     syncedCount, accountIds.size());
