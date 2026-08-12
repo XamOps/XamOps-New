@@ -74,6 +74,30 @@ public class XamSecureController {
      * breakdowns. The funnel's raw event count is reported unavailable rather than guessed.
      */
     /**
+     * Per-control compliance for one framework: pass/fail per rule, with remediation.
+     *
+     * Reads v2 findings live, which carry both statuses plus the rule id. The synced v1 walk
+     * cannot answer this, and re-pointing it is a separate change.
+     */
+    @GetMapping("/compliance/frameworks/{frameworkId}/controls")
+    public ResponseEntity<?> frameworkControls(@AuthenticationPrincipal ClientUserDetails user,
+                                              @PathVariable String frameworkId) {
+        return ResponseEntity.ok(
+                xamSecureService.getFrameworkControls(user.getClientId(), frameworkId));
+    }
+
+    /**
+     * Provider-native relationships for one asset (security groups, VPC, instances, target
+     * groups). One upstream request per asset, so this is a drill-down rather than a graph.
+     */
+    @GetMapping("/inventory/assets/{assetId}/relationships")
+    public ResponseEntity<?> assetRelationships(@AuthenticationPrincipal ClientUserDetails user,
+                                                @PathVariable String assetId) {
+        return ResponseEntity.ok(
+                xamSecureService.getAssetRelationships(user.getClientId(), assetId));
+    }
+
+    /**
      * CI scan history from Upwind's shift-left stream.
      *
      * Org-level: these events carry no cloud account, so the response is empty with a reason for

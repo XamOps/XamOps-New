@@ -6,7 +6,7 @@ import type {
   ThreatPolicy, Workflow,
   IssueSummary, IssueDetail, ThreatStoriesSummary, ThreatStoryDetail, ThreatOverview,
   VulnGroupPage, VulnGroupDimension, ThreatGroups, ThreatGroupDimension,
-  CodeScansResponse, CodeScanFindings,
+  CodeScansResponse, CodeScanFindings, FrameworkControls, AssetRelationships,
   InventoryCategory,
   InventoryRisk, NetworkTopology,
   AttackSurfaceSummary, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
@@ -230,6 +230,22 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       const d = await apiClient.get<CodeScanFindings>(
         `/api/xamsecure/code/scans/${encodeURIComponent(fingerprint)}`);
       return d && d.fingerprint ? d : null;
+    }, []);
+
+  /** Per-control detail, fetched when a framework is opened rather than with the tab. */
+  const loadFrameworkControls = useCallback(
+    async (frameworkId: string): Promise<FrameworkControls | null> => {
+      const d = await apiClient.get<FrameworkControls>(
+        `/api/xamsecure/compliance/frameworks/${encodeURIComponent(frameworkId)}/controls`);
+      return d && Array.isArray(d.controls) ? d : null;
+    }, []);
+
+  /** One upstream request per asset, so only on drill-down. */
+  const loadAssetRelationships = useCallback(
+    async (assetId: string): Promise<AssetRelationships | null> => {
+      const d = await apiClient.get<AssetRelationships>(
+        `/api/xamsecure/inventory/assets/${encodeURIComponent(assetId)}/relationships`);
+      return d && Array.isArray(d.relationships) ? d : null;
     }, []);
 
   const loadCveFindings = useCallback(async (cveId: string): Promise<CveResourceFinding[]> => {
@@ -510,7 +526,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
     vulnGroups, loadVulnGroups, threatGroups, loadThreatGroups,
-    codeScans, loadCodeScanFindings,
+    codeScans, loadCodeScanFindings, loadFrameworkControls, loadAssetRelationships,
     isLoading, refresh,
     loadIssues, loadIssueDetail, loadResourceDetail, loadStoryDetail, loadSyncStatus,
     loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,

@@ -366,11 +366,19 @@ export interface ComplianceFramework {
   framework: string;
   failCount: number;
   passCount: number;
+  /** Upwind's framework id. Absent for frameworks that only appear in posture findings. */
+  frameworkId?: string | null;
   /** Enriched from Upwind's configuration-frameworks endpoint. */
   version?: string | null;
   status?: string | null;
   lastScanTime?: string | null;
   score?: number | null;
+  /**
+   * From the v2 frameworks search, e.g. `no_cloud_account_connected`, `during_first_scan`,
+   * `no_finding_resources`. This is what separates "0% compliant" from "never evaluated here",
+   * which a score alone cannot express.
+   */
+  state?: string | null;
 }
 
 /** Configurations "Dashboard" sub-view — all derived from real synced posture findings
@@ -671,6 +679,58 @@ export interface ThreatStoryDetail {
     cloudAccountId: string | null;
     detectionCount: number;
   }[];
+}
+
+/**
+ * One compliance control within a framework.
+ *
+ * `compliancePercent` is null when the control has no findings at all — Upwind's "no relevant
+ * assets were found in your environment". That is not the same as 0%, and conflating them would
+ * make an unscanned control look like a total failure.
+ */
+export interface FrameworkControl {
+  ruleId: string;
+  title: string | null;
+  severity: Severity | null;
+  passCount: number;
+  failCount: number;
+  assetCount: number;
+  compliancePercent: number | null;
+  /**
+   * Findings whose status is neither pass nor fail. Zero on every response measured; carried so
+   * an unrecognised status shows up as unscored rather than silently counting as a failure.
+   */
+  unscoredCount?: number;
+  resourceCount: number;
+  remediation: string | null;
+  lastEvaluated: string | null;
+}
+
+export interface FrameworkControls {
+  frameworkId: string;
+  controls: FrameworkControl[];
+  controlCount?: number;
+  /** Findings dropped because they belong to another account. */
+  skippedOtherAccounts?: number;
+}
+
+/**
+ * Provider-native relationships for one asset, e.g. SecurityGroups -> ["sg-0df6..."].
+ *
+ * Only available per asset: the asset search omits the relationship fields the inventory schema
+ * declares, and nested conditions are rejected, so there is no estate-wide topology to fetch.
+ */
+export interface AssetRelationship {
+  field: string;
+  label: string;
+  references: string[];
+  count: number;
+}
+
+export interface AssetRelationships {
+  assetId: string;
+  resourceType?: string | null;
+  relationships: AssetRelationship[];
 }
 
 /** One CI build from Upwind's shift-left stream. */

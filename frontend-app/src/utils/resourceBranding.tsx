@@ -159,6 +159,74 @@ export function resourceMark(rawType: string | null | undefined): Mark {
   return { ...FALLBACK, label: humanise(rawType) };
 }
 
+/**
+ * Marks a bare provider reference pulled out of an asset's `raw_data` — `sg-0df6...`,
+ * `subnet-0a1b...`, a role ARN, a target-group ARN.
+ *
+ * These references carry no type field of their own: the asset payload gives a field name and a
+ * list of strings, nothing more. The id shape is the only signal available, so this maps the
+ * documented AWS id prefixes and ARN service segments onto the same marks the rest of the app
+ * uses. Anything unrecognised stays neutral instead of guessing at a product.
+ */
+const ID_PREFIX_TYPES: [string, string][] = [
+  // Order matters only in that longer prefixes must precede shorter ones sharing a start;
+  // `i-` requires the hyphen at index 1, so `igw-` cannot fall through to it.
+  ['sg-', 'aws_security_group'],
+  ['subnet-', 'aws_subnet'],
+  ['vpc-', 'aws_vpc'],
+  ['rtb-', 'aws_route_table'],
+  ['acl-', 'aws_network_acl'],
+  ['igw-', 'aws_internet_gateway'],
+  ['nat-', 'aws_nat_gateway'],
+  ['eni-', 'aws_elastic_network_interface'],
+  ['fl-', 'aws_flow_log'],
+  ['ami-', 'aws_ec2_ami'],
+  ['vol-', 'aws_ebs_volume'],
+  ['snap-', 'aws_ebs_snapshot'],
+  ['i-', 'aws_ec2_instance'],
+];
+
+const ARN_TYPES: [RegExp, string][] = [
+  [/^arn:[^:]*:iam:[^:]*:[^:]*:role\//i, 'aws_iam_role'],
+  [/^arn:[^:]*:iam:[^:]*:[^:]*:user\//i, 'aws_iam_user'],
+  [/^arn:[^:]*:iam:[^:]*:[^:]*:group\//i, 'aws_iam_group'],
+  [/^arn:[^:]*:iam:[^:]*:[^:]*:policy\//i, 'aws_iam_managed_policy'],
+  [/^arn:[^:]*:iam:[^:]*:[^:]*:instance-profile\//i, 'aws_iam_instance_profile'],
+  [/^arn:[^:]*:elasticloadbalancing:[^:]*:[^:]*:loadbalancer\//i, 'aws_load_balancer'],
+  [/^arn:[^:]*:autoscaling:/i, 'aws_auto_scaling_group'],
+  [/^arn:[^:]*:kms:/i, 'aws_kms_key'],
+  [/^arn:[^:]*:s3:/i, 'aws_s3_bucket'],
+  [/^arn:[^:]*:lambda:/i, 'aws_lambda_function'],
+  [/^arn:[^:]*:sns:/i, 'aws_sns_topic'],
+  [/^arn:[^:]*:sqs:/i, 'aws_sqs_queue'],
+  [/^arn:[^:]*:secretsmanager:/i, 'aws_secrets_manager_secret'],
+  [/^arn:[^:]*:acm:/i, 'aws_acm_certificate'],
+  [/^arn:[^:]*:dynamodb:/i, 'aws_dynamodb_table'],
+  [/^arn:[^:]*:logs:/i, 'aws_cloudwatch_log_group'],
+  [/^arn:[^:]*:rds:/i, 'aws_rds_instance'],
+  [/^arn:[^:]*:ecs:[^:]*:[^:]*:service\//i, 'aws_ecs_service'],
+  [/^arn:[^:]*:eks:/i, 'aws_eks_cluster'],
+];
+
+// Target groups belong to the ELB product, so the ELB mark is the correct attribution even
+// though the catalog has no `aws_target_group` type of its own.
+const TARGET_GROUP: Mark = { icon: 'logos:aws-elb', label: 'Target group' };
+const TARGET_GROUP_ARN = /^arn:[^:]*:elasticloadbalancing:[^:]*:[^:]*:targetgroup\//i;
+
+export function referenceMark(ref: string | null | undefined): Mark {
+  const id = (ref ?? '').trim();
+  if (!id) return FALLBACK;
+  if (TARGET_GROUP_ARN.test(id)) return TARGET_GROUP;
+  for (const [re, type] of ARN_TYPES) if (re.test(id)) return resourceMark(type);
+  const lower = id.toLowerCase();
+  for (const [prefix, type] of ID_PREFIX_TYPES) {
+    if (lower.startsWith(prefix)) return resourceMark(type);
+  }
+  // An ARN for a service we have not mapped is still definitely an AWS resource.
+  if (lower.startsWith('arn:')) return AWS_FALLBACK;
+  return FALLBACK;
+}
+
 /** Inventory category rail. Keys are Upwind's catalog `category` values. */
 const CATEGORY_MARKS: Record<string, Mark> = {
   ai: { icon: 'mdi:brain', color: AWS_PINK, label: 'AI' },

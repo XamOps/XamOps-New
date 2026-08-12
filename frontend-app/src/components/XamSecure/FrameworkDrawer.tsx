@@ -1,8 +1,12 @@
-import React from 'react';
-import type { ComplianceFramework, IssueSummary } from '../../types/xamsecure';
+import React, { useEffect, useState } from 'react';
+import { Icon } from '@iconify/react';
+import type {
+  ComplianceFramework, IssueSummary, FrameworkControls, FrameworkControl,
+} from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
 import { FrameworkLogo } from '../../utils/frameworkBranding';
 import DetailPanel, { PanelBlock } from './DetailPanel';
+import SecurityMarkup from './SecurityMarkup';
 
 interface Props {
   framework: ComplianceFramework;
@@ -10,10 +14,24 @@ interface Props {
   failingChecks: IssueSummary[];
   onClose: () => void;
   onOpenCheck?: (check: string) => void;
+  /** Per-control breakdown, fetched on open. Omit and that section is hidden. */
+  loadControls?: (frameworkId: string) => Promise<FrameworkControls | null>;
 }
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString() : 'Never scanned';
+
+/**
+ * Upwind's framework `state`, in words. A framework with no results is not a framework that
+ * failed, and these are the three reasons the API actually gives for the difference.
+ */
+const STATE_REASON: Record<string, string> = {
+  no_cloud_account_connected:
+    'No cloud account is connected for this framework, so nothing has been evaluated.',
+  during_first_scan: 'The first scan for this framework is still running.',
+  no_finding_resources:
+    'This framework found no relevant resources in your environment, so it has nothing to score.',
+};
 
 /**
  * Framework detail. The card answers "what is the score"; this answers the question that
@@ -25,7 +43,28 @@ const fmtDate = (iso: string | null | undefined) =>
  *
  * Failing checks come from the issues already in memory, so opening this costs no request.
  */
-const FrameworkDrawer: React.FC<Props> = ({ framework: f, failingChecks, onClose, onOpenCheck }) => {
+const FrameworkDrawer: React.FC<Props> = ({
+  framework: f, failingChecks, onClose, onOpenCheck, loadControls,
+}) => {
+  const [controls, setControls] = useState<FrameworkControls | null>(null);
+  const [loadingControls, setLoadingControls] = useState(false);
+
+  // Keyed on the framework id: without one there is nothing to query, which is the case for the
+  // synthetic rows our v1 compliance list produces for unscanned frameworks.
+  useEffect(() => {
+    if (!loadControls || !f.frameworkId) return;
+    let cancelled = false;
+    setLoadingControls(true);
+    loadControls(f.frameworkId)
+      .then((c) => { if (!cancelled) setControls(c); })
+      .catch((err) => {
+        console.error('[XamSecure] framework controls failed:', err);
+        if (!cancelled) setControls(null);
+      })
+      .finally(() => { if (!cancelled) setLoadingControls(false); });
+    return () => { cancelled = true; };
+  }, [loadControls, f.frameworkId]);
+
   const total = f.failCount + f.passCount;
   const passPct = total === 0 ? 0 : Math.round((f.passCount / total) * 100);
   const score = f.score ?? passPct;
@@ -57,7 +96,7 @@ const FrameworkDrawer: React.FC<Props> = ({ framework: f, failingChecks, onClose
       title={title}
       subtitle={subtitle}
       onClose={onClose}
-      size="narrow"
+      size={controls && controls.controls.length > 0 ? 'wide' : 'narrow'}
       sections={[{
         id: 'overview',
         label: f.framework,
@@ -77,7 +116,9 @@ const FrameworkDrawer: React.FC<Props> = ({ framework: f, failingChecks, onClose
                 {/* Both counts are real since we started walking status=PASS as well as FAIL. */}
                 {total > 0
                   ? `${f.failCount.toLocaleString()} failing · ${f.passCount.toLocaleString()} passing controls in this account.`
-                  : 'No evaluated controls in this account.'}
+                  // Upwind's own reason where it gives one, rather than implying we evaluated
+                  // this framework and found nothing.
+                  : STATE_REASON[f.state ?? ''] ?? 'No evaluated controls in this account.'}
               </p>
             </PanelBlock>
 
@@ -116,8 +157,114 @@ const FrameworkDrawer: React.FC<Props> = ({ framework: f, failingChecks, onClose
             </PanelBlock>
           </>
         ),
-      }]}
+      },
+      ...(loadControls && f.frameworkId ? [{
+        id: 'controls',
+        label: 'Controls',
+        icon: 'mdi:format-list-checks',
+        count: controls?.controls.length,
+        render: () => (
+          <PanelBlock>
+            {loadingControls ? (
+              <p className="text-xs text-gray-400">Loading controls...</p>
+            ) : !controls || controls.controls.length === 0 ? (
+              <p className="text-xs text-gray-500">
+                Upwind reported no per-control findings for this framework.
+              </p>
+            ) : (
+              <>
+                {/* Findings from accounts this client does not own are dropped server-side;
+                    saying so keeps the totals explainable. */}
+                {!!controls.skippedOtherAccounts && controls.skippedOtherAccounts > 0 && (
+                  <p className="mb-3 text-[10px] text-gray-400">
+                    {controls.skippedOtherAccounts.toLocaleString()} findings from other accounts
+                    are excluded.
+                  </p>
+                )}
+                <div className="space-y-2">
+                  {controls.controls.map((c) => <ControlRow key={c.ruleId} control={c} />)}
+                </div>
+              </>
+            )}
+          </PanelBlock>
+        ),
+      }] : []),
+      ]}
     />
+  );
+};
+
+/**
+ * One control. Leads with the compliant-asset ratio because that is the number Upwind shows and
+ * the one that tells you whether a control is nearly clean or nowhere near.
+ */
+const ControlRow: React.FC<{ control: FrameworkControl }> = ({ control: c }) => {
+  const [open, setOpen] = useState(false);
+  const pct = c.compliancePercent;
+  const bar = pct == null ? 'bg-gray-300'
+    : pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-yellow-400' : 'bg-red-500';
+  return (
+    <div className="border border-gray-200 rounded-lg">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-start gap-3 p-3 text-left hover:bg-gray-50
+                   focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
+                   focus-visible:ring-gray-900 rounded-lg"
+      >
+        <Icon icon={open ? 'mdi:chevron-down' : 'mdi:chevron-right'} width={15}
+              className="mt-0.5 flex-shrink-0 text-gray-400" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <SeverityChip severity={c.severity} />
+            <span className="text-xs font-medium text-gray-800">{c.title ?? c.ruleId}</span>
+          </span>
+          {/* Null percent is Upwind's "no relevant assets" state, not a zero score. */}
+          {pct == null ? (
+            <span className="mt-1.5 block text-[11px] text-gray-400">
+              {/* Reached when nothing about this control was scored, rather than when it scored
+                  zero. Saying "0% compliant" here would report a failure that was never found. */}
+              No control results were scored in this account.
+            </span>
+          ) : (
+            <span className="mt-1.5 flex items-center gap-2">
+              <span className="h-1.5 w-32 rounded-full bg-gray-100 overflow-hidden">
+                <span className={`block h-full ${bar}`} style={{ width: `${pct}%` }} />
+              </span>
+              <span className="text-[11px] font-semibold text-gray-700">{pct}%</span>
+              <span className="text-[10px] text-gray-500">
+                {c.passCount}/{c.assetCount} compliant
+              </span>
+            </span>
+          )}
+        </span>
+        <span className="flex flex-shrink-0 flex-col items-end gap-1">
+          {c.failCount > 0 && (
+            <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">
+              {c.failCount} failing
+            </span>
+          )}
+          {/* Zero on every response measured. Shown when present so an unrecognised status is
+              visible rather than quietly excluded from both counts. */}
+          {!!c.unscoredCount && c.unscoredCount > 0 && (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+              {c.unscoredCount} unscored
+            </span>
+          )}
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-gray-100 px-3 py-3">
+          {c.remediation ? (
+            <SecurityMarkup text={c.remediation} />
+          ) : (
+            <p className="text-[11px] text-gray-500">Upwind provided no remediation text.</p>
+          )}
+          <p className="mt-2 text-[10px] text-gray-400 font-mono">{c.ruleId}</p>
+        </div>
+      )}
+    </div>
   );
 };
 

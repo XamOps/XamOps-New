@@ -1119,4 +1119,230 @@ class XamSecureServiceTest {
         verify(detectionRepo).save(cap.capture());
         assertEquals("ARCHIVED", cap.getValue().getStatus());
     }
+
+    // ── Per-control configuration detail (v2) ────────────────────────────────────────────
+
+    /**
+     * The v2 configurations search is the only route that carries both a rule identity and a
+     * pass/fail status, so a control breakdown has to be grouped client-side from findings.
+     *
+     * Three things this pins down: findings from an account the caller does not own are dropped
+     * rather than counted, a status that is neither pass nor fail is reported as unscored instead
+     * of folded into the failure count, and the worst control sorts first.
+     */
+    @Test
+    void frameworkControlsGroupByRuleDropForeignAccountsAndNeverScoreUnknownStatuses()
+            throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        when(apiClient.searchConfigurationFindingsV2(any(), anyInt())).thenReturn(List.of(
+                om.readTree("{\"status\":\"fail\",\"severity\":\"HIGH\","
+                        + "\"evaluation_time\":\"2026-08-10T00:00:00Z\","
+                        + "\"rule\":{\"id\":\"r1\",\"title\":\"Block public access\","
+                        + "\"remediation\":\"Enable block public access\"},"
+                        + "\"resource\":{\"cloud_account_id\":\"111\",\"name\":\"res-a\"}}"),
+                om.readTree("{\"status\":\"pass\",\"severity\":\"MEDIUM\","
+                        + "\"evaluation_time\":\"2026-08-11T00:00:00Z\","
+                        + "\"rule\":{\"id\":\"r1\"},"
+                        + "\"resource\":{\"cloud_account_id\":\"111\",\"name\":\"res-b\"}}"),
+                // A status we do not recognise. Counting it as failing is the Task 5 bug class.
+                om.readTree("{\"status\":\"not_applicable\",\"rule\":{\"id\":\"r1\"},"
+                        + "\"resource\":{\"cloud_account_id\":\"111\",\"name\":\"res-c\"}}"),
+                // Another tenant's finding for the same framework.
+                om.readTree("{\"status\":\"fail\",\"severity\":\"CRITICAL\","
+                        + "\"rule\":{\"id\":\"r2\"},"
+                        + "\"resource\":{\"cloud_account_id\":\"222\",\"name\":\"theirs\"}}"),
+                om.readTree("{\"status\":\"pass\",\"severity\":\"LOW\","
+                        + "\"rule\":{\"id\":\"r2\",\"title\":\"Rotate keys\"},"
+                        + "\"resource\":{\"cloud_account_id\":\"111\",\"name\":\"res-d\"}}")));
+
+        var out = service.getFrameworkControls(1L, "fw-1");
+
+        assertEquals("fw-1", out.get("frameworkId"));
+        assertEquals(1, out.get("skippedOtherAccounts"));
+        @SuppressWarnings("unchecked")
+        var controls = (List<Map<String, Object>>) out.get("controls");
+        assertEquals(2, controls.size());
+        assertEquals(2, out.get("controlCount"));
+
+        // Worst compliance first — a reviewer works down from the least compliant control.
+        var r1 = controls.get(0);
+        assertEquals("r1", r1.get("ruleId"));
+        assertEquals("Block public access", r1.get("title"));
+        assertEquals("Enable block public access", r1.get("remediation"));
+        // Worst severity across the rule's findings wins; MEDIUM must not displace HIGH.
+        assertEquals("HIGH", r1.get("severity"));
+        assertEquals(1, r1.get("passCount"));
+        assertEquals(1, r1.get("failCount"));
+        assertEquals(1, r1.get("unscoredCount"));
+        // assetCount is the scored population, so the unscored finding is outside it.
+        assertEquals(2, r1.get("assetCount"));
+        assertEquals(50, r1.get("compliancePercent"));
+        // Distinct resources still include the unscored one; it is a real asset.
+        assertEquals(3, r1.get("resourceCount"));
+        assertEquals(java.time.Instant.parse("2026-08-11T00:00:00Z"), r1.get("lastEvaluated"));
+
+        var r2 = controls.get(1);
+        assertEquals("r2", r2.get("ruleId"));
+        assertEquals(0, r2.get("failCount"), "the failing finding belonged to another account");
+        assertEquals(100, r2.get("compliancePercent"));
+    }
+
+    /**
+     * A control with no scored findings reports no percentage. Rendering 0% would claim every
+     * asset failed a control nothing was ever evaluated against.
+     */
+    @Test
+    void frameworkControlWithNothingScoredReportsNoPercentageRatherThanZero() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        when(apiClient.searchConfigurationFindingsV2(any(), anyInt())).thenReturn(List.of(
+                om.readTree("{\"status\":\"not_applicable\",\"rule\":{\"id\":\"r9\"},"
+                        + "\"resource\":{\"cloud_account_id\":\"111\",\"name\":\"res-a\"}}")));
+
+        @SuppressWarnings("unchecked")
+        var controls = (List<Map<String, Object>>)
+                service.getFrameworkControls(1L, "fw-1").get("controls");
+
+        assertEquals(1, controls.size());
+        assertNull(controls.get(0).get("compliancePercent"));
+        assertEquals(0, controls.get(0).get("assetCount"));
+        assertEquals(1, controls.get(0).get("unscoredCount"));
+    }
+
+    @Test
+    void frameworkControlsEmptyWithoutCallingUpwindWhenClientOwnsNothing() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of());
+
+        var out = service.getFrameworkControls(1L, "fw-1");
+
+        assertTrue(((List<?>) out.get("controls")).isEmpty());
+        verify(apiClient, never()).searchConfigurationFindingsV2(any(), anyInt());
+    }
+
+    // ── Per-asset relationships (v2 catalog detail) ──────────────────────────────────────
+
+    private static com.xammer.cloud.domain.UpwindInventoryAsset asset(String upwindId, String acct) {
+        com.xammer.cloud.domain.UpwindInventoryAsset a =
+                new com.xammer.cloud.domain.UpwindInventoryAsset();
+        a.setUpwindId(upwindId);
+        a.setCloudAccountId(acct);
+        a.setLabel("aws_ec2_instance");
+        return a;
+    }
+
+    /**
+     * Relationship fields are absent from the asset search and every nested-condition syntax is
+     * rejected upstream, so the only source of real edges is the per-asset detail payload. Keys
+     * there are provider-native, so references are detected by id shape rather than enumerated.
+     */
+    @Test
+    void assetRelationshipsExtractIdShapesFromRawPayloadAndSkipNoise() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findByUpwindId("inv-1")).thenReturn(Optional.of(asset("inv-1", "111")));
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        when(apiClient.getAssetDetail("inv-1")).thenReturn(om.readTree(
+                "{\"items\":[{\"raw_data\":{"
+                + "\"SecurityGroups\":[\"sg-0df6aaaa1111\"],"
+                + "\"VpcId\":\"vpc-0abc123456\","
+                // Objects inside arrays carry the id under a provider-chosen key.
+                + "\"Instances\":[{\"InstanceId\":\"i-0aaa111222\",\"LifecycleState\":\"InService\"}],"
+                + "\"TargetGroupARNs\":[\"arn:aws:elasticloadbalancing:us-east-1:111:targetgroup/tg-1/73e2\"],"
+                // Noise that matches nothing, plus keys that would match but describe no edge.
+                + "\"State\":\"running\",\"OwnerId\":\"111\",\"Region\":\"us-east-1\","
+                + "\"Tags\":[{\"Key\":\"env\",\"Value\":\"vpc-0abc123456\"}]"
+                + "}}]}"));
+
+        var out = service.getAssetRelationships(1L, "inv-1");
+
+        assertEquals("inv-1", out.get("assetId"));
+        assertEquals("aws_ec2_instance", out.get("resourceType"));
+        @SuppressWarnings("unchecked")
+        var rels = (List<Map<String, Object>>) out.get("relationships");
+        Map<String, Map<String, Object>> byField = new java.util.HashMap<>();
+        for (var r : rels) byField.put((String) r.get("field"), r);
+
+        assertEquals(4, rels.size(), "State/OwnerId/Region/Tags carry no relationship");
+        assertFalse(byField.containsKey("Tags"), "a tag value that looks like an id is not an edge");
+        assertEquals(List.of("sg-0df6aaaa1111"), byField.get("SecurityGroups").get("references"));
+        assertEquals(List.of("i-0aaa111222"), byField.get("Instances").get("references"));
+        assertEquals(1, byField.get("TargetGroupARNs").get("count"));
+        // PascalCase provider keys read as words, and acronym runs survive.
+        assertEquals("Security Groups", byField.get("SecurityGroups").get("label"));
+        assertEquals("Target Group ARNs", byField.get("TargetGroupARNs").get("label"));
+        assertEquals("Vpc Id", byField.get("VpcId").get("label"));
+    }
+
+    /**
+     * The detail route takes a raw Upwind asset id, so without this check any client could read
+     * any asset in the shared organization by guessing one.
+     */
+    @Test
+    void assetRelationshipsRefuseAnAssetOutsideTheCallersAccounts() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findByUpwindId("inv-9")).thenReturn(Optional.of(asset("inv-9", "222")));
+
+        assertThrows(AccessDeniedException.class,
+                () -> service.getAssetRelationships(1L, "inv-9"));
+        verify(apiClient, never()).getAssetDetail(anyString());
+    }
+
+    @Test
+    void assetRelationshipsDegradeToEmptyWhenUpwindFails() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findByUpwindId("inv-1")).thenReturn(Optional.of(asset("inv-1", "111")));
+        when(apiClient.getAssetDetail("inv-1")).thenThrow(new IllegalStateException("502"));
+
+        var out = service.getAssetRelationships(1L, "inv-1");
+
+        assertTrue(((List<?>) out.get("relationships")).isEmpty());
+    }
+
+    // ── Framework metadata: v1 list enriched with v2 state ───────────────────────────────
+
+    /**
+     * v1 is the enabled-framework list; v2 carries the {@code state} that separates "0% compliant"
+     * from "never evaluated here". The merge must not let v2 overwrite a v1 value with a null, and
+     * must not pull v2-only frameworks into the grid — v2 returns the whole catalogue, so that
+     * would list a hundred frameworks nobody enabled.
+     */
+    @Test
+    void complianceMergesV2StateWithoutImportingTheWholeFrameworkCatalogue() throws Exception {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(postureRepo.countByFrameworkAndStatus(List.of("111"))).thenReturn(List.of());
+        when(apiClient.isConfigured()).thenReturn(true);
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        when(apiClient.fetchConfigurationFrameworks(anyInt())).thenReturn(List.of(
+                om.readTree("{\"id\":\"fw-cis\",\"title\":\"CIS AWS Foundations\","
+                        + "\"version\":\"1.5.0\",\"status\":\"ENABLED\","
+                        + "\"compliance_status\":{\"score\":83}}"),
+                om.readTree("{\"id\":\"fw-pci\",\"title\":\"PCI DSS\",\"status\":\"ENABLED\"}")));
+        when(apiClient.searchFrameworksV2(anyInt())).thenReturn(List.of(
+                // Same framework, lower score. v1 wins; v2 only fills the gaps.
+                om.readTree("{\"id\":\"fw-cis\",\"title\":\"CIS AWS Foundations\",\"score\":64,"
+                        + "\"state\":\"active\",\"last_evaluation_time\":\"2026-08-12T06:00:00Z\"}"),
+                om.readTree("{\"id\":\"fw-pci\",\"title\":\"PCI DSS\",\"score\":null,"
+                        + "\"state\":\"no_finding_resources\"}"),
+                om.readTree("{\"id\":\"fw-hipaa\",\"title\":\"HIPAA\",\"state\":\"active\"}")));
+
+        var out = service.getCompliance(1L, null);
+
+        assertEquals(2, out.size(), "HIPAA is in the v2 catalogue but was never enabled");
+        var cis = out.stream().filter(m -> "CIS AWS Foundations".equals(m.get("framework")))
+                .findFirst().orElseThrow();
+        assertEquals(83, cis.get("score"), "v2's lower score must not overwrite v1's");
+        assertEquals("active", cis.get("state"));
+        // v1 carried no scan time for this framework, so v2's evaluation time fills it.
+        assertEquals("2026-08-12T06:00:00Z", cis.get("lastScanTime"));
+
+        var pci = out.stream().filter(m -> "PCI DSS".equals(m.get("framework")))
+                .findFirst().orElseThrow();
+        assertNull(pci.get("score"), "a null v2 score stays null rather than becoming 0");
+        assertEquals("no_finding_resources", pci.get("state"));
+    }
 }

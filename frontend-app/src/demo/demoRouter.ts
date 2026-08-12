@@ -16,6 +16,7 @@ import * as xamops from './xamopsMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
 import * as soc2 from './soc2MockData';
+import * as war from './warMockData';
 
 /** Reads a query-string value off a URL that may be relative. */
 function param(url: string, name: string): string {
@@ -223,7 +224,9 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
         return makeResponse({ budgetName: 'Demo Budget', budgetLimit: 1000, budgetUnit: 'USD', actualSpend: 0, forecastedSpend: 1000 });
       }
     }
-    return makeResponse([]);
+    // Read: the FinOps budgets table and the dashboard Cost Trend reference line both
+    // read this, so an empty array silently removed the budget overlay from the widget.
+    return makeResponse(xamops.demoFinOpsBudgets);
   }
   if (url.includes('/api/xamops/finops/rightsizing'))
     return makeResponse([]);
@@ -274,6 +277,13 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // rebuilt from fixtures on every read, so there is nowhere for them to land.
   if (url.includes('/api/xamops/compliance/'))
     return makeResponse({ status: 'DEMO', message: 'Not persisted in demo mode.' });
+
+  // WAR — must precede the /api/xamops/ catch-all, which would otherwise serve {} and
+  // leave the page rendering an unassessable report with five empty tabs.
+  if (url.includes('/api/xamops/war/report'))
+    return makeResponse(war.demoWarReport(param(url, 'accountId')));
+  if (url.includes('/api/xamops/war/scan'))
+    return makeResponse(war.demoWarScanAck);
 
   // Security — every prowler sub-path before the generic security catch-all.
   // ComplianceOps reads prowler/findings (not /security/findings) and expects the
@@ -679,8 +689,16 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamsecure.demoInventoryCategories);
   if (url.includes('/api/xamsecure/inventory/network'))
     return makeResponse(xamsecure.demoNetworkTopology);
+  // Per-asset relationships, ahead of the inventory list route that would otherwise swallow it.
+  if (url.includes('/api/xamsecure/inventory/assets/') && url.includes('/relationships'))
+    return makeResponse(xamsecure.demoAssetRelationships(
+      decodeURIComponent(url.split('/api/xamsecure/inventory/assets/')[1].split('/')[0])));
   if (url.includes('/api/xamsecure/inventory'))
     return makeResponse(xamsecure.demoInventoryPage(url));
+  // Per-control breakdown, ahead of the framework list route.
+  if (url.includes('/api/xamsecure/compliance/frameworks/') && url.includes('/controls'))
+    return makeResponse(xamsecure.demoFrameworkControls(
+      decodeURIComponent(url.split('/api/xamsecure/compliance/frameworks/')[1].split('/')[0])));
   if (url.includes('/api/xamsecure/compliance'))
     return makeResponse(xamsecure.demoCompliance);
   if (url.includes('/api/xamsecure/configurations/dashboard'))

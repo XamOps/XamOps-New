@@ -66,7 +66,7 @@ const XamSecurePage: React.FC = () => {
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
     vulnGroups, loadVulnGroups, threatGroups, loadThreatGroups,
-    codeScans, loadCodeScanFindings,
+    codeScans, loadCodeScanFindings, loadFrameworkControls, loadAssetRelationships,
     noAccountSelected,
     isLoading, refresh, loadIssueDetail, loadResourceDetail, loadStoryDetail,
     loadThreats, loadVulnByCve, loadCveFindings, loadPosture, loadInventory,
@@ -180,13 +180,15 @@ const XamSecurePage: React.FC = () => {
                              isLoading={isLoading} onPage={(p) => loadPosture(p, postureSeverity)}
                              loadResourceDetail={loadResourceDetail}
                              onSeverity={(s) => { setPostureSeverity(s); loadPosture(0, s); }}
-                             issues={issues} />
+                             issues={issues}
+                             loadControls={loadFrameworkControls} />
         )}
         {activeTab === 'inventory' && (
           <InventoryTab data={inventory} categories={inventoryCategories} risk={inventoryRisk}
                         network={networkTopology}
                         isLoading={isLoading} onLoad={(page, category) => loadInventory(page, category)}
-                        loadResourceDetail={loadResourceDetail} />
+                        loadResourceDetail={loadResourceDetail}
+                        loadRelationships={loadAssetRelationships} />
         )}
         {activeTab === 'api-security' && <ApiSecurityTab data={apiSecurity} isLoading={isLoading} />}
         {activeTab === 'identities' && (

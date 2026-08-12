@@ -202,6 +202,58 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(screen.getAllByText(/CIS AWS Foundations/).length).toBeGreaterThan(0);
   });
 
+  it('a framework opens its per-control breakdown with compliant-asset ratios', async () => {
+    draw(
+      <ConfigurationsTab dashboard={demo.demoConfigDashboard} posture={demo.demoPosturePage('?page=0&size=50')}
+                         compliance={demo.demoCompliance} isLoading={false} onPage={noop}
+                         loadControls={(async (id: string) => demo.demoFrameworkControls(id)) as never} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Frameworks & rules/ }));
+    fireEvent.click(screen.getByRole('button', { name: /CIS AWS Foundations/ }));
+
+    // Controls arrive on open, behind their own nav item in the shared panel shell.
+    const nav = await screen.findByRole('button', { name: /^Controls/ });
+    fireEvent.click(nav);
+    const control = await screen.findByText('Ensure S3 buckets block public access');
+    expect(control).toBeInTheDocument();
+    // The ratio is the number Upwind leads with, so it must be on the collapsed row.
+    expect(screen.getAllByText(/\d+\/\d+ compliant/).length).toBeGreaterThan(0);
+
+    // Remediation is behind the row, not printed for every control at once.
+    expect(screen.queryByText(/Block all public access/)).not.toBeInTheDocument();
+    fireEvent.click(control);
+    expect(await screen.findByText(/Block all public access/)).toBeInTheDocument();
+  });
+
+  it('a control nothing was scored against reads as unscored, not 0% compliant', async () => {
+    // Not in the demo fixtures because the live endpoint does not produce it: a control only
+    // reaches us through its findings, and those carry pass or fail. Asserted directly so the
+    // distinction survives, since reporting 0% would claim a failure that was never found.
+    const unscored = async () => ({
+      frameworkId: 'fw-x',
+      controls: [{
+        ruleId: 'fw-x-rule-001', title: 'Ensure KMS key rotation is enabled',
+        severity: 'HIGH' as const, passCount: 0, failCount: 0, assetCount: 0,
+        compliancePercent: null, unscoredCount: 3, resourceCount: 3,
+        remediation: null, lastEvaluated: null,
+      }],
+      controlCount: 1,
+      skippedOtherAccounts: 0,
+    });
+    draw(
+      <ConfigurationsTab dashboard={demo.demoConfigDashboard} posture={demo.demoPosturePage('?page=0&size=50')}
+                         compliance={demo.demoCompliance} isLoading={false} onPage={noop}
+                         loadControls={unscored as never} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Frameworks & rules/ }));
+    fireEvent.click(screen.getByRole('button', { name: /CIS AWS Foundations/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Controls/ }));
+
+    expect(await screen.findByText(/No control results were scored/)).toBeInTheDocument();
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
+    expect(screen.getByText('3 unscored')).toBeInTheDocument();
+  });
+
   it('Inventory lists assets and categories', () => {
     draw(
       <InventoryTab data={demo.demoInventoryPage('?page=0&size=50')} categories={demo.demoInventoryCategories}
@@ -211,6 +263,25 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(screen.getByText(demo.demoInventoryAll[0].name!)).toBeInTheDocument();
     // Category rail is rendered from the derived counts
     expect(screen.getAllByText(/networking/i).length).toBeGreaterThan(0);
+  });
+
+  it('an asset opens the provider references recorded against it', async () => {
+    const asset = demo.demoInventoryAll.find(
+      (a) => demo.demoAssetRelationships(a.upwindId!).relationships.length > 0)!;
+    draw(
+      <InventoryTab data={demo.demoInventoryPage('?page=0&size=50')} categories={demo.demoInventoryCategories}
+                    risk={demo.demoInventoryRisk} network={demo.demoNetworkTopology}
+                    isLoading={false} onLoad={noop}
+                    loadRelationships={(async (id: string) => demo.demoAssetRelationships(id)) as never} />
+    );
+    fireEvent.click(screen.getByText(asset.name!).closest('tr')!);
+    fireEvent.click(await screen.findByRole('button', { name: /Relationships/ }));
+
+    const rels = demo.demoAssetRelationships(asset.upwindId!);
+    expect(await screen.findByText(/Security Groups · 2/)).toBeInTheDocument();
+    expect(screen.getByText(rels.relationships[0].references[0])).toBeInTheDocument();
+    // Runtime edges are not in this payload, and the panel must not imply otherwise.
+    expect(screen.getByText(/come from sensor telemetry/)).toBeInTheDocument();
   });
 
   it('APIs lists discovered endpoints', () => {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type {
   PageResp, PostureFinding, ComplianceFramework, ConfigurationsDashboard as Dashboard,
-  ResourceDetail, IssueSummary,
+  ResourceDetail, IssueSummary, FrameworkControls,
 } from '../../types/xamsecure';
 import PostureTab from './PostureTab';
 import ComplianceTab from './ComplianceTab';
@@ -18,6 +18,8 @@ interface Props {
   onSeverity?: (severity: string) => void;
   /** Forwarded to the frameworks view to list each framework's failing controls. */
   issues?: IssueSummary[] | null;
+  /** Per-control breakdown for a framework, fetched when one is opened. */
+  loadControls?: (frameworkId: string) => Promise<FrameworkControls | null>;
 }
 
 /**
@@ -29,6 +31,7 @@ interface Props {
  */
 const ConfigurationsTab: React.FC<Props> = ({
   dashboard, posture, compliance, isLoading, onPage, loadResourceDetail, onSeverity, issues,
+  loadControls,
 }) => {
   const [view, setView] = useState<'dashboard' | 'findings' | 'frameworks'>('dashboard');
   return (
@@ -46,7 +49,8 @@ const ConfigurationsTab: React.FC<Props> = ({
                     onSeverity={onSeverity} />
       )}
       {view === 'frameworks' && (
-        <ComplianceTab data={compliance} isLoading={isLoading} issues={issues} />
+        <ComplianceTab data={compliance} isLoading={isLoading} issues={issues}
+                        loadControls={loadControls} />
       )}
     </div>
   );
