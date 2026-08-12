@@ -7,6 +7,9 @@ frontend-app/tsc_output*.txt
 
 
 # Ignore build artifacts
+# Unanchored: the anchored rules below covered two modules, so permissions-common/target/
+# was never ignored and 27 of its .class files ended up tracked.
+target/
 /xamops-service/target/
 /media-ops-service/target/
 *.jar
@@ -94,3 +97,38 @@ opensre/.env
 
 # Local secrets (never commit)
 .env.local
+
+# impeccable-ignore-start
+# Ephemeral output, runtime state, and per-dev overrides.
+# Unanchored: .impeccable may sit at the repo root or under a nested
+# workspace (apps/web/.impeccable/...); anchored patterns would miss it.
+# Shared artifacts stay tracked: config.json, live/config.json,
+# design.json, critique/*.md.
+.impeccable/config.local.json
+.impeccable/hook.cache.json
+.impeccable/hook.pending.json
+.impeccable/*.png
+.impeccable/live/server.json
+.impeccable/live/sessions/
+.impeccable/live/previews/
+.impeccable/live/annotations/
+.impeccable/live/cache/
+.impeccable/live/manual-edit-apply-transaction.json
+.impeccable/live/manual-edit-events.jsonl
+.impeccable/live/manual-edit-evidence/
+.impeccable/live/pending-manual-edits.json
+.impeccable/live/deferred-svelte-component-accepts.json
+.impeccable/live/*.png
+# impeccable-ignore-end
+
+# Private keys and key material (never commit)
+# .ec2ic_key/.ec2ic_key.pub are generated locally by EC2 Instance Connect and
+# currently sit untracked in the working tree — these patterns stop a broad
+# `git add` from sweeping them in.
+.ec2ic_key
+.ec2ic_key.pub
+*.pem
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
