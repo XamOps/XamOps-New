@@ -213,6 +213,8 @@ const EksDetailsPage: React.FC = () => {
       <EksIntegrationModal
         isOpen={showIntegrationGuide}
         onClose={() => setShowIntegrationGuide(false)}
+        clusterName={clusterName || undefined}
+        region={region}
       />
     </main>
   );

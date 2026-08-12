@@ -1,9 +1,45 @@
 package com.xammer.billops.dto;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 public class CreditRequestDto {
+
+    /**
+     * Supporting document metadata. Deliberately carries no URL: these DTOs are cached both
+     * server-side and in the browser, and a presigned URL would expire inside the cache. Callers
+     * ask for a fresh link via /credits/{id}/attachments/{index}/url instead.
+     */
+    public static class AttachmentInfo {
+        private int index;
+        private String name;
+        private String type;
+        private Long size;
+
+        public AttachmentInfo() {}
+
+        public AttachmentInfo(int index, String name, String type, Long size) {
+            this.index = index;
+            this.name = name;
+            this.type = type;
+            this.size = size;
+        }
+
+        public int getIndex() { return index; }
+        public void setIndex(int index) { this.index = index; }
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+
+        public Long getSize() { return size; }
+        public void setSize(Long size) { this.size = size; }
+    }
+
     private Long id;
     // --- START OF FINAL FIX ---
     private String awsAccountId; // Reverted
@@ -16,6 +52,9 @@ public class CreditRequestDto {
     private String status;
     private Date submittedDate;
     private Long userId;
+    // Concrete ArrayList: these DTOs round-trip through the Redis cache, whose serializer writes
+    // type information, and Collections.emptyList() does not deserialize cleanly.
+    private List<AttachmentInfo> attachments = new ArrayList<>();
 
     // Default constructor
     public CreditRequestDto() {}
@@ -52,4 +91,9 @@ public class CreditRequestDto {
 
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
+
+    public List<AttachmentInfo> getAttachments() { return attachments; }
+    public void setAttachments(List<AttachmentInfo> attachments) {
+        this.attachments = (attachments != null) ? attachments : new ArrayList<>();
+    }
 }

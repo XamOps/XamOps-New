@@ -15,7 +15,23 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import useBillOpsAdminCredits from '../hooks/useBillOpsAdminCredits';
 import { useTopbar } from '../contexts/TopbarContext';
-import type { AdminCreditRequest, AdminCreditStatus } from '../types/billopsAdminCredits';
+import type { AdminCreditRequest, AdminCreditStatus, CreditAttachment } from '../types/billopsAdminCredits';
+import {
+  attachmentKind,
+  downloadCreditAttachment,
+  formatFileSize,
+  viewCreditAttachment,
+  type AttachmentKind,
+} from '../utils/creditAttachments';
+
+const FILE_ICONS: Record<AttachmentKind, string> = {
+  pdf: 'fas fa-file-pdf',
+  image: 'fas fa-file-image',
+  sheet: 'fas fa-file-excel',
+  doc: 'fas fa-file-alt',
+  archive: 'fas fa-file-archive',
+  file: 'fas fa-file',
+};
 
 const STATUS_OPTIONS: { value: AdminCreditStatus; label: string }[] = [
   { value: 'submitted', label: 'Submitted' },
@@ -65,6 +81,52 @@ const describeAccount = (request: AdminCreditRequest) => {
     detail,
     provider: PROVIDER_STYLES[providerKey] || UNKNOWN_PROVIDER,
   };
+};
+
+/**
+ * One supporting document: the name opens it in a new tab, the icon button downloads it. Both
+ * mint a fresh short-lived S3 link on click.
+ */
+const AttachmentChip: React.FC<{ requestId: number; attachment: CreditAttachment }> = ({ requestId, attachment }) => {
+  const [isBusy, setIsBusy] = useState(false);
+  const size = formatFileSize(attachment.size);
+
+  const run = async (action: () => Promise<void>) => {
+    setIsBusy(true);
+    try {
+      await action();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not open this document.');
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg border border-gray-200 bg-white ${isBusy ? 'opacity-50' : ''}`}>
+      <i className={`${FILE_ICONS[attachmentKind(attachment.name, attachment.type)]} text-[10px] text-gray-400`} />
+      <button
+        type="button"
+        disabled={isBusy}
+        onClick={() => run(() => viewCreditAttachment(requestId, attachment.index))}
+        className="text-[11px] font-bold text-gray-600 hover:text-indigo-600 transition-colors truncate max-w-[160px]"
+        title={size ? `${attachment.name} (${size})` : attachment.name}
+      >
+        {attachment.name}
+      </button>
+      {size && <span className="text-[10px] font-semibold text-gray-300">{size}</span>}
+      <button
+        type="button"
+        disabled={isBusy}
+        onClick={() => run(() => downloadCreditAttachment(requestId, attachment.index, attachment.name))}
+        className="w-5 h-5 flex items-center justify-center rounded-md text-gray-400 hover:text-indigo-600 hover:bg-gray-50 transition-colors"
+        title={`Download ${attachment.name}`}
+        aria-label={`Download ${attachment.name}`}
+      >
+        <i className="fas fa-download text-[9px]" />
+      </button>
+    </span>
+  );
 };
 
 const parseServices = (services: string | null | undefined): string[] =>
@@ -292,6 +354,7 @@ const BillOpsAdminCreditsPage: React.FC = () => {
                     const account = describeAccount(request);
                     const useCase = (request.useCase || '').trim();
                     const services = parseServices(request.services);
+                    const attachments = request.attachments ?? [];
                     const isExpanded = expandedRows.has(request.id);
                     const isClamped = useCase.length > USE_CASE_CLAMP_AT;
                     const visibleServices = isExpanded ? services : services.slice(0, 3);
@@ -367,6 +430,20 @@ const BillOpsAdminCreditsPage: React.FC = () => {
                               {!isExpanded && services.length > visibleServices.length && (
                                 <span className="text-[10px] font-bold text-gray-400">+{services.length - visibleServices.length}</span>
                               )}
+                            </div>
+                          )}
+
+                          {attachments.length > 0 && (
+                            <div className="mt-2.5">
+                              <div className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">
+                                <i className="fas fa-paperclip mr-1" />
+                                {attachments.length} {attachments.length === 1 ? 'Document' : 'Documents'}
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {attachments.map((attachment) => (
+                                  <AttachmentChip key={attachment.index} requestId={request.id} attachment={attachment} />
+                                ))}
+                              </div>
                             </div>
                           )}
                         </td>

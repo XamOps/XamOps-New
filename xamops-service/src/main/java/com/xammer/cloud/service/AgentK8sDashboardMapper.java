@@ -2,6 +2,7 @@ package com.xammer.cloud.service;
 
 import com.xammer.cloud.dto.gcp.GkeDashboardDto;
 import com.xammer.cloud.dto.k8s.KubescapeDashboard;
+import com.xammer.cloud.dto.k8s.OpenCostDashboard;
 import com.xammer.cloud.dto.k8s.TrivyDashboard;
 import org.springframework.stereotype.Service;
 
@@ -295,6 +296,201 @@ public class AgentK8sDashboardMapper {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Cost metrics (OpenCost)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Per-namespace cost from the agent's OpenCost batch.
+     *
+     * <p>The agent queries OpenCost with {@code window=1d&aggregate=namespace}
+     * ({@code OPENCOST_ALLOCATION_WINDOW}, see {@code opencost.go}), so {@code totalCost} is
+     * already a daily figure and no window conversion is needed.
+     *
+     * <p>Because that query aggregates by namespace only, per-workload allocations are never
+     * returned — {@code workloadCosts} is therefore left empty rather than fabricated.
+     *
+     * <p>{@code podCount} isn't part of OpenCost's namespace aggregation either, so it's
+     * counted from the agent's k8s-resources batch when available.
+     *
+     * @return null when there is no usable cost data, so the caller can leave the section
+     *         unset rather than rendering a table of zeros
+     */
+    public GkeDashboardDto.GkeCostMetricsDto buildCostMetrics(
+            OpenCostDashboard openCost,
+            AgentDataTransformerService.K8sResourcesResult k8s) {
+
+        if (openCost == null || openCost.getNamespaceAllocations() == null
+                || openCost.getNamespaceAllocations().isEmpty()) {
+            return null;
+        }
+
+        Map<String, Integer> podsByNamespace = podCountsByNamespace(k8s);
+        Map<String, NamespaceUsage> usageByNamespace = usageByNamespace(k8s);
+
+        List<GkeDashboardDto.GkeNamespaceCostDto> namespaceCosts = new ArrayList<>();
+        double summedDaily = 0d;
+        for (OpenCostDashboard.NamespaceAllocation ns : openCost.getNamespaceAllocations()) {
+            GkeDashboardDto.GkeNamespaceCostDto row = new GkeDashboardDto.GkeNamespaceCostDto();
+            String name = blankTo(ns.getNamespace(), "unallocated");
+            row.setNamespace(name);
+            row.setPodCount(podsByNamespace.getOrDefault(name, 0));
+
+            // The agent's OpenCost batch carries only costs and efficiency ratios — no
+            // cpuCoreUsageAverage / ramByteUsageAverage — so reading those yields zeros.
+            // Usage comes from the k8s-resources podMetrics instead, which is the same
+            // source the Pods and Containers tabs use, keeping the numbers consistent.
+            NamespaceUsage usage = usageByNamespace.get(name);
+            row.setCpuUsageMillicores(usage != null ? usage.cpuMillicores : 0d);
+            row.setMemoryUsageMb(usage != null ? usage.memoryBytes / 1048576d : 0d);
+
+            double daily = orZero(ns.getTotalCost());
+            row.setDailyCost(daily);
+            // Prefer OpenCost's own monthly projection, falling back to a 30-day estimate.
+            // Tested against > 0 rather than != null: the DTO field defaults to 0.0, so a
+            // null check would silently accept "unset" and render every month as zero.
+            double monthly = orZero(ns.getMonthlyCost());
+            row.setMonthlyCost(monthly > 0d ? monthly : daily * 30d);
+            summedDaily += daily;
+            namespaceCosts.add(row);
+        }
+
+        // Highest spend first — the ordering a cost tab is actually read in.
+        namespaceCosts.sort((a, b) -> Double.compare(b.getDailyCost(), a.getDailyCost()));
+
+        GkeDashboardDto.GkeCostMetricsDto dto = new GkeDashboardDto.GkeCostMetricsDto();
+        Double summaryDaily = openCost.getSummary() != null ? openCost.getSummary().getTotalDailyCost() : null;
+        dto.setDailyCost(summaryDaily != null && summaryDaily > 0d ? summaryDaily : summedDaily);
+        dto.setNamespaceCosts(namespaceCosts);
+        dto.setWorkloadCosts(buildWorkloadCosts(openCost, k8s));
+        return dto;
+    }
+
+    /**
+     * Per-workload cost from OpenCost's controller aggregation.
+     *
+     * <p>Empty on agents that only send namespace-level rows, which is every agent before
+     * controller aggregation was added — so an older agent degrades to an empty workload
+     * table rather than breaking the Cost tab.
+     */
+    private List<GkeDashboardDto.GkeWorkloadCostDto> buildWorkloadCosts(
+            OpenCostDashboard openCost,
+            AgentDataTransformerService.K8sResourcesResult k8s) {
+
+        List<GkeDashboardDto.GkeWorkloadCostDto> out = new ArrayList<>();
+        if (openCost.getControllerAllocations() == null) return out;
+
+        Map<String, Integer> podsByOwner = podCountsByOwner(k8s);
+
+        for (OpenCostDashboard.ControllerAllocation ctrl : openCost.getControllerAllocations()) {
+            if (ctrl.getController() == null || ctrl.getController().isBlank()) continue;
+
+            GkeDashboardDto.GkeWorkloadCostDto row = new GkeDashboardDto.GkeWorkloadCostDto();
+            row.setName(ctrl.getController());
+            row.setNamespace(blankTo(ctrl.getNamespace(), ""));
+            row.setKind(blankTo(ctrl.getControllerKind(), "Workload"));
+
+            double daily = orZero(ctrl.getTotalCost());
+            row.setDailyCost(daily);
+            double monthly = orZero(ctrl.getMonthlyCost());
+            row.setMonthlyCost(monthly > 0d ? monthly : daily * 30d);
+
+            // OpenCost's controller rows carry no usage figures, so pod counts come from
+            // k8s-resources — the same source as the namespace rows.
+            row.setPodCount(countPodsForController(podsByOwner, ctrl.getNamespace(), ctrl.getController()));
+            out.add(row);
+        }
+
+        out.sort((a, b) -> Double.compare(b.getDailyCost(), a.getDailyCost()));
+        return out;
+    }
+
+    /** Pod counts keyed by "namespace/ownerName", from the agent's pod list. */
+    private Map<String, Integer> podCountsByOwner(
+            AgentDataTransformerService.K8sResourcesResult k8s) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        if (k8s == null) return counts;
+        for (Map<String, Object> pod : safe(k8s.getPods())) {
+            String owner = str(pod, "controllerName");
+            if (owner.isEmpty()) continue;
+            counts.merge(ownerKey(str(pod, "namespace"), owner), 1, Integer::sum);
+        }
+        return counts;
+    }
+
+    /**
+     * Counts pods belonging to an OpenCost controller row.
+     *
+     * <p>Direct name matching is not sufficient. A Deployment's pods are owned by a
+     * ReplicaSet, so their {@code controllerName} is {@code <deployment>-<pod-template-hash>}
+     * while OpenCost reports the Deployment name. DaemonSets and StatefulSets own their pods
+     * directly and match exactly. So: try the exact key first, then fall back to summing
+     * owners in the same namespace whose name is the controller plus a single suffix segment.
+     */
+    private int countPodsForController(Map<String, Integer> podsByOwner,
+                                       String namespace, String controller) {
+        Integer exact = podsByOwner.get(ownerKey(namespace, controller));
+        if (exact != null) return exact;
+
+        String prefix = ownerKey(namespace, controller) + "-";
+        int total = 0;
+        for (Map.Entry<String, Integer> entry : podsByOwner.entrySet()) {
+            String key = entry.getKey();
+            if (!key.startsWith(prefix)) continue;
+            // Only one extra segment — avoids "app" swallowing "app-worker-abc123".
+            if (key.indexOf('/', prefix.length()) >= 0) continue;
+            if (key.substring(prefix.length()).contains("-")) continue;
+            total += entry.getValue();
+        }
+        return total;
+    }
+
+    private static String ownerKey(String namespace, String owner) {
+        return (namespace == null ? "" : namespace) + "/" + (owner == null ? "" : owner);
+    }
+
+    private Map<String, Integer> podCountsByNamespace(
+            AgentDataTransformerService.K8sResourcesResult k8s) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        if (k8s == null) return counts;
+        for (Map<String, Object> pod : safe(k8s.getPods())) {
+            String ns = str(pod, "namespace");
+            if (ns.isEmpty()) continue;
+            counts.merge(ns, 1, Integer::sum);
+        }
+        return counts;
+    }
+
+    /** Aggregated CPU (millicores) and memory (bytes) actually in use, per namespace. */
+    static final class NamespaceUsage {
+        double cpuMillicores;
+        double memoryBytes;
+    }
+
+    /**
+     * Sums the k8s-resources podMetrics batch per namespace. Metrics-server derived, so it
+     * matches what the Pods and Containers tabs display for the same workloads.
+     */
+    private Map<String, NamespaceUsage> usageByNamespace(
+            AgentDataTransformerService.K8sResourcesResult k8s) {
+        Map<String, NamespaceUsage> totals = new LinkedHashMap<>();
+        if (k8s == null) return totals;
+        for (Map<String, Object> pm : safe(k8s.getPodMetrics())) {
+            String ns = str(pm, "namespace");
+            if (ns.isEmpty()) continue;
+            NamespaceUsage agg = totals.computeIfAbsent(ns, key -> new NamespaceUsage());
+            for (Map<String, Object> container : listOf(pm, "containers")) {
+                agg.cpuMillicores += parseCpuToMillicores(str(container, "cpuUsage"));
+                agg.memoryBytes += parseMemoryToBytes(str(container, "memoryUsage"));
+            }
+        }
+        return totals;
+    }
+
+    private static double orZero(Double value) {
+        return value == null ? 0d : value;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Security metrics (Falco + Kubescape + Trivy)
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -372,13 +568,23 @@ public class AgentK8sDashboardMapper {
         dto.setKubescapeTotalFailed(totalFailed);
         dto.setKubescapeFailsBySeverity(failsBySeverity);
 
-        // Passed count is not reported directly; derive it from the compliance score so
-        // the tab can show a pass/fail split. score = passed / (passed + failed).
+        // Guard against reporting compliance from an empty scan. Kubescape creates a
+        // WorkloadConfigurationScanSummary per workload as soon as it sees one, with
+        // `controls: null` until results are written. Zero failures out of zero controls
+        // evaluated is "unknown", not "compliant" — treating it as the latter is a false
+        // security assurance, so leave passed at 0 and let the caller distinguish the two.
+
+        // Passed count is not reported directly; derive it from the compliance score so the
+        // tab can show a pass/fail split. score = passed / (passed + failed).
+        //
+        // Only derived when something actually failed. A score of 100 with zero failures is
+        // indistinguishable from a scan that evaluated nothing at all — and Kubescape does
+        // emit summaries with `controls: null` before results land. Previously this branch
+        // set passed = totalWorkloads in that case, inventing hundreds of "passed" controls
+        // from an empty scan and making the UI claim compliance it had no basis for.
         Double score = kubescape.getOverallComplianceScore();
         if (score != null && score > 0d && score < 100d && totalFailed > 0) {
             dto.setKubescapeTotalPassed((int) Math.round(totalFailed * (score / (100d - score))));
-        } else if (score != null && score >= 100d) {
-            dto.setKubescapeTotalPassed(orZero(kubescape.getTotalWorkloads()));
         }
 
         // Per-workload failure counts are the closest thing to per-control findings that

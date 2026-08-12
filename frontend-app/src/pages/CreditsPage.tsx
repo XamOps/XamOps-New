@@ -3,8 +3,24 @@ import { Icon } from '@iconify/react';
 import { useCredits } from '../hooks/useCredits';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAccounts } from '../contexts/AccountContext';
-import type { CreditRequest, CreditFilter } from '../types/credits';
+import type { CreditAttachment, CreditRequest, CreditFilter } from '../types/credits';
 import { DialogRoot, DialogPanel } from '../components/ui';
+import {
+  attachmentKind,
+  downloadCreditAttachment,
+  formatFileSize,
+  viewCreditAttachment,
+  type AttachmentKind,
+} from '../utils/creditAttachments';
+
+const FILE_ICONS: Record<AttachmentKind, string> = {
+  pdf: 'mdi:file-pdf-box',
+  image: 'mdi:file-image-outline',
+  sheet: 'mdi:file-table-outline',
+  doc: 'mdi:file-document-outline',
+  archive: 'mdi:folder-zip-outline',
+  file: 'mdi:file-outline',
+};
 
 const FILTER_TABS: { id: CreditFilter | 'all'; label: string; activeClass: string }[] = [
   { id: 'all', label: 'All Requests', activeClass: 'bg-[rgba(0,0,0,0.88)] text-white' },
@@ -33,9 +49,20 @@ const CreditsPage: React.FC = () => {
     setNewRequestData,
     submitRequest,
     resetForm,
+    addFiles,
+    removeFile,
   } = useCredits();
 
   const { setActions, clearActions } = useTopbar();
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [isDraggingFiles, setIsDraggingFiles] = React.useState(false);
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingFiles(false);
+    addFiles(Array.from(e.dataTransfer.files || []));
+  };
 
   const formatCurrency = (value: number): string => {
     return new Intl.NumberFormat('en-US', {
@@ -302,6 +329,74 @@ const CreditsPage: React.FC = () => {
                 />
               </div>
 
+              {/* Supporting Documents */}
+              <div>
+                <label className="block text-xs font-semibold text-[rgba(0,0,0,0.7)] mb-1.5">
+                  Supporting Documents
+                </label>
+
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDraggingFiles(true); }}
+                  onDragLeave={() => setIsDraggingFiles(false)}
+                  onDrop={handleDrop}
+                  className={`rounded-lg border border-dashed px-4 py-5 text-center transition-colors ${
+                    isDraggingFiles
+                      ? 'border-indigo-400 bg-indigo-50/50'
+                      : 'border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)]'
+                  }`}
+                >
+                  <Icon icon="mdi:paperclip" width={18} className="text-[rgba(0,0,0,0.3)] mx-auto mb-1.5" />
+                  <p className="text-xs text-[rgba(0,0,0,0.5)]">
+                    Drag files here or{' '}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="font-semibold text-indigo-600 hover:text-indigo-700 cursor-pointer"
+                    >
+                      browse
+                    </button>
+                  </p>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">
+                    Invoices, quotes, architecture docs or screenshots — up to 50MB each
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      addFiles(Array.from(e.target.files || []));
+                      e.target.value = '';
+                    }}
+                  />
+                </div>
+
+                {newRequestData.files.length > 0 && (
+                  <ul className="mt-2 space-y-1.5">
+                    {newRequestData.files.map((file, index) => (
+                      <li
+                        key={`${file.name}-${file.size}-${index}`}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[rgba(0,0,0,0.08)] bg-white"
+                      >
+                        <Icon icon={FILE_ICONS[attachmentKind(file.name, file.type)]} width={16} className="text-[rgba(0,0,0,0.4)] shrink-0" />
+                        <span className="text-xs font-medium text-[rgba(0,0,0,0.75)] truncate flex-1" title={file.name}>
+                          {file.name}
+                        </span>
+                        <span className="text-[11px] text-[rgba(0,0,0,0.35)] shrink-0">{formatFileSize(file.size)}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeFile(index)}
+                          className="text-[rgba(0,0,0,0.3)] hover:text-red-500 transition-colors shrink-0"
+                          aria-label={`Remove ${file.name}`}
+                        >
+                          <Icon icon="mdi:close" width={14} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
             </form>
           </div>
         </DialogPanel>
@@ -318,6 +413,7 @@ const PRIORITY_BADGE: Record<string, string> = {
 
 const CreditRequestCard: React.FC<{ request: CreditRequest }> = ({ request }) => {
   const [isExpanded, setIsExpanded] = React.useState(false);
+  const attachments = request.attachments ?? [];
 
   const formatCurrency = (value: number): string => {
     return new Intl.NumberFormat('en-US', {
@@ -425,6 +521,20 @@ const CreditRequestCard: React.FC<{ request: CreditRequest }> = ({ request }) =>
                   <p className="text-sm text-[rgba(0,0,0,0.7)] leading-relaxed">{request.useCase}</p>
                 </div>
               </div>
+
+              {attachments.length > 0 && (
+                <div>
+                  <h6 className="text-[10px] font-bold text-[rgba(0,0,0,0.35)] uppercase tracking-widest mb-2 flex items-center gap-2">
+                    <Icon icon="mdi:paperclip" width={12} className="text-[rgba(0,0,0,0.25)]" />
+                    Supporting Documents
+                  </h6>
+                  <div className="space-y-2">
+                    {attachments.map((attachment) => (
+                      <AttachmentRow key={attachment.index} requestId={request.id} attachment={attachment} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Right Column — Progress */}
@@ -478,6 +588,60 @@ const CreditRequestCard: React.FC<{ request: CreditRequest }> = ({ request }) =>
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+/**
+ * One supporting document, with actions that mint a fresh S3 link on click.
+ */
+const AttachmentRow: React.FC<{ requestId: number; attachment: CreditAttachment }> = ({ requestId, attachment }) => {
+  const [isBusy, setIsBusy] = React.useState(false);
+
+  const run = async (action: () => Promise<void>) => {
+    setIsBusy(true);
+    try {
+      await action();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not open this document.');
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 bg-white rounded-xl p-3 border border-[rgba(0,0,0,0.08)]">
+      <Icon
+        icon={FILE_ICONS[attachmentKind(attachment.name, attachment.type)]}
+        width={20}
+        className="text-[rgba(0,0,0,0.35)] shrink-0"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-[rgba(0,0,0,0.8)] truncate" title={attachment.name}>
+          {attachment.name}
+        </div>
+        {formatFileSize(attachment.size) && (
+          <div className="text-[11px] text-[rgba(0,0,0,0.35)]">{formatFileSize(attachment.size)}</div>
+        )}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          disabled={isBusy}
+          onClick={() => run(() => viewCreditAttachment(requestId, attachment.index))}
+          className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.05)] transition-colors disabled:opacity-50"
+        >
+          View
+        </button>
+        <button
+          type="button"
+          disabled={isBusy}
+          onClick={() => run(() => downloadCreditAttachment(requestId, attachment.index, attachment.name))}
+          className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+        >
+          Download
+        </button>
+      </div>
     </div>
   );
 };

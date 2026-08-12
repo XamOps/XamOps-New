@@ -2,6 +2,7 @@ package com.xammer.cloud.service;
 
 import com.xammer.cloud.dto.gcp.GkeDashboardDto;
 import com.xammer.cloud.dto.k8s.KubescapeDashboard;
+import com.xammer.cloud.dto.k8s.OpenCostDashboard;
 import com.xammer.cloud.dto.k8s.TrivyDashboard;
 import org.junit.jupiter.api.Test;
 
@@ -110,6 +111,7 @@ class AgentK8sDashboardMapperTest {
         assertEquals(5, multi.getRestartCount(), "2 + 3 across two containers");
         assertEquals(150d, multi.getCpuRequest(), "100m + 50m");
         assertEquals("DaemonSet", multi.getOwnerKind());
+        assertEquals("falco", multi.getOwnerName());
         assertEquals("aks-systempool-000000", multi.getNodeName());
     }
 
@@ -293,16 +295,35 @@ class AgentK8sDashboardMapperTest {
     }
 
     @Test
-    void kubescapeRunningIsTrueOnAFullyCompliantCluster() {
-        KubescapeDashboard compliant = new KubescapeDashboard();
-        compliant.setOverallComplianceScore(100d);
-        compliant.setTotalWorkloads(31);
+    void kubescapeDoesNotInventPassedControlsFromAnEmptyScan() {
+        // Kubescape emits a summary per workload with `controls: null` before results land,
+        // which yields zero failures and a 100 score. Setting passed = totalWorkloads here
+        // fabricated hundreds of "passed" controls and made the UI claim compliance from a
+        // scan that evaluated nothing.
+        KubescapeDashboard emptyScan = new KubescapeDashboard();
+        emptyScan.setOverallComplianceScore(100d);
+        emptyScan.setTotalWorkloads(226);
 
-        GkeDashboardDto.GkeSecurityMetricsDto dto = mapper.buildSecurityMetrics(null, compliant, null);
+        GkeDashboardDto.GkeSecurityMetricsDto dto = mapper.buildSecurityMetrics(null, emptyScan, null);
 
-        assertTrue(dto.isKubescapeRunning());
+        assertTrue(dto.isKubescapeRunning(), "Kubescape is installed and reporting");
         assertEquals(0, dto.getKubescapeTotalFailed());
-        assertEquals(31, dto.getKubescapeTotalPassed());
+        assertEquals(0, dto.getKubescapeTotalPassed(),
+                "no controls evaluated means no controls passed");
+        assertEquals(0, dto.getKubescapeTotalPassed() + dto.getKubescapeTotalFailed(),
+                "zero evaluated is how the UI tells 'unknown' apart from 'compliant'");
+    }
+
+    @Test
+    void kubescapeDerivesPassedCountOnlyWhenSomethingFailed() {
+        // score 72 with 18 failures implies roughly 46 passed: 18 * (72 / 28).
+        GkeDashboardDto.GkeSecurityMetricsDto dto =
+                mapper.buildSecurityMetrics(null, sampleKubescape(), null);
+
+        assertEquals(18, dto.getKubescapeTotalFailed());
+        assertEquals(46, dto.getKubescapeTotalPassed());
+        assertTrue(dto.getKubescapeTotalPassed() + dto.getKubescapeTotalFailed() > 0,
+                "a real scan reports a non-zero evaluated total");
     }
 
     @Test
@@ -378,7 +399,194 @@ class AgentK8sDashboardMapperTest {
         assertFalse(dto.isFalcoRunning());
     }
 
+    // ── Cost metrics ─────────────────────────────────────────────────────────
+
+    @Test
+    void costMetricsMapNamespaceAllocationsWithoutWindowConversion() {
+        // The agent queries OpenCost with window=1d, so totalCost is already daily.
+        GkeDashboardDto.GkeCostMetricsDto cost =
+                mapper.buildCostMetrics(sampleOpenCost(), sampleCluster());
+
+        assertNotNull(cost);
+        assertEquals(0.03123d, cost.getDailyCost(), 0.00001, "summary daily total");
+
+        GkeDashboardDto.GkeNamespaceCostDto falco = cost.getNamespaceCosts().stream()
+                .filter(n -> "falco".equals(n.getNamespace()))
+                .findFirst().orElseThrow();
+        assertEquals(0.02341d, falco.getDailyCost(), 0.00001);
+        assertEquals(0.7023d, falco.getMonthlyCost(), 0.0001, "30x daily when not supplied");
+    }
+
+    @Test
+    void costMetricsSortHighestSpendFirst() {
+        List<GkeDashboardDto.GkeNamespaceCostDto> rows =
+                mapper.buildCostMetrics(sampleOpenCost(), null).getNamespaceCosts();
+
+        assertEquals("falco", rows.get(0).getNamespace(), "most expensive namespace first");
+        for (int i = 1; i < rows.size(); i++) {
+            assertTrue(rows.get(i - 1).getDailyCost() >= rows.get(i).getDailyCost(),
+                    "costs must be in descending order");
+        }
+    }
+
+    @Test
+    void costMetricsTakeUsageFromPodMetricsNotOpenCost() {
+        // The agent's OpenCost batch has no usage fields at all — only costs and efficiency
+        // ratios — so reading cpuCoreUsageAverage/ramByteUsageAverage rendered every row as 0.
+        GkeDashboardDto.GkeNamespaceCostDto falco =
+                mapper.buildCostMetrics(sampleOpenCost(), sampleCluster()).getNamespaceCosts().stream()
+                        .filter(n -> "falco".equals(n.getNamespace()))
+                        .findFirst().orElseThrow();
+
+        // falco-bvd89's two containers report 30m + 15m and 128Mi each in the fixture.
+        assertEquals(45d, falco.getCpuUsageMillicores(), 0.01);
+        assertEquals(256d, falco.getMemoryUsageMb(), 0.01, "2 x 128Mi as MiB");
+    }
+
+    @Test
+    void costMetricsReportZeroUsageWhenNoPodMetricsExist() {
+        GkeDashboardDto.GkeNamespaceCostDto opencost =
+                mapper.buildCostMetrics(sampleOpenCost(), sampleCluster()).getNamespaceCosts().stream()
+                        .filter(n -> "opencost".equals(n.getNamespace()))
+                        .findFirst().orElseThrow();
+
+        // No podMetrics entry for that namespace — cost still shows, usage honestly reads 0.
+        assertEquals(0d, opencost.getCpuUsageMillicores());
+        assertEquals(0d, opencost.getMemoryUsageMb());
+        assertEquals(0.00237d, opencost.getDailyCost(), 0.00001);
+    }
+
+    @Test
+    void costMetricsCountPodsPerNamespaceFromK8sResources() {
+        // OpenCost's namespace aggregation carries no pod count, so it comes from k8s-resources.
+        List<GkeDashboardDto.GkeNamespaceCostDto> rows =
+                mapper.buildCostMetrics(sampleOpenCost(), sampleCluster()).getNamespaceCosts();
+
+        assertEquals(3, rows.stream().filter(n -> "falco".equals(n.getNamespace()))
+                .findFirst().orElseThrow().getPodCount(), "three falco pods in the fixture");
+        assertEquals(1, rows.stream().filter(n -> "monitoring".equals(n.getNamespace()))
+                .findFirst().orElseThrow().getPodCount());
+    }
+
+    @Test
+    void costMetricsReturnNullWhenOpenCostHasNothing() {
+        // Null lets the caller leave the section unset so the tab shows its empty state,
+        // rather than rendering a table of zeros that looks like real data.
+        assertNull(mapper.buildCostMetrics(null, sampleCluster()));
+
+        OpenCostDashboard empty = new OpenCostDashboard();
+        empty.setNamespaceAllocations(new ArrayList<>());
+        assertNull(mapper.buildCostMetrics(empty, sampleCluster()));
+    }
+
+    @Test
+    void workloadCostsAreEmptyForAgentsThatSendOnlyNamespaceRows() {
+        // Older agents predate controller aggregation. The tab must degrade to an empty
+        // workload table rather than failing.
+        assertTrue(mapper.buildCostMetrics(sampleOpenCost(), sampleCluster()).getWorkloadCosts().isEmpty());
+    }
+
+    @Test
+    void workloadCostsMapControllerAllocationsWithPodCounts() {
+        OpenCostDashboard oc = sampleOpenCost();
+        oc.setControllerAllocations(List.of(
+                controllerAllocation("falco", "falco", "DaemonSet", 0.01900d),
+                controllerAllocation("monitoring", "prometheus-server", "Deployment", 0.00400d)));
+
+        List<GkeDashboardDto.GkeWorkloadCostDto> rows =
+                mapper.buildCostMetrics(oc, sampleCluster()).getWorkloadCosts();
+
+        assertEquals(2, rows.size());
+        assertEquals("falco", rows.get(0).getName(), "highest daily cost first");
+        assertEquals("DaemonSet", rows.get(0).getKind());
+        assertEquals(0.57d, rows.get(0).getMonthlyCost(), 0.0001, "30x daily when unset");
+
+        // Pod counts come from k8s-resources controllerName, not OpenCost.
+        assertEquals(3, rows.get(0).getPodCount(), "DaemonSet pods name it directly");
+        assertEquals(1, rows.get(1).getPodCount(),
+                "Deployment pods name the ReplicaSet, so the name needs suffix matching");
+    }
+
+    @Test
+    void workloadPodCountsDoNotMatchUnrelatedWorkloadsSharingAPrefix() {
+        // "app" must not absorb "app-worker-abc123": only one extra suffix segment counts.
+        AgentDataTransformerService.K8sResourcesResult k8s =
+                new AgentDataTransformerService.K8sResourcesResult();
+        k8s.setPods(List.of(
+                pod("app-1", "prod", "n1", "Running", "ReplicaSet", "app-5f7c9", List.of()),
+                pod("app-worker-1", "prod", "n1", "Running", "ReplicaSet", "app-worker-8bd21", List.of())));
+
+        OpenCostDashboard oc = sampleOpenCost();
+        oc.setControllerAllocations(List.of(controllerAllocation("prod", "app", "Deployment", 0.01d)));
+
+        assertEquals(1, mapper.buildCostMetrics(oc, k8s).getWorkloadCosts().get(0).getPodCount());
+    }
+
+    @Test
+    void workloadCostsSkipRowsWithNoControllerName() {
+        OpenCostDashboard oc = sampleOpenCost();
+        oc.setControllerAllocations(List.of(
+                controllerAllocation("falco", "", "DaemonSet", 0.01d),
+                controllerAllocation("falco", "falco", "DaemonSet", 0.02d)));
+
+        assertEquals(1, mapper.buildCostMetrics(oc, sampleCluster()).getWorkloadCosts().size(),
+                "an unnamed workload has nothing to display");
+    }
+
+    @Test
+    void workloadCostsDoNotAffectTheClusterDailyTotal() {
+        // Controller rows describe the same spend broken down differently — counting them
+        // toward the total would double it.
+        OpenCostDashboard oc = sampleOpenCost();
+        oc.setControllerAllocations(List.of(
+                controllerAllocation("falco", "falco", "DaemonSet", 0.01900d)));
+
+        assertEquals(0.03123d, mapper.buildCostMetrics(oc, sampleCluster()).getDailyCost(), 0.00001);
+    }
+
+    @Test
+    void costMetricsFallBackToSummingNamespacesWhenSummaryMissing() {
+        OpenCostDashboard noSummary = sampleOpenCost();
+        noSummary.setSummary(null);
+
+        assertEquals(0.03123d, mapper.buildCostMetrics(noSummary, null).getDailyCost(), 0.00001);
+    }
+
     // ── Fixtures ─────────────────────────────────────────────────────────────
+
+    private OpenCostDashboard sampleOpenCost() {
+        OpenCostDashboard oc = new OpenCostDashboard();
+
+        OpenCostDashboard.Summary summary = new OpenCostDashboard.Summary();
+        summary.setTotalDailyCost(0.03123d); // 0.02341 + 0.00545 + 0.00237
+        oc.setSummary(summary);
+
+        oc.setNamespaceAllocations(List.of(
+                namespaceAllocation("monitoring", 0.00545d, 0.25d, 536870912d),
+                namespaceAllocation("falco", 0.02341d, 0.10d, 268435456d),
+                namespaceAllocation("opencost", 0.00237d, 0.01d, 67108864d)));
+        return oc;
+    }
+
+    private OpenCostDashboard.ControllerAllocation controllerAllocation(
+            String namespace, String controller, String kind, double totalCost) {
+        OpenCostDashboard.ControllerAllocation ctrl = new OpenCostDashboard.ControllerAllocation();
+        ctrl.setNamespace(namespace);
+        ctrl.setController(controller);
+        ctrl.setControllerKind(kind);
+        ctrl.setTotalCost(totalCost);
+        return ctrl;
+    }
+
+    private OpenCostDashboard.NamespaceAllocation namespaceAllocation(
+            String namespace, double totalCost, double cpuCores, double ramBytes) {
+        OpenCostDashboard.NamespaceAllocation ns = new OpenCostDashboard.NamespaceAllocation();
+        ns.setNamespace(namespace);
+        ns.setTotalCost(totalCost);
+        ns.setCpuCoreUsageAverage(cpuCores);
+        ns.setRamByteUsageAverage(ramBytes);
+        return ns;
+    }
 
     private Map<String, Object> falcoEvent(String rule, String priority, String namespace, int count) {
         Map<String, Object> e = new LinkedHashMap<>();
@@ -474,17 +682,22 @@ class AgentK8sDashboardMapperTest {
                 nodeMetric("aks-systempool-000001", "800m", "3Gi", 20.0d, 18.75d),
                 nodeMetric("aks-userpool-000000", "200m", "1Gi", 10.0d, 12.5d)));
 
+        // Ownership mirrors real Kubernetes: DaemonSet pods name the DaemonSet directly,
+        // while Deployment pods name the intermediate ReplicaSet (<deployment>-<hash>).
         k8s.setPods(List.of(
-                pod("falco-bvd89", "falco", "aks-systempool-000000", "Running", "DaemonSet", List.of(
-                        container("falco", "falcosecurity/falco:0.44.1", true, 2, "100m", "512Mi"),
-                        container("falcoctl", "falcosecurity/falcoctl:0.13.0", true, 3, "50m", "128Mi"))),
+                pod("falco-bvd89", "falco", "aks-systempool-000000", "Running",
+                        "DaemonSet", "falco", List.of(
+                                container("falco", "falcosecurity/falco:0.44.1", true, 2, "100m", "512Mi"),
+                                container("falcoctl", "falcosecurity/falcoctl:0.13.0", true, 3, "50m", "128Mi"))),
                 pod("prometheus-server-5cf694d57c-cxjk7", "monitoring", "aks-systempool-000000", "Running",
-                        "ReplicaSet", List.of(
+                        "ReplicaSet", "prometheus-server-5cf694d57c", List.of(
                                 container("prometheus-server", "prometheus/prometheus:v3", true, 0, "250m", "1Gi"))),
-                pod("falco-j6bvr", "falco", "aks-systempool-000001", "Running", "DaemonSet", List.of(
-                        container("falco", "falcosecurity/falco:0.44.1", true, 0, "100m", "512Mi"))),
-                pod("falco-p5mzs", "falco", "aks-userpool-000000", "Running", "DaemonSet", List.of(
-                        container("falco", "falcosecurity/falco:0.44.1", true, 0, "100m", "512Mi")))));
+                pod("falco-j6bvr", "falco", "aks-systempool-000001", "Running",
+                        "DaemonSet", "falco", List.of(
+                                container("falco", "falcosecurity/falco:0.44.1", true, 0, "100m", "512Mi"))),
+                pod("falco-p5mzs", "falco", "aks-userpool-000000", "Running",
+                        "DaemonSet", "falco", List.of(
+                                container("falco", "falcosecurity/falco:0.44.1", true, 0, "100m", "512Mi")))));
 
         k8s.setPodMetrics(List.of(
                 podMetric("falco-bvd89", "falco", Map.of("falco", "30m", "falcoctl", "15m"))));
@@ -533,14 +746,15 @@ class AgentK8sDashboardMapperTest {
     }
 
     private Map<String, Object> pod(String name, String namespace, String nodeName, String phase,
-                                    String controllerKind, List<Map<String, Object>> containers) {
+                                    String controllerKind, String controllerName,
+                                    List<Map<String, Object>> containers) {
         Map<String, Object> p = new LinkedHashMap<>();
         p.put("name", name);
         p.put("namespace", namespace);
         p.put("nodeName", nodeName);
         p.put("phase", phase);
         p.put("controllerKind", controllerKind);
-        p.put("controllerName", name);
+        p.put("controllerName", controllerName);
         p.put("podIp", "10.224.0.99");
         p.put("age", "2026-08-06T08:38:03Z");
         p.put("containers", containers);

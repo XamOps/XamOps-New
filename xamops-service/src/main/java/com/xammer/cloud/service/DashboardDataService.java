@@ -2996,7 +2996,8 @@ public class DashboardDataService {
 
                 // MTD spend: sum the billing-summary service amounts — same source and same
                 // cache key (AWS_COST_BREAKDOWN) as the Cost page and FinOps page.
-                Double mtd = billingSummaryFuture.join().stream()
+                List<DashboardData.BillingSummary> billingSummary = billingSummaryFuture.join();
+                Double mtd = billingSummary.stream()
                         .mapToDouble(DashboardData.BillingSummary::getAmount).sum();
                 // Last-month spend: use second-to-last entry from the monthly cost history.
                 Double lastMonth = costHistory.getCosts().size() > 1
@@ -3035,6 +3036,30 @@ public class DashboardDataService {
 
                 // Save waste snapshot to DB — serves the Waste Management page.
                 saveWasteSnapshot("waste-" + idToUse, wasteFuture.join());
+
+                // The dashboard reads cost and savings from the DASHBOARD_COST / DASHBOARD_OPT
+                // snapshots, not from this KPI payload. Write them here from the data already
+                // in hand so the nightly refresh actually moves those widgets — zero extra
+                // Cost Explorer calls. Kept as separate snapshots (rather than widening this
+                // one) so the KPI payload stays small on every dashboard load.
+                try {
+                    DashboardData.SavingsSummary savingsSummary = getSavingsSummary(
+                            wasteFuture, ec2Future, ebsFuture, lambdaFuture,
+                            account.getAwsAccountId() != null ? Long.parseLong(account.getAwsAccountId()) : null)
+                            .exceptionally(ex -> {
+                                logger.warn("Savings summary calculation failed for {}: {}", idToUse, ex.getMessage());
+                                return new DashboardData.SavingsSummary(0.0, 0.0);
+                            }).join();
+
+                    saveDashboardCostSnapshot(idToUse, account.getAccountName(), account.getProvider(),
+                            costHistory, billingSummary);
+                    saveDashboardOptSnapshot(idToUse, account.getAccountName(), account.getProvider(),
+                            ec2Future.join(), ebsFuture.join(), lambdaFuture.join(), wasteFuture.join(),
+                            anomaliesFuture.join(), optSummary, savingsSummary);
+                } catch (Exception e) {
+                    // Never let a sibling-snapshot write break the KPI response itself.
+                    logger.warn("Failed to sync cost/optimization snapshots for {}: {}", idToUse, e.getMessage());
+                }
 
             } else {
                 // Fallback for other providers: Fetch full data and extract
@@ -3300,6 +3325,69 @@ public class DashboardDataService {
         DashboardData data = new DashboardData();
         data.setError(errorMsg);
         return data;
+    }
+
+    /**
+     * Write the DASHBOARD_COST:: snapshot the dashboard's cost widgets read.
+     * Called from getGranularKpi() with cost data it has already fetched, so the
+     * nightly refresh keeps this key in sync without re-hitting Cost Explorer.
+     */
+    private void saveDashboardCostSnapshot(String accountId, String accountName, String provider,
+            DashboardData.CostHistory costHistory, List<DashboardData.BillingSummary> billingSummary) {
+        try {
+            DashboardData costData = new DashboardData();
+            costData.setSelectedProvider(provider);
+
+            DashboardData.Account costAcc = new DashboardData.Account();
+            costAcc.setId(accountId);
+            costAcc.setName(accountName);
+            costAcc.setCostHistory(costHistory);
+            costAcc.setBillingSummary(billingSummary);
+
+            costData.setSelectedAccount(costAcc);
+            costData.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+            saveSnapshot("DASHBOARD_COST::" + accountId, costData);
+        } catch (Exception e) {
+            logger.warn("Failed to save DASHBOARD_COST snapshot for {}: {}", accountId, e.getMessage());
+        }
+    }
+
+    /**
+     * Write the DASHBOARD_OPT:: snapshot the dashboard's savings widgets read, and
+     * which buildAndSaveUnifiedAwsSnapshot() merges into the all-accounts view.
+     * Mirrors the payload getGranularOptimization() produces.
+     */
+    private void saveDashboardOptSnapshot(String accountId, String accountName, String provider,
+            List<DashboardData.OptimizationRecommendation> ec2Recs,
+            List<DashboardData.OptimizationRecommendation> ebsRecs,
+            List<DashboardData.OptimizationRecommendation> lambdaRecs,
+            List<DashboardData.WastedResource> wastedResources,
+            List<DashboardData.CostAnomaly> anomalies,
+            DashboardData.OptimizationSummary optSummary,
+            DashboardData.SavingsSummary savingsSummary) {
+        try {
+            DashboardData optData = new DashboardData();
+            optData.setSelectedProvider(provider);
+
+            DashboardData.Account optAcc = new DashboardData.Account();
+            optAcc.setId(accountId);
+            optAcc.setName(accountName);
+            optAcc.setEc2Recommendations(ec2Recs);
+            optAcc.setEbsRecommendations(ebsRecs);
+            optAcc.setLambdaRecommendations(lambdaRecs);
+            optAcc.setWastedResources(wastedResources);
+            optAcc.setCostAnomalies(anomalies);
+            optAcc.setOptimizationSummary(optSummary);
+            optAcc.setSavingsSummary(savingsSummary);
+
+            optData.setSelectedAccount(optAcc);
+            optData.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+            saveSnapshot("DASHBOARD_OPT::" + accountId, optData);
+        } catch (Exception e) {
+            logger.warn("Failed to save DASHBOARD_OPT snapshot for {}: {}", accountId, e.getMessage());
+        }
     }
 
     // ============================================================================================

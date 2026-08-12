@@ -11,8 +11,21 @@ export type CreditPriority = 'low' | 'medium' | 'high';
 export type CreditFilter = 'all' | CreditStatus;
 
 /**
+ * Supporting document attached to a credit request.
+ *
+ * Carries no URL on purpose — links are minted per click from
+ * /api/billops/credits/{id}/attachments/{index}/url so they never expire inside a cache.
+ */
+export interface CreditAttachment {
+  index: number;
+  name: string;
+  type: string;
+  size?: number | null;
+}
+
+/**
  * Credit Request Data Structure
- * 
+ *
  * Note: awsAccountId field supports multicloud identifiers:
  * - AWS Account IDs (12-digit number)
  * - GCP Project IDs (alphanumeric string)
@@ -28,6 +41,7 @@ export interface CreditRequest {
   userId: number;
   submittedDate: string;
   status: CreditStatus;
+  attachments?: CreditAttachment[];
 }
 
 /**
@@ -41,6 +55,7 @@ export interface NewCreditRequest {
   services: string; // Multicloud: can include services from any cloud provider
   useCase: string;
   priority: CreditPriority;
+  files: File[]; // Supporting documents uploaded with the request
 }
 
 export interface UseCreditsReturn {
@@ -63,4 +78,6 @@ export interface UseCreditsReturn {
   submitRequest: () => Promise<void>;
   resetForm: () => void;
   refreshData: () => void;
+  addFiles: (files: File[]) => void;
+  removeFile: (index: number) => void;
 }

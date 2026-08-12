@@ -85,6 +85,12 @@ type OpenCostAllocation struct {
 	TotalCost     float64 `json:"totalCost"`
 	CPUEfficiency float64 `json:"cpuEfficiency,omitempty"`
 	RAMEfficiency float64 `json:"ramEfficiency,omitempty"`
+
+	// Populated only for controller-level rows, so the dashboard can show cost per
+	// workload instead of only per namespace. Empty on namespace-aggregated rows,
+	// which is how the backend tells the two apart in a single batch.
+	Controller     string `json:"controller,omitempty"`
+	ControllerKind string `json:"controllerKind,omitempty"`
 }
 
 // KarpenterData represents Karpenter autoscaling data
