@@ -6,42 +6,19 @@ import { useXamSecureData } from '../hooks/useXamSecureData';
 import StoryDrawer from '../components/XamSecure/StoryDrawer';
 import type { ThreatStoryDetail } from '../types/xamsecure';
 import {
+  XAMSECURE_TABS, VALID_XAMSECURE_TABS, type XamSecureTab,
+} from '../constants/xamsecureTabs';
+import {
   XamSecureHeader, IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsSection, VulnerabilitiesTab,
   ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, CodeTab, WorkflowsTab, OnboardingTab,
   IdentitiesTab,
 } from '../components/XamSecure';
 
-export type XamSecureTab =
-  | 'issues' | 'overview' | 'attack-surface' | 'threats' | 'vulnerabilities' | 'posture'
-  | 'inventory' | 'api-security' | 'identities' | 'components' | 'code' | 'threat-policies' | 'workflows'
-  | 'compliance' | 'onboarding';
-
-export const XAMSECURE_TABS: { id: XamSecureTab; label: string }[] = [
-  { id: 'overview', label: 'Home' },
-  { id: 'issues', label: 'Issues' },
-  { id: 'inventory', label: 'Inventory' },
-  { id: 'attack-surface', label: 'Attack Surface' },
-  { id: 'vulnerabilities', label: 'Vulnerabilities' },
-  { id: 'posture', label: 'Configurations' },
-  { id: 'api-security', label: 'APIs' },
-  { id: 'identities', label: 'Identities' },
-  { id: 'threats', label: 'Threats' },
-  // "Packages", not "Components". Upwind's Components area is sensor and agent fleet
-  // management (Sensors / Cloud Scanners / Integrations / Workflows, with health and
-  // coverage); this tab is a software bill of materials. Sharing their label implied parity
-  // with a feature we cannot build — nine candidate sensor endpoints all return 404, so there
-  // is no API behind their version.
-  { id: 'components', label: 'Packages' },
-  // Upwind's Code area: CI scan history from the shift-left stream. Org-level data, so the tab
-  // renders a withheld state for clients that do not own the whole Upwind organization.
-  { id: 'code', label: 'Code' },
-  // Workflows & Onboarding remain valid routes (deep-link reachable) but are not in the
-  // sidebar nav — they map to Upwind's Settings area, not its security nav.
-  { id: 'workflows', label: 'Workflows' },
-  { id: 'onboarding', label: 'Onboarding' },
-];
-
-const VALID_TABS = new Set<string>(XAMSECURE_TABS.map((t) => t.id));
+// The tab catalog lives in constants/xamsecureTabs so the sidebar reads the same list. It used
+// to be declared here and hand-copied into Sidebar.tsx, which is how the Code tab shipped with
+// no nav entry and Packages kept showing as Components.
+export type { XamSecureTab };
+export { XAMSECURE_TABS };
 
 const XamSecurePage: React.FC = () => {
   const { selectedAccountIds, accounts, isLoading: accountsLoading } = useAccounts();
@@ -52,7 +29,7 @@ const XamSecurePage: React.FC = () => {
   const { tab } = useParams<{ tab?: string }>();
 
   const activeTab = useMemo<XamSecureTab>(
-    () => (tab && VALID_TABS.has(tab) ? (tab as XamSecureTab) : 'overview'),
+    () => (tab && VALID_XAMSECURE_TABS.has(tab) ? (tab as XamSecureTab) : 'overview'),
     [tab]
   );
 

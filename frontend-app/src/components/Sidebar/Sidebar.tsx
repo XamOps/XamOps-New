@@ -15,21 +15,12 @@ import NavItem from './NavItem';
 import NavSection from './NavSection';
 import { useTheme } from '../../contexts/ThemeContext';
 import { makeXamTabGate } from '../../constants/xamopsTabs';
+import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
 import clsx from 'clsx';
 
-/** XamSecure nested sidebar entries — mirror the tabs on XamSecurePage. */
-const XAMSECURE_SUBTABS: { id: string; label: string; icon: string }[] = [
-  { id: 'overview', label: 'Home', icon: 'fas fa-house' },
-  { id: 'issues', label: 'Issues', icon: 'fas fa-triangle-exclamation' },
-  { id: 'inventory', label: 'Inventory', icon: 'fas fa-boxes-stacked' },
-  { id: 'attack-surface', label: 'Attack Surface', icon: 'fas fa-globe' },
-  { id: 'vulnerabilities', label: 'Vulnerabilities', icon: 'fas fa-bug' },
-  { id: 'posture', label: 'Configurations', icon: 'fas fa-clipboard-check' },
-  { id: 'api-security', label: 'APIs', icon: 'fas fa-plug' },
-  { id: 'identities', label: 'Identities', icon: 'fas fa-user-shield' },
-  { id: 'threats', label: 'Threats', icon: 'fas fa-bolt' },
-  { id: 'components', label: 'Components', icon: 'fas fa-cubes' },
-];
+// XamSecure nested entries come from the tab catalog rather than a copy kept in step by hand.
+// The copy that used to live here had drifted: Packages still read "Components" and the Code
+// tab was missing entirely, so a shipped tab was reachable only by typing its URL.
 
 const SOC2_SUBTABS: { id: string; label: string; icon: string; tooltip: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'fas fa-gauge',
@@ -395,7 +386,7 @@ const Sidebar: React.FC = () => {
                         'ml-3 pl-3 border-l space-y-0.5',
                         theme === 'dark' ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)]'
                       )}>
-                        {XAMSECURE_SUBTABS.map((s) => (
+                        {XAMSECURE_SIDEBAR_TABS.map((s) => (
                           <NavItem
                             key={s.id}
                             href={`/xamsecure/${s.id}`}
