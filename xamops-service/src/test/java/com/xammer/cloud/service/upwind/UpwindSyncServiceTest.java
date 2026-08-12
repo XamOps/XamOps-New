@@ -183,6 +183,60 @@ class UpwindSyncServiceTest {
         verify(postureRepo, never()).markResolvedNotSyncedSince(any());
     }
 
+    /** Stubs the has_internet_ingress walk. */
+    private void stubExposedIds(java.util.Set<String> ids, boolean truncated) {
+        when(apiClient.searchApiEndpointIds(anyString(), eq("has_internet_ingress"), anyInt()))
+                .thenReturn(new UpwindApiClient.FetchIdResult(ids, truncated));
+    }
+
+    @Test
+    void endpointExposureComesFromUpwindsVerdictNotTheIngressTimestamp() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
+        // Both endpoints carry an ingress last_seen_time — the old derivation marked BOTH
+        // exposed, which is how 15,324 of 15,325 Xammer endpoints came to be "internet exposed".
+        String ingress = "\"risk_overview\":{\"internet_exposure\":{\"ingress\":"
+                + "{\"last_seen_time\":\"2026-07-28T08:00:20Z\"}}}";
+        when(apiClient.searchApiEndpoints(eq("111"), anyInt())).thenReturn(result(List.of(
+                parse("{\"id\":\"rt-1\",\"method\":\"GET\"," + ingress + "}"),
+                parse("{\"id\":\"rt-2\",\"method\":\"GET\"," + ingress + "}")), false));
+        stubExposedIds(java.util.Set.of("rt-1"), false);
+
+        service.syncApiEndpoints();
+
+        ArgumentCaptor<com.xammer.cloud.domain.UpwindApiEndpoint> cap =
+                ArgumentCaptor.forClass(com.xammer.cloud.domain.UpwindApiEndpoint.class);
+        verify(apiEndpointRepo, times(2)).save(cap.capture());
+        var byId = cap.getAllValues().stream().collect(java.util.stream.Collectors.toMap(
+                com.xammer.cloud.domain.UpwindApiEndpoint::getUpwindId, e -> e));
+        assertTrue(byId.get("rt-1").isInternetExposed());
+        assertFalse(byId.get("rt-2").isInternetExposed());
+    }
+
+    @Test
+    void anIncompleteExposureWalkLeavesFlagsAloneRatherThanZeroingThem() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
+        // An endpoint we already hold as exposed.
+        com.xammer.cloud.domain.UpwindApiEndpoint existing =
+                new com.xammer.cloud.domain.UpwindApiEndpoint();
+        existing.setUpwindId("rt-1");
+        existing.setInternetExposed(true);
+        when(apiEndpointRepo.findByUpwindId("rt-1")).thenReturn(java.util.Optional.of(existing));
+        when(apiClient.searchApiEndpoints(eq("111"), anyInt()))
+                .thenReturn(result(List.of(parse("{\"id\":\"rt-1\",\"method\":\"GET\"}")), false));
+        // Truncated walk means "unknown", not "nothing is exposed".
+        stubExposedIds(java.util.Set.of(), true);
+
+        service.syncApiEndpoints();
+
+        ArgumentCaptor<com.xammer.cloud.domain.UpwindApiEndpoint> cap =
+                ArgumentCaptor.forClass(com.xammer.cloud.domain.UpwindApiEndpoint.class);
+        verify(apiEndpointRepo).save(cap.capture());
+        assertTrue(cap.getValue().isInternetExposed(),
+                "a truncated exposure walk must not clear a known-exposed endpoint");
+    }
+
     @Test
     void syncApiEndpointsUpsertsPerAccountAndReconciles() {
         when(apiClient.isConfigured()).thenReturn(true);
@@ -202,7 +256,10 @@ class UpwindSyncServiceTest {
         verify(apiEndpointRepo).save(cap.capture());
         assertEquals("rt-1", cap.getValue().getUpwindId());
         assertEquals("111", cap.getValue().getCloudAccountId());
-        assertTrue(cap.getValue().isInternetExposed());
+        // Exposure is no longer inferred from the ingress timestamp, so with no
+        // has_internet_ingress verdict stubbed this stays false. Covered directly by
+        // endpointExposureComesFromUpwindsVerdictNotTheIngressTimestamp.
+        assertFalse(cap.getValue().isInternetExposed());
         assertEquals("UNAUTHENTICATED", cap.getValue().getAuthState());
         verify(apiEndpointRepo).markResolvedNotSyncedSince(eq("111"), any());
     }

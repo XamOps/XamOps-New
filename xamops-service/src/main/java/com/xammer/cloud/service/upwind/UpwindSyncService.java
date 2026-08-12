@@ -280,10 +280,24 @@ public class UpwindSyncService {
         try {
             for (String accountId : accountIds) {
                 Instant runStart = Instant.now();
+                // Authoritative exposure set. has_internet_ingress is filterable but absent from
+                // the response body, so it takes its own walk. A truncated or failed walk means
+                // "unknown": we then leave each endpoint's existing flag alone rather than
+                // silently marking a whole account not-exposed.
+                UpwindApiClient.FetchIdResult exposed =
+                        apiClient.searchApiEndpointIds(accountId, "has_internet_ingress",
+                                APISEC_MAX_ITEMS);
+                java.util.Set<String> exposedIds =
+                        (exposed == null || exposed.truncated()) ? null : exposed.ids();
+                if (exposedIds == null) {
+                    log.warn("[Upwind] internet-ingress walk incomplete for {} — leaving "
+                            + "existing exposure flags untouched", accountId);
+                }
+
                 UpwindApiClient.FetchResult res =
                         apiClient.searchApiEndpoints(accountId, APISEC_MAX_ITEMS);
                 for (JsonNode ep : res.items()) {
-                    upsertApiEndpoint(ep, accountId, Instant.now());
+                    upsertApiEndpoint(ep, accountId, Instant.now(), exposedIds);
                     synced++;
                 }
                 if (!res.items().isEmpty() && !res.truncated()
@@ -304,7 +318,12 @@ public class UpwindSyncService {
         }
     }
 
-    private void upsertApiEndpoint(JsonNode ep, String accountId, Instant now) {
+    /**
+     * @param exposedIds ids Upwind reports as internet-exposed, or null when that walk could not
+     *        be completed — in which case the stored flag is preserved rather than guessed.
+     */
+    private void upsertApiEndpoint(JsonNode ep, String accountId, Instant now,
+                                   java.util.Set<String> exposedIds) {
         String upwindId = text(ep, "id");
         if (upwindId == null) return;
         UpwindApiEndpoint e = apiEndpointRepo.findByUpwindId(upwindId)
@@ -314,9 +333,13 @@ public class UpwindSyncService {
         e.setMethod(text(ep, "method"));
         e.setUri(text(ep, "uri"));
         e.setResourceId(text(ep, "resource_id"));
-        // Internet exposure is implied by an observed ingress timestamp.
-        e.setInternetExposed(ep.path("risk_overview").path("internet_exposure")
-                .path("ingress").has("last_seen_time"));
+        // Exposure comes from Upwind's own has_internet_ingress verdict, not from the presence
+        // of an ingress timestamp. The timestamp is present on essentially every endpoint it has
+        // ever seen traffic for, which made the old derivation report 15,324 of 15,325 Xammer
+        // endpoints as internet-exposed.
+        if (exposedIds != null) {
+            e.setInternetExposed(exposedIds.contains(upwindId));
+        }
         e.setAuthState(text(ep.path("risk_overview").path("authentication"), "state"));
         StringJoiner domains = new StringJoiner(",");
         ep.path("domains").forEach(d -> domains.add(d.asText()));
@@ -474,9 +497,27 @@ public class UpwindSyncService {
 
         applyTechnologies(a, item.path("technologies"), now);
 
+        // Provider metadata the catalog returns and we were dropping. Measured 2026-08-11:
+        // private_ip_addresses on 404 assets, tags on 477, protected_by on 111, public IPs on 50.
+        a.setProtectedBy(truncate(text(item, "protected_by"), 128));
+        a.setPrivateIpAddresses(truncate(joinTextArray(item.path("private_ip_addresses")), 512));
+        a.setPublicIpAddresses(truncate(joinTextArray(item.path("public_ip_addresses")), 512));
+        a.setCloudTags(truncate(joinTextArray(item.path("tags")), 1024));
+
         a.setRawPayload(item.toString());
         a.setSyncedAt(now);
         inventoryRepo.save(a);
+    }
+
+    /** Flattens a JSON string array to a comma-joined value, or null when absent/empty. */
+    private static String joinTextArray(JsonNode node) {
+        if (node == null || !node.isArray() || node.isEmpty()) return null;
+        StringJoiner sj = new StringJoiner(",");
+        for (JsonNode n : node) {
+            String v = n.asText(null);
+            if (v != null && !v.isBlank()) sj.add(v.trim());
+        }
+        return sj.length() == 0 ? null : sj.toString();
     }
 
     /** Column cap for the denormalised technology list (see UpwindInventoryAsset). */

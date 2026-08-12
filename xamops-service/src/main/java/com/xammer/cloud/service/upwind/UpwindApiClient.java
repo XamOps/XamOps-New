@@ -382,6 +382,61 @@ public class UpwindApiClient {
         return items;
     }
 
+    /**
+     * Endpoint ids matching an extra boolean condition, e.g. {@code has_internet_ingress}.
+     *
+     * These flags are filterable but are NOT returned in the response body, so the only way to
+     * learn them is to ask for the filtered subset and intersect. Worth the extra walk for
+     * exposure specifically: the body carries only
+     * {@code risk_overview.internet_exposure.ingress.last_seen_time}, and inferring exposure
+     * from that timestamp's presence marked 15,324 of 15,325 Xammer endpoints "exposed".
+     * Measured 2026-08-11 for Onfinance: 8,796 of 10,700 endpoints match
+     * {@code has_internet_ingress}, against 5,652 by the old inference.
+     *
+     * @return the matching ids, or empty when the walk was cut short — the caller must treat a
+     *         truncated result as unknown rather than as "none matched".
+     */
+    public FetchIdResult searchApiEndpointIds(String cloudAccountId, String booleanField,
+                                             int maxItems) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/api-security/endpoints/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        boolean truncated = false;
+        try {
+            String body = objectMapper.writeValueAsString(java.util.Map.of("conditions",
+                    java.util.List.of(
+                            java.util.Map.of("field", "cloud_account_id", "operator", "eq",
+                                    "value", java.util.List.of(cloudAccountId)),
+                            java.util.Map.of("field", booleanField, "operator", "eq",
+                                    "value", java.util.List.of(true)))));
+            while (url != null) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) {
+                    String id = item.path("id").asText(null);
+                    if (id != null) ids.add(id);
+                }
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+                if (url != null && ids.size() >= maxItems) {
+                    truncated = true;
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] api-security {} filter walk failed for {}: {}",
+                    booleanField, cloudAccountId, e.getMessage());
+            return new FetchIdResult(java.util.Set.of(), true);
+        }
+        return new FetchIdResult(ids, truncated);
+    }
+
+    /** Ids plus whether the walk completed; an incomplete walk means "unknown", not "none". */
+    public record FetchIdResult(java.util.Set<String> ids, boolean truncated) { }
+
     public FetchResult searchApiEndpoints(String cloudAccountId, int maxItems) {
         java.util.List<JsonNode> items = new java.util.ArrayList<>();
         String base = apiBaseUrl + "/v2/organizations/" + orgId

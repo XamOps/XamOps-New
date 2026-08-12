@@ -245,9 +245,20 @@ export interface InventoryAsset {
   vulnHighCount: number | null;
   vulnTotalCount: number | null;
   detectionTotalCount: number | null;
+  /** network_risk.internet_exposure_type, e.g. "wide". The only populated network_risk field. */
   internetExposureType: string | null;
-  /** network_risk.last_communication_with_internet_time */
+  /**
+   * network_risk.last_communication_with_internet_time. Mapped, but empty on every asset
+   * measured 2026-08-11 — treat a value here as a bonus rather than something to rely on.
+   */
   lastInternetCommunication: string | null;
+  /** Comma-joined. Presence of a public IP is itself an exposure signal. */
+  privateIpAddresses: string | null;
+  publicIpAddresses: string | null;
+  /** Which Upwind mechanism covers this asset (sensor, cloud scanner...). */
+  protectedBy: string | null;
+  /** Cloud provider tags, comma-joined. */
+  cloudTags: string | null;
   technologies: string | null;
   hasEolTechnology: boolean | null;
 }

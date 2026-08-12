@@ -863,8 +863,15 @@ export const demoInventoryAll: InventoryAsset[] = Array.from({ length: 224 }, (_
     vulnHighCount: i % 5 === 0 ? (i % 9) : 0,
     vulnTotalCount: i % 3 === 0 ? (i % 24) : 0,
     detectionTotalCount: i % 11 === 0 ? (i % 5) : 0,
-    internetExposureType: i % 8 === 0 ? 'direct' : null,
-    lastInternetCommunication: i % 8 === 0 ? hoursAgo(spread(i, 1, 40)) : null,
+    internetExposureType: i % 8 === 0 ? 'wide' : null,
+    // Empty on every real asset measured, so the demo keeps it mostly null rather than
+    // implying a signal the API does not deliver.
+    lastInternetCommunication: null,
+    // Public IPs are much rarer than private ones, matching the measured 50 vs 404 split.
+    privateIpAddresses: `10.0.${i % 250}.${(i * 7) % 250}`,
+    publicIpAddresses: i % 28 === 0 ? `52.${i % 250}.${(i * 3) % 250}.${i % 200}` : null,
+    protectedBy: i % 4 === 0 ? 'sensor' : (i % 7 === 0 ? 'cloud_scanner' : null),
+    cloudTags: i % 5 === 0 ? `env=prod,team=platform` : null,
     technologies: i % 6 === 0 ? `openssl 1.0.2 (EOL), nginx 1.${i % 26}` : null,
     hasEolTechnology: i % 6 === 0,
   };
