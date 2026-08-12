@@ -410,26 +410,52 @@ public class AgentDataTransformerService {
         return dashboard;
     }
 
+    /**
+     * Splits the opencost-cost batch into namespace and controller allocations.
+     *
+     * <p>The agent sends both aggregation levels in a single batch. Controller rows carry a
+     * non-empty {@code controller} field; namespace rows do not. Treating every row as a
+     * namespace would double-count the cluster total and list workloads as if they were
+     * namespaces, so the two are separated here.
+     *
+     * <p>Only namespace rows contribute to the daily total, since controller rows describe
+     * the same spend broken down differently.
+     */
     @SuppressWarnings("unchecked")
     private void transformOpenCostAllocation(OpenCostDashboard dashboard, List<Map<String, Object>> items) {
         List<OpenCostDashboard.NamespaceAllocation> namespaceAllocations = new ArrayList<>();
+        List<OpenCostDashboard.ControllerAllocation> controllerAllocations = new ArrayList<>();
         double totalDailyCost = 0;
 
         for (Map<String, Object> item : items) {
-            // Each item IS a namespace allocation with flat fields:
-            // {namespace, cpuCost, ramCost, pvCost, networkCost, totalCost, ...}
-            String namespace = (String) item.get("namespace");
-            if (namespace == null) continue;
-
-            OpenCostDashboard.NamespaceAllocation nsAlloc = new OpenCostDashboard.NamespaceAllocation();
-            nsAlloc.setNamespace(namespace);
-
             double cpuCost = getDoubleValue(item, "cpuCost");
             double ramCost = getDoubleValue(item, "ramCost");
             double networkCost = getDoubleValue(item, "networkCost");
             double pvCost = getDoubleValue(item, "pvCost");
             double totalCost = getDoubleValue(item, "totalCost");
 
+            String namespace = (String) item.get("namespace");
+            String controller = (String) item.get("controller");
+
+            if (controller != null && !controller.isBlank()) {
+                OpenCostDashboard.ControllerAllocation ctrl = new OpenCostDashboard.ControllerAllocation();
+                ctrl.setController(controller);
+                ctrl.setControllerKind((String) item.get("controllerKind"));
+                ctrl.setNamespace(namespace);
+                ctrl.setCpuCost(cpuCost);
+                ctrl.setRamCost(ramCost);
+                ctrl.setNetworkCost(networkCost);
+                ctrl.setPvCost(pvCost);
+                ctrl.setTotalCost(totalCost);
+                ctrl.setMonthlyCost(totalCost * 30);
+                controllerAllocations.add(ctrl);
+                continue;
+            }
+
+            if (namespace == null) continue;
+
+            OpenCostDashboard.NamespaceAllocation nsAlloc = new OpenCostDashboard.NamespaceAllocation();
+            nsAlloc.setNamespace(namespace);
             nsAlloc.setCpuCost(cpuCost);
             nsAlloc.setRamCost(ramCost);
             nsAlloc.setNetworkCost(networkCost);
@@ -441,6 +467,7 @@ public class AgentDataTransformerService {
         }
 
         dashboard.setNamespaceAllocations(namespaceAllocations);
+        dashboard.setControllerAllocations(controllerAllocations);
 
         OpenCostDashboard.Summary summary = new OpenCostDashboard.Summary();
         summary.setTotalDailyCost(totalDailyCost);

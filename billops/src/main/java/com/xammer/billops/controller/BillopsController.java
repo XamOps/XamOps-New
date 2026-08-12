@@ -14,13 +14,16 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -396,13 +399,65 @@ public class BillopsController {
     }
 
     // --- Credit Requests Endpoints ---
-    @PostMapping("/credits")
+    @PostMapping(value = "/credits", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<CreditRequestDto> createCreditRequest(@RequestBody CreditRequestDto creditRequestDto) {
         try {
             return ResponseEntity.ok(creditRequestService.createCreditRequest(creditRequestDto));
         } catch (RuntimeException e) {
             logger.error("Error creating credit request: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+    }
+
+    /**
+     * Multipart variant of the create endpoint, used when the requester attaches supporting
+     * documents. The JSON variant above still serves clients that submit without files.
+     */
+    @PostMapping(value = "/credits", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<CreditRequestDto> createCreditRequestWithAttachments(
+            @RequestParam("awsAccountId") String awsAccountId,
+            @RequestParam("expectedCredits") BigDecimal expectedCredits,
+            @RequestParam(value = "services", required = false) String services,
+            @RequestParam(value = "useCase", required = false) String useCase,
+            @RequestParam("userId") Long userId,
+            @RequestParam(value = "files", required = false) List<MultipartFile> files) {
+        try {
+            CreditRequestDto dto = new CreditRequestDto();
+            dto.setAwsAccountId(awsAccountId);
+            dto.setExpectedCredits(expectedCredits);
+            dto.setServices(services);
+            dto.setUseCase(useCase);
+            dto.setUserId(userId);
+
+            return ResponseEntity.ok(creditRequestService.createCreditRequest(dto,
+                    files != null ? files : Collections.emptyList()));
+        } catch (RuntimeException e) {
+            logger.error("Error creating credit request with attachments: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+    }
+
+    /**
+     * Returns a short-lived link to one supporting document. Generated per click rather than
+     * embedded in the list DTOs, which are cached long past the link's 15 minute lifetime.
+     */
+    @GetMapping("/credits/{id}/attachments/{index}/url")
+    public ResponseEntity<Map<String, String>> getCreditAttachmentUrl(
+            @PathVariable Long id,
+            @PathVariable int index,
+            @RequestParam(value = "disposition", defaultValue = "inline") String disposition) {
+        try {
+            String url = creditRequestService.getAttachmentUrl(id, index, !"attachment".equalsIgnoreCase(disposition));
+            if (url == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            return ResponseEntity.ok(Map.of("url", url));
+        } catch (AccessDeniedException e) {
+            logger.warn("Denied access to attachment {} of credit request {}", index, id);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        } catch (RuntimeException e) {
+            logger.error("Error resolving attachment {} of credit request {}: {}", index, id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
     }
 

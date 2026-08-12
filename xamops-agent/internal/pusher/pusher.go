@@ -16,6 +16,7 @@ import (
 
 	"github.com/xamops/agent/internal/collector"
 	"github.com/xamops/agent/internal/config"
+	"github.com/xamops/agent/internal/version"
 )
 
 // Pusher handles all HTTP communication back to the XamOps server.
@@ -137,7 +138,7 @@ func (p *Pusher) FetchConfig() {
 func (p *Pusher) Heartbeat() error {
 	heartbeat := map[string]interface{}{
 		"schemaVersion":  "1.0",
-		"agentVersion":   "1.0.0",
+		"agentVersion":   version.Version,
 		"clusterName":    p.cfg.ClusterName,
 		"cloudAccountId": p.cfg.CloudAccountID,
 		"collectedAt":    time.Now().UTC().Format(time.RFC3339),
@@ -228,7 +229,7 @@ func (p *Pusher) PollAndExecCommands() {
 	// Push result as a single-item db-explain-result batch
 	payload := &collector.AgentPayload{
 		SchemaVersion:  "1.0",
-		AgentVersion:   "1.0.0",
+		AgentVersion:   version.Version,
 		ClusterName:    p.cfg.ClusterName,
 		CloudAccountID: p.cfg.CloudAccountID,
 		CollectedAt:    time.Now().UTC(),

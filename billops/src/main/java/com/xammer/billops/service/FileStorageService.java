@@ -41,12 +41,19 @@ public class FileStorageService {
      * Uploads a MultipartFile (from HTTP request) to S3.
      */
     public String uploadFile(MultipartFile file) {
+        return uploadFile(file, "tickets");
+    }
+
+    /**
+     * Uploads a MultipartFile under the given key prefix (e.g. "tickets", "credits").
+     */
+    public String uploadFile(MultipartFile file, String keyPrefix) {
         String originalFilename = file.getOriginalFilename();
         if (originalFilename == null || originalFilename.isBlank()) {
             originalFilename = "attachment";
         }
 
-        String key = "tickets/" + UUID.randomUUID() + "/" + sanitizeFileName(originalFilename);
+        String key = keyPrefix + "/" + UUID.randomUUID() + "/" + sanitizeFileName(originalFilename);
 
         try {
             PutObjectRequest putOb = PutObjectRequest.builder()
@@ -94,6 +101,13 @@ public class FileStorageService {
     }
 
     public String generatePresignedUrl(String key) {
+        return generatePresignedUrl(key, true);
+    }
+
+    /**
+     * @param inline true renders the file in the browser, false forces a download.
+     */
+    public String generatePresignedUrl(String key, boolean inline) {
         if (key == null || key.isBlank())
             return null;
 
@@ -105,7 +119,8 @@ public class FileStorageService {
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
-                    .responseContentDisposition("inline; filename=\"" + safeFileName + "\"")
+                    .responseContentDisposition(
+                            (inline ? "inline" : "attachment") + "; filename=\"" + safeFileName + "\"")
                     .build();
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()

@@ -20,6 +20,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiFetch } from '../utils/apiClient';
+import { MAX_ATTACHMENT_BYTES } from '../utils/creditAttachments';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAuth } from '../contexts/AuthContext';
 import type {
@@ -47,6 +48,7 @@ export const useCredits = (): UseCreditsReturn => {
     services: '',
     useCase: '',
     priority: 'medium',
+    files: [],
   });
 
   const pollingIntervalRef = useRef<number | null>(null);
@@ -104,13 +106,33 @@ export const useCredits = (): UseCreditsReturn => {
     }
 
     try {
-      const payload = { ...newRequestData, userId };
-      const response = await apiFetch('/api/billops/credits', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const files = newRequestData.files || [];
+
+      // Attachments require a multipart submission; without them keep the original JSON call.
+      let response: Response;
+      if (files.length > 0) {
+        const form = new FormData();
+        form.append('awsAccountId', newRequestData.awsAccountId);
+        form.append('expectedCredits', String(newRequestData.expectedCredits));
+        form.append('services', newRequestData.services);
+        form.append('useCase', newRequestData.useCase);
+        form.append('userId', String(userId));
+        files.forEach((file) => form.append('files', file));
+
+        response = await apiFetch('/api/billops/credits', {
+          method: 'POST',
+          credentials: 'include',
+          body: form,
+        });
+      } else {
+        const { files: _ignored, ...payload } = newRequestData;
+        response = await apiFetch('/api/billops/credits', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, userId }),
+        });
+      }
 
       if (!response.ok) {
         throw new Error('Submission failed');
@@ -141,7 +163,39 @@ export const useCredits = (): UseCreditsReturn => {
       services: '',
       useCase: '',
       priority: 'medium',
+      files: [],
     });
+  }, []);
+
+  /**
+   * Add supporting documents to the pending request, skipping duplicates and oversized files
+   */
+  const addFiles = useCallback((incoming: File[]) => {
+    const accepted = incoming.filter((file) => {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        showNotification(`"${file.name}" is larger than 50MB and was not attached.`, 'error');
+        return false;
+      }
+      return true;
+    });
+
+    if (accepted.length === 0) return;
+
+    setNewRequestData((prev) => {
+      const existing = prev.files || [];
+      const isNew = (file: File) => !existing.some((f) => f.name === file.name && f.size === file.size);
+      return { ...prev, files: [...existing, ...accepted.filter(isNew)] };
+    });
+  }, []);
+
+  /**
+   * Remove a pending supporting document by position
+   */
+  const removeFile = useCallback((index: number) => {
+    setNewRequestData((prev) => ({
+      ...prev,
+      files: (prev.files || []).filter((_, i) => i !== index),
+    }));
   }, []);
 
   /**
@@ -237,6 +291,8 @@ export const useCredits = (): UseCreditsReturn => {
     submitRequest,
     resetForm,
     refreshData,
+    addFiles,
+    removeFile,
   };
 };
 

@@ -7,6 +7,10 @@
  * For: ROLE_BILLOPS_ADMIN
  */
 
+import type { CreditAttachment } from './credits';
+
+export type { CreditAttachment };
+
 export type AdminCreditStatus =
   | 'submitted'
   | 'documentation_review'
@@ -28,6 +32,8 @@ export interface AdminCreditRequest {
   userId: number;
   submittedDate: string;
   status: AdminCreditStatus;
+  /** Supporting documents submitted with the request; links are minted per click */
+  attachments?: CreditAttachment[];
 }
 
 export interface UseBillOpsAdminCreditsReturn {

@@ -7,19 +7,30 @@ import com.xammer.billops.dto.CreditRequestDto;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.UserRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger; // ADDED
 import org.slf4j.LoggerFactory; // ADDED
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut; // ADDED
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import com.xammer.billops.util.SecurityUtils;
+
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional; // ADDED
@@ -49,6 +60,11 @@ public class CreditRequestService {
     @Autowired
     private CloudAccountRepository cloudAccountRepository;
 
+    @Autowired
+    private FileStorageService fileStorageService;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     /** Requests are submitted with a free-form id, e.g. "GCP: my-project (011DDB-9E3A99)". */
     private static final Pattern PROVIDER_PREFIX = Pattern.compile("^(aws|gcp|google|azure)\\s*[:\\-]\\s*",
             Pattern.CASE_INSENSITIVE);
@@ -56,6 +72,12 @@ public class CreditRequestService {
     @Transactional
     @CacheEvict(value = "creditRequests", allEntries = true)
     public CreditRequestDto createCreditRequest(CreditRequestDto creditRequestDto) {
+        return createCreditRequest(creditRequestDto, Collections.emptyList());
+    }
+
+    @Transactional
+    @CacheEvict(value = "creditRequests", allEntries = true)
+    public CreditRequestDto createCreditRequest(CreditRequestDto creditRequestDto, List<MultipartFile> files) {
         User user = userRepository.findById(creditRequestDto.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -67,6 +89,7 @@ public class CreditRequestService {
         creditRequest.setUser(user);
         creditRequest.setStatus("submitted");
         creditRequest.setSubmittedDate(new Date());
+        creditRequest.setAttachmentsJson(uploadAttachments(files));
 
         CreditRequest savedRequest = creditRequestRepository.save(creditRequest);
 
@@ -115,6 +138,111 @@ public class CreditRequestService {
         creditRequest.setStatus(status);
         CreditRequest updatedRequest = creditRequestRepository.save(creditRequest);
         return convertToDto(updatedRequest, resolveAccounts(updatedRequest));
+    }
+
+    /**
+     * Uploads the supporting documents attached to a request and returns the JSON that is stored
+     * on the row. Returns null when nothing was attached.
+     */
+    private String uploadAttachments(List<MultipartFile> files) {
+        List<MultipartFile> nonEmpty = (files != null)
+                ? files.stream().filter(f -> f != null && !f.isEmpty()).collect(Collectors.toList())
+                : Collections.emptyList();
+        if (nonEmpty.isEmpty()) {
+            return null;
+        }
+
+        try {
+            List<Map<String, Object>> attachments = new ArrayList<>();
+            for (MultipartFile file : nonEmpty) {
+                String key = fileStorageService.uploadFile(file, "credits");
+                Map<String, Object> attachment = new LinkedHashMap<>();
+                attachment.put("key", key);
+                attachment.put("name", file.getOriginalFilename() != null ? file.getOriginalFilename() : "attachment");
+                attachment.put("type",
+                        file.getContentType() != null ? file.getContentType() : "application/octet-stream");
+                attachment.put("size", file.getSize());
+                attachments.add(attachment);
+            }
+            return objectMapper.writeValueAsString(attachments);
+        } catch (Exception e) {
+            logger.error("Failed to upload credit request attachments", e);
+            throw new RuntimeException("Failed to upload attachments.", e);
+        }
+    }
+
+    private List<Map<String, Object>> readAttachments(CreditRequest creditRequest) {
+        String json = creditRequest.getAttachmentsJson();
+        if (json == null || json.isBlank()) {
+            return Collections.emptyList();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception e) {
+            logger.warn("Failed to parse attachments JSON for credit request {}: {}", creditRequest.getId(),
+                    e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Mints a short-lived link to one supporting document. Requesters can reach their own
+     * documents; BillOps admins can reach any document their account scope allows.
+     *
+     * @param inline true to view the document in the browser, false to download it.
+     */
+    @Transactional(readOnly = true)
+    public String getAttachmentUrl(Long requestId, int index, boolean inline) {
+        CreditRequest creditRequest = creditRequestRepository.findById(requestId)
+                .orElseThrow(() -> new RuntimeException("Credit Request not found"));
+
+        if (!canAccessAttachments(creditRequest)) {
+            throw new AccessDeniedException("Not allowed to access this credit request");
+        }
+
+        List<Map<String, Object>> attachments = readAttachments(creditRequest);
+        if (index < 0 || index >= attachments.size()) {
+            throw new RuntimeException("Attachment not found");
+        }
+
+        Object key = attachments.get(index).get("key");
+        if (key == null) {
+            throw new RuntimeException("Attachment not found");
+        }
+        return fileStorageService.generatePresignedUrl(key.toString(), inline);
+    }
+
+    private boolean canAccessAttachments(CreditRequest creditRequest) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+
+        // The requester can always reach the documents they submitted.
+        try {
+            Long currentUserId = SecurityUtils.getCurrentUserId();
+            if (creditRequest.getUser() != null && creditRequest.getUser().getId().equals(currentUserId)) {
+                return true;
+            }
+        } catch (RuntimeException e) {
+            logger.debug("Could not resolve current user while checking attachment access: {}", e.getMessage());
+        }
+
+        boolean isBillopsAdmin = auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> "ROLE_BILLOPS_ADMIN".equals(a) || "ROLE_BILLOPS_ADMIN_SUB".equals(a));
+        if (!isBillopsAdmin) {
+            return false;
+        }
+
+        // Sub-admins only reach requests for the accounts they are scoped to - the same rule
+        // applyAccountFilter uses for the list itself.
+        Set<String> allowedProviderIds = accountAccessHelper.getAllowedProviderAccountIds();
+        if (allowedProviderIds == null) {
+            return true; // Primary admin
+        }
+        return creditRequest.getAwsAccountId() != null
+                && allowedProviderIds.contains(creditRequest.getAwsAccountId());
     }
 
     /**
@@ -216,6 +344,22 @@ public class CreditRequestService {
         dto.setSubmittedDate(creditRequest.getSubmittedDate());
         if (creditRequest.getUser() != null) {
             dto.setUserId(creditRequest.getUser().getId());
+        }
+
+        List<Map<String, Object>> attachments = readAttachments(creditRequest);
+        if (!attachments.isEmpty()) {
+            List<CreditRequestDto.AttachmentInfo> infos = new ArrayList<>();
+            for (int i = 0; i < attachments.size(); i++) {
+                Map<String, Object> attachment = attachments.get(i);
+                Object size = attachment.get("size");
+                infos.add(new CreditRequestDto.AttachmentInfo(
+                        i,
+                        attachment.get("name") != null ? attachment.get("name").toString() : "attachment",
+                        attachment.get("type") != null ? attachment.get("type").toString()
+                                : "application/octet-stream",
+                        (size instanceof Number) ? ((Number) size).longValue() : null));
+            }
+            dto.setAttachments(infos);
         }
 
         CloudAccount account = accountsByKey.get(normalizeAccountKey(creditRequest.getAwsAccountId()).toLowerCase());

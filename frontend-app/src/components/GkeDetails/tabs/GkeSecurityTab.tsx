@@ -66,6 +66,10 @@ const GkeSecurityTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
   const falcoHasData = sec && (sec.totalEvents > 0 || (sec.alerts && sec.alerts.length > 0));
 
   const kubescapeRunning = sec?.kubescapeRunning === true;
+  // Controls actually evaluated. Distinguishes "compliant" (some passed, none failed) from
+  // "no results" (neither), which would otherwise render identically as full compliance.
+  const kubescapeControlsEvaluated =
+    (sec?.kubescapeTotalPassed ?? 0) + (sec?.kubescapeTotalFailed ?? 0);
   const kubescapeHasData = kubescapeRunning && (sec?.kubescapeTotalFailed > 0 || (sec?.kubescapeFindings && sec.kubescapeFindings.length > 0));
 
   const trivyRunning = sec?.trivyRunning === true;
@@ -271,6 +275,22 @@ const GkeSecurityTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
               </div>
             )}
           </div>
+        ) : kubescapeRunning && kubescapeControlsEvaluated === 0 ? (
+          /* Zero failures out of zero controls evaluated is NOT compliance — Kubescape
+             creates a summary per workload with `controls: null` before results land.
+             Reporting that as compliant is a false security assurance. */
+          <div className="bg-white rounded-xl border border-amber-200 p-8 flex flex-col items-center text-center">
+            <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mb-4 border border-amber-200">
+              <i className="fas fa-hourglass-half text-amber-400 text-2xl"></i>
+            </div>
+            <h4 className="font-bold text-gray-700 mb-1">Kubescape Running — No Scan Results Yet</h4>
+            <p className="text-gray-500 text-sm max-w-md">
+              Kubescape is running, but no controls have been evaluated, so compliance is
+              <strong> unknown</strong> — this is not the same as passing. The first scan can take a few
+              minutes. If it stays empty, the scan is producing results without writing them to
+              in-cluster storage.
+            </p>
+          </div>
         ) : kubescapeRunning ? (
           <div className="bg-white rounded-xl border border-green-200 p-8 flex flex-col items-center text-center">
             <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center mb-4 border border-green-200">
@@ -278,8 +298,8 @@ const GkeSecurityTab: React.FC<{ gkeData: any }> = ({ gkeData }) => {
             </div>
             <h4 className="font-bold text-gray-700 mb-1">Kubescape Running — All Controls Passing</h4>
             <p className="text-gray-500 text-sm max-w-md">
-              Kubescape is running in the <code className="bg-gray-100 px-1 rounded text-xs">kubescape</code> namespace.
-              No failed controls detected — your cluster is compliant.
+              {sec?.kubescapeTotalPassed} controls evaluated in the{' '}
+              <code className="bg-gray-100 px-1 rounded text-xs">kubescape</code> namespace with no failures.
             </p>
           </div>
         ) : (

@@ -4,11 +4,19 @@ FROM node:20-alpine AS build
 # Set working directory
 WORKDIR /app
 
-# Copy package manifests first for caching
-COPY package*.json ./
+# Survive flaky registry connections instead of failing the whole build
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000 \
+    NPM_CONFIG_FETCH_TIMEOUT=600000
 
-# Install dependencies
-RUN npm install --legacy-peer-deps
+# Copy package manifests first for caching
+COPY package*.json .npmrc ./
+
+# Install dependencies from the lockfile. The cache mount keeps downloaded
+# tarballs between builds, so a network drop resumes instead of restarting.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
 
 # Copy full source
 COPY . .

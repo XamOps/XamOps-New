@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.azure.AksDashboardDto;
 import com.xammer.cloud.dto.gcp.GkeDashboardDto;
 import com.xammer.cloud.dto.k8s.KubescapeDashboard;
+import com.xammer.cloud.dto.k8s.OpenCostDashboard;
 import com.xammer.cloud.dto.k8s.TrivyDashboard;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
@@ -188,6 +189,19 @@ public class AksDashboardService {
             dto.setSecurityMetrics(
                     agentK8sDashboardMapper.buildSecurityMetrics(trivy, kubescape, promMetrics));
         } catch (Exception ignored) {}
+
+        // Cost: OpenCost's per-namespace allocation, already windowed to 1 day by the agent.
+        // Left unset when OpenCost returned nothing, so the tab shows its empty state rather
+        // than a table of zeros.
+        try {
+            OpenCostDashboard openCost = agentDataTransformerService.transformOpenCostData(configId);
+            GkeDashboardDto.GkeCostMetricsDto cost = agentK8sDashboardMapper.buildCostMetrics(openCost, k8s);
+            if (cost != null) {
+                dto.setCostMetrics(cost);
+            }
+        } catch (Exception e) {
+            log.debug("No agent OpenCost data for AKS cluster {}: {}", clusterName, e.getMessage());
+        }
 
         // Agent reports the live server version; prefer it over the Azure SDK's channel
         // value (e.g. "1.35" from the SDK vs "1.35.6" actually running).

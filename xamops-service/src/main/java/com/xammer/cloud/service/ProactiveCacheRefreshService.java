@@ -592,9 +592,18 @@ public class ProactiveCacheRefreshService {
                     if (accountId == null || "GCP".equals(account.getProvider()) || "Azure".equals(account.getProvider()))
                         continue;
                     try {
+                        // Writes DASHBOARD_KPI, and (from the same fetch) DASHBOARD_COST and
+                        // DASHBOARD_OPT — the keys the dashboard's cost and savings widgets read.
                         dashboardDataService.getGranularKpi(accountId, true, null);
+
+                        // Inventory and region map are not part of the KPI fetch, so they need
+                        // their own calls. Resource-listing APIs, not Cost Explorer.
+                        // buildUnifiedSnapshots() at 5:10 AM reads DASHBOARD_INVENTORY too.
+                        dashboardDataService.getGranularInventory(accountId, true, null);
+                        dashboardDataService.getGranularMap(accountId, true, null);
+
                         count++;
-                        logger.info("✅ Refreshed AWS Dashboard snapshot for account {}", accountId);
+                        logger.info("✅ Refreshed AWS Dashboard snapshots for account {}", accountId);
                     } catch (Exception e) {
                         logger.error("❌ Failed to refresh dashboard snapshot for account {}", accountId, e);
                     }

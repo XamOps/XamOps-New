@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
 import { DialogRoot, DialogPanel } from '../ui';
 import { useAgentInstallConfig, type AgentInstallConfig } from '../../hooks/useAgentInstallConfig';
+import { substituteTokens } from '../K8sGuides/guideVars';
 
 /** A cluster the user can pick from when the guide is opened without one selected. */
 export interface GuideClusterOption {
@@ -35,6 +36,15 @@ export const PLACEHOLDERS = {
   subscriptionId: '<AZURE_SUBSCRIPTION_ID>',
 } as const;
 
+/**
+ * Agent image tag shown in this guide. Declared once so the Quick Install summary and the Part 3
+ * manifest cannot disagree — they did before, when the manifest said v2.0.0 while a newer image
+ * was already published, and there was no way to tell from the UI.
+ *
+ * Keep in step with AGENT_IMAGE in xamops-agent/scripts/install-aks.sh.
+ */
+export const AGENT_IMAGE_TAG = 'v2.1.0';
+
 export interface GuideVars {
   clusterName: string;
   resourceGroup: string;
@@ -53,11 +63,13 @@ const GuideVarsContext = React.createContext<GuideVars>({
  * broken one with an empty string where the name should be.
  */
 export function substituteVars(code: string, vars: GuideVars): string {
-  let out = code;
-  if (vars.clusterName.trim()) out = out.split(PLACEHOLDERS.clusterName).join(vars.clusterName.trim());
-  if (vars.resourceGroup.trim()) out = out.split(PLACEHOLDERS.resourceGroup).join(vars.resourceGroup.trim());
-  if (vars.subscriptionId.trim()) out = out.split(PLACEHOLDERS.subscriptionId).join(vars.subscriptionId.trim());
-  return out;
+  // Delegates to the shared implementation so the AKS and EKS guides cannot drift on
+  // trimming, blank handling, or escaping. Only the token mapping is provider-specific.
+  return substituteTokens(code, {
+    [PLACEHOLDERS.clusterName]: vars.clusterName,
+    [PLACEHOLDERS.resourceGroup]: vars.resourceGroup,
+    [PLACEHOLDERS.subscriptionId]: vars.subscriptionId,
+  });
 }
 
 const CodeBlock: React.FC<{ code: string; title?: string }> = ({ code, title }) => {
@@ -287,7 +299,10 @@ const hostOf = (url: string) => url.replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*
 const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({
   isOpen, onClose, clusterName, resourceGroup, subscriptionId, clusters,
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'part1' | 'part2' | 'part3' | 'part4'>('overview');
+  // Quick Install is the default: it is the correct choice for almost everyone, and it is also
+  // what an existing cluster needs in order to converge onto the current stack. The manual
+  // parts stay available for change-control review and for debugging a failed run.
+  const [activeTab, setActiveTab] = useState<'quick' | 'overview' | 'part1' | 'part2' | 'part3' | 'part4'>('quick');
 
   const [vars, setVars] = useState<GuideVars>({
     clusterName: clusterName ?? '',
@@ -307,7 +322,7 @@ const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({
 
   // Resolves XAMOPS_SERVER_URL and the API key from the running backend profile, so the
   // manifest below targets whichever environment the user is actually logged into.
-  const { config } = useAgentInstallConfig(isOpen);
+  const { config, usedFallback } = useAgentInstallConfig(isOpen);
 
   // Local-dev only: the agent runs in Azure and cannot reach a loopback backend, so the
   // user supplies a public tunnel URL that replaces XAMOPS_SERVER_URL in the manifest.
@@ -325,13 +340,18 @@ const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({
     return config;
   }, [config, tunnelUrl]);
 
+  // `manual` marks the tabs that Quick Install replaces. They are separated in the tab strip so
+  // the two routes do not read as one sequence to work through.
   const tabs = [
-    { id: 'overview', label: 'Overview',                icon: 'mdi:information-outline' },
-    { id: 'part1',    label: 'Part 1: Monitoring Stack', icon: 'mdi:chart-line' },
-    { id: 'part2',    label: 'Part 2: Security Tools',   icon: 'mdi:shield-check-outline' },
-    { id: 'part3',    label: 'Part 3: XamOps Agent',     icon: 'mdi:robot-outline' },
-    { id: 'part4',    label: 'Part 4: Verification',     icon: 'mdi:check-circle-outline' },
+    { id: 'quick',    label: 'Quick Install',            icon: 'mdi:flash-outline',         manual: false },
+    { id: 'overview', label: 'Overview',                 icon: 'mdi:information-outline',   manual: false },
+    { id: 'part1',    label: 'Part 1: Monitoring Stack',  icon: 'mdi:chart-line',            manual: true },
+    { id: 'part2',    label: 'Part 2: Security Tools',    icon: 'mdi:shield-check-outline',  manual: true },
+    { id: 'part3',    label: 'Part 3: XamOps Agent',      icon: 'mdi:robot-outline',         manual: true },
+    { id: 'part4',    label: 'Part 4: Verification',      icon: 'mdi:check-circle-outline',  manual: true },
   ] as const;
+
+  const firstManualTabId = tabs.find(t => t.manual)?.id;
 
   return (
     <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-6xl">
@@ -358,16 +378,46 @@ const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({
         {/* Tab Navigation */}
         <div className="flex border-b border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)] overflow-x-auto -mx-6 px-6 mb-4">
           {tabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-[12px] font-semibold whitespace-nowrap transition-colors border-b-2 ${
-                activeTab === tab.id
-                  ? 'text-indigo-600 border-indigo-600 bg-white'
-                  : 'text-[rgba(0,0,0,0.45)] border-transparent hover:text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.02)]'}`}>
-              <Icon icon={tab.icon} width={13} />
-              {tab.label}
-            </button>
+            <React.Fragment key={tab.id}>
+              {tab.id === firstManualTabId && (
+                <div className="flex items-center gap-2 pl-3 pr-1 self-center" aria-hidden="true">
+                  <span className="h-4 w-px bg-[rgba(0,0,0,0.12)]" />
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-[rgba(0,0,0,0.3)]">
+                    Manual steps
+                  </span>
+                </div>
+              )}
+              <button onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-3 text-[12px] font-semibold whitespace-nowrap transition-colors border-b-2 ${
+                  activeTab === tab.id
+                    ? 'text-indigo-600 border-indigo-600 bg-white'
+                    : 'text-[rgba(0,0,0,0.45)] border-transparent hover:text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.02)]'}`}>
+                <Icon icon={tab.icon} width={13} />
+                {tab.label}
+              </button>
+            </React.Fragment>
           ))}
         </div>
+
+        {/*
+          * The config hook falls back to production values when it cannot reach the backend,
+          * because a guide rendering `undefined` is unusable. But falling back silently on a
+          * local or UAT instance recreates the exact bug this guide was fixed to avoid: a user
+          * copies a manifest that points their cluster at production. So say so.
+          */}
+        {usedFallback && (
+          <div className="p-3 mb-4 bg-red-50 border border-red-200 rounded-xl text-[12px] text-red-800 flex items-start gap-2">
+            <Icon icon="mdi:alert-circle-outline" width={14} className="mt-0.5 flex-shrink-0" />
+            <div>
+              <strong>Could not read this environment&rsquo;s settings, so the commands below show
+              production values.</strong> If you are not intending to onboard into production, do not run
+              them — a cluster set up this way will report into{' '}
+              <code className="bg-red-100 px-1 rounded">{config.serverUrl}</code>. Sign in again, or
+              check that this backend exposes{' '}
+              <code className="bg-red-100 px-1 rounded">/api/xamops/agent-install/config</code>.
+            </div>
+          </div>
+        )}
 
         <GuideVarsContext.Provider value={vars}>
           <VariableBar
@@ -382,6 +432,7 @@ const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({
           />
 
           <div className="overflow-y-auto max-h-[52vh]" style={{ overscrollBehavior: 'contain' }}>
+            {activeTab === 'quick'    && <QuickInstallTab config={effectiveConfig} vars={vars} />}
             {activeTab === 'overview' && <OverviewTab serverUrl={effectiveConfig.serverUrl} />}
             {activeTab === 'part1'    && <Part1Tab />}
             {activeTab === 'part2'    && <Part2Tab />}
@@ -393,6 +444,163 @@ const AzureCloudK8sHelpModal: React.FC<AzureCloudK8sHelpModalProps> = ({
     </DialogRoot>
   );
 };
+
+/**
+ * The one-command path.
+ *
+ * Everything the installer needs is passed as flags rather than being baked into the script,
+ * so the script itself contains no secrets and can be served unauthenticated. That matters:
+ * the command has to run in Azure Cloud Shell, which has no XamOps session to authenticate a
+ * download with.
+ */
+const QuickInstallTab: React.FC<{ config: AgentInstallConfig; vars: GuideVars }> = ({ config, vars }) => {
+  const scriptUrl = `${config.serverUrl}/api/v1/agent/install/aks.sh`;
+
+  const cluster = vars.clusterName.trim() || PLACEHOLDERS.clusterName;
+  const rg = vars.resourceGroup.trim() || PLACEHOLDERS.resourceGroup;
+
+  const oneLiner = [
+    `curl -sSL ${scriptUrl} | bash -s -- \\`,
+    `  --cluster ${cluster} \\`,
+    `  --resource-group ${rg} \\`,
+    `  --server-url ${config.serverUrl} \\`,
+    `  --api-key ${config.apiKey}`,
+  ].join('\n');
+
+  const allClusters = [
+    `curl -sSL ${scriptUrl} | bash -s -- \\`,
+    `  --all \\`,
+    `  --server-url ${config.serverUrl} \\`,
+    `  --api-key ${config.apiKey}`,
+  ].join('\n');
+
+  const inspectFirst = [
+    `# For environments where piping to bash is not permitted.`,
+    `curl -sSL -o xamops-install-aks.sh ${scriptUrl}`,
+    `less xamops-install-aks.sh          # review it`,
+    `chmod +x xamops-install-aks.sh`,
+    `./xamops-install-aks.sh --cluster ${cluster} --resource-group ${rg} \\`,
+    `  --server-url ${config.serverUrl} --api-key ${config.apiKey}`,
+  ].join('\n');
+
+  return (
+    <div className="space-y-4">
+      <div className="p-4 bg-gradient-to-r from-indigo-600 to-violet-600 rounded-xl text-white">
+        <h3 className="text-[14px] font-bold mb-1 flex items-center gap-2">
+          <Icon icon="mdi:flash-outline" width={16} /> One command, per cluster
+        </h3>
+        <p className="text-[12px] text-indigo-100">
+          Runs every step in Parts 1&ndash;3 and then performs the Part 4 checks.{' '}
+          <strong className="text-white">This is the whole setup — there is nothing to run afterwards.</strong>{' '}
+          Safe to run as many times as you like: re-running is how you update a cluster, not
+          something to avoid.
+        </p>
+      </div>
+
+      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-[12px] text-emerald-800 flex items-start gap-2">
+        <Icon icon="mdi:refresh" width={14} className="mt-0.5 flex-shrink-0" />
+        <div>
+          <strong>Already ran an earlier version of this guide? Nothing to undo.</strong> Just run the
+          command below. Helm upgrades each release in place and the agent rolls over to the current
+          image, so an old cluster converges onto the current stack. The installer also clears the few
+          leftovers that cannot fix themselves — the unpublished <code className="bg-emerald-100 px-1 rounded">cost-exporter</code>,
+          a Falco release stranded by the old <code className="bg-emerald-100 px-1 rounded">driver.kind=ebpf</code> value,
+          and a stale <code className="bg-emerald-100 px-1 rounded">PROMETHEUS_URL</code> pointing at port 9090.
+        </div>
+      </div>
+
+      <CollapsibleSection title="Run for one cluster" icon="mdi:cube-outline" iconColor="#4F46E5" defaultOpen>
+        <VarNote vars={[PLACEHOLDERS.clusterName, PLACEHOLDERS.resourceGroup]} />
+        <CodeBlock code={oneLiner} />
+        <p className="text-[11px] text-[rgba(0,0,0,0.5)] mt-1">
+          Paste into Azure Cloud Shell. Takes roughly 5&ndash;10 minutes; most of it is waiting for
+          Prometheus to bind its volume and for the scanners to start.
+        </p>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Run for every cluster in the subscription" icon="mdi:apps" iconColor="#0891B2">
+        <CodeBlock code={allClusters} />
+        <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-[12px] text-blue-800 flex items-start gap-2">
+          <Icon icon="mdi:information-outline" width={14} className="mt-0.5 flex-shrink-0" />
+          <div>
+            Discovers the clusters itself, so there is nothing to fill in above. Clusters whose
+            provisioning state is not <code className="bg-blue-100 px-1 rounded">Succeeded</code> are skipped
+            with a reason, and a failure on one cluster does not stop the others — the summary at the
+            end reports per cluster.
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Preview without changing anything" icon="mdi:eye-outline" iconColor="#D97706">
+        <CodeBlock code={`${oneLiner} \\\n  --dry-run`} />
+        <p className="text-[11px] text-[rgba(0,0,0,0.5)] mt-1">
+          Prints every command and every manifest, and touches nothing. Useful for a change request.
+        </p>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Download and inspect before running" icon="mdi:shield-lock-outline" iconColor="#DC2626">
+        <CodeBlock code={inspectFirst} />
+      </CollapsibleSection>
+
+      <div className="p-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-xl text-[12px] text-[rgba(0,0,0,0.6)]">
+        <div className="font-semibold text-[rgba(0,0,0,0.75)] mb-1.5 flex items-center gap-2">
+          <Icon icon="mdi:format-list-checks" width={14} /> What it installs
+        </div>
+        <ul className="space-y-1 mb-2">
+          {[
+            ['Step 1.1', 'AKS credentials, and a check that kubectl is pointed at the intended cluster'],
+            ['Step 1.2', 'monitoring, falco and opencost namespaces'],
+            ['Step 1.3', 'Prometheus, with node-exporter and kube-state-metrics'],
+            ['Step 1.4', 'Falco with FalcoSidekick'],
+            ['Step 1.5', 'OpenCost'],
+            ['Step 2.1', 'Trivy Operator'],
+            ['Step 2.2', 'Kubescape, plus a first scan so results appear today rather than tomorrow'],
+            ['Step 3.1', 'read-only RBAC for the agent'],
+            ['Step 3.2', 'agent ConfigMap and Secret for this environment'],
+            ['Step 3.3', `the agent itself (${AGENT_IMAGE_TAG})`],
+            ['Part 4', 'verification of all of the above'],
+          ].map(([step, what]) => (
+            <li key={step} className="flex items-start gap-2">
+              <Icon icon="mdi:check" width={12} color="#16A34A" className="mt-1 flex-shrink-0" />
+              <span><code className="bg-[rgba(0,0,0,0.05)] px-1 rounded">{step}</code> — {what}</span>
+            </li>
+          ))}
+        </ul>
+        Run with <code className="bg-[rgba(0,0,0,0.05)] px-1 rounded">--dry-run</code> to see each command
+        filled in with your values, or open the manual tabs to read them one step at a time.
+      </div>
+
+      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[12px] text-amber-800 flex items-start gap-2">
+        <Icon icon="mdi:alert-outline" width={14} className="mt-0.5 flex-shrink-0" />
+        <div>
+          Requires <code className="bg-amber-100 px-1 rounded">az</code>,{' '}
+          <code className="bg-amber-100 px-1 rounded">kubectl</code> and{' '}
+          <code className="bg-amber-100 px-1 rounded">helm</code> 3.12+, and an account with
+          cluster-admin. Azure Cloud Shell has all three. The installer checks before it starts and
+          stops with a clear message rather than failing halfway.
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Shown at the top of every manual Part.
+ *
+ * Without it the tab strip reads "Quick Install · Overview · Part 1 · Part 2 …", which looks like
+ * a sequence to work through rather than two alternative routes. The first question a user asked
+ * on seeing the new tab was whether the Parts still had to be run afterwards.
+ */
+const ManualStepsNotice: React.FC<{ part: string }> = ({ part }) => (
+  <div className="p-3 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.1)] rounded-xl text-[12px] text-[rgba(0,0,0,0.6)] flex items-start gap-2">
+    <Icon icon="mdi:information-outline" width={14} className="mt-0.5 flex-shrink-0" />
+    <div>
+      <strong className="text-[rgba(0,0,0,0.75)]">Reference — Quick Install already performs {part}.</strong>{' '}
+      Run these commands only if you would rather install by hand, or if you are reviewing exactly
+      what the installer does. Doing both is harmless but unnecessary.
+    </div>
+  </div>
+);
 
 const OverviewTab: React.FC<{ serverUrl: string }> = ({ serverUrl }) => (
   <div className="space-y-5">
@@ -465,6 +673,7 @@ const OverviewTab: React.FC<{ serverUrl: string }> = ({ serverUrl }) => (
 const Part1Tab: React.FC = () => (
   <div className="space-y-4">
     <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Part 1: In-Cluster Monitoring Stack</h3>
+    <ManualStepsNotice part="these steps" />
     <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-[12px] text-blue-800 flex items-start gap-2">
       <Icon icon="mdi:information-outline" width={14} className="mt-0.5 flex-shrink-0" />
       All monitoring tools run in the <code className="bg-blue-100 px-1 rounded">monitoring</code> namespace. Prometheus scrapes KSM, node-exporter, Falco, and OpenCost.
@@ -528,7 +737,7 @@ helm upgrade --install falco falcosecurity/falco \\
   --set falcosidekick.config.prometheus.enabled=true \\
   --set falcosidekick.service.port=2801 \\
   --set falcosidekick.replicaCount=1 \\
-  --set tolerations[0].operator=Exists`} />
+  --set 'tolerations[0].operator=Exists'`} />
       <div className="p-3 bg-purple-50 border border-purple-100 rounded-xl text-[12px] text-purple-800 flex items-start gap-2">
         <Icon icon="mdi:information-outline" width={14} className="mt-0.5 flex-shrink-0" />
         <div>
@@ -571,6 +780,7 @@ helm upgrade --install opencost opencost/opencost \\
 const Part2Tab: React.FC = () => (
   <div className="space-y-4">
     <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Part 2: Security Tools</h3>
+    <ManualStepsNotice part="these steps" />
     <div className="p-3 bg-purple-50 border border-purple-100 rounded-xl text-[12px] text-purple-800 flex items-start gap-2">
       <Icon icon="mdi:information-outline" width={14} className="mt-0.5 flex-shrink-0" />
       Trivy creates <code className="bg-purple-100 px-1 rounded">VulnerabilityReport</code> CRDs. Kubescape creates <code className="bg-purple-100 px-1 rounded">WorkloadConfigurationScanSummary</code> CRDs. The XamOps Agent reads these and pushes them to the dashboard.
@@ -602,19 +812,37 @@ helm upgrade --install kubescape kubescape/kubescape-operator \\
   --set capabilities.continuousScan=enable \\
   --set storage.enabled=true
 
-# REQUIRED: without an account, kubescape auto-enables cloud submission, which
-# fails on 'chmod /home/nonroot/.kubescape: operation not permitted' and aborts
-# the scan before results reach the in-cluster storage. Keeping it local skips
-# that path entirely. Re-apply after every 'helm upgrade' — the chart has no
-# env passthrough for this component.
-# Do NOT set --set account=<uuid> instead: an account makes kubescape ship
-# results to Kubescape Cloud and stop writing them to in-cluster storage.
-kubectl set env deployment/kubescape -n kubescape KS_KEEP_LOCAL=true
-kubectl rollout status deploy/kubescape -n kubescape
+# Do NOT set --set account=<uuid>: an account makes kubescape ship results to
+# Kubescape Cloud instead of writing them to in-cluster storage, which is where
+# the XamOps agent reads them from.
+
+# Configuration scans run on a daily schedule. To get results now rather than
+# waiting for it, trigger one:
+kubectl -n kubescape create job --from=cronjob/kubescape-scheduler ks-initial-scan
+kubectl -n kubescape wait --for=condition=complete job/ks-initial-scan --timeout=300s
 
 # Verify (wait 3–5 min)
 kubectl get pods -n kubescape
-kubectl get workloadconfigurationscansummaries -A --no-headers | head -10`} />
+
+# Counting rows is NOT enough: kubescape creates one summary per workload as soon
+# as it sees it, with 'controls: null' until scan results are written. Check that
+# controls are actually populated.
+kubectl get workloadconfigurationscansummaries -A -o json \\
+  | jq '{summaries: (.items | length), withControls: ([.items[] | select(.spec.controls != null)] | length)}'`} />
+      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[12px] text-amber-800 flex items-start gap-2">
+        <Icon icon="mdi:alert-outline" width={14} className="mt-0.5 flex-shrink-0" />
+        <div>
+          <strong>If <code className="bg-amber-100 px-1 rounded">withControls</code> is 0</strong> while{' '}
+          <code className="bg-amber-100 px-1 rounded">summaries</code> is high, the scan is running but its
+          results are not reaching in-cluster storage. Confirm with{' '}
+          <code className="bg-amber-100 px-1 rounded">kubectl -n kubescape logs deploy/kubescape --tail=60</code> —
+          a findings table there alongside empty summaries means the storage write path, not the scan, is at
+          fault. XamOps reports this as <em>&ldquo;No Scan Results Yet&rdquo;</em> rather than as compliance.
+          <br />
+          Do <strong>not</strong> set <code className="bg-amber-100 px-1 rounded">KS_KEEP_LOCAL=true</code> to
+          work around it: that keeps results in a file inside the pod and guarantees the summaries stay empty.
+        </div>
+      </div>
     </CollapsibleSection>
   </div>
 );
@@ -622,6 +850,7 @@ kubectl get workloadconfigurationscansummaries -A --no-headers | head -10`} />
 const Part3Tab: React.FC<{ config: AgentInstallConfig }> = ({ config }) => (
   <div className="space-y-4">
     <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Part 3: XamOps Observability Agent</h3>
+    <ManualStepsNotice part="these steps" />
     <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-[12px] text-emerald-800 flex items-start gap-2">
       <Icon icon="mdi:robot-outline" width={14} className="mt-0.5 flex-shrink-0" />
       Same agent binary as EKS and GKE. Set <code className="bg-emerald-100 px-1 rounded">CLOUD_PROVIDER: "AZURE"</code> and <code className="bg-emerald-100 px-1 rounded">COLLECTOR_KARPENTER: "false"</code> (Karpenter is AWS-only).
@@ -786,7 +1015,7 @@ spec:
       serviceAccountName: xamops-agent-sa
       containers:
         - name: xamops-agent
-          image: docker.io/xamops/agent:v2.0.0
+          image: docker.io/xamops/agent:${AGENT_IMAGE_TAG}
           imagePullPolicy: Always
           resources:
             requests:
@@ -810,6 +1039,7 @@ kubectl logs -n xamops-system -l app=xamops-agent --tail=50`} />
 const Part4Tab: React.FC = () => (
   <div className="space-y-4">
     <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)]">Part 4: Verification</h3>
+    <ManualStepsNotice part="these checks" />
 
     <CollapsibleSection title="Step 4.1: Verify All Pods Are Running" icon="mdi:check-circle-outline" iconColor="#16A34A">
       <CodeBlock code={`kubectl get pods -n monitoring

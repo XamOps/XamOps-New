@@ -19,9 +19,12 @@ import (
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 
 	"github.com/xamops/agent/internal/config"
+	"github.com/xamops/agent/internal/version"
 )
 
-const agentVersion = "1.0.0"
+// agentVersion is sourced from the linker-injected build version so that
+// agent_data_cache.agent_version identifies the actual image, not a literal.
+var agentVersion = version.Version
 
 // Manager orchestrates all data collectors
 type Manager struct {

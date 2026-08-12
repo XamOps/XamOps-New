@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,10 +13,11 @@ import (
 	"github.com/xamops/agent/internal/collector"
 	"github.com/xamops/agent/internal/config"
 	"github.com/xamops/agent/internal/pusher"
+	"github.com/xamops/agent/internal/version"
 )
 
 func main() {
-	log.Println("Starting XamOps Agent v1.0.0")
+	log.Printf("Starting XamOps Agent %s", version.Version)
 
 	// Load configuration from environment
 	cfg, err := config.Load()
@@ -126,7 +128,7 @@ func startHealthServer(cfg *config.Config) {
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"healthy","version":"1.0.0"}`))
+		fmt.Fprintf(w, `{"status":"healthy","version":%q}`, version.Version)
 	})
 
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {

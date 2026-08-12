@@ -1,0 +1,269 @@
+name: Setup Guide Validation
+
+# The in-app cluster setup guides (AKS / EKS / GKE) are hardcoded command strings inside
+# React modals. Nothing previously executed them, so broken commands shipped and were only
+# discovered by users running them against real clusters. Bugs found that way included:
+#
+#   - `--set trivy.severity=UNKNOWN,LOW,...` — Helm reads commas as key separators, so this
+#     could never have worked on any Helm version
+#   - `--set driver.kind=ebpf` — removed in Falco 0.44, rejected at chart render time
+#   - `docker.io/xamops/cost-exporter-azure:latest` — never published
+#
+# Every one of those is catchable without a cluster. This workflow extracts the helm
+# commands and image references straight out of the guide components and validates them.
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'frontend-app/src/components/AzureCloudK8s/AzureCloudK8sHelpModal.tsx'
+      - 'frontend-app/src/components/EksDetails/EksIntegrationModal.tsx'
+      - 'frontend-app/src/components/GkeDetails/GkeHelpModal.tsx'
+      - 'xamops-service/src/main/resources/agent-install/**'
+      - '.github/workflows/setup-guide-validation.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'frontend-app/src/components/AzureCloudK8s/AzureCloudK8sHelpModal.tsx'
+      - 'frontend-app/src/components/EksDetails/EksIntegrationModal.tsx'
+      - 'frontend-app/src/components/GkeDetails/GkeHelpModal.tsx'
+      - 'xamops-service/src/main/resources/agent-install/**'
+      - '.github/workflows/setup-guide-validation.yml'
+  # Upstream charts drop values without us touching the guide, so also run weekly to catch
+  # a guide that was correct at merge time and has since gone stale.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-guides:
+    name: Validate guide commands against upstream charts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Add chart repositories
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add falcosecurity https://falcosecurity.github.io/charts
+          helm repo add opencost https://opencost.github.io/opencost-helm-chart
+          helm repo add aquasecurity https://aquasecurity.github.io/helm-charts/
+          helm repo add kubescape https://kubescape.github.io/helm-charts/
+          helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+          helm repo update
+
+      - name: Lint the installer script
+        run: |
+          # The installer is what customers actually run, so a shell bug in it is worse than a
+          # wrong command in the guide: it fails mid-way through a cluster.
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck xamops-service/src/main/resources/agent-install/install-aks.sh
+          bash -n xamops-service/src/main/resources/agent-install/install-aks.sh
+          echo "ok  installer lints clean"
+
+      - name: Installer and guide must agree on the agent image tag
+        run: |
+          # These drifted before: the guide said v2.0.0 while a newer image was published, and
+          # nothing caught it. Whichever one a customer follows has to deploy the same agent.
+          GUIDE_TAG=$(grep -oE "AGENT_IMAGE_TAG = '[^']+'" \
+            frontend-app/src/components/AzureCloudK8s/AzureCloudK8sHelpModal.tsx \
+            | head -1 | sed "s/.*'\(.*\)'/\1/")
+          SCRIPT_TAG=$(grep -oE 'AGENT_IMAGE="docker\.io/xamops/agent:[^"]+"' \
+            xamops-service/src/main/resources/agent-install/install-aks.sh \
+            | head -1 | sed 's/.*agent://; s/"$//')
+          echo "guide=$GUIDE_TAG script=$SCRIPT_TAG"
+          if [ -z "$GUIDE_TAG" ] || [ -z "$SCRIPT_TAG" ]; then
+            echo "::error::Could not extract the agent image tag from both sources"
+            exit 1
+          fi
+          if [ "$GUIDE_TAG" != "$SCRIPT_TAG" ]; then
+            echo "::error::Agent image tag mismatch — guide says $GUIDE_TAG, installer says $SCRIPT_TAG"
+            exit 1
+          fi
+          echo "ok  both deploy agent:$GUIDE_TAG"
+
+      - name: Reject unescaped commas in --set values
+        run: |
+          # Helm treats an unescaped comma as a separator between key=value pairs, so
+          # `--set a=X,Y` silently becomes `a=X` plus a bare `Y` and errors out. Commas in a
+          # value must be written as `\,`.
+          FAILED=0
+          for f in \
+            frontend-app/src/components/AzureCloudK8s/AzureCloudK8sHelpModal.tsx \
+            frontend-app/src/components/EksDetails/EksIntegrationModal.tsx \
+            frontend-app/src/components/GkeDetails/GkeHelpModal.tsx
+          do
+            [ -f "$f" ] || continue
+            # A --set whose value contains a comma not preceded by a backslash.
+            if grep -nE -- "--set [^'\"]*=[^ '\"]*[^\\\\],[^ ]" "$f"; then
+              echo "::error file=$f::--set value contains an unescaped comma; write it as '\\,' and quote the argument"
+              FAILED=1
+            fi
+          done
+          exit $FAILED
+
+      - name: Reject unquoted list indexes in --set values
+        run: |
+          # `--set tolerations[0].operator=Exists` works in bash but fails in zsh, which
+          # glob-expands the brackets and aborts with "no matches found" before helm is even
+          # invoked. macOS has defaulted to zsh since Catalina, so an unquoted index is a
+          # guide that breaks for anyone running it from a local terminal.
+          FAILED=0
+          for f in \
+            frontend-app/src/components/AzureCloudK8s/AzureCloudK8sHelpModal.tsx \
+            frontend-app/src/components/EksDetails/EksIntegrationModal.tsx \
+            frontend-app/src/components/GkeDetails/GkeHelpModal.tsx
+          do
+            [ -f "$f" ] || continue
+            # A --set immediately followed by an unquoted key containing [n].
+            if grep -nE -- "--set [a-zA-Z][a-zA-Z0-9._]*\[[0-9]+\]" "$f"; then
+              echo "::error file=$f::--set with an unquoted list index; wrap the whole argument in single quotes so zsh does not glob it"
+              FAILED=1
+            fi
+          done
+          exit $FAILED
+
+      - name: Reject Falco driver kinds removed upstream
+        run: |
+          # Falco 0.44 removed the legacy eBPF probe and the gRPC output. The chart rejects
+          # driver.kind=ebpf at render time, so a guide recommending it cannot work.
+          FAILED=0
+          for f in \
+            frontend-app/src/components/AzureCloudK8s/AzureCloudK8sHelpModal.tsx \
+            frontend-app/src/components/EksDetails/EksIntegrationModal.tsx \
+            frontend-app/src/components/GkeDetails/GkeHelpModal.tsx
+          do
+            [ -f "$f" ] || continue
+            if grep -nE -- "--set driver\.kind=ebpf([^_]|$)" "$f"; then
+              echo "::error file=$f::driver.kind=ebpf was removed in Falco 0.44 — use modern_ebpf"
+              FAILED=1
+            fi
+            if grep -nE -- "--set falco\.grpc" "$f"; then
+              echo "::error file=$f::Falco 0.44 removed the gRPC output; drop falco.grpc* flags"
+              FAILED=1
+            fi
+          done
+          exit $FAILED
+
+      - name: Verify every docker.io/xamops image referenced by a guide exists
+        run: |
+          # A guide referencing an unpublished image sends users through a long setup that
+          # ends in ImagePullBackOff. cost-exporter-azure / -gcp / plain were all documented
+          # across three guides and none were ever published.
+          FAILED=0
+          IMAGES=$(grep -rhoE "docker\.io/xamops/[a-z0-9._-]+:[a-zA-Z0-9._-]+" \
+            frontend-app/src/components/AzureCloudK8s/AzureCloudK8sHelpModal.tsx \
+            frontend-app/src/components/EksDetails/EksIntegrationModal.tsx \
+            frontend-app/src/components/GkeDetails/GkeHelpModal.tsx 2>/dev/null | sort -u)
+
+          if [ -z "$IMAGES" ]; then
+            echo "No docker.io/xamops images referenced."
+            exit 0
+          fi
+
+          for img in $IMAGES; do
+            repo_tag="${img#docker.io/xamops/}"
+            repo="${repo_tag%%:*}"
+            tag="${repo_tag##*:}"
+            url="https://hub.docker.com/v2/repositories/xamops/${repo}/tags/${tag}"
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
+            if [ "$code" = "200" ]; then
+              echo "ok        $img"
+            else
+              echo "::error::$img is referenced by a setup guide but not published (HTTP $code from Docker Hub)"
+              FAILED=1
+            fi
+          done
+          exit $FAILED
+
+      - name: Render the AKS guide's Helm installs
+        run: |
+          # Catches values the charts have dropped or renamed. Uses the same flags the guide
+          # tells users to run, so a guide that no longer templates fails the build.
+          set -e
+
+          helm template ci prometheus-community/prometheus --namespace monitoring \
+            --set server.persistentVolume.storageClass=managed-csi > /dev/null
+          echo "ok  prometheus"
+
+          helm template ci falcosecurity/falco --namespace falco \
+            --set driver.kind=modern_ebpf \
+            --set falco.json_output=true \
+            --set falcosidekick.enabled=true \
+            --set falcosidekick.config.prometheus.enabled=true \
+            --set falcosidekick.service.port=2801 \
+            --set falcosidekick.replicaCount=1 \
+            --set 'tolerations[0].operator=Exists' > /dev/null
+          echo "ok  falco"
+
+          helm template ci opencost/opencost --namespace opencost > /dev/null
+          echo "ok  opencost"
+
+          helm template ci aquasecurity/trivy-operator --namespace trivy-system \
+            --set trivy.ignoreUnfixed=false \
+            --set 'trivy.severity=UNKNOWN\,LOW\,MEDIUM\,HIGH\,CRITICAL' \
+            --set operator.vulnerabilityScanner.enabled=true \
+            --set operator.configAuditScannerEnabled=true > /dev/null
+          echo "ok  trivy-operator"
+
+          helm template ci kubescape/kubescape-operator --namespace kubescape \
+            --set clusterName=ci-validation \
+            --set capabilities.continuousScan=enable \
+            --set storage.enabled=true > /dev/null
+          echo "ok  kubescape-operator"
+
+      - name: Render the EKS guide's additional Helm installs
+        run: |
+          # The EKS and GKE guides add metrics-server, and pass Falco the flags below. The
+          # single quotes around the indexed key are load-bearing for zsh users.
+          set -e
+
+          helm template ci metrics-server/metrics-server --namespace kube-system \
+            --set 'args[0]=--kubelet-insecure-tls' > /dev/null
+          echo "ok  metrics-server"
+
+          helm template ci falcosecurity/falco --namespace falco \
+            --set driver.kind=modern_ebpf \
+            --set falco.json_output=true \
+            --set falcosidekick.enabled=true \
+            --set falcosidekick.webui.enabled=false \
+            --set falcosidekick.config.prometheus.enabled=true \
+            --set falcosidekick.service.port=2801 \
+            --set falcosidekick.replicaCount=1 \
+            --set 'tolerations[0].operator=Exists' > /dev/null
+          echo "ok  falco (eks flags)"
+
+          helm template ci aquasecurity/trivy-operator --namespace trivy-system \
+            --set trivy.ignoreUnfixed=false \
+            --set 'trivy.severity=UNKNOWN\,LOW\,MEDIUM\,HIGH\,CRITICAL' \
+            --set operator.scanJobTimeout=10m \
+            --set operator.vulnerabilityScanner.enabled=true \
+            --set operator.configAuditScannerEnabled=true \
+            --set operator.rbacAssessmentScannerEnabled=true > /dev/null
+          echo "ok  trivy-operator (eks flags)"
+
+      - name: Confirm the Trivy severity list survives Helm parsing
+        run: |
+          # The escaping only works if Helm ends up with one string rather than five keys.
+          # Asserting on rendered output catches a regression that `helm template`
+          # alone would accept.
+          helm template ci aquasecurity/trivy-operator --namespace trivy-system \
+            --set trivy.ignoreUnfixed=false \
+            --set 'trivy.severity=UNKNOWN\,LOW\,MEDIUM\,HIGH\,CRITICAL' \
+            > rendered.yaml
+          if grep -q "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL" rendered.yaml; then
+            echo "ok  severity list rendered as a single value"
+          else
+            echo "::error::trivy.severity did not render as one comma-separated string"
+            grep -n "severity" rendered.yaml || true
+            exit 1
+          fi

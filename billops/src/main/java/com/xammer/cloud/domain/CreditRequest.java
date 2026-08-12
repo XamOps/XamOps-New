@@ -44,6 +44,10 @@ public class CreditRequest {
     @Column(name = "status", nullable = false)
     private String status = "submitted";
 
+    /** JSON array of supporting documents: [{"key":..,"name":..,"type":..,"size":..}, ...] */
+    @Column(name = "attachments_json", columnDefinition = "TEXT")
+    private String attachmentsJson;
+
     @Column(name = "submitted_date")
     @Temporal(TemporalType.TIMESTAMP)
     private Date submittedDate;
@@ -75,6 +79,9 @@ public class CreditRequest {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public String getAttachmentsJson() { return attachmentsJson; }
+    public void setAttachmentsJson(String attachmentsJson) { this.attachmentsJson = attachmentsJson; }
 
     public Date getSubmittedDate() { return submittedDate; }
     public void setSubmittedDate(Date submittedDate) { this.submittedDate = submittedDate; }
