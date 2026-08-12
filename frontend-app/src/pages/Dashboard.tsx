@@ -17,16 +17,35 @@ import LoadingSkeleton from '../components/LiveDashboard/LoadingSkeleton';
 import CostTrendSection from '../components/LiveDashboard/CostTrendSection';
 import TopServicesSection from '../components/LiveDashboard/TopServicesSection';
 import CostByRegionSection from '../components/LiveDashboard/CostByRegionSection';
+import CompliancePostureSection from '../components/LiveDashboard/CompliancePostureSection';
 import SummaryCardsSection from '../components/LiveDashboard/SummaryCardsSection';
 import WidgetCustomizer from '../components/LiveDashboard/WidgetCustomizer';
 
 type TimePreset = '7d' | '30d' | '3m' | '6m' | '12m';
 
+/**
+ * Default widget set. Cost is deliberately down to two panels — the trend (now
+ * carrying forecast + budget) and Top Services — because `costByRegion` repeats
+ * the Top Services region toggle and `costSection` repeats the trend plus a
+ * billing table that /cost already renders with filters. Both remain available
+ * in the customizer for anyone who wants them.
+ */
+/*
+ * `optimization` is intentionally absent: its render block below is commented
+ * out, and WidgetCustomizer derives its list from these keys, so including it
+ * would offer a toggle that changes nothing. Add the key back at the same time
+ * the section is re-enabled.
+ */
 const DEFAULT_VISIBLE: Record<string, boolean> = {
   kpi: true, summaryCards: true, costTrend: true, inventory: true,
-  topServices: true, costByRegion: true, optimization: true, costSection: true,
+  topServices: true, compliance: true,
+  costByRegion: false, costSection: false,
 };
 
+// Key intentionally not bumped. loadWidgets merges stored values over the
+// defaults, and only explicitly toggled widgets are ever written, so the new
+// defaults reach everything a user never touched (including the new compliance
+// widget) while their deliberate choices survive.
 const LS_WIDGETS = 'xamops_dashboard_widgets_v1';
 
 const loadWidgets = (): Record<string, boolean> => {
@@ -223,6 +242,8 @@ export const Dashboard: React.FC = () => {
                   <CostTrendSection
                     costHistory={dashboardData.costHistory}
                     isLoading={loadingState.cost}
+                    forecastedSpend={dashboardData.kpi?.forecastedSpend}
+                    accountId={accountId}
                   />
                 )}
                 {show('inventory') && (
@@ -236,8 +257,9 @@ export const Dashboard: React.FC = () => {
             </RevealSection>
           )}
 
-          {/* Row 3: Top Services + Cost by Region */}
-          {(show('topServices') || show('costByRegion')) && (
+          {/* Row 3: Top Services (3 cols) + Compliance Posture (2 cols).
+              Compliance takes the slot Cost by Region used to occupy. */}
+          {(show('topServices') || show('compliance') || show('costByRegion')) && (
             <RevealSection delay={0.04}>
               <div className="grid gap-5 lg:grid-cols-5" style={{ minHeight: 340 }}>
                 {show('topServices') && (
@@ -247,6 +269,9 @@ export const Dashboard: React.FC = () => {
                     timePreset={timePreset}
                     isLoading={loadingState.cost}
                   />
+                )}
+                {show('compliance') && (
+                  <CompliancePostureSection accountId={accountId} />
                 )}
                 {show('costByRegion') && (
                   <CostByRegionSection
