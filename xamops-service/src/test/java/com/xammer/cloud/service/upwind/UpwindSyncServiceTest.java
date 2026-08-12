@@ -21,6 +21,9 @@ import static org.mockito.Mockito.*;
 
 class UpwindSyncServiceTest {
 
+    /** Matches the production default; the age-fallback tests assert against this. */
+    private static final long STALE_GRACE_HOURS = 24;
+
     private UpwindApiClient apiClient;
     private UpwindThreatDetectionRepository detectionRepo;
     private UpwindVulnerabilityFindingRepository vulnRepo;
@@ -55,7 +58,8 @@ class UpwindSyncServiceTest {
         when(apiEndpointRepo.findByUpwindId(any())).thenReturn(Optional.empty());
         when(connectionRepo.findAll()).thenReturn(Collections.emptyList());
         service = new UpwindSyncService(apiClient, detectionRepo, vulnRepo, postureRepo,
-                syncStateRepo, inventoryRepo, apiEndpointRepo, connectionRepo);
+                syncStateRepo, inventoryRepo, apiEndpointRepo, connectionRepo,
+                STALE_GRACE_HOURS);
     }
 
     private JsonNode parse(String json) {
@@ -183,6 +187,60 @@ class UpwindSyncServiceTest {
         verify(postureRepo, never()).markResolvedNotSyncedSince(any());
     }
 
+    /** Stubs the has_internet_ingress walk. */
+    private void stubExposedIds(java.util.Set<String> ids, boolean truncated) {
+        when(apiClient.searchApiEndpointIds(anyString(), eq("has_internet_ingress"), anyInt()))
+                .thenReturn(new UpwindApiClient.FetchIdResult(ids, truncated));
+    }
+
+    @Test
+    void endpointExposureComesFromUpwindsVerdictNotTheIngressTimestamp() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
+        // Both endpoints carry an ingress last_seen_time — the old derivation marked BOTH
+        // exposed, which is how 15,324 of 15,325 Xammer endpoints came to be "internet exposed".
+        String ingress = "\"risk_overview\":{\"internet_exposure\":{\"ingress\":"
+                + "{\"last_seen_time\":\"2026-07-28T08:00:20Z\"}}}";
+        when(apiClient.searchApiEndpoints(eq("111"), anyInt())).thenReturn(result(List.of(
+                parse("{\"id\":\"rt-1\",\"method\":\"GET\"," + ingress + "}"),
+                parse("{\"id\":\"rt-2\",\"method\":\"GET\"," + ingress + "}")), false));
+        stubExposedIds(java.util.Set.of("rt-1"), false);
+
+        service.syncApiEndpoints();
+
+        ArgumentCaptor<com.xammer.cloud.domain.UpwindApiEndpoint> cap =
+                ArgumentCaptor.forClass(com.xammer.cloud.domain.UpwindApiEndpoint.class);
+        verify(apiEndpointRepo, times(2)).save(cap.capture());
+        var byId = cap.getAllValues().stream().collect(java.util.stream.Collectors.toMap(
+                com.xammer.cloud.domain.UpwindApiEndpoint::getUpwindId, e -> e));
+        assertTrue(byId.get("rt-1").isInternetExposed());
+        assertFalse(byId.get("rt-2").isInternetExposed());
+    }
+
+    @Test
+    void anIncompleteExposureWalkLeavesFlagsAloneRatherThanZeroingThem() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
+        // An endpoint we already hold as exposed.
+        com.xammer.cloud.domain.UpwindApiEndpoint existing =
+                new com.xammer.cloud.domain.UpwindApiEndpoint();
+        existing.setUpwindId("rt-1");
+        existing.setInternetExposed(true);
+        when(apiEndpointRepo.findByUpwindId("rt-1")).thenReturn(java.util.Optional.of(existing));
+        when(apiClient.searchApiEndpoints(eq("111"), anyInt()))
+                .thenReturn(result(List.of(parse("{\"id\":\"rt-1\",\"method\":\"GET\"}")), false));
+        // Truncated walk means "unknown", not "nothing is exposed".
+        stubExposedIds(java.util.Set.of(), true);
+
+        service.syncApiEndpoints();
+
+        ArgumentCaptor<com.xammer.cloud.domain.UpwindApiEndpoint> cap =
+                ArgumentCaptor.forClass(com.xammer.cloud.domain.UpwindApiEndpoint.class);
+        verify(apiEndpointRepo).save(cap.capture());
+        assertTrue(cap.getValue().isInternetExposed(),
+                "a truncated exposure walk must not clear a known-exposed endpoint");
+    }
+
     @Test
     void syncApiEndpointsUpsertsPerAccountAndReconciles() {
         when(apiClient.isConfigured()).thenReturn(true);
@@ -202,7 +260,10 @@ class UpwindSyncServiceTest {
         verify(apiEndpointRepo).save(cap.capture());
         assertEquals("rt-1", cap.getValue().getUpwindId());
         assertEquals("111", cap.getValue().getCloudAccountId());
-        assertTrue(cap.getValue().isInternetExposed());
+        // Exposure is no longer inferred from the ingress timestamp, so with no
+        // has_internet_ingress verdict stubbed this stays false. Covered directly by
+        // endpointExposureComesFromUpwindsVerdictNotTheIngressTimestamp.
+        assertFalse(cap.getValue().isInternetExposed());
         assertEquals("UNAUTHENTICATED", cap.getValue().getAuthState());
         verify(apiEndpointRepo).markResolvedNotSyncedSince(eq("111"), any());
     }
@@ -225,10 +286,20 @@ class UpwindSyncServiceTest {
         when(vulnRepo.countOpen()).thenReturn(10_000L);
         when(postureRepo.countLive()).thenReturn(10_000L);
 
+        java.time.Instant before = java.time.Instant.now();
         service.syncAll();
 
-        verify(vulnRepo, never()).markResolvedNotSyncedSince(any());
-        verify(postureRepo, never()).markResolvedNotSyncedSince(any());
+        // Low coverage must NOT archive against this run — but rows no complete fetch has
+        // returned for the grace window are stale on their own evidence, so the pass still runs
+        // with the older cutoff. Refusing outright is what left 15,325 endpoint rows stuck
+        // against an API returning 4,919.
+        ArgumentCaptor<java.time.Instant> vulnCutoff = ArgumentCaptor.forClass(java.time.Instant.class);
+        verify(vulnRepo).markResolvedNotSyncedSince(vulnCutoff.capture());
+        assertTrue(vulnCutoff.getValue().isBefore(before.minus(java.time.Duration.ofHours(23))),
+                "expected the age cutoff, not this run's start");
+        ArgumentCaptor<java.time.Instant> postureCutoff = ArgumentCaptor.forClass(java.time.Instant.class);
+        verify(postureRepo).markResolvedNotSyncedSince(postureCutoff.capture());
+        assertTrue(postureCutoff.getValue().isBefore(before.minus(java.time.Duration.ofHours(23))));
     }
 
     @Test
@@ -256,11 +327,17 @@ class UpwindSyncServiceTest {
                 .thenReturn(result(List.of(parse("{\"id\":\"rt-1\"}")), false));
         when(apiEndpointRepo.countActiveByAccount("111")).thenReturn(15_000L);
 
+        java.time.Instant before = java.time.Instant.now();
         service.syncApiEndpoints();
 
-        // Still upserted — refusing to archive must not stop us storing what we did fetch.
+        // Still upserted — a low-coverage run must not stop us storing what we did fetch.
         verify(apiEndpointRepo).save(any());
-        verify(apiEndpointRepo, never()).markResolvedNotSyncedSince(any(), any());
+        // And it archives against the age cutoff, which is what finally clears an account
+        // carrying rows from the period when reconciliation was being skipped.
+        ArgumentCaptor<java.time.Instant> cutoff = ArgumentCaptor.forClass(java.time.Instant.class);
+        verify(apiEndpointRepo).markResolvedNotSyncedSince(eq("111"), cutoff.capture());
+        assertTrue(cutoff.getValue().isBefore(before.minus(java.time.Duration.ofHours(23))),
+                "expected the age cutoff, not this run's start");
     }
 
     @Test

@@ -65,7 +65,8 @@ const InventoryAssetDrawer: React.FC<Props> = ({ asset, onClose, onOpenResource 
   const classified = pii || phi || pci;
   const hasRisk = asset.hasElevatedPrivilege != null || classified
     || asset.vulnTotalCount != null || asset.detectionTotalCount != null
-    || asset.internetExposureType != null || asset.hasEolTechnology != null;
+    || asset.internetExposureType != null || asset.hasEolTechnology != null
+    || asset.publicIpAddresses != null;
 
   const sections: PanelSection[] = [
     {
@@ -87,9 +88,15 @@ const InventoryAssetDrawer: React.FC<Props> = ({ asset, onClose, onOpenResource 
           <PanelRow label="Account" value={asset.cloudAccountId} />
           <PanelRow label="Region" value={asset.region} />
           <PanelRow label="Status" value={asset.status} />
+          <PanelRow label="Protected by" value={asset.protectedBy} />
           {asset.cloudResourceId && (
             <PanelRow label="Resource id" value={asset.cloudResourceId} mono />
           )}
+          <PanelRow label="Cloud tags" value={asset.cloudTags ? (
+            <span className="flex flex-wrap gap-1">
+              {asset.cloudTags.split(',').map((t) => <Tag key={t}>{t}</Tag>)}
+            </span>
+          ) : null} />
         </PanelBlock>
       ),
     },
@@ -106,6 +113,18 @@ const InventoryAssetDrawer: React.FC<Props> = ({ asset, onClose, onOpenResource 
             <PanelRow label="Last internet contact" value={
               asset.lastInternetCommunication
                 ? new Date(asset.lastInternetCommunication).toLocaleString() : null} />
+            {/* A public IP is a harder exposure signal than the risk rollup, and it is the one
+                the cloud provider itself reports. */}
+            <PanelRow label="Public IPs" value={asset.publicIpAddresses ? (
+              <span className="font-mono text-[11px]">
+                {asset.publicIpAddresses.split(',').join(', ')}
+              </span>
+            ) : null} />
+            <PanelRow label="Private IPs" value={asset.privateIpAddresses ? (
+              <span className="font-mono text-[11px]">
+                {asset.privateIpAddresses.split(',').join(', ')}
+              </span>
+            ) : null} />
           </PanelBlock>
           <PanelBlock title="Data classification">
             {classified ? (

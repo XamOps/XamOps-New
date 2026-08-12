@@ -157,6 +157,62 @@ public class UpwindApiClient {
     public record StreamResult(int count, boolean truncated) { }
 
     /**
+     * CI scan events — Upwind's shift-left stream.
+     *
+     * The route lives under {@code events}, not {@code shiftleft}, which is why every
+     * {@code /shiftleft/*} listing path we tried returned 401 at the gateway. This is the only
+     * way to enumerate scans, and therefore the only source of the fingerprints that
+     * {@link #getShiftLeftResult} needs.
+     *
+     * Verified live 2026-08-12: an empty {@code conditions} array is rejected with 400
+     * ("conditions: must not be empty"), and {@code create_time gte} returns 500 upstream, so a
+     * {@code branch like %} match-all is used instead. Both are Upwind-side quirks.
+     */
+    public List<JsonNode> searchShiftLeftScans(int maxItems) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/events/shift-left/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(java.util.Map.of("conditions",
+                    java.util.List.of(java.util.Map.of("field", "branch",
+                            "operator", "like", "value", java.util.List.of("%")))));
+            while (url != null && items.size() < maxItems) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] shift-left scan search failed: {}", e.getMessage());
+        }
+        return items;
+    }
+
+    /**
+     * Findings for one scan, keyed by the fingerprint from {@link #searchShiftLeftScans}.
+     *
+     * Still on v1 — the v2 equivalent 404s. Note this route returns HTTP 200 and echoes the
+     * fingerprint back for ids that do not exist, so an empty CVE bucket set is not evidence the
+     * scan was clean; callers should only pass fingerprints the search actually returned.
+     */
+    public JsonNode getShiftLeftResult(String fingerprint) {
+        String url = apiBaseUrl + "/v1/organizations/" + orgId + "/shiftleft/results/"
+                + java.net.URLEncoder.encode(fingerprint, java.nio.charset.StandardCharsets.UTF_8);
+        HttpHeaders headers = authHeaders();
+        ResponseEntity<String> resp = exchangeWithRetry(
+                URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
+        try {
+            return objectMapper.readTree(resp.getBody());
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind shift-left result was not valid JSON", e);
+        }
+    }
+
+    /**
      * Walks a paged v1 collection and hands each item to {@code sink}, holding only one page in
      * memory at a time.
      *
@@ -381,6 +437,61 @@ public class UpwindApiClient {
         }
         return items;
     }
+
+    /**
+     * Endpoint ids matching an extra boolean condition, e.g. {@code has_internet_ingress}.
+     *
+     * These flags are filterable but are NOT returned in the response body, so the only way to
+     * learn them is to ask for the filtered subset and intersect. Worth the extra walk for
+     * exposure specifically: the body carries only
+     * {@code risk_overview.internet_exposure.ingress.last_seen_time}, and inferring exposure
+     * from that timestamp's presence marked 15,324 of 15,325 Xammer endpoints "exposed".
+     * Measured 2026-08-11 for Onfinance: 8,796 of 10,700 endpoints match
+     * {@code has_internet_ingress}, against 5,652 by the old inference.
+     *
+     * @return the matching ids, or empty when the walk was cut short — the caller must treat a
+     *         truncated result as unknown rather than as "none matched".
+     */
+    public FetchIdResult searchApiEndpointIds(String cloudAccountId, String booleanField,
+                                             int maxItems) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/api-security/endpoints/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        boolean truncated = false;
+        try {
+            String body = objectMapper.writeValueAsString(java.util.Map.of("conditions",
+                    java.util.List.of(
+                            java.util.Map.of("field", "cloud_account_id", "operator", "eq",
+                                    "value", java.util.List.of(cloudAccountId)),
+                            java.util.Map.of("field", booleanField, "operator", "eq",
+                                    "value", java.util.List.of(true)))));
+            while (url != null) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) {
+                    String id = item.path("id").asText(null);
+                    if (id != null) ids.add(id);
+                }
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+                if (url != null && ids.size() >= maxItems) {
+                    truncated = true;
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] api-security {} filter walk failed for {}: {}",
+                    booleanField, cloudAccountId, e.getMessage());
+            return new FetchIdResult(java.util.Set.of(), true);
+        }
+        return new FetchIdResult(ids, truncated);
+    }
+
+    /** Ids plus whether the walk completed; an incomplete walk means "unknown", not "none". */
+    public record FetchIdResult(java.util.Set<String> ids, boolean truncated) { }
 
     public FetchResult searchApiEndpoints(String cloudAccountId, int maxItems) {
         java.util.List<JsonNode> items = new java.util.ArrayList<>();

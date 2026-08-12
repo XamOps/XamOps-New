@@ -48,6 +48,8 @@ import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.Dataset;
 
 import com.xammer.cloud.config.multitenancy.TenantContext;
+import com.xammer.cloud.event.CloudAccountConnectedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.io.IOException;
@@ -86,6 +88,10 @@ public class GcpDataService {
 
     @Autowired
     private CspBillingIngestionService cspBillingIngestionService;
+
+    /** Announces a newly connected project so the onboarding WAR report can run. */
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
     private final ObjectMapper objectMapper;
     private final RedisCacheService redisCache;
@@ -989,6 +995,16 @@ public class GcpDataService {
                     log.error("⚠️ Initial CSP billing ingestion failed for project {} — the nightly job will retry: {}",
                             savedAccount.getGcpProjectId(), e.getMessage(), e);
                 }
+            }
+
+            // Fires after this @Transactional method commits, so the onboarding WAR scan
+            // sees the CONNECTED row when it goes to authenticate.
+            try {
+                eventPublisher.publishEvent(new CloudAccountConnectedEvent(
+                        savedAccount.getId(), "GCP", false));
+            } catch (Exception e) {
+                log.warn("Could not publish connected event for GCP account {}: {}",
+                        savedAccount.getId(), e.getMessage());
             }
 
             return savedAccount;

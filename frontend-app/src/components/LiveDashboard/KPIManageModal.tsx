@@ -265,7 +265,23 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
   },
 ];
 
-export const DEFAULT_SELECTED = ['mtdSpend', 'forecast', 'lastMonth', 'potentialSavings'];
+/**
+ * Defaults span more than one category on purpose, and each one is a roll-up of
+ * something another widget breaks down rather than a repeat of it:
+ *   mtdSpend / forecast   → headline numbers behind the cost trend chart
+ *   potentialSavings      → total of the Waste + Rightsizing summary cards
+ *   totalResources        → total of the Resource Inventory rows
+ *
+ * `lastMonth` was dropped because the cost trend already reports the MoM delta.
+ *
+ * `criticalAlerts` is deliberately NOT a default: the backend populates
+ * OptimizationSummary.criticalAlertsCount with
+ * `anomalies + ec2Recs + ebsRecs + lambdaRecs` (DashboardDataService, and GCP
+ * uses `rightsizing.size()` outright), so it is a recommendation count wearing
+ * an alert label. Shipping it beside the CloudGuard-backed Alerts summary card
+ * would put two disagreeing "critical" numbers on one screen.
+ */
+export const DEFAULT_SELECTED = ['mtdSpend', 'forecast', 'potentialSavings', 'totalResources'];
 export const MIN_SELECTED = 3;
 const CATEGORIES = ['Cost', 'Optimization', 'Alerts', 'Resources', 'AIOps', 'DBOps', 'Platform'] as const;
 const CATEGORY_COLORS: Record<string, string> = {

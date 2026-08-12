@@ -95,7 +95,7 @@ const WarBlockedBanner: React.FC<Props> = ({ report, onRetry }) => {
           </p>
 
           <div className="mt-3 flex items-start gap-2 flex-wrap">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-[rgba(0,0,0,0.35)] shrink-0 mt-1">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-[rgba(0,0,0,0.55)] shrink-0 mt-1">
               {report.provider === 'GCP' ? 'Google Cloud said' : 'AWS said'}
             </span>
             <code className="text-[11px] font-mono text-[rgba(0,0,0,0.7)] bg-[#fafafa] border border-[#e5e7eb] rounded px-2 py-1 leading-relaxed break-words">

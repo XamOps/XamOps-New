@@ -36,8 +36,14 @@ interface AriaTabGroupProps {
   onSelectionChange: (key: string) => void;
   /** Extra class on the tablist container */
   className?: string;
-  /** Visual style variant */
-  variant?: 'underline' | 'pill';
+  /**
+   * Visual style variant.
+   *
+   * `neutral` is the black/greyscale house style used by pages whose colour budget is
+   * already committed to meaning (WAR spends red/amber/emerald on security status), so
+   * an indigo accent there would read as a sixth status rather than as navigation.
+   */
+  variant?: 'underline' | 'pill' | 'neutral';
 }
 
 export function AriaTabGroup({
@@ -57,7 +63,9 @@ export function AriaTabGroup({
         className={
           variant === 'pill'
             ? `flex gap-1 p-1 bg-slate-100 rounded-xl ${className}`
-            : `flex gap-1 border-b border-gray-200 ${className}`
+            : variant === 'neutral'
+              ? `flex gap-1 border-b border-[#e5e7eb] overflow-x-auto ${className}`
+              : `flex gap-1 border-b border-gray-200 ${className}`
         }
       >
         {tabs.map((tab) => (
@@ -73,6 +81,18 @@ export function AriaTabGroup({
                       ? 'bg-white text-indigo-700 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700',
                     isFocusVisible ? 'ring-2 ring-indigo-500 ring-offset-1' : '',
+                    tab.disabled ? 'opacity-40 cursor-not-allowed' : '',
+                  ].join(' ')
+              : variant === 'neutral'
+                ? [
+                    'flex items-center gap-2 px-3.5 py-2.5 text-[12.5px] font-semibold',
+                    'border-b-2 transition-all outline-none cursor-pointer -mb-px whitespace-nowrap',
+                    isSelected
+                      ? 'border-[rgba(0,0,0,0.88)] text-[rgba(0,0,0,0.88)]'
+                      : 'border-transparent text-[rgba(0,0,0,0.55)] hover:text-[rgba(0,0,0,0.88)]'
+                        + ' hover:border-[rgba(0,0,0,0.25)]',
+                    // Ring rather than an outline so the 2px underline is not clipped.
+                    isFocusVisible ? 'ring-2 ring-inset ring-[rgba(0,0,0,0.55)]' : '',
                     tab.disabled ? 'opacity-40 cursor-not-allowed' : '',
                   ].join(' ')
                 : [

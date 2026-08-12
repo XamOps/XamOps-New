@@ -63,7 +63,9 @@ public class UpwindSyncService {
                              UpwindSyncStateRepository syncStateRepo,
                              UpwindInventoryAssetRepository inventoryRepo,
                              UpwindApiEndpointRepository apiEndpointRepo,
-                             UpwindAccountConnectionRepository connectionRepo) {
+                             UpwindAccountConnectionRepository connectionRepo,
+                             @org.springframework.beans.factory.annotation.Value(
+                                     "${upwind.sync.stale-grace-hours:24}") long staleGraceHours) {
         this.apiClient = apiClient;
         this.detectionRepo = detectionRepo;
         this.vulnRepo = vulnRepo;
@@ -72,6 +74,7 @@ public class UpwindSyncService {
         this.inventoryRepo = inventoryRepo;
         this.apiEndpointRepo = apiEndpointRepo;
         this.connectionRepo = connectionRepo;
+        this.staleGrace = java.time.Duration.ofHours(Math.max(1L, staleGraceHours));
     }
 
     public void syncDetections() {
@@ -116,9 +119,9 @@ public class UpwindSyncService {
             // Reconcile only on a COMPLETE fetch: a truncated page walk would archive
             // every finding we simply never re-read. And only while we still hold the lease.
             if (res.count() > 0 && !res.truncated()
-                    && mayReconcile(canReconcile, "vulnerabilities")
-                    && archiveIsSafe("VULNERABILITIES", res.count(), vulnRepo.countOpen())) {
-                vulnRepo.markResolvedNotSyncedSince(runStart);
+                    && mayReconcile(canReconcile, "vulnerabilities")) {
+                archiveWithGuard("VULNERABILITIES", res.count(), vulnRepo.countOpen(), runStart,
+                        vulnRepo::markResolvedNotSyncedSince);
             }
             log.info("[Upwind] Vulnerability sync upserted {} findings (complete={})",
                     res.count(), !res.truncated());
@@ -154,8 +157,52 @@ public class UpwindSyncService {
     static final double ARCHIVE_MIN_COVERAGE = 0.5;
 
     /**
-     * Whether a mark-resolved pass may archive, given how much of the existing data this run
-     * actually re-covered.
+     * How long a row may go unseen by COMPLETE fetches before it is archived regardless of
+     * coverage.
+     *
+     * The coverage guard alone cannot distinguish two cases that look identical in the numbers:
+     * a fetch that is small because it is broken, and a fetch that is small because we are
+     * carrying rows accumulated while reconciliation was being skipped. Refusing both leaves the
+     * second stuck for ever — measured on UAT, 15,325 live endpoint rows for an account the API
+     * returns 4,919 for, which is 32% coverage and permanently below the floor.
+     *
+     * Age separates them where a ratio cannot. A row that several consecutive complete walks have
+     * not returned is gone by any reasonable reading, and this pass can never touch fresh data
+     * because fresh data has a recent synced_at by definition. Default is 4x the 6h sync
+     * interval, so a couple of failed or partial runs cannot trigger it.
+     *
+     * Worst case, if a fetch is genuinely broken for this long, is a day of under-reporting
+     * followed by automatic recovery: archiving sets status, and the next good sync upserts the
+     * rows back to live.
+     */
+    private final java.time.Duration staleGrace;
+
+    /**
+     * Runs the archive pass for a domain, choosing the cutoff by how much of the existing data
+     * this run re-covered.
+     *
+     * Full coverage archives against this run's start, which is the normal case. Low coverage
+     * falls back to the age cutoff instead of refusing outright: the fetch might be wrong, so we
+     * will not trust it about rows it just missed, but rows no complete fetch has returned for
+     * {@link #staleGrace} are stale on their own evidence.
+     *
+     * @param archive given the cutoff to archive before
+     */
+    private void archiveWithGuard(String domain, long fetched, long existing,
+                                  Instant runStart, java.util.function.Consumer<Instant> archive) {
+        if (archiveIsSafe(domain, fetched, existing)) {
+            archive.accept(runStart);
+            return;
+        }
+        Instant cutoff = Instant.now().minus(staleGrace);
+        log.warn("[Upwind] {} falling back to the age cutoff ({}h): archiving only rows no "
+                + "complete fetch has returned since {}", domain, staleGrace.toHours(), cutoff);
+        archive.accept(cutoff);
+    }
+
+    /**
+     * Whether a mark-resolved pass may archive against THIS RUN, given how much of the existing
+     * data it re-covered.
      *
      * @param fetched  rows this run upserted for the domain
      * @param existing live rows already held
@@ -164,9 +211,9 @@ public class UpwindSyncService {
         if (existing <= 0) return true;                 // nothing to lose
         double coverage = (double) fetched / existing;
         if (coverage < ARCHIVE_MIN_COVERAGE) {
-            log.error("[Upwind] {} archiving REFUSED — this run covered {} of {} live rows "
-                    + "({}%), below the {}% floor. Stale rows are kept rather than risk wiping "
-                    + "data the fetch simply missed.",
+            log.error("[Upwind] {} will not archive against this run — it covered {} of {} live "
+                    + "rows ({}%), below the {}% floor. Falling back to the age cutoff so a bad "
+                    + "fetch cannot wipe rows it merely missed.",
                     domain, fetched, existing, Math.round(coverage * 100),
                     Math.round(ARCHIVE_MIN_COVERAGE * 100));
             recordArchiveRefused(domain, fetched, existing);
@@ -241,10 +288,11 @@ public class UpwindSyncService {
                 log.info("[Upwind] Posture sync fetched {} {} findings (complete={})",
                         res.count(), status, !res.truncated());
             }
-            if (upserted > 0 && allComplete && mayReconcile(canReconcile, "posture")
-                    && archiveIsSafe("POSTURE", upserted, postureRepo.countLive())) {
-                int resolved = postureRepo.markResolvedNotSyncedSince(runStart);
-                log.info("[Upwind] Posture sync archived {} findings no longer reported", resolved);
+            if (upserted > 0 && allComplete && mayReconcile(canReconcile, "posture")) {
+                final int[] resolved = new int[1];
+                archiveWithGuard("POSTURE", upserted, postureRepo.countLive(), runStart,
+                        cutoff -> resolved[0] = postureRepo.markResolvedNotSyncedSince(cutoff));
+                log.info("[Upwind] Posture sync archived {} findings no longer reported", resolved[0]);
             }
             log.info("[Upwind] Posture sync upserted {} findings across {} (complete={})",
                     upserted, POSTURE_STATUSES, allComplete);
@@ -280,17 +328,31 @@ public class UpwindSyncService {
         try {
             for (String accountId : accountIds) {
                 Instant runStart = Instant.now();
+                // Authoritative exposure set. has_internet_ingress is filterable but absent from
+                // the response body, so it takes its own walk. A truncated or failed walk means
+                // "unknown": we then leave each endpoint's existing flag alone rather than
+                // silently marking a whole account not-exposed.
+                UpwindApiClient.FetchIdResult exposed =
+                        apiClient.searchApiEndpointIds(accountId, "has_internet_ingress",
+                                APISEC_MAX_ITEMS);
+                java.util.Set<String> exposedIds =
+                        (exposed == null || exposed.truncated()) ? null : exposed.ids();
+                if (exposedIds == null) {
+                    log.warn("[Upwind] internet-ingress walk incomplete for {} — leaving "
+                            + "existing exposure flags untouched", accountId);
+                }
+
                 UpwindApiClient.FetchResult res =
                         apiClient.searchApiEndpoints(accountId, APISEC_MAX_ITEMS);
                 for (JsonNode ep : res.items()) {
-                    upsertApiEndpoint(ep, accountId, Instant.now());
+                    upsertApiEndpoint(ep, accountId, Instant.now(), exposedIds);
                     synced++;
                 }
                 if (!res.items().isEmpty() && !res.truncated()
-                        && mayReconcile(canReconcile, "API endpoints")
-                        && archiveIsSafe("API_ENDPOINTS", res.items().size(),
-                                apiEndpointRepo.countActiveByAccount(accountId))) {
-                    apiEndpointRepo.markResolvedNotSyncedSince(accountId, runStart);
+                        && mayReconcile(canReconcile, "API endpoints")) {
+                    archiveWithGuard("API_ENDPOINTS", res.items().size(),
+                            apiEndpointRepo.countActiveByAccount(accountId), runStart,
+                            cutoff -> apiEndpointRepo.markResolvedNotSyncedSince(accountId, cutoff));
                 }
                 allComplete &= !res.truncated();
             }
@@ -304,7 +366,12 @@ public class UpwindSyncService {
         }
     }
 
-    private void upsertApiEndpoint(JsonNode ep, String accountId, Instant now) {
+    /**
+     * @param exposedIds ids Upwind reports as internet-exposed, or null when that walk could not
+     *        be completed — in which case the stored flag is preserved rather than guessed.
+     */
+    private void upsertApiEndpoint(JsonNode ep, String accountId, Instant now,
+                                   java.util.Set<String> exposedIds) {
         String upwindId = text(ep, "id");
         if (upwindId == null) return;
         UpwindApiEndpoint e = apiEndpointRepo.findByUpwindId(upwindId)
@@ -314,9 +381,13 @@ public class UpwindSyncService {
         e.setMethod(text(ep, "method"));
         e.setUri(text(ep, "uri"));
         e.setResourceId(text(ep, "resource_id"));
-        // Internet exposure is implied by an observed ingress timestamp.
-        e.setInternetExposed(ep.path("risk_overview").path("internet_exposure")
-                .path("ingress").has("last_seen_time"));
+        // Exposure comes from Upwind's own has_internet_ingress verdict, not from the presence
+        // of an ingress timestamp. The timestamp is present on essentially every endpoint it has
+        // ever seen traffic for, which made the old derivation report 15,324 of 15,325 Xammer
+        // endpoints as internet-exposed.
+        if (exposedIds != null) {
+            e.setInternetExposed(exposedIds.contains(upwindId));
+        }
         e.setAuthState(text(ep.path("risk_overview").path("authentication"), "state"));
         StringJoiner domains = new StringJoiner(",");
         ep.path("domains").forEach(d -> domains.add(d.asText()));
@@ -386,9 +457,9 @@ public class UpwindSyncService {
                     syncedCount++;
                 }
             }
-            if (syncedCount > 0 && mayReconcile(canReconcile, "inventory")
-                    && archiveIsSafe("INVENTORY", syncedCount, inventoryRepo.countActive())) {
-                inventoryRepo.markResolvedNotSyncedSince(runStart);
+            if (syncedCount > 0 && mayReconcile(canReconcile, "inventory")) {
+                archiveWithGuard("INVENTORY", syncedCount, inventoryRepo.countActive(), runStart,
+                        inventoryRepo::markResolvedNotSyncedSince);
             }
             log.info("[Upwind] Inventory sync upserted {} assets across {} account(s)",
                     syncedCount, accountIds.size());
@@ -474,9 +545,27 @@ public class UpwindSyncService {
 
         applyTechnologies(a, item.path("technologies"), now);
 
+        // Provider metadata the catalog returns and we were dropping. Measured 2026-08-11:
+        // private_ip_addresses on 404 assets, tags on 477, protected_by on 111, public IPs on 50.
+        a.setProtectedBy(truncate(text(item, "protected_by"), 128));
+        a.setPrivateIpAddresses(truncate(joinTextArray(item.path("private_ip_addresses")), 512));
+        a.setPublicIpAddresses(truncate(joinTextArray(item.path("public_ip_addresses")), 512));
+        a.setCloudTags(truncate(joinTextArray(item.path("tags")), 1024));
+
         a.setRawPayload(item.toString());
         a.setSyncedAt(now);
         inventoryRepo.save(a);
+    }
+
+    /** Flattens a JSON string array to a comma-joined value, or null when absent/empty. */
+    private static String joinTextArray(JsonNode node) {
+        if (node == null || !node.isArray() || node.isEmpty()) return null;
+        StringJoiner sj = new StringJoiner(",");
+        for (JsonNode n : node) {
+            String v = n.asText(null);
+            if (v != null && !v.isBlank()) sj.add(v.trim());
+        }
+        return sj.length() == 0 ? null : sj.toString();
     }
 
     /** Column cap for the denormalised technology list (see UpwindInventoryAsset). */

@@ -9,14 +9,23 @@ export interface WidgetConfig {
   description: string;
 }
 
+/**
+ * Widget catalog.
+ *
+ * `costByRegion` and `costSection` are off by default: the first duplicates the
+ * Top Services region toggle (same cost-by-region endpoint), and the second
+ * restates the cost trend plus a billing table that /cost renders with filters.
+ * They stay listed here so anyone who wants them back can switch them on.
+ */
 export const ALL_WIDGETS: WidgetConfig[] = [
-  { id: 'kpi',          label: 'KPI Cards',         icon: 'mdi:view-dashboard-outline',    description: 'MTD Spend, Forecast, Savings' },
+  { id: 'kpi',          label: 'KPI Cards',          icon: 'mdi:view-dashboard-outline',    description: 'Pick from cost, alerts & resource metrics' },
   { id: 'summaryCards', label: 'Summary Cards',      icon: 'mdi:cards-outline',             description: 'Alerts, Security, Waste, Rightsizing' },
-  { id: 'costTrend',    label: 'Cost Trend',         icon: 'mdi:chart-areaspline',          description: 'Monthly spend area chart' },
+  { id: 'costTrend',    label: 'Cost Trend',         icon: 'mdi:chart-areaspline',          description: 'Spend history with forecast & budget' },
   { id: 'inventory',    label: 'Resource Inventory', icon: 'mdi:server-outline',            description: 'EC2, S3, RDS resource counts' },
-  { id: 'topServices',  label: 'Top Services',       icon: 'mdi:chart-bar',                 description: 'Cost breakdown by service' },
-  { id: 'costByRegion', label: 'Cost by Region',     icon: 'mdi:earth',                     description: 'Spend distribution across regions' },
+  { id: 'topServices',  label: 'Top Services',       icon: 'mdi:chart-bar',                 description: 'Cost breakdown by service or region' },
+  { id: 'compliance',   label: 'Compliance Posture', icon: 'mdi:clipboard-check-outline',   description: 'Control score, trend & top risks' },
   { id: 'optimization', label: 'Optimization Hub',   icon: 'mdi:lightning-bolt-outline',    description: 'Rightsizing & waste recommendations' },
+  { id: 'costByRegion', label: 'Cost by Region',     icon: 'mdi:earth',                     description: 'Duplicate of Top Services region view' },
   { id: 'costSection',  label: 'Cost Breakdown',     icon: 'mdi:chart-box-outline',         description: '6-month stacked chart + billing table' },
 ];
 
@@ -41,7 +50,18 @@ const WidgetCustomizer: React.FC<WidgetCustomizerProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, [open, onClose]);
 
-  const visibleCount = Object.values(visibleWidgets).filter(Boolean).length;
+  /**
+   * Only offer widgets the calling page actually renders.
+   *
+   * ALL_WIDGETS is shared with the GCP and Azure dashboards, which render a
+   * smaller set (no compliance, cost breakdown, cost-by-region or optimization
+   * panel). Listing the full catalog there produced toggles that flipped state
+   * and changed nothing on screen. Each page declares its widgets as the keys of
+   * its own DEFAULT_VISIBLE, so intersecting with those keys scopes the panel
+   * correctly without every page needing to pass a second list.
+   */
+  const widgets = ALL_WIDGETS.filter(w => w.id in visibleWidgets);
+  const visibleCount = widgets.filter(w => visibleWidgets[w.id] !== false).length;
 
   return ReactDOM.createPortal(
     <>
@@ -58,7 +78,7 @@ const WidgetCustomizer: React.FC<WidgetCustomizerProps> = ({
         <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-[rgba(0,0,0,0.07)]">
           <div>
             <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Customize Dashboard</p>
-            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">{visibleCount} of {ALL_WIDGETS.length} widgets visible</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">{visibleCount} of {widgets.length} widgets visible</p>
           </div>
           <button onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[rgba(0,0,0,0.06)] transition-colors text-[rgba(0,0,0,0.4)]">
@@ -68,7 +88,7 @@ const WidgetCustomizer: React.FC<WidgetCustomizerProps> = ({
 
         {/* Widget list */}
         <div className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
-          {ALL_WIDGETS.map(w => {
+          {widgets.map(w => {
             const visible = visibleWidgets[w.id] !== false;
             return (
               <button key={w.id} onClick={() => onToggle(w.id)}

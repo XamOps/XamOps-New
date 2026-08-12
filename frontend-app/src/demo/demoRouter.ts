@@ -651,6 +651,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // Paged tables read ?page/&size (inventory also &category) off the URL, so the
   // Prev/Next controls and the category rail actually move through the data.
   // Order matters: the grouped and overview routes are more specific than /threats.
+  // Findings route is more specific than the scan list, so it must be matched first.
+  if (url.includes('/api/xamsecure/code/scans/'))
+    return makeResponse(xamsecure.demoCodeScanFindings(
+      decodeURIComponent(url.split('/api/xamsecure/code/scans/')[1].split('?')[0])));
+  if (url.includes('/api/xamsecure/code/scans'))
+    return makeResponse(xamsecure.demoCodeScans);
   if (url.includes('/api/xamsecure/threats/groups'))
     return makeResponse(xamsecure.demoThreatGroups(url));
   if (url.includes('/api/xamsecure/threats/overview'))

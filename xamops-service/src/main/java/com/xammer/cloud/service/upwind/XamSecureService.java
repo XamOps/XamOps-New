@@ -1019,6 +1019,165 @@ public class XamSecureService {
         }
     }
 
+    /**
+     * Whether this client may see ORG-LEVEL Upwind data.
+     *
+     * Shift-left scans carry no cloud_account_id — only repository, branch, commit and
+     * initiator — so {@link #resolveAccountIds} cannot scope them, and every XamOps client reads
+     * from the same {@code upwind.org-id}. Serving them to any client would leak another
+     * tenant's repository names, branch names and contributor usernames, which is the same class
+     * of bug as the threat-story list filtering on a field stories do not carry.
+     *
+     * The one defensible rule available from data we already hold: a client that owns every cloud
+     * account in the Upwind org IS the org, so org-level data is theirs. Anyone else gets
+     * nothing. This is intentionally strict — a false negative hides a tab, a false positive
+     * leaks source-control metadata.
+     */
+    private boolean ownsEntireOrg(Long clientId) {
+        // Same union UpwindSyncService.knownCloudAccountIds uses, computed here rather than
+        // injecting the sync service into a read path.
+        Set<String> known = new LinkedHashSet<>();
+        for (UpwindAccountConnection c : connectionRepo.findAll()) {
+            if (c.getCloudAccountId() != null && !c.getCloudAccountId().isBlank()) {
+                known.add(c.getCloudAccountId());
+            }
+        }
+        known.addAll(inventoryRepo.findDistinctCloudAccountIds());
+        known.remove(null);
+        if (known.isEmpty()) return false;
+        return resolveAccountIds(clientId, null).containsAll(known);
+    }
+
+    /**
+     * CI scan history — Upwind's shift-left stream, one row per build.
+     *
+     * {@code introduced} is the number this build ADDED relative to its baseline, which is the
+     * whole point of a shift-left view and is not derivable from the runtime vulnerability data:
+     * that tells you what is deployed, this tells you what a specific commit is about to add.
+     */
+    public Map<String, Object> getCodeScans(Long clientId, int limit) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("scans", List.of());
+        out.put("available", false);
+        if (!apiClient.isConfigured()) {
+            out.put("unavailableReason", "Upwind is not configured.");
+            return out;
+        }
+        if (!ownsEntireOrg(clientId)) {
+            // Deliberately the same message either way: whether an org has code scanning at all
+            // is itself information about another tenant.
+            out.put("unavailableReason",
+                    "Code scan history is reported for the whole Upwind organization and carries "
+                    + "no cloud account, so it is only shown to the account owner.");
+            return out;
+        }
+
+        String cacheKey = "xamsecure:codescans:" + clientId;
+        Optional<Map<String, Object>> cached =
+                redisCacheService.get(cacheKey, new TypeReference<Map<String, Object>>() {});
+        if (cached.isPresent()) return cached.get();
+
+        List<Map<String, Object>> scans = new ArrayList<>();
+        for (JsonNode s : apiClient.searchShiftLeftScans(Math.min(Math.max(limit, 1), 500))) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            // Absent on ~11% of scans (28 of 256 measured); without it there is no way to fetch
+            // findings, so the client must render those rows as history only.
+            m.put("fingerprint", s.path("fingerprint").asText(null));
+            m.put("type", s.path("type").asText(null));
+            m.put("source", s.path("source").asText(null));
+            m.put("repository", s.path("repository").asText(null));
+            m.put("branch", s.path("branch").asText(null));
+            m.put("commitSha", s.path("commit_sha").asText(null));
+            m.put("initiator", s.path("initiator").asText(null));
+            m.put("image", s.path("image").asText(null));
+            m.put("imageOs", s.path("os").asText(null));
+            JsonNode det = s.path("repository_scan_details");
+            m.put("mainBranchName", det.path("main_branch_name").asText(null));
+            m.put("pullRequestId", det.path("pr_id").asText(null));
+            m.put("pullRequestUrl", det.path("pr_link").asText(null));
+            m.put("createTime", s.path("create_time").asText(null));
+            m.put("updateTime", s.path("update_time").asText(null));
+            scans.add(m);
+        }
+        out.put("scans", scans);
+        out.put("available", true);
+        out.remove("unavailableReason");
+        if (!scans.isEmpty()) redisCacheService.put(cacheKey, out, SUMMARY_CACHE_MINUTES);
+        return out;
+    }
+
+    /** CVE buckets Upwind reports per scan, in the order a reviewer cares about. */
+    private static final List<String> CODE_CVE_BUCKETS =
+            List.of("high_impact_cves", "introduced_cves", "no_change_cves", "resolved_cves");
+
+    /**
+     * Findings for one scan.
+     *
+     * The upstream route returns HTTP 200 and echoes the fingerprint back for ids that do not
+     * exist, so "no buckets" cannot be distinguished from "unknown fingerprint" by status code.
+     * Only fingerprints from the scan search are accepted, and an all-empty result is reported as
+     * a clean scan rather than an error.
+     */
+    public Map<String, Object> getCodeScanFindings(Long clientId, String fingerprint) {
+        if (fingerprint == null || fingerprint.isBlank() || !apiClient.isConfigured()
+                || !ownsEntireOrg(clientId)) {
+            return Map.of();
+        }
+        JsonNode r;
+        try {
+            r = apiClient.getShiftLeftResult(fingerprint);
+        } catch (Exception e) {
+            log.warn("[Upwind] shift-left result {} fetch failed: {}", fingerprint, e.getMessage());
+            return Map.of();
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("fingerprint", r.path("fingerprint").asText(null));
+        out.put("initiator", r.path("initiator").asText(null));
+        out.put("branch", r.path("branch").asText(null));
+        out.put("imageName", r.path("image_name").asText(null));
+        out.put("imageOs", r.path("image_os").asText(null));
+
+        Map<String, List<Map<String, Object>>> buckets = new LinkedHashMap<>();
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (String bucket : CODE_CVE_BUCKETS) {
+            List<Map<String, Object>> rows = new ArrayList<>();
+            for (JsonNode c : r.path(bucket)) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("cveId", c.path("cve_id").asText(null));
+                m.put("name", c.path("cve_name").asText(null));
+                m.put("description", c.path("cve_description").asText(null));
+                m.put("severity", upper(c.path("severity").asText(null)));
+                m.put("score", c.path("score").asText(null));
+                m.put("cvssVector", c.path("cvss_vector").asText(null));
+                m.put("packageName", c.path("package_name").asText(null));
+                m.put("packageVersion", c.path("package_version").asText(null));
+                m.put("fixAvailable", c.path("is_fix_available").asBoolean(false));
+                m.put("fixedInVersion", c.path("fixed_in_version").asText(null));
+                m.put("exploitable", c.path("is_exploitable").asBoolean(false));
+                m.put("status", c.path("status").asText(null));
+                rows.add(m);
+            }
+            rows.sort(Comparator.comparingInt(m -> vulnSeverityRank((String) m.get("severity"))));
+            buckets.put(camel(bucket), rows);
+            counts.put(camel(bucket), rows.size());
+        }
+        out.put("cves", buckets);
+        out.put("counts", counts);
+        return out;
+    }
+
+    /** high_impact_cves -> highImpact, so the client reads one naming convention. */
+    private static String camel(String bucket) {
+        String base = bucket.endsWith("_cves") ? bucket.substring(0, bucket.length() - 5) : bucket;
+        String[] parts = base.split("_");
+        StringBuilder sb = new StringBuilder(parts[0]);
+        for (int i = 1; i < parts.length; i++) {
+            sb.append(Character.toUpperCase(parts[i].charAt(0))).append(parts[i].substring(1));
+        }
+        return sb.toString();
+    }
+
     /** Friendly labels for the detection sources Upwind emits, keyed by payload category. */
     private static final Map<String, String> SOURCE_LABELS = Map.of(
             "CLOUD_TRAIL", "AWS CloudTrail",
