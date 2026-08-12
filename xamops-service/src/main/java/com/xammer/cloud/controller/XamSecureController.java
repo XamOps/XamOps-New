@@ -73,6 +73,26 @@ public class XamSecureController {
      * Aggregates for the Threats dashboard: funnel, seven-day trend, MITRE tactic and source
      * breakdowns. The funnel's raw event count is reported unavailable rather than guessed.
      */
+    /**
+     * CI scan history from Upwind's shift-left stream.
+     *
+     * Org-level: these events carry no cloud account, so the response is empty with a reason for
+     * any client that does not own the whole Upwind organization.
+     */
+    @GetMapping("/code/scans")
+    public ResponseEntity<?> codeScans(@AuthenticationPrincipal ClientUserDetails user,
+                                      @RequestParam(defaultValue = "200") int limit) {
+        return ResponseEntity.ok(xamSecureService.getCodeScans(user.getClientId(), limit));
+    }
+
+    /** CVEs a single build introduced, left unchanged, or resolved. */
+    @GetMapping("/code/scans/{fingerprint}")
+    public ResponseEntity<?> codeScanFindings(@AuthenticationPrincipal ClientUserDetails user,
+                                             @PathVariable String fingerprint) {
+        return ResponseEntity.ok(
+                xamSecureService.getCodeScanFindings(user.getClientId(), fingerprint));
+    }
+
     /** Detections grouped by threat, resource or account — Upwind's Group by chips. */
     @GetMapping("/threats/groups")
     public ResponseEntity<?> threatGroups(@AuthenticationPrincipal ClientUserDetails user,

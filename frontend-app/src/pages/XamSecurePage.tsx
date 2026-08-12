@@ -7,13 +7,13 @@ import StoryDrawer from '../components/XamSecure/StoryDrawer';
 import type { ThreatStoryDetail } from '../types/xamsecure';
 import {
   XamSecureHeader, IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsSection, VulnerabilitiesTab,
-  ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, WorkflowsTab, OnboardingTab,
+  ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, CodeTab, WorkflowsTab, OnboardingTab,
   IdentitiesTab,
 } from '../components/XamSecure';
 
 export type XamSecureTab =
   | 'issues' | 'overview' | 'attack-surface' | 'threats' | 'vulnerabilities' | 'posture'
-  | 'inventory' | 'api-security' | 'identities' | 'components' | 'threat-policies' | 'workflows'
+  | 'inventory' | 'api-security' | 'identities' | 'components' | 'code' | 'threat-policies' | 'workflows'
   | 'compliance' | 'onboarding';
 
 export const XAMSECURE_TABS: { id: XamSecureTab; label: string }[] = [
@@ -32,6 +32,9 @@ export const XAMSECURE_TABS: { id: XamSecureTab; label: string }[] = [
   // with a feature we cannot build — nine candidate sensor endpoints all return 404, so there
   // is no API behind their version.
   { id: 'components', label: 'Packages' },
+  // Upwind's Code area: CI scan history from the shift-left stream. Org-level data, so the tab
+  // renders a withheld state for clients that do not own the whole Upwind organization.
+  { id: 'code', label: 'Code' },
   // Workflows & Onboarding remain valid routes (deep-link reachable) but are not in the
   // sidebar nav — they map to Upwind's Settings area, not its security nav.
   { id: 'workflows', label: 'Workflows' },
@@ -63,6 +66,7 @@ const XamSecurePage: React.FC = () => {
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
     vulnGroups, loadVulnGroups, threatGroups, loadThreatGroups,
+    codeScans, loadCodeScanFindings,
     noAccountSelected,
     isLoading, refresh, loadIssueDetail, loadResourceDetail, loadStoryDetail,
     loadThreats, loadVulnByCve, loadCveFindings, loadPosture, loadInventory,
@@ -190,6 +194,9 @@ const XamSecurePage: React.FC = () => {
                          loadResourceDetail={loadResourceDetail} />
         )}
         {activeTab === 'components' && <ComponentsTab data={components} isLoading={isLoading} />}
+        {activeTab === 'code' && (
+          <CodeTab data={codeScans} isLoading={isLoading} loadFindings={loadCodeScanFindings} />
+        )}
         {activeTab === 'workflows' && <WorkflowsTab data={workflows} isLoading={isLoading} />}
         {activeTab === 'onboarding' && <OnboardingTab accounts={onboarding} isLoading={isLoading} />}
       </div>

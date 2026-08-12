@@ -4,7 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import {
   IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsSection, VulnerabilitiesTab,
-  ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, WorkflowsTab, OnboardingTab,
+  ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, CodeTab, WorkflowsTab, OnboardingTab,
 } from '../components/XamSecure';
 import * as demo from './xamsecureMockData';
 
@@ -107,6 +107,41 @@ describe('XamSecure demo data renders in every tab', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Detections/ }));
     fireEvent.click(screen.getByRole('button', { name: /^Threat$/ }));
     expect(screen.getByText('Occurrences')).toBeInTheDocument();
+  });
+
+  it('Code lists CI scans and separates introduced CVEs from pre-existing ones', () => {
+    draw(<CodeTab data={demo.demoCodeScans} isLoading={false}
+                  loadFindings={demo.demoCodeScanFindings as never} />);
+    expect(screen.getAllByText('XamOps-New').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Image build|IaC scan/).length).toBeGreaterThan(0);
+
+    // The bucket split is the whole point: a build that adds nothing must not look like a build
+    // that adds a critical CVE, even when both carry pre-existing debt.
+    const withFp = demo.demoCodeScans.scans.filter((s) => s.fingerprint);
+    const introducing = withFp
+      .map((s) => demo.demoCodeScanFindings(s.fingerprint!))
+      .filter((f) => f && f.counts.introduced > 0);
+    const clean = withFp
+      .map((s) => demo.demoCodeScanFindings(s.fingerprint!))
+      .filter((f) => f && f.counts.introduced === 0);
+    expect(introducing.length).toBeGreaterThan(0);
+    expect(clean.length).toBeGreaterThan(0);
+    // Pre-existing CVEs exist on both, so they cannot be what distinguishes them.
+    expect(clean.every((f) => f!.counts.noChange > 0)).toBe(true);
+    // Worst first within a bucket.
+    expect(introducing[0]!.cves.introduced[0].severity).toBe('CRITICAL');
+    // Fingerprint-less scans have no findings to open.
+    expect(demo.demoCodeScanFindings('fp-does-not-exist')).toBeNull();
+  });
+
+  it('Code says it is withheld rather than showing an empty table', () => {
+    // Shift-left data is org-level and carries no cloud account, so a client that does not own
+    // the whole org must be told why, not shown a bare "no data".
+    draw(<CodeTab isLoading={false} loadFindings={demo.demoCodeScanFindings as never}
+                  data={{ scans: [], available: false,
+                          unavailableReason: 'Only shown to the account owner.' }} />);
+    expect(screen.getByText(/Code scans not shown/)).toBeInTheDocument();
+    expect(screen.getByText(/Only shown to the account owner/)).toBeInTheDocument();
   });
 
   it('Threats opens on the dashboard and reaches detections', () => {

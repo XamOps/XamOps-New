@@ -25,6 +25,7 @@ import type {
   CveGroupRow, CveResourceFinding, InventoryAsset, InventoryCategory, InventoryRisk, IssueDetail,
   IssueSummary, NetworkTopology, NetworkNode, OnboardingAccount, PageResp, PostureFinding,
   SbomComponent, Severity, ThreatDetection, ThreatPolicy, ThreatStoriesSummary, ThreatOverview,
+  CodeScan, CodeScansResponse, CodeScanFindings, CodeCve,
   VulnGroupPage, VulnGroupRow, VulnGroupDimension, ThreatGroups, ThreatGroupRow, ThreatGroupDimension,
   VulnerabilityDashboard, VulnerabilityFinding, Workflow, XamSecureSummary,
 } from '../types/xamsecure';
@@ -1220,4 +1221,89 @@ export const demoThreatGroups = (url: string): ThreatGroups => {
     lastSeenTime: members[0].lastSeenTime,
   }));
   return { dimension, groups };
+};
+
+// ─── /api/xamsecure/code/* ──────────────────────────────────────────────────────
+
+const CODE_BRANCHES = ['main', 'release/2026.08', 'feat/threat-dashboard',
+  'fix/sync-streaming', 'chore/icon-bundle'] as const;
+
+/**
+ * CI scan history. Roughly one scan in nine has no fingerprint, matching the measured 228 of 256
+ * — those rows must render as history without a drill-down.
+ */
+export const demoCodeScans: CodeScansResponse = {
+  available: true,
+  scans: Array.from({ length: 64 }, (_, i): CodeScan => {
+    const hasFp = i % 9 !== 0;
+    const isImage = i % 2 === 0;
+    const branch = at(CODE_BRANCHES, i)[0] ?? CODE_BRANCHES[i % CODE_BRANCHES.length];
+    return {
+      fingerprint: hasFp ? `fp-${(i * 7919).toString(16).padStart(8, '0')}` : null,
+      type: isImage ? 'IMAGE_BUILD' : 'IAC_SCAN_BUILD',
+      source: 'GITHUB',
+      repository: 'XamOps-New',
+      branch,
+      commitSha: (i * 2654435761).toString(16).padStart(40, '0').slice(0, 40),
+      initiator: at(['AdityaM-XR', 'Akshayy172', 'himanshu-xr'], i)[0] ?? 'AdityaM-XR',
+      image: 'XamOps-New',
+      imageOs: 'linux',
+      mainBranchName: 'main',
+      pullRequestId: branch === 'main' ? null : `${280 + i}`,
+      pullRequestUrl: branch === 'main' ? null : `https://github.com/XamOps/XamOps-New/pull/${280 + i}`,
+      createTime: hoursAgo(spread(i, 2, 700)),
+      updateTime: hoursAgo(spread(i, 2, 700)),
+    };
+  }),
+};
+
+const codeCve = (
+  cveId: string, name: string, severity: Severity, score: string,
+  pkg: string, version: string, fixedIn: string | null, exploitable: boolean, status: string,
+): CodeCve => ({
+  cveId, name, severity, score,
+  description: `${name} affecting ${pkg} ${version}.`,
+  cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L',
+  packageName: pkg, packageVersion: version,
+  fixAvailable: fixedIn !== null, fixedInVersion: fixedIn,
+  exploitable, status,
+});
+
+/**
+ * Findings for one scan. Only some builds introduce anything — the majority carry pre-existing
+ * CVEs and add none, which is the normal case and the one the panel must read well for.
+ */
+export const demoCodeScanFindings = (fingerprint: string): CodeScanFindings | null => {
+  const scan = demoCodeScans.scans.find((s) => s.fingerprint === fingerprint);
+  if (!scan) return null;
+  // Summed over the whole fingerprint: the commit SHA is zero-padded, so its first character is
+  // always '0' and seeding on that made every build look identical.
+  const seed = [...fingerprint].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+  const introduces = seed % 2 === 0;
+  const introduced = introduces ? [
+    codeCve('CVE-2026-42508', 'CA Authentication Bypass', 'CRITICAL', '9.1',
+      'golang.org/x/crypto', 'v0.32.0', '0.52.0', false, 'introduced'),
+    codeCve('CVE-2026-46598', 'Ed25519 Denial of Service', 'MEDIUM', '5.3',
+      'golang.org/x/crypto', 'v0.32.0', '0.52.0', false, 'introduced'),
+  ] : [];
+  const noChange = [
+    codeCve('CVE-2025-68121', 'Crypto/TLS Authentication Bypass', 'HIGH', '7.5',
+      'openssl', '3.3.7', '3.3.9', true, 'no_change'),
+    codeCve('CVE-2026-8376', 'Perl Denial of Service', 'LOW', '3.1',
+      'perl', '5.38.2', null, false, 'no_change'),
+  ];
+  return {
+    fingerprint,
+    initiator: scan.initiator,
+    branch: scan.branch,
+    imageName: scan.image,
+    imageOs: 'linux',
+    cves: { highImpact: introduces ? [introduced[0]] : [], introduced, noChange, resolved: [] },
+    counts: {
+      highImpact: introduces ? 1 : 0,
+      introduced: introduced.length,
+      noChange: noChange.length,
+      resolved: 0,
+    },
+  };
 };

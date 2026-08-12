@@ -905,6 +905,92 @@ class XamSecureServiceTest {
         assertTrue(((List<?>) service.getThreatGroups(1L, null, "weather").get("groups")).isEmpty());
     }
 
+    /**
+     * Shift-left scans carry no cloud_account_id — only repository, branch, commit and
+     * initiator — and every client reads the same upwind.org-id. So resolveAccountIds cannot
+     * scope them, and serving them broadly would leak another tenant's repository names and
+     * contributor usernames. Owning every account in the org is the only ownership signal the
+     * data supports.
+     */
+    @Test
+    void codeScansAreWithheldFromAClientThatDoesNotOwnTheWholeOrg() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        // Client 1 owns 111; the org also contains 222.
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(connectionRepo.findAll()).thenReturn(List.of());
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111", "222"));
+
+        var out = service.getCodeScans(1L, 50);
+
+        assertEquals(false, out.get("available"));
+        assertTrue(((List<?>) out.get("scans")).isEmpty());
+        assertNotNull(out.get("unavailableReason"));
+        // Must not even ask Upwind on behalf of a client that cannot see the answer.
+        verify(apiClient, never()).searchShiftLeftScans(anyInt());
+        assertTrue(service.getCodeScanFindings(1L, "abc").isEmpty());
+        verify(apiClient, never()).getShiftLeftResult(anyString());
+    }
+
+    @Test
+    void codeScansAreServedToTheOrgOwnerAndMapTheBuildContext() throws Exception {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111"), aws("222")));
+        when(connectionRepo.findAll()).thenReturn(List.of());
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111", "222"));
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        when(apiClient.searchShiftLeftScans(anyInt())).thenReturn(List.of(om.readTree(
+                "{\"type\":\"IMAGE_BUILD\",\"source\":\"GITHUB\",\"image\":\"XamOps-New\","
+                + "\"os\":\"linux\",\"fingerprint\":\"fp-1\",\"repository\":\"XamOps-New\","
+                + "\"branch\":\"main\",\"initiator\":\"dev\",\"commit_sha\":\"abc123\","
+                + "\"repository_scan_details\":{\"pr_link\":\"https://gh/pull/295\"},"
+                + "\"create_time\":\"2026-07-13T07:23:52Z\"}")));
+
+        var out = service.getCodeScans(1L, 50);
+
+        assertEquals(true, out.get("available"));
+        assertNull(out.get("unavailableReason"));
+        @SuppressWarnings("unchecked")
+        var scans = (List<java.util.Map<String, Object>>) out.get("scans");
+        assertEquals(1, scans.size());
+        assertEquals("fp-1", scans.get(0).get("fingerprint"));
+        assertEquals("IMAGE_BUILD", scans.get(0).get("type"));
+        assertEquals("abc123", scans.get(0).get("commitSha"));
+        assertEquals("https://gh/pull/295", scans.get(0).get("pullRequestUrl"));
+    }
+
+    @Test
+    void codeScanFindingsSplitIntroducedFromUnchangedAndSortBySeverity() throws Exception {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(connectionRepo.findAll()).thenReturn(List.of());
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(List.of("111"));
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        when(apiClient.getShiftLeftResult("fp-1")).thenReturn(om.readTree(
+                "{\"fingerprint\":\"fp-1\",\"branch\":\"main\",\"image_os\":\"linux\","
+                + "\"high_impact_cves\":[],"
+                + "\"introduced_cves\":["
+                + "{\"cve_id\":\"CVE-1\",\"severity\":\"MEDIUM\",\"score\":\"5.3\","
+                + "\"package_name\":\"golang.org/x/crypto\",\"is_fix_available\":true,"
+                + "\"fixed_in_version\":\"0.52.0\",\"is_exploitable\":false},"
+                + "{\"cve_id\":\"CVE-2\",\"severity\":\"CRITICAL\",\"score\":\"9.1\","
+                + "\"is_fix_available\":true,\"is_exploitable\":false}],"
+                + "\"no_change_cves\":[{\"cve_id\":\"CVE-3\",\"severity\":\"LOW\"}]}"));
+
+        var out = service.getCodeScanFindings(1L, "fp-1");
+
+        @SuppressWarnings("unchecked")
+        var counts = (java.util.Map<String, Integer>) out.get("counts");
+        // Bucket names are camelised so the client reads one convention.
+        assertEquals(2, counts.get("introduced"));
+        assertEquals(1, counts.get("noChange"));
+        assertEquals(0, counts.get("highImpact"));
+        @SuppressWarnings("unchecked")
+        var cves = (java.util.Map<String, List<java.util.Map<String, Object>>>) out.get("cves");
+        // Worst first: a reviewer reads the top of the list, so CRITICAL cannot sort below MEDIUM.
+        assertEquals("CVE-2", cves.get("introduced").get(0).get("cveId"));
+        assertEquals("0.52.0", cves.get("introduced").get(1).get("fixedInVersion"));
+    }
+
     @Test
     void threatOverviewHonoursSupportedWindowsAndClampsOthers() {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));

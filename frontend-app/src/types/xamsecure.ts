@@ -673,6 +673,71 @@ export interface ThreatStoryDetail {
   }[];
 }
 
+/** One CI build from Upwind's shift-left stream. */
+export interface CodeScan {
+  /** Absent on ~11% of scans; without it findings cannot be fetched, so the row is history only. */
+  fingerprint: string | null;
+  type: string | null;          // IMAGE_BUILD | IAC_SCAN_BUILD
+  source: string | null;        // GITHUB
+  repository: string | null;
+  branch: string | null;
+  commitSha: string | null;
+  initiator: string | null;
+  image: string | null;
+  imageOs: string | null;
+  mainBranchName: string | null;
+  pullRequestId: string | null;
+  pullRequestUrl: string | null;
+  createTime: string | null;
+  updateTime: string | null;
+}
+
+/**
+ * Shift-left scans are reported for the whole Upwind organization and carry no cloud account,
+ * so they cannot be scoped per account. `available` is false with a reason for any client that
+ * does not own the entire org.
+ */
+export interface CodeScansResponse {
+  scans: CodeScan[];
+  available: boolean;
+  unavailableReason?: string | null;
+}
+
+/** A CVE as reported against a build, richer than our runtime rows: carries the fix version. */
+export interface CodeCve {
+  cveId: string | null;
+  name: string | null;
+  description: string | null;
+  severity: Severity | null;
+  score: string | null;
+  cvssVector: string | null;
+  packageName: string | null;
+  packageVersion: string | null;
+  fixAvailable: boolean;
+  fixedInVersion: string | null;
+  exploitable: boolean;
+  status: string | null;
+}
+
+/**
+ * `introduced` is what this build ADDS relative to its baseline — the question runtime
+ * vulnerability data cannot answer, since that describes what is already deployed.
+ */
+export interface CodeScanFindings {
+  fingerprint: string | null;
+  initiator: string | null;
+  branch: string | null;
+  imageName: string | null;
+  imageOs: string | null;
+  cves: {
+    highImpact: CodeCve[];
+    introduced: CodeCve[];
+    noChange: CodeCve[];
+    resolved: CodeCve[];
+  };
+  counts: { highImpact: number; introduced: number; noChange: number; resolved: number };
+}
+
 export interface OnboardingAccount {
   accountName: string;
   cloudAccountId: string;

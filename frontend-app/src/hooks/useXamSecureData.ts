@@ -6,6 +6,7 @@ import type {
   ThreatPolicy, Workflow,
   IssueSummary, IssueDetail, ThreatStoriesSummary, ThreatStoryDetail, ThreatOverview,
   VulnGroupPage, VulnGroupDimension, ThreatGroups, ThreatGroupDimension,
+  CodeScansResponse, CodeScanFindings,
   InventoryCategory,
   InventoryRisk, NetworkTopology,
   AttackSurfaceSummary, VulnerabilityDashboard, CveGroupRow, CveResourceFinding,
@@ -68,6 +69,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [threatOverview, setThreatOverview] = useState<ThreatOverview | null>(null);
   const [vulnGroups, setVulnGroups] = useState<VulnGroupPage | null>(null);
   const [threatGroups, setThreatGroups] = useState<ThreatGroups | null>(null);
+  const [codeScans, setCodeScans] = useState<CodeScansResponse | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingAccount[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const pollRef = useRef<number | null>(null);
@@ -210,6 +212,25 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       `/api/xamsecure/threats/groups?${acct}dimension=${dimension}`);
     setThreatGroups(data);
   }, [acct]);
+
+  const loadCodeScans = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('code_scans', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<CodeScansResponse>(key);
+      if (cached) { setCodeScans(cached); return; }
+    }
+    const data = await apiClient.get<CodeScansResponse>('/api/xamsecure/code/scans?limit=200');
+    setCodeScans(data);
+    saveCache(key, data);
+  }, [selectedAccountId]);
+
+  /** Fetched on open: a scan's CVE list is large and only wanted when someone drills in. */
+  const loadCodeScanFindings = useCallback(
+    async (fingerprint: string): Promise<CodeScanFindings | null> => {
+      const d = await apiClient.get<CodeScanFindings>(
+        `/api/xamsecure/code/scans/${encodeURIComponent(fingerprint)}`);
+      return d && d.fingerprint ? d : null;
+    }, []);
 
   const loadCveFindings = useCallback(async (cveId: string): Promise<CveResourceFinding[]> => {
     return apiClient.get<CveResourceFinding[]>(
@@ -409,6 +430,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
         else if (activeTab === 'compliance') await loadCompliance();
         else if (activeTab === 'api-security') await loadApiSecurity();
         else if (activeTab === 'components') await loadComponents();
+        else if (activeTab === 'code') await loadCodeScans();
         else if (activeTab === 'identities') await loadIdentities();
         else if (activeTab === 'threat-policies') await loadThreatPolicies();
         else if (activeTab === 'workflows') await loadWorkflows();
@@ -437,7 +459,8 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       loadVulnerabilities, loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
       loadInventoryRisk,
       loadNetworkTopology, loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents,
-      loadIdentities, loadThreatPolicies, loadWorkflows, loadOnboarding, loadThreatOverview]);
+      loadIdentities, loadThreatPolicies, loadWorkflows, loadOnboarding, loadThreatOverview,
+      loadCodeScans]);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -465,6 +488,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       else if (activeTab === 'compliance') await loadCompliance(true);
       else if (activeTab === 'api-security') await loadApiSecurity(true);
       else if (activeTab === 'components') await loadComponents(true);
+      else if (activeTab === 'code') await loadCodeScans(true);
       else if (activeTab === 'identities') await loadIdentities(true);
       else if (activeTab === 'threat-policies') await loadThreatPolicies(true);
       else if (activeTab === 'workflows') await loadWorkflows(true);
@@ -478,7 +502,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
       loadInventoryRisk, loadNetworkTopology,
       loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents, loadIdentities,
-      loadThreatPolicies, loadWorkflows, loadOnboarding, loadThreatOverview]);
+      loadThreatPolicies, loadWorkflows, loadOnboarding, loadThreatOverview, loadCodeScans]);
 
   return {
     summary, issues, attackSurface, threats, vulnerabilities, vulnDashboard, vulnByCve, posture, inventory,
@@ -486,6 +510,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
     vulnGroups, loadVulnGroups, threatGroups, loadThreatGroups,
+    codeScans, loadCodeScanFindings,
     isLoading, refresh,
     loadIssues, loadIssueDetail, loadResourceDetail, loadStoryDetail, loadSyncStatus,
     loadThreats, loadVulnerabilities, loadVulnByCve, loadCveFindings,

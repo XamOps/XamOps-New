@@ -12,6 +12,8 @@ export { default as AttackSurfaceTab } from './AttackSurfaceTab';
 export { default as OverviewTab } from './OverviewTab';
 export { default as ThreatsTab } from './ThreatsTab';
 export { default as ThreatsSection } from './ThreatsSection';
+export { default as CodeTab } from './CodeTab';
+export { default as CodeScanDrawer } from './CodeScanDrawer';
 export { default as ThreatsDashboard } from './ThreatsDashboard';
 export { default as ThreatStoriesTab } from './ThreatStoriesTab';
 export { default as ThreatGroupTable } from './ThreatGroupTable';

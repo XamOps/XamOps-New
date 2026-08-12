@@ -157,6 +157,62 @@ public class UpwindApiClient {
     public record StreamResult(int count, boolean truncated) { }
 
     /**
+     * CI scan events — Upwind's shift-left stream.
+     *
+     * The route lives under {@code events}, not {@code shiftleft}, which is why every
+     * {@code /shiftleft/*} listing path we tried returned 401 at the gateway. This is the only
+     * way to enumerate scans, and therefore the only source of the fingerprints that
+     * {@link #getShiftLeftResult} needs.
+     *
+     * Verified live 2026-08-12: an empty {@code conditions} array is rejected with 400
+     * ("conditions: must not be empty"), and {@code create_time gte} returns 500 upstream, so a
+     * {@code branch like %} match-all is used instead. Both are Upwind-side quirks.
+     */
+    public List<JsonNode> searchShiftLeftScans(int maxItems) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/events/shift-left/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(java.util.Map.of("conditions",
+                    java.util.List.of(java.util.Map.of("field", "branch",
+                            "operator", "like", "value", java.util.List.of("%")))));
+            while (url != null && items.size() < maxItems) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] shift-left scan search failed: {}", e.getMessage());
+        }
+        return items;
+    }
+
+    /**
+     * Findings for one scan, keyed by the fingerprint from {@link #searchShiftLeftScans}.
+     *
+     * Still on v1 — the v2 equivalent 404s. Note this route returns HTTP 200 and echoes the
+     * fingerprint back for ids that do not exist, so an empty CVE bucket set is not evidence the
+     * scan was clean; callers should only pass fingerprints the search actually returned.
+     */
+    public JsonNode getShiftLeftResult(String fingerprint) {
+        String url = apiBaseUrl + "/v1/organizations/" + orgId + "/shiftleft/results/"
+                + java.net.URLEncoder.encode(fingerprint, java.nio.charset.StandardCharsets.UTF_8);
+        HttpHeaders headers = authHeaders();
+        ResponseEntity<String> resp = exchangeWithRetry(
+                URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
+        try {
+            return objectMapper.readTree(resp.getBody());
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind shift-left result was not valid JSON", e);
+        }
+    }
+
+    /**
      * Walks a paged v1 collection and hands each item to {@code sink}, holding only one page in
      * memory at a time.
      *
