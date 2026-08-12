@@ -1343,16 +1343,30 @@ const CODE_BRANCHES = ['main', 'release/2026.08', 'feat/threat-dashboard',
 /**
  * CI scan history. Roughly one scan in nine has no fingerprint, matching the measured 228 of 256
  * — those rows must render as history without a drill-down.
+ *
+ * Only attributed scans appear here, because that is what the endpoint returns. Shift-left events
+ * carry no cloud account, so the server matches each scan's image against images we hold under an
+ * account the caller owns and withholds the rest, reporting only counts. IaC scans have no image
+ * at all, so none of them can ever be attributed — hence `withheldNoImage`, which is the larger
+ * number and the honest shape of this view.
  */
 export const demoCodeScans: CodeScansResponse = {
   available: true,
-  scans: Array.from({ length: 64 }, (_, i): CodeScan => {
-    const hasFp = i % 9 !== 0;
-    const isImage = i % 2 === 0;
+  correlatedBy: 'image',
+  // 32 IaC builds in the same org that can never be attributed, 9 image builds for images this
+  // account does not run, and 3 base-image builds where a name match would be coincidence.
+  withheldNoImage: 32,
+  withheldNoMatch: 9,
+  withheldGenericImage: 3,
+  scans: Array.from({ length: 32 }, (_, n): CodeScan => {
+    const i = n * 2; // image builds only; the odd indices were the IaC scans
+    const hasFp = n % 9 !== 0;
     const branch = at(CODE_BRANCHES, i)[0] ?? CODE_BRANCHES[i % CODE_BRANCHES.length];
     return {
+      // The account the image was found running in — the evidence for showing this row.
+      cloudAccountIds: [at(ACCOUNT_IDS, n)],
       fingerprint: hasFp ? `fp-${(i * 7919).toString(16).padStart(8, '0')}` : null,
-      type: isImage ? 'IMAGE_BUILD' : 'IAC_SCAN_BUILD',
+      type: 'IMAGE_BUILD',
       source: 'GITHUB',
       repository: 'XamOps-New',
       branch,
