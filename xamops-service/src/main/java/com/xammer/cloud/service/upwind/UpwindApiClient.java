@@ -157,6 +157,90 @@ public class UpwindApiClient {
     public record StreamResult(int count, boolean truncated) { }
 
     /**
+     * v2 configuration findings, which carry BOTH pass and fail with the rule and framework
+     * attached — the v1 list we sync gives one status per request and no rule id.
+     *
+     * Used for per-control detail rather than for the sync: re-pointing the posture walk we
+     * repaired is a separate, riskier change.
+     */
+    public List<JsonNode> searchConfigurationFindingsV2(
+            java.util.List<java.util.Map<String, Object>> conditions, int maxItems) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/configurations/findings/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(
+                    java.util.Map.of("conditions", conditions));
+            while (url != null && items.size() < maxItems) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] v2 configuration findings search failed: {}", e.getMessage());
+        }
+        return items;
+    }
+
+    /**
+     * v2 compliance frameworks, which DO carry {@code score} and {@code last_evaluation_time}.
+     *
+     * An earlier note here claimed v2 omitted both, and that was wrong: the framework sampled had
+     * state {@code no_finding_resources}, so its nulls were real data rather than missing fields.
+     * Measured 2026-08-12: 38 of 100 frameworks return a non-null score. v2 also adds {@code
+     * state}, which distinguishes "not connected" and "first scan running" from a genuine 0%.
+     */
+    public List<JsonNode> searchFrameworksV2(int maxItems) {
+        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/configurations/frameworks/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(java.util.Map.of(
+                    "conditions", java.util.List.of()));
+            while (url != null && items.size() < maxItems) {
+                HttpHeaders headers = authHeaders();
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] v2 framework search failed: {}", e.getMessage());
+        }
+        return items;
+    }
+
+    /**
+     * One asset's provider-native description.
+     *
+     * This is the only place real relationships appear: an ALB carries {@code SecurityGroups} and
+     * {@code VpcId}, an ASG carries {@code Instances} and {@code TargetGroupARNs}, an EC2 instance
+     * carries {@code SecurityGroups} and {@code SecondaryInterfaces}. The asset search does NOT
+     * return them, and nested conditions are rejected in every shape, so a bulk topology walk is
+     * not possible — this is one request per asset, for on-demand drill-down only.
+     */
+    public JsonNode getAssetDetail(String assetId) {
+        String url = apiBaseUrl + "/v2/organizations/" + orgId + "/inventory/catalog/assets/"
+                + java.net.URLEncoder.encode(assetId, java.nio.charset.StandardCharsets.UTF_8);
+        HttpHeaders headers = authHeaders();
+        ResponseEntity<String> resp = exchangeWithRetry(
+                URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
+        try {
+            return objectMapper.readTree(resp.getBody());
+        } catch (Exception e) {
+            throw new IllegalStateException("Upwind asset detail was not valid JSON", e);
+        }
+    }
+
+    /**
      * CI scan events — Upwind's shift-left stream.
      *
      * The route lives under {@code events}, not {@code shiftleft}, which is why every

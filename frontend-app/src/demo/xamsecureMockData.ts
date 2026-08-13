@@ -28,6 +28,7 @@ import type {
   CodeScan, CodeScansResponse, CodeScanFindings, CodeCve,
   VulnGroupPage, VulnGroupRow, VulnGroupDimension, ThreatGroups, ThreatGroupRow, ThreatGroupDimension,
   VulnerabilityDashboard, VulnerabilityFinding, Workflow, XamSecureSummary,
+  FrameworkControl, FrameworkControls, AssetRelationships,
 } from '../types/xamsecure';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -932,6 +933,8 @@ const framework = (
   name: string, failCount: number, passCount: number, version: string, scanHoursAgo: number,
 ): ComplianceFramework => ({
   framework: name, failCount, passCount, version, status: 'ACTIVE',
+  // Upwind's framework id. Required for the per-control drill-down, which is keyed on it.
+  frameworkId: `fw-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
   lastScanTime: hoursAgo(scanHoursAgo),
   score: Math.round((passCount * 1000) / (passCount + failCount)) / 10,
 });
@@ -947,6 +950,115 @@ export const demoCompliance: ComplianceFramework[] = [
   framework('CIS EKS',             11, 63,  '1.4.0', 7),
   framework('AWS Well-Architected', 19, 124, '2023', 8),
 ];
+
+// ─── /api/xamsecure/compliance/frameworks/{id}/controls ──────────────────────
+
+const CONTROL_TITLES = [
+  'Ensure S3 buckets block public access',
+  'Ensure EBS volumes are encrypted at rest',
+  'Ensure IAM users have MFA enabled',
+  'Ensure security groups do not allow 0.0.0.0/0 to port 22',
+  'Ensure CloudTrail is enabled in all regions',
+  'Ensure RDS instances are not publicly accessible',
+  'Ensure KMS key rotation is enabled',
+  'Ensure VPC flow logging is enabled',
+  'Ensure root account access keys do not exist',
+  'Ensure EKS control-plane logging is enabled',
+  'Ensure Lambda functions are not publicly invokable',
+  'Ensure secrets are rotated within 90 days',
+];
+
+const REMEDIATIONS = [
+  'Enable **Block all public access** on the bucket, then confirm no bucket policy grants `*`.',
+  'Create an encrypted snapshot, restore it to a new volume, and detach the unencrypted one.',
+  'Assign a virtual MFA device to every console user, then deny `sts:GetSessionToken` without MFA.',
+];
+
+/**
+ * Per-control breakdown for one framework, grouped from v2 configuration findings.
+ *
+ * Every control here is scored, because that is what the real endpoint returns: a control only
+ * reaches us via its findings, and live findings carry only `pass` or `fail`. The panel also
+ * handles a null compliance percentage (a control whose findings are all unscored), but demo
+ * data does not fabricate that state — it is covered directly in the component test instead.
+ *
+ * Sorted worst-first, matching the server's ordering, so the demo reads like production.
+ */
+export const demoFrameworkControls = (frameworkId: string): FrameworkControls | null => {
+  const f = demoCompliance.find((x) => x.frameworkId === frameworkId);
+  if (!f) return null;
+  const seed = frameworkId.length;
+  const controls: FrameworkControl[] = CONTROL_TITLES.map((title, i) => {
+    const failCount = (i * 3 + seed) % 11;
+    const passCount = 8 + ((i * 5 + seed) % 40);
+    const assetCount = failCount + passCount;
+    return {
+      ruleId: `${frameworkId}-rule-${(i + 1).toString().padStart(3, '0')}`,
+      title,
+      severity: at(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as Severity[], i + seed),
+      passCount,
+      failCount,
+      assetCount,
+      compliancePercent: Math.round((passCount / assetCount) * 100),
+      unscoredCount: 0,
+      resourceCount: assetCount,
+      remediation: at(REMEDIATIONS, i),
+      lastEvaluated: hoursAgo(4 + (i % 9)),
+    };
+  }).sort((a, b) => (a.compliancePercent ?? 0) - (b.compliancePercent ?? 0));
+  return {
+    frameworkId,
+    controls,
+    controlCount: controls.length,
+    // Non-zero on half the frameworks so the "excluded from other accounts" note is exercised.
+    skippedOtherAccounts: seed % 2 === 0 ? 0 : 37,
+  };
+};
+
+// ─── /api/xamsecure/inventory/assets/{id}/relationships ──────────────────────
+
+/**
+ * Provider-native references for one asset. Read per asset upstream, so the demo keys off the
+ * asset id the same way and returns an empty list for the types that legitimately stand alone.
+ */
+export const demoAssetRelationships = (assetId: string): AssetRelationships => {
+  const asset = demoInventoryAll.find((a) => a.upwindId === assetId);
+  const idx = asset ? asset.id : 0;
+  // IAM policies, log groups and Bedrock profiles reference nothing in their raw payload.
+  const standalone = !asset
+    || asset.assetCategory === 'identity'
+    || asset.assetCategory === 'logging';
+  if (standalone) {
+    return { assetId, resourceType: asset?.label ?? null, relationships: [] };
+  }
+  const sg = [`sg-0${(idx * 7919).toString(16).padStart(11, '0')}`,
+              `sg-0${(idx * 104729).toString(16).padStart(11, '0')}`];
+  const subnets = [`subnet-0${(idx * 6151).toString(16).padStart(11, '0')}`,
+                   `subnet-0${(idx * 3571).toString(16).padStart(11, '0')}`];
+  return {
+    assetId,
+    resourceType: asset.label,
+    relationships: [
+      { field: 'SecurityGroups', label: 'Security Groups', references: sg, count: sg.length },
+      { field: 'SubnetIds', label: 'Subnet Ids', references: subnets, count: subnets.length },
+      {
+        field: 'VpcId', label: 'Vpc Id',
+        references: [`vpc-0${(idx * 1543).toString(16).padStart(11, '0')}`], count: 1,
+      },
+      {
+        field: 'TargetGroupARNs', label: 'Target Group ARNs',
+        references: [
+          `arn:aws:elasticloadbalancing:${asset.region}:${asset.cloudAccountId}:targetgroup/tg-${idx}/73e2d6bc24d8a067`,
+        ],
+        count: 1,
+      },
+      {
+        field: 'IamInstanceProfile', label: 'Iam Instance Profile',
+        references: [`arn:aws:iam::${asset.cloudAccountId}:instance-profile/app-${idx}`], count: 1,
+      },
+    ],
+  };
+};
 
 // ─── /api/xamsecure/configurations/dashboard ─────────────────────────────────
 
@@ -1229,8 +1341,29 @@ const CODE_BRANCHES = ['main', 'release/2026.08', 'feat/threat-dashboard',
   'fix/sync-streaming', 'chore/icon-bundle'] as const;
 
 /**
+ * A plausible 40-hex commit SHA, deterministic per index.
+ *
+ * The previous form was `(i * 2654435761).toString(16).padStart(40, '0')`, which put 30-odd
+ * leading zeros on every value — so every row abbreviated to `0000000` and the whole column read
+ * as one repeated commit. Short SHAs are how a reviewer tells builds apart.
+ */
+const hexSha = (seed: number): string => {
+  let x = ((seed + 1) * 2654435761) % 4294967296;
+  let out = '';
+  while (out.length < 40) {
+    x = (x * 1103515245 + 12345) % 4294967296;
+    out += x.toString(16).padStart(8, '0');
+  }
+  return out.slice(0, 40);
+};
+
+/**
  * CI scan history. Roughly one scan in nine has no fingerprint, matching the measured 228 of 256
  * — those rows must render as history without a drill-down.
+ *
+ * The live stream reports both kinds of build for one connected repository, and `image` there is
+ * the build name rather than a container image — measured as "XamOps-New" on every scan, IaC ones
+ * included. The demo mirrors that rather than inventing per-scan image names.
  */
 export const demoCodeScans: CodeScansResponse = {
   available: true,
@@ -1244,7 +1377,7 @@ export const demoCodeScans: CodeScansResponse = {
       source: 'GITHUB',
       repository: 'XamOps-New',
       branch,
-      commitSha: (i * 2654435761).toString(16).padStart(40, '0').slice(0, 40),
+      commitSha: hexSha(i),
       initiator: at(['AdityaM-XR', 'Akshayy172', 'himanshu-xr'], i)[0] ?? 'AdityaM-XR',
       image: 'XamOps-New',
       imageOs: 'linux',

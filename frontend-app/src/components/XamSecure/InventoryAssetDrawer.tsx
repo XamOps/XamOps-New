@@ -1,13 +1,16 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
-import type { InventoryAsset } from '../../types/xamsecure';
+import type { InventoryAsset, AssetRelationships } from '../../types/xamsecure';
 import DetailPanel, { PanelBlock, PanelRow, type PanelSection } from './DetailPanel';
+import { referenceMark, ResourceIcon } from '../../utils/resourceBranding';
 
 interface Props {
   asset: InventoryAsset;
   onClose: () => void;
   /** Jumps to the cross-domain view for this asset. */
   onOpenResource?: (resourceId: string) => void;
+  /** One upstream request per asset, so it is issued when this section is first opened. */
+  loadRelationships?: (assetId: string) => Promise<AssetRelationships | null>;
 }
 
 /** snake_case / camelCase → "Title Case". */
@@ -42,7 +45,9 @@ const PRIORITY = [
  * exists at all and why it stays: the payload carries provider-specific fields we deliberately
  * don't model, and dropping them would lose information.
  */
-const InventoryAssetDrawer: React.FC<Props> = ({ asset, onClose, onOpenResource }) => {
+const InventoryAssetDrawer: React.FC<Props> = ({
+  asset, onClose, onOpenResource, loadRelationships,
+}) => {
   const raw = useMemo<Record<string, unknown>>(() => {
     try { return asset.rawPayload ? JSON.parse(asset.rawPayload) : {}; }
     catch { return {}; }
@@ -188,6 +193,16 @@ const InventoryAssetDrawer: React.FC<Props> = ({ asset, onClose, onOpenResource 
       ),
     },
     {
+      id: 'relationships', label: 'Relationships', icon: 'mdi:graph-outline', group: 'Asset',
+      available: !!loadRelationships && !!asset.upwindId,
+      unavailableReason:
+        'Relationships are read per asset from Upwind on demand, and this asset has no Upwind id.',
+      render: () => (
+        <RelationshipsBody assetId={asset.upwindId!} load={loadRelationships!}
+                           onOpenResource={onOpenResource} />
+      ),
+    },
+    {
       id: 'attributes', label: 'Attributes', icon: 'mdi:code-braces', group: 'Asset',
       count: entries.length,
       available: entries.length > 0,
@@ -240,6 +255,100 @@ const InventoryAssetDrawer: React.FC<Props> = ({ asset, onClose, onOpenResource 
       sections={sections}
       onClose={onClose}
     />
+  );
+};
+
+/**
+ * Provider-native relationships, read from the asset-detail payload on demand.
+ *
+ * Deliberately not part of the tab load: Upwind's asset search omits every relationship field
+ * its own schema declares, and nested/graph conditions are rejected, so the only source is
+ * `GET .../catalog/assets/{id}` — one request per asset. Fetching these for a table page would
+ * mean a request per row.
+ */
+const RelationshipsBody: React.FC<{
+  assetId: string;
+  load: (assetId: string) => Promise<AssetRelationships | null>;
+  onOpenResource?: (resourceId: string) => void;
+}> = ({ assetId, load, onOpenResource }) => {
+  const [data, setData] = useState<AssetRelationships | null>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+
+  useEffect(() => {
+    let live = true;
+    setState('loading');
+    load(assetId)
+      .then((d) => { if (live) { setData(d); setState('ready'); } })
+      .catch(() => { if (live) setState('error'); });
+    return () => { live = false; };
+  }, [assetId, load]);
+
+  if (state === 'loading') return <p className="text-xs text-gray-400">Loading relationships...</p>;
+  if (state === 'error') {
+    return (
+      <p className="text-xs text-gray-500">
+        Upwind did not return relationships for this asset.
+      </p>
+    );
+  }
+
+  const rels = data?.relationships ?? [];
+  if (rels.length === 0) {
+    return (
+      <p className="text-xs text-gray-500">
+        The provider payload for this asset references no other resources. Types like IAM policies
+        and log groups legitimately stand alone.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <PanelBlock>
+        <p className="flex items-start gap-1.5 rounded-lg border border-gray-200 bg-gray-50 p-2.5
+                      text-[11px] leading-relaxed text-gray-500">
+          <Icon icon="mdi:information-outline" width={13} className="mt-0.5 flex-shrink-0" />
+          References the cloud provider itself records on this resource. Runtime connections
+          (who actually talks to whom) come from sensor telemetry, which the API does not expose.
+        </p>
+      </PanelBlock>
+      {rels.map((r) => (
+        <PanelBlock key={r.field} title={`${r.label} · ${r.count}`}>
+          <div className="flex flex-wrap gap-1.5">
+            {r.references.map((ref) => {
+              const mark = referenceMark(ref);
+              const body = (
+                <>
+                  <ResourceIcon mark={mark} size={12} className="flex-shrink-0" />
+                  <span className="font-mono text-[10px]">{ref}</span>
+                </>
+              );
+              return onOpenResource ? (
+                <button key={ref} type="button" onClick={() => onOpenResource(ref)}
+                        title={`${mark.label} — open everything known about this resource`}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-gray-200
+                                   bg-white px-2 py-1 text-gray-700 hover:border-gray-400
+                                   focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900">
+                  {body}
+                </button>
+              ) : (
+                <span key={ref} title={mark.label}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-gray-200
+                                 bg-gray-50 px-2 py-1 text-gray-700">
+                  {body}
+                </span>
+              );
+            })}
+          </div>
+          {/* The backend caps each list at 50 so one asset cannot flood the panel. */}
+          {r.count > r.references.length && (
+            <p className="mt-1.5 text-[10px] text-gray-400">
+              Showing {r.references.length} of {r.count}.
+            </p>
+          )}
+        </PanelBlock>
+      ))}
+    </>
   );
 };
 

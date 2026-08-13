@@ -679,8 +679,16 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamsecure.demoInventoryCategories);
   if (url.includes('/api/xamsecure/inventory/network'))
     return makeResponse(xamsecure.demoNetworkTopology);
+  // Per-asset relationships, ahead of the inventory list route that would otherwise swallow it.
+  if (url.includes('/api/xamsecure/inventory/assets/') && url.includes('/relationships'))
+    return makeResponse(xamsecure.demoAssetRelationships(
+      decodeURIComponent(url.split('/api/xamsecure/inventory/assets/')[1].split('/')[0])));
   if (url.includes('/api/xamsecure/inventory'))
     return makeResponse(xamsecure.demoInventoryPage(url));
+  // Per-control breakdown, ahead of the framework list route.
+  if (url.includes('/api/xamsecure/compliance/frameworks/') && url.includes('/controls'))
+    return makeResponse(xamsecure.demoFrameworkControls(
+      decodeURIComponent(url.split('/api/xamsecure/compliance/frameworks/')[1].split('/')[0])));
   if (url.includes('/api/xamsecure/compliance'))
     return makeResponse(xamsecure.demoCompliance);
   if (url.includes('/api/xamsecure/configurations/dashboard'))

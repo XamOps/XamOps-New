@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
 import type {
   PageResp, InventoryAsset, InventoryCategory, InventoryRisk, NetworkTopology, ResourceDetail,
+  AssetRelationships,
 } from '../../types/xamsecure';
 import InventoryAssetDrawer from './InventoryAssetDrawer';
 import ResourceLink from './ResourceLink';
@@ -16,6 +17,11 @@ interface Props {
   isLoading: boolean;
   onLoad: (page: number, category: string) => void;
   loadResourceDetail?: (resourceId: string) => Promise<ResourceDetail>;
+  /**
+   * Provider-native relationships for one asset. One upstream request per asset, so this is
+   * only called when a row is opened, never for the table.
+   */
+  loadRelationships?: (assetId: string) => Promise<AssetRelationships | null>;
 }
 
 /** Readable labels + icons for networking sub-categories in the network view. */
@@ -37,7 +43,7 @@ const catLabel = (c: string | null): string =>
   (c ? categoryMark(c).label : 'Uncategorized');
 
 const InventoryTab: React.FC<Props> = ({
-  data, categories, risk, network, isLoading, onLoad, loadResourceDetail,
+  data, categories, risk, network, isLoading, onLoad, loadResourceDetail, loadRelationships,
 }) => {
   const { open, drawer } = useResourceDrawer(loadResourceDetail);
   const [selected, setSelected] = useState<InventoryAsset | null>(null);
@@ -176,6 +182,7 @@ const InventoryTab: React.FC<Props> = ({
           asset={selected}
           onClose={() => setSelected(null)}
           onOpenResource={(id) => { setSelected(null); open(id); }}
+          loadRelationships={loadRelationships}
         />
       )}
       {drawer}

@@ -8,7 +8,9 @@ import com.xammer.cloud.domain.UpwindInventoryAsset;
 import com.xammer.cloud.repository.*;
 import com.xammer.cloud.repository.UpwindInventoryAssetRepository;
 import com.xammer.cloud.service.RedisCacheService;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -46,6 +48,16 @@ public class XamSecureService {
     private final UpwindInventoryAssetRepository inventoryRepo;
     private final UpwindApiEndpointRepository apiEndpointRepo;
     private final UpwindApiClient apiClient;
+
+    /**
+     * Cloud accounts whose owner may read org-level Upwind data (the shift-left CI stream).
+     *
+     * Empty means withheld from everyone. Setter is for tests; see {@link #ownsOrgLevelData}
+     * for why this is configuration rather than something derived from the payload.
+     */
+    @Setter
+    @Value("${upwind.shift-left.owner-account-ids:}")
+    private String shiftLeftOwnerAccountIds;
 
     public XamSecureService(CloudAccountRepository cloudAccountRepository,
                             UpwindThreatDetectionRepository detectionRepo,
@@ -1020,32 +1032,40 @@ public class XamSecureService {
     }
 
     /**
-     * Whether this client may see ORG-LEVEL Upwind data.
+     * Whether this client owns the ORG-LEVEL Upwind data — the shift-left CI stream.
      *
-     * Shift-left scans carry no cloud_account_id — only repository, branch, commit and
-     * initiator — so {@link #resolveAccountIds} cannot scope them, and every XamOps client reads
-     * from the same {@code upwind.org-id}. Serving them to any client would leak another
-     * tenant's repository names, branch names and contributor usernames, which is the same class
-     * of bug as the threat-story list filtering on a field stories do not carry.
+     * Two rules preceded this and both were wrong.
      *
-     * The one defensible rule available from data we already hold: a client that owns every cloud
-     * account in the Upwind org IS the org, so org-level data is theirs. Anyone else gets
-     * nothing. This is intentionally strict — a false negative hides a tab, a false positive
-     * leaks source-control metadata.
+     * ownsEntireOrg(): a client owning every cloud account in the org IS the org. Safe and
+     * useless — no client owns every account while one org-id is shared across tenants, so the
+     * Code tab could never render anything at all.
+     *
+     * Correlating each scan's image to an image we hold under an owned account. That looked
+     * sound and matched nothing, because `image` on these events is not a container image:
+     * measured 2026-08-12, all 100 sampled scans report image="XamOps-New", identical to
+     * `repository` and populated on IaC builds too. The repository wired to this organization is
+     * XamOps itself, and its builds never run as a workload in a customer account, so the join
+     * had no overlap to find. A category error, not a tuning problem.
+     *
+     * What is left is a fact we hold and the API cannot state: which accounts belong to the
+     * tenant that connected the repository. Configuration is the honest place for it. Empty
+     * means withheld from everyone, so an unconfigured environment cannot leak.
      */
-    private boolean ownsEntireOrg(Long clientId) {
-        // Same union UpwindSyncService.knownCloudAccountIds uses, computed here rather than
-        // injecting the sync service into a read path.
-        Set<String> known = new LinkedHashSet<>();
-        for (UpwindAccountConnection c : connectionRepo.findAll()) {
-            if (c.getCloudAccountId() != null && !c.getCloudAccountId().isBlank()) {
-                known.add(c.getCloudAccountId());
-            }
+    private boolean ownsOrgLevelData(Long clientId) {
+        Set<String> owners = shiftLeftOwnerAccountIds();
+        if (owners.isEmpty()) return false;
+        // Must own every configured account, so adding one narrows access rather than widening it.
+        return resolveAccountIds(clientId, null).containsAll(owners);
+    }
+
+    private Set<String> shiftLeftOwnerAccountIds() {
+        if (shiftLeftOwnerAccountIds == null || shiftLeftOwnerAccountIds.isBlank()) return Set.of();
+        Set<String> out = new LinkedHashSet<>();
+        for (String part : shiftLeftOwnerAccountIds.split(",")) {
+            String t = part.trim();
+            if (!t.isEmpty()) out.add(t);
         }
-        known.addAll(inventoryRepo.findDistinctCloudAccountIds());
-        known.remove(null);
-        if (known.isEmpty()) return false;
-        return resolveAccountIds(clientId, null).containsAll(known);
+        return out;
     }
 
     /**
@@ -1063,12 +1083,14 @@ public class XamSecureService {
             out.put("unavailableReason", "Upwind is not configured.");
             return out;
         }
-        if (!ownsEntireOrg(clientId)) {
-            // Deliberately the same message either way: whether an org has code scanning at all
-            // is itself information about another tenant.
+        if (!ownsOrgLevelData(clientId)) {
+            // Deliberately phrased as a fact about the caller's own accounts, not as a hint that
+            // someone else's scans exist. Whether this organization does CI scanning at all is
+            // itself information about another tenant.
             out.put("unavailableReason",
-                    "Code scan history is reported for the whole Upwind organization and carries "
-                    + "no cloud account, so it is only shown to the account owner.");
+                    "No code scanning is connected for your cloud accounts. Upwind reports CI "
+                    + "scans for a source repository rather than a cloud account, so they appear "
+                    + "only for the accounts that connected one.");
             return out;
         }
 
@@ -1119,8 +1141,13 @@ public class XamSecureService {
      * a clean scan rather than an error.
      */
     public Map<String, Object> getCodeScanFindings(Long clientId, String fingerprint) {
-        if (fingerprint == null || fingerprint.isBlank() || !apiClient.isConfigured()
-                || !ownsEntireOrg(clientId)) {
+        if (fingerprint == null || fingerprint.isBlank() || !apiClient.isConfigured()) {
+            return Map.of();
+        }
+        // The fingerprint arrives from the client and Upwind answers 200 for any tenant's
+        // fingerprint, echoing unknown ones back — so a caller who cannot see the list must not be
+        // able to read a result by guessing one.
+        if (!ownsOrgLevelData(clientId)) {
             return Map.of();
         }
         JsonNode r;
@@ -1176,6 +1203,229 @@ public class XamSecureService {
             sb.append(Character.toUpperCase(parts[i].charAt(0))).append(parts[i].substring(1));
         }
         return sb.toString();
+    }
+
+    /**
+     * Per-control compliance for one framework: how many assets pass each rule, and how many fail.
+     *
+     * This is the detail our Compliance tab has never had. It reads v2 findings, which return
+     * BOTH statuses with the rule and framework attached — the v1 list we sync gives one status
+     * per request and no rule id, so it cannot answer "which controls, and how compliant".
+     *
+     * Read live rather than synced, deliberately. Re-pointing the posture walk we just repaired
+     * is a separate and riskier change; this only adds a request behind a drill-down.
+     *
+     * A control with no findings at all is Upwind's "no relevant assets were found in your
+     * environment" state, and it is reported as unscored rather than as 0% — the difference
+     * between "nothing to check" and "everything failed" is the whole point of the column.
+     */
+    public Map<String, Object> getFrameworkControls(Long clientId, String frameworkId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("frameworkId", frameworkId);
+        out.put("controls", List.of());
+        List<String> ids = resolveAccountIds(clientId, null);
+        if (ids.isEmpty() || frameworkId == null || frameworkId.isBlank()
+                || !apiClient.isConfigured()) {
+            return out;
+        }
+
+        String cacheKey = "xamsecure:controls:" + clientId + ":" + frameworkId;
+        Optional<Map<String, Object>> cached =
+                redisCacheService.get(cacheKey, new TypeReference<Map<String, Object>>() {});
+        if (cached.isPresent()) return cached.get();
+
+        List<Map<String, Object>> conditions = List.of(
+                Map.of("field", "framework_id", "operator", "eq", "value", List.of(frameworkId)));
+
+        Set<String> owned = new HashSet<>(ids);
+        Map<String, ControlAgg> byRule = new LinkedHashMap<>();
+        int skippedForeign = 0;
+        for (JsonNode f : apiClient.searchConfigurationFindingsV2(conditions, CONTROL_MAX_FINDINGS)) {
+            // v2 findings carry the account on the resource, so unlike threat stories these can
+            // be scoped properly. Anything outside the caller's accounts is dropped.
+            String acct = f.path("resource").path("cloud_account_id").asText(null);
+            if (acct != null && !owned.contains(acct)) {
+                skippedForeign++;
+                continue;
+            }
+            JsonNode rule = f.path("rule");
+            String ruleId = rule.path("id").asText(null);
+            if (ruleId == null || ruleId.isBlank()) continue;
+            ControlAgg a = byRule.computeIfAbsent(ruleId, k -> new ControlAgg(k));
+            if (a.title == null) a.title = rule.path("title").asText(null);
+            if (a.remediation == null) a.remediation = rule.path("remediation").asText(null);
+            String sev = upper(f.path("severity").asText(null));
+            if (isHigherVulnSeverity(sev, a.severity)) a.severity = sev;
+            // Only pass and fail are scored. Live v2 returns nothing else today, but treating an
+            // unrecognised status as failing is exactly how resolved vulnerabilities came to be
+            // counted as current (53cb908a0); an unscored status must not inflate the failure
+            // count. A control whose findings are all unscored reports no percentage at all.
+            String status = f.path("status").asText(null);
+            if ("pass".equalsIgnoreCase(status)) a.pass++;
+            else if ("fail".equalsIgnoreCase(status)) a.fail++;
+            else a.unscored++;
+            String res = f.path("resource").path("name").asText(null);
+            if (res != null) a.resources.add(res);
+            a.lastEvaluated = latest(a.lastEvaluated, instantOrNull(f.path("evaluation_time")));
+        }
+
+        List<Map<String, Object>> controls = byRule.values().stream()
+                // Worst compliance first: a reviewer works down from the least compliant control.
+                .sorted(Comparator.comparingDouble(ControlAgg::complianceRatio)
+                        .thenComparing(a -> -a.fail))
+                .map(ControlAgg::toMap)
+                .collect(Collectors.toList());
+        out.put("controls", controls);
+        out.put("controlCount", controls.size());
+        out.put("skippedOtherAccounts", skippedForeign);
+        if (!controls.isEmpty()) redisCacheService.put(cacheKey, out, SUMMARY_CACHE_MINUTES);
+        return out;
+    }
+
+    /** Cap on findings pulled for one framework's control breakdown. */
+    private static final int CONTROL_MAX_FINDINGS = 20000;
+
+    /** v2 returns the whole framework catalogue; 100 covered every framework measured. */
+    private static final int FRAMEWORK_MAX = 200;
+
+    /** One compliance control with its pass/fail split across the caller's assets. */
+    private static final class ControlAgg {
+        final String ruleId;
+        String title;
+        String remediation;
+        String severity;
+        int pass;
+        int fail;
+        /** Findings carrying a status we do not score. Reported, never folded into fail. */
+        int unscored;
+        final Set<String> resources = new HashSet<>();
+        Instant lastEvaluated;
+        ControlAgg(String ruleId) { this.ruleId = ruleId; }
+
+        /** Unscored controls sort first; they need attention of a different kind. */
+        double complianceRatio() {
+            int total = pass + fail;
+            return total == 0 ? -1 : (double) pass / total;
+        }
+
+        Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            int total = pass + fail;
+            m.put("ruleId", ruleId);
+            m.put("title", title);
+            m.put("severity", severity);
+            m.put("passCount", pass);
+            m.put("failCount", fail);
+            m.put("assetCount", total);
+            // Null, not 0: no findings means Upwind found no relevant assets, which is not the
+            // same as every asset failing.
+            m.put("compliancePercent", total == 0 ? null : (int) Math.round(100.0 * pass / total));
+            m.put("unscoredCount", unscored);
+            m.put("resourceCount", resources.size());
+            m.put("remediation", remediation);
+            m.put("lastEvaluated", lastEvaluated);
+            return m;
+        }
+    }
+
+    private static Instant instantOrNull(JsonNode node) {
+        String v = node == null ? null : node.asText(null);
+        if (v == null || v.isBlank()) return null;
+        try { return Instant.parse(v); } catch (Exception e) { return null; }
+    }
+
+    /**
+     * Provider-native relationships for one asset.
+     *
+     * The only place real edges are available. The asset search omits the relationship fields the
+     * inventory schema declares, and nested conditions are rejected in every shape, so this is
+     * one request per asset rather than a topology walk — which is why it is exposed behind an
+     * asset drill-down and not as a graph over the estate.
+     *
+     * Keys are provider-native (SecurityGroups, VpcId, Instances, TargetGroupARNs), so rather
+     * than enumerate every resource type we detect the shape: scalars that look like a resource
+     * id, and arrays of ids or of objects carrying one.
+     */
+    public Map<String, Object> getAssetRelationships(Long clientId, String assetId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("assetId", assetId);
+        out.put("relationships", List.of());
+        if (assetId == null || assetId.isBlank() || !apiClient.isConfigured()) return out;
+
+        // Tenancy: only assets we already hold for this client, so the raw fetch cannot be used
+        // to read an asset belonging to another account.
+        List<String> ids = resolveAccountIds(clientId, null);
+        if (ids.isEmpty()) return out;
+        Optional<UpwindInventoryAsset> owned = inventoryRepo.findByUpwindId(assetId)
+                .filter(a -> a.getCloudAccountId() != null && ids.contains(a.getCloudAccountId()));
+        if (owned.isEmpty()) {
+            throw new AccessDeniedException("Asset not accessible");
+        }
+
+        JsonNode raw;
+        try {
+            raw = apiClient.getAssetDetail(assetId).path("items").path(0).path("raw_data");
+        } catch (Exception e) {
+            log.warn("[Upwind] asset detail {} fetch failed: {}", assetId, e.getMessage());
+            return out;
+        }
+        if (raw == null || !raw.isObject()) return out;
+
+        List<Map<String, Object>> rels = new ArrayList<>();
+        raw.fields().forEachRemaining(entry -> {
+            String key = entry.getKey();
+            if (RELATIONSHIP_SKIP.contains(key)) return;
+            List<String> refs = extractReferences(entry.getValue());
+            if (refs.isEmpty()) return;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("field", key);
+            m.put("label", prettifyFieldName(key));
+            m.put("references", refs.size() > 50 ? refs.subList(0, 50) : refs);
+            m.put("count", refs.size());
+            rels.add(m);
+        });
+        rels.sort(Comparator.comparing(m -> (String) m.get("label")));
+        out.put("relationships", rels);
+        out.put("resourceType", owned.get().getLabel());
+        return out;
+    }
+
+    /** Noise that matches the id shapes below without describing a relationship. */
+    private static final Set<String> RELATIONSHIP_SKIP = Set.of(
+            "Tags", "Arn", "ARN", "OwnerId", "ClientToken", "Region", "AvailabilityZone");
+
+    /** Matches the id forms AWS uses: sg-, vpc-, subnet-, i-, eni-, vol-, ami-, and full ARNs. */
+    private static final java.util.regex.Pattern RESOURCE_ID =
+            java.util.regex.Pattern.compile(
+                    "^(arn:[^:]*:[^:]+:.*|(sg|vpc|subnet|i|eni|vol|ami|snap|rtb|acl|igw|nat|lt|tg)-[0-9a-f]{6,})$");
+
+    /**
+     * Pulls resource ids out of a provider-native value, whatever shape it takes: a bare id, an
+     * array of ids, or an array of objects with one id-shaped field (ASG Instances carry
+     * InstanceId, TrafficSources carry Identifier).
+     */
+    private static List<String> extractReferences(JsonNode value) {
+        List<String> refs = new ArrayList<>();
+        if (value == null || value.isNull()) return refs;
+        if (value.isTextual()) {
+            if (RESOURCE_ID.matcher(value.asText()).matches()) refs.add(value.asText());
+            return refs;
+        }
+        if (value.isArray()) {
+            for (JsonNode n : value) {
+                if (n.isTextual() && RESOURCE_ID.matcher(n.asText()).matches()) {
+                    refs.add(n.asText());
+                } else if (n.isObject()) {
+                    n.fields().forEachRemaining(f -> {
+                        if (f.getValue().isTextual()
+                                && RESOURCE_ID.matcher(f.getValue().asText()).matches()) {
+                            refs.add(f.getValue().asText());
+                        }
+                    });
+                }
+            }
+        }
+        return refs.stream().distinct().collect(Collectors.toList());
     }
 
     /** Friendly labels for the detection sources Upwind emits, keyed by payload category. */
@@ -1396,6 +1646,24 @@ public class XamSecureService {
                     return m;
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * SecurityGroups -> "Security Groups", TargetGroupARNs -> "Target Group ARNs".
+     *
+     * Provider payload keys are PascalCase, not the SCREAMING_SNAKE that {@link #prettify} was
+     * written for; running them through that would lowercase the interior and produce
+     * "Securitygroups". Splits only where a lowercase or digit meets an uppercase, so acronym
+     * runs like ARN and DB survive intact.
+     */
+    private static String prettifyFieldName(String raw) {
+        if (raw == null || raw.isBlank()) return raw;
+        String spaced = raw.replace('_', ' ')
+                .replaceAll("([a-z0-9])([A-Z])", "$1 $2")
+                .trim()
+                .replaceAll("\\s+", " ");
+        if (spaced.isEmpty()) return raw;
+        return Character.toUpperCase(spaced.charAt(0)) + spaced.substring(1);
     }
 
     /** CLOUD_TRAIL -> "Cloud Trail", for sources we have no curated label for. */
@@ -2420,10 +2688,26 @@ public class XamSecureService {
             }
         }
 
+        // v2 adds `state`, which is the difference between "0% compliant" and "never evaluated
+        // here". Without it a framework with no findings is indistinguishable from one that
+        // failed everything, and the frameworks grid was hiding those rows on a heuristic
+        // instead of saying why. Merged rather than replacing v1: v1 is the source of the
+        // canonical title/version/status this map is already keyed on.
+        Map<String, JsonNode> metaV2 = new LinkedHashMap<>();
+        if (apiClient.isConfigured()) {
+            for (JsonNode fw : apiClient.searchFrameworksV2(FRAMEWORK_MAX)) {
+                String title = fw.path("title").asText(null);
+                if (title != null) metaV2.putIfAbsent(normalizeFramework(title), fw);
+            }
+        }
+
         // Union of normalized keys: frameworks Upwind knows about + any that produced findings.
         Set<String> allKeys = new LinkedHashSet<>();
         allKeys.addAll(meta.keySet());
         allKeys.addAll(byFramework.keySet());
+        // v2-only frameworks are deliberately NOT added here: v1 is the enabled-framework list,
+        // and v2 returns the whole catalogue. Adding them would put a hundred never-enabled
+        // frameworks in the grid.
 
         List<Map<String, Object>> result = allKeys.stream().map(key -> {
             Map<String, Long> counts = byFramework.getOrDefault(key, Map.of());
@@ -2435,11 +2719,26 @@ public class XamSecureService {
             m.put("passCount", counts.getOrDefault("PASS", 0L));
             if (fw != null) {
                 m.put("framework", fw.path("title").asText((String) m.get("framework")));
+                // The id is what the per-control drill-down queries on; without it the drawer
+                // has nothing to ask for, which is why unmatched frameworks hide that section.
+                m.put("frameworkId", textOrNull(fw, "id"));
                 m.put("version", textOrNull(fw, "version"));
                 m.put("status", textOrNull(fw, "status"));
                 m.put("lastScanTime", textOrNull(fw, "last_scan_time"));
                 JsonNode cs = fw.path("compliance_status");
                 m.put("score", cs.has("score") ? cs.get("score").asInt() : null);
+            }
+            JsonNode v2 = metaV2.get(key);
+            if (v2 != null) {
+                m.put("state", textOrNull(v2, "state"));
+                // v2 fields are a fallback only, so a v1 value is never overwritten by a null.
+                if (m.get("score") == null && v2.hasNonNull("score")) {
+                    m.put("score", v2.get("score").asInt());
+                }
+                if (m.get("lastScanTime") == null) {
+                    m.put("lastScanTime", textOrNull(v2, "last_evaluation_time"));
+                }
+                if (m.get("frameworkId") == null) m.put("frameworkId", textOrNull(v2, "id"));
             }
             return m;
         }).collect(Collectors.toList());

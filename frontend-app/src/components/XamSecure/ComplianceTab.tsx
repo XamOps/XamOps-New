@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import type { ComplianceFramework, IssueSummary } from '../../types/xamsecure';
+import type { ComplianceFramework, IssueSummary, FrameworkControls } from '../../types/xamsecure';
 import { FrameworkLogo } from '../../utils/frameworkBranding';
 import FrameworkDrawer from './FrameworkDrawer';
 
@@ -8,6 +8,8 @@ interface Props {
   isLoading: boolean;
   /** Issues already loaded for this account, used to list a framework's failing controls. */
   issues?: IssueSummary[] | null;
+  /** Per-control breakdown, fetched on open. Omit and the drawer hides that section. */
+  loadControls?: (frameworkId: string) => Promise<FrameworkControls | null>;
 }
 
 /** Normalizes framework titles so issue rows match the framework card reliably. */
@@ -16,7 +18,7 @@ const normalize = (s: string): string => s.trim().replace(/\s+/g, ' ').toLowerCa
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: '2-digit', year: 'numeric' }) : '—';
 
-const ComplianceTab: React.FC<Props> = ({ data, isLoading, issues }) => {
+const ComplianceTab: React.FC<Props> = ({ data, isLoading, issues, loadControls }) => {
   const [selected, setSelected] = useState<ComplianceFramework | null>(null);
 
   // Issues carry the frameworks each check maps to, so a framework's failing controls can
@@ -31,8 +33,12 @@ const ComplianceTab: React.FC<Props> = ({ data, isLoading, issues }) => {
   // frameworks on an AWS-only account). Those show a hollow "0% / No failing controls"
   // that reads as broken. Keep anything actually evaluated: has a scan time, has failing
   // controls, or carries a real (>0) compliance score.
+  //
+  // A first scan in progress is the exception: it has no score yet by definition, and hiding it
+  // would make an enabled framework look absent while it is actively being evaluated.
   const frameworks = (data ?? [])
-    .filter((f) => f.lastScanTime || f.failCount > 0 || (f.score != null && f.score > 0))
+    .filter((f) => f.lastScanTime || f.failCount > 0 || (f.score != null && f.score > 0)
+      || f.state === 'during_first_scan')
     .sort((a, b) => (a.score ?? 0) - (b.score ?? 0) || b.failCount - a.failCount);
   if (isLoading && frameworks.length === 0) {
     return <div className="text-center py-16 text-sm text-gray-400">Loading compliance frameworks...</div>;
@@ -104,6 +110,7 @@ const ComplianceTab: React.FC<Props> = ({ data, isLoading, issues }) => {
       })}
       {selected && (
         <FrameworkDrawer framework={selected} failingChecks={failingChecks}
+                         loadControls={loadControls}
                          onClose={() => setSelected(null)} />
       )}
     </div>

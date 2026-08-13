@@ -215,6 +215,32 @@ public class ComplianceGovernanceService {
         return remediationRepo.save(t);
     }
 
+    // ── Ownership lookups for authorization ─────────────────────────────────
+
+    /*
+     * The approve/reject/revoke/update endpoints address a record by its own id and never
+     * name an account, so the caller has nothing to authorize against without first
+     * asking which account the record belongs to. Both methods return null for an id
+     * that does not exist, letting the caller answer "unknown" and "forbidden"
+     * identically rather than confirming that someone else's record exists.
+     */
+
+    @Transactional(readOnly = true)
+    public String findExceptionAccountId(Long id) {
+        if (id == null) return null;
+        return exceptionRepo.findById(id)
+                .map(e -> e.getCloudAccountId())
+                .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public String findRemediationAccountId(Long id) {
+        if (id == null) return null;
+        return remediationRepo.findById(id)
+                .map(r -> r.getCloudAccountId())
+                .orElse(null);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private static void require(boolean condition, String message) {

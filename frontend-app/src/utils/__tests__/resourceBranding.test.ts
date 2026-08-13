@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  resourceMark, categoryMark, packageMark, osMark, telemetryMark,
+  resourceMark, categoryMark, packageMark, osMark, telemetryMark, referenceMark,
 } from '../resourceBranding';
 
 /**
@@ -69,6 +69,33 @@ describe('resourceBranding', () => {
     expect(telemetryMark('GCP Logs').icon).toBe('logos:google-cloud');
     expect(telemetryMark('Sensor').label).toBe('Sensor');
     expect(telemetryMark('Cloud Scanner').label).toBe('Cloud Scanner');
+  });
+
+  it('reads a relationship reference from its id shape, since it carries no type', () => {
+    // Asset relationships give a field name and a list of strings. The shape is the only signal.
+    expect(referenceMark('sg-0df6aaaa1111').label).toBe('Security group');
+    expect(referenceMark('subnet-0a1b2c3d4e').label).toBe('Subnet');
+    expect(referenceMark('vpc-0abc123456').icon).toBe('logos:aws-vpc');
+    expect(referenceMark('i-0aaa111222').icon).toBe('logos:aws-ec2');
+    // `igw-` must not fall through to the `i-` rule.
+    expect(referenceMark('igw-0abc123456').label).toBe('Internet gateway');
+    expect(referenceMark('arn:aws:iam::111:role/deploy').icon).toBe('logos:aws-iam');
+    expect(referenceMark('arn:aws:iam::111:instance-profile/app').label)
+      .toBe('IAM instance profile');
+    // Target groups are part of ELB, so the ELB mark is the correct product to name.
+    expect(referenceMark('arn:aws:elasticloadbalancing:us-east-1:111:targetgroup/tg-1/73e2').label)
+      .toBe('Target group');
+    expect(referenceMark('arn:aws:elasticloadbalancing:us-east-1:111:loadbalancer/app/x/1').label)
+      .toBe('Load balancer');
+  });
+
+  it('stays neutral for a reference it cannot identify rather than guessing a product', () => {
+    // An unmapped ARN is still definitely AWS; a bare string is not identifiable at all.
+    expect(referenceMark('arn:aws:some-future-service:us-east-1:111:thing/1').icon)
+      .toBe('logos:aws');
+    expect(referenceMark('running').icon).toBe('mdi:cube-outline');
+    expect(referenceMark('').icon).toBe('mdi:cube-outline');
+    expect(referenceMark(null).icon).toBe('mdi:cube-outline');
   });
 
   it('labels inventory categories including the uncategorised case', () => {
