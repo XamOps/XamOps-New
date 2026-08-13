@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import {
   IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsSection, VulnerabilitiesTab,
@@ -132,6 +132,43 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(introducing[0]!.cves.introduced[0].severity).toBe('CRITICAL');
     // Fingerprint-less scans have no findings to open.
     expect(demo.demoCodeScanFindings('fp-does-not-exist')).toBeNull();
+  });
+
+  it('a scan opens on the narrative and the shift-left path, not a wall of CVEs', async () => {
+    draw(<CodeTab data={demo.demoCodeScans} isLoading={false}
+                  loadFindings={(async (fp: string) =>
+                    demo.demoCodeScanFindings(fp)) as never} />);
+    const scan = demo.demoCodeScans.scans.find(
+      (s) => s.fingerprint && s.type === 'IMAGE_BUILD')!;
+    fireEvent.click(screen.getByText(scan.commitSha!.slice(0, 7)).closest('tr')!);
+
+    // Scoped to the panel: the scan table behind it has its own Repository/Branch/Commit headers.
+    const panel = within(await screen.findByRole('dialog'));
+
+    // The opening sentence: who pushed what, and how much of the total this build is answerable
+    // for. That framing is the point of a shift-left view.
+    expect(panel.getByText(/pushed/)).toBeInTheDocument();
+    expect(panel.getByText(/introduced by this\s+build and/)).toBeInTheDocument();
+
+    // The path Upwind draws as its "Shift left graph".
+    expect(panel.getByText('Repository')).toBeInTheDocument();
+    expect(panel.getByText('Branch')).toBeInTheDocument();
+    expect(panel.getByText('Commit')).toBeInTheDocument();
+
+    // Their terminal node is a deploy verdict the API does not carry, so ours ends on the
+    // measured outcome and says so rather than inventing advice.
+    const findings = demo.demoCodeScanFindings(scan.fingerprint!)!;
+    // Appears twice by design, as in Upwind: once as the header verdict chip, once as the
+    // terminal node of the path.
+    expect(panel.getAllByText(
+      findings.counts.introduced > 0
+        ? `${findings.counts.introduced} introduced` : 'Nothing introduced').length)
+      .toBeGreaterThan(0);
+    expect(panel.getByText(/deploy recommendation. That verdict is computed/))
+      .toBeInTheDocument();
+
+    // Resolved CVEs are a real bucket Upwind shows in its diff, so the panel reports it.
+    expect(panel.getByText('Resolved CVEs')).toBeInTheDocument();
   });
 
   it('Code separates IaC scans from image builds, as Upwind orders the page', () => {

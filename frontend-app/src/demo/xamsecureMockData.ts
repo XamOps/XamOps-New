@@ -1341,6 +1341,23 @@ const CODE_BRANCHES = ['main', 'release/2026.08', 'feat/threat-dashboard',
   'fix/sync-streaming', 'chore/icon-bundle'] as const;
 
 /**
+ * A plausible 40-hex commit SHA, deterministic per index.
+ *
+ * The previous form was `(i * 2654435761).toString(16).padStart(40, '0')`, which put 30-odd
+ * leading zeros on every value — so every row abbreviated to `0000000` and the whole column read
+ * as one repeated commit. Short SHAs are how a reviewer tells builds apart.
+ */
+const hexSha = (seed: number): string => {
+  let x = ((seed + 1) * 2654435761) % 4294967296;
+  let out = '';
+  while (out.length < 40) {
+    x = (x * 1103515245 + 12345) % 4294967296;
+    out += x.toString(16).padStart(8, '0');
+  }
+  return out.slice(0, 40);
+};
+
+/**
  * CI scan history. Roughly one scan in nine has no fingerprint, matching the measured 228 of 256
  * — those rows must render as history without a drill-down.
  *
@@ -1360,7 +1377,7 @@ export const demoCodeScans: CodeScansResponse = {
       source: 'GITHUB',
       repository: 'XamOps-New',
       branch,
-      commitSha: (i * 2654435761).toString(16).padStart(40, '0').slice(0, 40),
+      commitSha: hexSha(i),
       initiator: at(['AdityaM-XR', 'Akshayy172', 'himanshu-xr'], i)[0] ?? 'AdityaM-XR',
       image: 'XamOps-New',
       imageOs: 'linux',

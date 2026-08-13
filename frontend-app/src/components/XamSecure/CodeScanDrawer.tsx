@@ -85,7 +85,101 @@ const CodeScanDrawer: React.FC<Props> = ({ scan, load, onClose }) => {
       )
   );
 
+  const total = counts
+    ? counts.introduced + counts.highImpact + counts.noChange + counts.resolved
+    : 0;
+
   const sections: PanelSection[] = [
+    {
+      id: 'overview',
+      label: 'Scan overview',
+      icon: 'mdi:text-box-outline',
+      group: 'Scan',
+      render: () => (
+        <>
+          <PanelBlock>
+            {/* The same sentence Upwind opens with, from fields we hold. A reviewer wants the
+                shape of the change before a table of CVEs. */}
+            <p className="text-xs leading-relaxed text-gray-700">
+              {scan.initiator ? <strong className="font-semibold">{scan.initiator}</strong> : 'Someone'}
+              {' pushed '}
+              {scan.commitSha ? (
+                <span className="font-mono text-[11px]">{scan.commitSha.slice(0, 7)}</span>
+              ) : 'a commit'}
+              {scan.branch ? <> to <strong className="font-semibold">{scan.branch}</strong></> : null}
+              {scan.pullRequestUrl ? (
+                <>
+                  {' in '}
+                  <a href={scan.pullRequestUrl} target="_blank" rel="noreferrer noopener"
+                     className="text-gray-800 underline decoration-dotted">
+                    {scan.pullRequestId ? `PR #${scan.pullRequestId}` : 'a pull request'}
+                  </a>
+                </>
+              ) : null}
+              {'. '}
+              {counts ? (
+                <>
+                  Upwind compared it against the default branch and reported{' '}
+                  <strong className="font-semibold">{total}</strong>{' '}
+                  {total === 1 ? 'CVE' : 'CVEs'} —{' '}
+                  <strong className="font-semibold">{counts.introduced}</strong> introduced by this
+                  build and <strong className="font-semibold">{counts.noChange}</strong> already
+                  present.
+                </>
+              ) : 'Upwind reported no comparison for this scan.'}
+            </p>
+          </PanelBlock>
+
+          {/* Upwind's "Shift left graph": where this scan sits in the pipeline. Their terminal
+              node is a deploy recommendation, which the API does not carry — not on the scan
+              event, not on the findings payload. Ours ends on the measured outcome instead of a
+              verdict we would have to invent. */}
+          <PanelBlock title="Shift left path">
+            <div className="flex items-center gap-1 overflow-x-auto py-2">
+              <GraphNode icon="mdi:source-repository" label={scan.repository ?? '—'}
+                         sub="Repository" tone="blue" />
+              <GraphEdge />
+              <GraphNode icon="mdi:source-branch" label={scan.branch ?? '—'}
+                         sub="Branch" tone="blue" />
+              <GraphEdge />
+              <GraphNode icon="mdi:source-commit"
+                         label={scan.commitSha ? scan.commitSha.slice(0, 7) : '—'}
+                         sub="Commit" tone="blue" mono />
+              <GraphEdge />
+              {counts && counts.introduced > 0 ? (
+                <GraphNode icon="mdi:alert-circle-outline"
+                           label={`${counts.introduced} introduced`}
+                           sub="This build" tone="red" />
+              ) : (
+                <GraphNode icon="mdi:check-circle-outline" label="Nothing introduced"
+                           sub="This build" tone="green" />
+              )}
+            </div>
+            <p className="mt-1 text-[10px] leading-relaxed text-gray-400">
+              Upwind ends this path on its own deploy recommendation. That verdict is computed in
+              their console and is absent from both API payloads, so this ends on what the scan
+              measured rather than on advice we would be guessing at.
+            </p>
+          </PanelBlock>
+
+          <PanelBlock title="Comparison and diff">
+            <PanelRow label="Compared against" value="Default branch" />
+            <PanelRow label="New CVEs" value={counts ? (
+              counts.introduced > 0
+                ? <span className="font-semibold text-red-600">{counts.introduced}</span>
+                : <span className="text-gray-600">None</span>
+            ) : null} />
+            <PanelRow label="Resolved CVEs" value={counts ? (
+              counts.resolved > 0
+                ? <span className="font-semibold text-emerald-600">{counts.resolved}</span>
+                : <span className="text-gray-600">None</span>
+            ) : null} />
+            <PanelRow label="Pre-existing" value={counts?.noChange} />
+            <PanelRow label="High impact" value={counts?.highImpact} />
+          </PanelBlock>
+        </>
+      ),
+    },
     {
       id: 'introduced',
       label: 'Introduced by this build',
@@ -210,5 +304,31 @@ const CodeScanDrawer: React.FC<Props> = ({ scan, load, onClose }) => {
     />
   );
 };
+
+const NODE_TONE: Record<string, string> = {
+  blue: 'border-blue-200 bg-blue-50 text-blue-700',
+  red: 'border-red-200 bg-red-50 text-red-700',
+  green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+};
+
+/** One stage of the shift-left path. */
+const GraphNode: React.FC<{
+  icon: string; label: string; sub: string; tone: 'blue' | 'red' | 'green'; mono?: boolean;
+}> = ({ icon, label, sub, tone, mono }) => (
+  <div className="flex flex-col items-center gap-1 flex-shrink-0">
+    <div className={`flex h-10 w-10 items-center justify-center rounded-full border ${NODE_TONE[tone]}`}>
+      <Icon icon={icon} width={18} />
+    </div>
+    <span className={`max-w-[110px] truncate text-[10px] font-semibold text-gray-800 ${
+      mono ? 'font-mono' : ''}`} title={label}>
+      {label}
+    </span>
+    <span className="text-[9px] uppercase tracking-wide text-gray-400">{sub}</span>
+  </div>
+);
+
+const GraphEdge: React.FC = () => (
+  <div className="mb-5 h-px w-6 flex-shrink-0 bg-gray-300 sm:w-10" aria-hidden="true" />
+);
 
 export default CodeScanDrawer;
