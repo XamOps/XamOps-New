@@ -735,11 +735,6 @@ export interface AssetRelationships {
 
 /** One CI build from Upwind's shift-left stream. */
 export interface CodeScan {
-  /**
-   * The accounts this scan's image was found running in, which is why the scan is attributed to
-   * you. The scan event itself carries no account, so this is the evidence for showing it.
-   */
-  cloudAccountIds?: string[] | null;
   /** Absent on ~11% of scans; without it findings cannot be fetched, so the row is history only. */
   fingerprint: string | null;
   type: string | null;          // IMAGE_BUILD | IAC_SCAN_BUILD
@@ -758,24 +753,15 @@ export interface CodeScan {
 }
 
 /**
- * Shift-left scans are reported for the whole Upwind organization and carry no cloud account, so
- * each one is attributed by matching its image against images we hold under an account you own.
- * Anything that cannot be attributed is withheld and only counted — naming it would disclose
- * another tenant's repositories.
- *
- * The counts exist so the view can admit it is partial instead of looking complete.
+ * Shift-left scans belong to a source repository, not a cloud account, and every client reads one
+ * shared Upwind organization. Nothing in the payload identifies a tenant — `image` is the build
+ * name, not a runtime image — so visibility is configured rather than inferred, and `available` is
+ * false with a reason for any client that did not connect the repository.
  */
 export interface CodeScansResponse {
   scans: CodeScan[];
   available: boolean;
   unavailableReason?: string | null;
-  /** Image is known but is not one of yours. */
-  withheldNoMatch?: number;
-  /** No image on the event at all, which is every IaC scan. */
-  withheldNoImage?: number;
-  /** Image is a public base image, so a name match would be coincidence, not ownership. */
-  withheldGenericImage?: number;
-  correlatedBy?: string | null;
 }
 
 /** A CVE as reported against a build, richer than our runtime rows: carries the fix version. */

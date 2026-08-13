@@ -906,128 +906,99 @@ class XamSecureServiceTest {
     }
 
     /**
-     * Shift-left scans carry no cloud_account_id — only repository, branch, commit, initiator and
-     * image — and every client reads the same upwind.org-id, so resolveAccountIds cannot scope
-     * them and serving them broadly would leak another tenant's repository and committer names.
+     * Shift-left scans belong to a source repository, not a cloud account, and every client reads
+     * one shared upwind.org-id. Two earlier rules both failed:
      *
-     * The previous rule was ownsEntireOrg(): a client owning every account in the org IS the org.
-     * Safe, and useless — no client owns every account while one org-id is shared, so the tab
-     * could never render anything. Each scan is now attributed by matching its image against
-     * images we already hold under an account the caller owns, which is the same
-     * correlate-through-owned-data approach that fixed the threat-story leak.
+     * ownsEntireOrg() — a client owning every account in the org IS the org. Safe and useless: no
+     * client owns every account while the org-id is shared, so the tab never rendered.
+     *
+     * Correlating each scan's image to an image we hold under an owned account. Matched nothing,
+     * because `image` is not a container image: measured 2026-08-12, all 100 sampled scans report
+     * image="XamOps-New", identical to `repository` and present on IaC builds too. The connected
+     * repository is XamOps itself, which never runs as a workload in a customer account.
+     *
+     * So ownership is configured. These tests pin the safe default and the refusal path, because
+     * the failure mode is disclosing another tenant's repositories and committers.
      */
     @Test
-    void codeScansAreAttributedByImageToAnAccountTheClientOwns() throws Exception {
+    void codeScansAreServedToTheConfiguredOwnerOfTheConnectedRepository() throws Exception {
         when(apiClient.isConfigured()).thenReturn(true);
-        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
-        // We run `api` in 111. The stored URI form must collapse to the same key as the bare name
-        // the scan reports.
-        when(vulnRepo.findDistinctImagesByAccounts(List.of("111"))).thenReturn(List.<Object[]>of(
-                new Object[]{"111", "api", "111.dkr.ecr.eu-west-1.amazonaws.com/team/api:1.4"}));
+        service.setShiftLeftOwnerAccountIds("605134457560");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("605134457560")));
         var om = new com.fasterxml.jackson.databind.ObjectMapper();
-        when(apiClient.searchShiftLeftScans(anyInt())).thenReturn(List.of(
-                om.readTree("{\"type\":\"IMAGE_BUILD\",\"source\":\"GITHUB\",\"image\":\"api\","
-                        + "\"fingerprint\":\"fp-ours\",\"repository\":\"our-api\","
-                        + "\"branch\":\"main\",\"initiator\":\"dev\",\"commit_sha\":\"abc123\","
-                        + "\"repository_scan_details\":{\"pr_link\":\"https://gh/pull/295\"},"
-                        + "\"create_time\":\"2026-07-13T07:23:52Z\"}"),
-                // Another tenant's build: same org, an image we do not run.
-                om.readTree("{\"type\":\"IMAGE_BUILD\",\"image\":\"their-billing\","
-                        + "\"fingerprint\":\"fp-theirs\",\"repository\":\"their-secret-repo\","
-                        + "\"initiator\":\"someone-else\"}"),
-                // No image at all: every IaC scan looks like this, so none can be attributed.
-                om.readTree("{\"type\":\"IAC_SCAN_BUILD\",\"fingerprint\":\"fp-iac\","
-                        + "\"repository\":\"their-terraform\"}")));
+        when(apiClient.searchShiftLeftScans(anyInt())).thenReturn(List.of(om.readTree(
+                "{\"type\":\"IMAGE_BUILD\",\"source\":\"GITHUB\",\"image\":\"XamOps-New\","
+                + "\"os\":\"linux\",\"fingerprint\":\"fp-1\",\"repository\":\"XamOps-New\","
+                + "\"branch\":\"main\",\"initiator\":\"dev\",\"commit_sha\":\"abc123\","
+                + "\"repository_scan_details\":{\"pr_link\":\"https://gh/pull/295\"},"
+                + "\"create_time\":\"2026-07-13T07:23:52Z\"}")));
 
         var out = service.getCodeScans(1L, 50);
 
         assertEquals(true, out.get("available"));
+        assertNull(out.get("unavailableReason"));
         @SuppressWarnings("unchecked")
         var scans = (List<java.util.Map<String, Object>>) out.get("scans");
         assertEquals(1, scans.size());
-        assertEquals("fp-ours", scans.get(0).get("fingerprint"));
+        assertEquals("fp-1", scans.get(0).get("fingerprint"));
+        assertEquals("IMAGE_BUILD", scans.get(0).get("type"));
         assertEquals("abc123", scans.get(0).get("commitSha"));
         assertEquals("https://gh/pull/295", scans.get(0).get("pullRequestUrl"));
-        // The account is the evidence for showing the row, so it travels with it.
-        assertEquals(List.of("111"), scans.get(0).get("cloudAccountIds"));
-
-        // Withheld rows are counted, never named — the repository name is the leak.
-        assertEquals(1, out.get("withheldNoMatch"));
-        assertEquals(1, out.get("withheldNoImage"));
-        String body = out.toString();
-        assertFalse(body.contains("their-secret-repo"), "another tenant's repository leaked");
-        assertFalse(body.contains("their-terraform"), "another tenant's repository leaked");
-        assertFalse(body.contains("someone-else"), "another tenant's committer leaked");
-    }
-
-    /**
-     * The collision this correlation has to survive. Every tenant runs alpine, so treating a
-     * public base-image name as ownership would hand over whoever else built one.
-     */
-    @Test
-    void codeScansIgnoreAPublicBaseImageEvenWhenWeRunIt() throws Exception {
-        when(apiClient.isConfigured()).thenReturn(true);
-        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
-        // We really do run alpine, so a naive name match would succeed here.
-        when(vulnRepo.findDistinctImagesByAccounts(List.of("111"))).thenReturn(List.<Object[]>of(
-                new Object[]{"111", "alpine", "docker.io/library/alpine:3.20"}));
-        var om = new com.fasterxml.jackson.databind.ObjectMapper();
-        when(apiClient.searchShiftLeftScans(anyInt())).thenReturn(List.of(
-                om.readTree("{\"type\":\"IMAGE_BUILD\",\"image\":\"alpine\","
-                        + "\"fingerprint\":\"fp-theirs\",\"repository\":\"their-base-images\","
-                        + "\"initiator\":\"someone-else\"}")));
-
-        var out = service.getCodeScans(1L, 50);
-
-        assertTrue(((List<?>) out.get("scans")).isEmpty(),
-                "a base-image name match is coincidence, not ownership");
-        assertEquals(1, out.get("withheldGenericImage"));
-        assertFalse(out.toString().contains("their-base-images"));
     }
 
     @Test
-    void codeScansAreWithheldWhenTheClientOwnsNoAccounts() {
+    void codeScansAreWithheldFromATenantThatConnectedNoRepository() {
         when(apiClient.isConfigured()).thenReturn(true);
-        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of());
+        service.setShiftLeftOwnerAccountIds("605134457560");
+        // A customer account in the same Upwind organization.
+        when(cloudAccountRepo.findByClientId(2L)).thenReturn(List.of(aws("598515435126")));
 
-        var out = service.getCodeScans(1L, 50);
+        var out = service.getCodeScans(2L, 50);
 
         assertEquals(false, out.get("available"));
         assertTrue(((List<?>) out.get("scans")).isEmpty());
-        assertNotNull(out.get("unavailableReason"));
+        // Phrased about the reader's own accounts: that another tenant has CI is not their
+        // business, so the message must not imply scans exist elsewhere.
+        String reason = (String) out.get("unavailableReason");
+        assertNotNull(reason);
+        assertTrue(reason.contains("your cloud accounts"), reason);
         // Must not even ask Upwind on behalf of a client that cannot see the answer.
+        verify(apiClient, never()).searchShiftLeftScans(anyInt());
+        // And the per-scan route must not become a way around the list route. Upwind answers 200
+        // for any tenant's fingerprint and echoes unknown ones back, so guessing must not work.
+        assertTrue(service.getCodeScanFindings(2L, "fp-1").isEmpty());
+        verify(apiClient, never()).getShiftLeftResult(anyString());
+    }
+
+    @Test
+    void codeScansAreWithheldFromEveryoneWhenNoOwnerIsConfigured() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        service.setShiftLeftOwnerAccountIds("");   // the shipped default
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("605134457560")));
+
+        var out = service.getCodeScans(1L, 50);
+
+        assertEquals(false, out.get("available"), "an unconfigured environment must not leak");
         verify(apiClient, never()).searchShiftLeftScans(anyInt());
     }
 
-    /**
-     * The fingerprint comes from the client. Upwind answers 200 for a fingerprint belonging to any
-     * tenant and echoes unknown ones back, so guessing one must not work: the findings route
-     * re-derives the visible set rather than trusting the parameter.
-     */
+    /** Owning some of the configured accounts is not owning them, so adding one narrows access. */
     @Test
-    void codeScanFindingsRefuseAFingerprintWeNeverAttributedToTheClient() throws Exception {
+    void codeScansRequireEveryConfiguredOwnerAccount() {
         when(apiClient.isConfigured()).thenReturn(true);
-        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
-        when(vulnRepo.findDistinctImagesByAccounts(List.of("111"))).thenReturn(List.<Object[]>of(
-                new Object[]{"111", "api", null}));
-        var om = new com.fasterxml.jackson.databind.ObjectMapper();
-        when(apiClient.searchShiftLeftScans(anyInt())).thenReturn(List.of(
-                om.readTree("{\"image\":\"api\",\"fingerprint\":\"fp-ours\"}"),
-                om.readTree("{\"image\":\"their-billing\",\"fingerprint\":\"fp-theirs\"}")));
+        service.setShiftLeftOwnerAccountIds("605134457560, 111222333444");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("605134457560")));
 
-        assertTrue(service.getCodeScanFindings(1L, "fp-theirs").isEmpty());
-        verify(apiClient, never()).getShiftLeftResult("fp-theirs");
+        assertEquals(false, service.getCodeScans(1L, 50).get("available"));
+        verify(apiClient, never()).searchShiftLeftScans(anyInt());
     }
 
     @Test
     void codeScanFindingsSplitIntroducedFromUnchangedAndSortBySeverity() throws Exception {
         when(apiClient.isConfigured()).thenReturn(true);
-        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
-        when(vulnRepo.findDistinctImagesByAccounts(List.of("111"))).thenReturn(List.<Object[]>of(
-                new Object[]{"111", "api", null}));
+        service.setShiftLeftOwnerAccountIds("605134457560");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("605134457560")));
         var om = new com.fasterxml.jackson.databind.ObjectMapper();
-        when(apiClient.searchShiftLeftScans(anyInt())).thenReturn(List.of(
-                om.readTree("{\"image\":\"api\",\"fingerprint\":\"fp-1\"}")));
         when(apiClient.getShiftLeftResult("fp-1")).thenReturn(om.readTree(
                 "{\"fingerprint\":\"fp-1\",\"branch\":\"main\",\"image_os\":\"linux\","
                 + "\"high_impact_cves\":[],"
@@ -1052,19 +1023,6 @@ class XamSecureServiceTest {
         // Worst first: a reviewer reads the top of the list, so CRITICAL cannot sort below MEDIUM.
         assertEquals("CVE-2", cves.get("introduced").get(0).get("cveId"));
         assertEquals("0.52.0", cves.get("introduced").get(1).get("fixedInVersion"));
-    }
-
-    @Test
-    void imageNamesNormaliseAcrossRegistryPathTagAndDigest() {
-        // A scan reports a bare name; a finding stores a full URI. They have to collapse together.
-        assertEquals("api", XamSecureService.normalizeImageName(
-                "602401143452.dkr.ecr.us-east-1.amazonaws.com/team/api:1.4"));
-        assertEquals("api", XamSecureService.normalizeImageName("API"));
-        assertEquals("api", XamSecureService.normalizeImageName(
-                "ghcr.io/org/api@sha256:0123456789abcdef"));
-        assertEquals("alpine", XamSecureService.normalizeImageName("docker.io/library/alpine:3.20"));
-        assertNull(XamSecureService.normalizeImageName(null));
-        assertNull(XamSecureService.normalizeImageName("  "));
     }
 
     @Test

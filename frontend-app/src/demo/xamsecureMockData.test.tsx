@@ -134,35 +134,17 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(demo.demoCodeScanFindings('fp-does-not-exist')).toBeNull();
   });
 
-  it('Code admits the scan list is partial instead of looking complete', () => {
-    // Shift-left events carry no cloud account, so a scan is only shown when the image it built
-    // runs in an account you own. Most of the org's scans are therefore withheld, and a view that
-    // hid that fact would read as "these are all your builds".
-    draw(<CodeTab data={demo.demoCodeScans} isLoading={false}
-                  loadFindings={demo.demoCodeScanFindings as never} />);
-    const shown = demo.demoCodeScans.scans.length;
-    const withheld = (demo.demoCodeScans.withheldNoImage ?? 0)
-      + (demo.demoCodeScans.withheldNoMatch ?? 0)
-      + (demo.demoCodeScans.withheldGenericImage ?? 0);
-    expect(screen.getByText(
-      new RegExp(`Showing ${shown} of ${shown + withheld} CI\\s+scans`))).toBeInTheDocument();
-    // Each reason is named, because "some scans are hidden" is not an explanation.
-    expect(screen.getByText(/carry no image at all/)).toBeInTheDocument();
-    expect(screen.getByText(/an image you do not run/)).toBeInTheDocument();
-    expect(screen.getByText(/coincidence rather than ownership/)).toBeInTheDocument();
-    // The attributing account is on the row, so the reason a build is listed is visible.
-    expect(screen.getAllByText(new RegExp(demo.demoCodeScans.scans[0].cloudAccountIds![0]))
-      .length).toBeGreaterThan(0);
-  });
-
   it('Code says it is withheld rather than showing an empty table', () => {
-    // Still reachable: a client with no connected cloud accounts has nothing to attribute
-    // against, so it gets a reason instead of a bare "no data".
+    // Scans belong to a source repository, not a cloud account, so a tenant that connected no
+    // repository is told that plainly instead of being shown a bare "no data" table. The wording
+    // is about the reader's own accounts: that another tenant has CI at all is not their business.
     draw(<CodeTab isLoading={false} loadFindings={demo.demoCodeScanFindings as never}
                   data={{ scans: [], available: false,
-                          unavailableReason: 'No cloud accounts are connected for this client.' }} />);
+                          unavailableReason:
+                            'No code scanning is connected for your cloud accounts.' }} />);
     expect(screen.getByText(/Code scans not shown/)).toBeInTheDocument();
-    expect(screen.getByText(/No cloud accounts are connected/)).toBeInTheDocument();
+    expect(screen.getByText(/No code scanning is connected for your cloud accounts/))
+      .toBeInTheDocument();
   });
 
   it('Threats opens on the dashboard and reaches detections', () => {

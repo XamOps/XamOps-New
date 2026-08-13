@@ -8,7 +8,9 @@ import com.xammer.cloud.domain.UpwindInventoryAsset;
 import com.xammer.cloud.repository.*;
 import com.xammer.cloud.repository.UpwindInventoryAssetRepository;
 import com.xammer.cloud.service.RedisCacheService;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -46,6 +48,16 @@ public class XamSecureService {
     private final UpwindInventoryAssetRepository inventoryRepo;
     private final UpwindApiEndpointRepository apiEndpointRepo;
     private final UpwindApiClient apiClient;
+
+    /**
+     * Cloud accounts whose owner may read org-level Upwind data (the shift-left CI stream).
+     *
+     * Empty means withheld from everyone. Setter is for tests; see {@link #ownsOrgLevelData}
+     * for why this is configuration rather than something derived from the payload.
+     */
+    @Setter
+    @Value("${upwind.shift-left.owner-account-ids:}")
+    private String shiftLeftOwnerAccountIds;
 
     public XamSecureService(CloudAccountRepository cloudAccountRepository,
                             UpwindThreatDetectionRepository detectionRepo,
@@ -1020,27 +1032,40 @@ public class XamSecureService {
     }
 
     /**
-     * Whether a shift-left scan is one we attributed to this client.
+     * Whether this client owns the ORG-LEVEL Upwind data — the shift-left CI stream.
      *
-     * These events carry no cloud_account_id — only repository, branch, commit, initiator and
-     * image — and every XamOps client reads the same {@code upwind.org-id}, so serving them
-     * unscoped would leak another tenant's repository and committer names.
+     * Two rules preceded this and both were wrong.
      *
-     * This used to be an ownsEntireOrg() check: a client owning every account in the org IS the
-     * org, so org-level data was theirs. That was safe and useless — no client owns every account
-     * while one org-id is shared, so the tab could never render anything. Attribution by image
-     * replaces it, and the findings route re-derives the same visible set rather than trusting a
-     * fingerprint the caller supplied.
+     * ownsEntireOrg(): a client owning every cloud account in the org IS the org. Safe and
+     * useless — no client owns every account while one org-id is shared across tenants, so the
+     * Code tab could never render anything at all.
+     *
+     * Correlating each scan's image to an image we hold under an owned account. That looked
+     * sound and matched nothing, because `image` on these events is not a container image:
+     * measured 2026-08-12, all 100 sampled scans report image="XamOps-New", identical to
+     * `repository` and populated on IaC builds too. The repository wired to this organization is
+     * XamOps itself, and its builds never run as a workload in a customer account, so the join
+     * had no overlap to find. A category error, not a tuning problem.
+     *
+     * What is left is a fact we hold and the API cannot state: which accounts belong to the
+     * tenant that connected the repository. Configuration is the honest place for it. Empty
+     * means withheld from everyone, so an unconfigured environment cannot leak.
      */
-    private boolean isScanVisibleToClient(Long clientId, String fingerprint) {
-        Object scans = getCodeScans(clientId, 500).get("scans");
-        if (!(scans instanceof List<?> rows)) return false;
-        for (Object row : rows) {
-            if (row instanceof Map<?, ?> m && fingerprint.equals(m.get("fingerprint"))) {
-                return true;
-            }
+    private boolean ownsOrgLevelData(Long clientId) {
+        Set<String> owners = shiftLeftOwnerAccountIds();
+        if (owners.isEmpty()) return false;
+        // Must own every configured account, so adding one narrows access rather than widening it.
+        return resolveAccountIds(clientId, null).containsAll(owners);
+    }
+
+    private Set<String> shiftLeftOwnerAccountIds() {
+        if (shiftLeftOwnerAccountIds == null || shiftLeftOwnerAccountIds.isBlank()) return Set.of();
+        Set<String> out = new LinkedHashSet<>();
+        for (String part : shiftLeftOwnerAccountIds.split(",")) {
+            String t = part.trim();
+            if (!t.isEmpty()) out.add(t);
         }
-        return false;
+        return out;
     }
 
     /**
@@ -1058,9 +1083,14 @@ public class XamSecureService {
             out.put("unavailableReason", "Upwind is not configured.");
             return out;
         }
-        List<String> ids = resolveAccountIds(clientId, null);
-        if (ids.isEmpty()) {
-            out.put("unavailableReason", "No cloud accounts are connected for this client.");
+        if (!ownsOrgLevelData(clientId)) {
+            // Deliberately phrased as a fact about the caller's own accounts, not as a hint that
+            // someone else's scans exist. Whether this organization does CI scanning at all is
+            // itself information about another tenant.
+            out.put("unavailableReason",
+                    "No code scanning is connected for your cloud accounts. Upwind reports CI "
+                    + "scans for a source repository rather than a cloud account, so they appear "
+                    + "only for the accounts that connected one.");
             return out;
         }
 
@@ -1069,41 +1099,9 @@ public class XamSecureService {
                 redisCacheService.get(cacheKey, new TypeReference<Map<String, Object>>() {});
         if (cached.isPresent()) return cached.get();
 
-        // Attribution, not an ownership gate. The previous rule required the caller to own every
-        // account in the Upwind organization, which no client does while a single org-id is shared
-        // across tenants — so the tab could never render. Instead each scan is matched to an
-        // account we hold it in, and anything unmatched is withheld and counted.
-        Map<String, Set<String>> imageOwners = ownedImageIndex(ids);
-
         List<Map<String, Object>> scans = new ArrayList<>();
-        int withheldNoMatch = 0;
-        int withheldNoImage = 0;
-        int withheldGenericImage = 0;
         for (JsonNode s : apiClient.searchShiftLeftScans(Math.min(Math.max(limit, 1), 500))) {
-            String rawImage = s.path("image").asText(null);
-            String key = normalizeImageName(rawImage);
-            if (key == null) {
-                // IaC scans carry no image at all, so there is nothing to attribute them by.
-                // 130 of 256 scans measured were IAC_SCAN_BUILD; they stay hidden until Upwind
-                // puts an account on the event.
-                withheldNoImage++;
-                continue;
-            }
-            if (GENERIC_BASE_IMAGES.contains(key)) {
-                // A public base image proves nothing about who built it. Two tenants both
-                // building `alpine` would otherwise expose each other's repository, branch and
-                // committer names, which is the whole risk this correlation has to avoid.
-                withheldGenericImage++;
-                continue;
-            }
-            Set<String> owners = imageOwners.get(key);
-            if (owners == null || owners.isEmpty()) {
-                withheldNoMatch++;
-                continue;
-            }
             Map<String, Object> m = new LinkedHashMap<>();
-            // Why this row is yours, so the attribution is auditable rather than implicit.
-            m.put("cloudAccountIds", new ArrayList<>(owners));
             // Absent on ~11% of scans (28 of 256 measured); without it there is no way to fetch
             // findings, so the client must render those rows as history only.
             m.put("fingerprint", s.path("fingerprint").asText(null));
@@ -1126,72 +1124,9 @@ public class XamSecureService {
         out.put("scans", scans);
         out.put("available", true);
         out.remove("unavailableReason");
-        // Counts only, never the withheld rows themselves. A count says "this view is partial"
-        // without naming another tenant's repositories.
-        out.put("withheldNoMatch", withheldNoMatch);
-        out.put("withheldNoImage", withheldNoImage);
-        out.put("withheldGenericImage", withheldGenericImage);
-        out.put("correlatedBy", "image");
         if (!scans.isEmpty()) redisCacheService.put(cacheKey, out, SUMMARY_CACHE_MINUTES);
         return out;
     }
-
-    /**
-     * Normalised image name -> the caller's accounts that image was seen in.
-     *
-     * Matching is on the repository segment only: an ECR URI carries a registry host, a path and
-     * a tag, while a scan reports a bare name, so `123.dkr.ecr.eu-west-1.amazonaws.com/api:1.4`
-     * and `api` have to collapse to the same key. Both the stored name and the stored URI are
-     * indexed, since which of them is populated varies by finding.
-     */
-    private Map<String, Set<String>> ownedImageIndex(List<String> accountIds) {
-        Map<String, Set<String>> index = new HashMap<>();
-        for (Object[] row : vulnRepo.findDistinctImagesByAccounts(accountIds)) {
-            String account = (String) row[0];
-            if (account == null) continue;
-            for (int col = 1; col <= 2; col++) {
-                String key = normalizeImageName((String) row[col]);
-                if (key != null && !GENERIC_BASE_IMAGES.contains(key)) {
-                    index.computeIfAbsent(key, k -> new LinkedHashSet<>()).add(account);
-                }
-            }
-        }
-        return index;
-    }
-
-    /**
-     * `602401143452.dkr.ecr.us-east-1.amazonaws.com/team/api:1.4` -> `api`.
-     *
-     * Drops the registry and path, the tag and any digest, then lowercases. Returns null when
-     * there is nothing usable, which the caller treats as "cannot attribute".
-     */
-    static String normalizeImageName(String raw) {
-        if (raw == null || raw.isBlank()) return null;
-        String s = raw.trim();
-        int at = s.indexOf('@');                       // digest
-        if (at > 0) s = s.substring(0, at);
-        int slash = s.lastIndexOf('/');
-        if (slash >= 0) s = s.substring(slash + 1);
-        int colon = s.lastIndexOf(':');                // tag
-        if (colon > 0) s = s.substring(0, colon);
-        s = s.trim().toLowerCase();
-        return s.isEmpty() ? null : s;
-    }
-
-    /**
-     * Public base images, which are worthless as an ownership signal.
-     *
-     * Every tenant runs these, so a name match on one is a coincidence rather than evidence.
-     * Erring wide is the safe direction here: a name on this list only ever withholds a scan.
-     */
-    private static final Set<String> GENERIC_BASE_IMAGES = Set.of(
-            "alpine", "ubuntu", "debian", "centos", "fedora", "rhel", "amazonlinux", "amazon-linux",
-            "busybox", "scratch", "distroless", "static", "base", "app", "nginx", "httpd", "envoy",
-            "redis", "postgres", "postgresql", "mysql", "mariadb", "mongo", "mongodb",
-            "node", "nodejs", "python", "golang", "go", "java", "openjdk", "jre", "jdk", "ruby",
-            "php", "dotnet", "aspnet", "rust", "nginx-unprivileged", "traefik", "haproxy",
-            "prometheus", "grafana", "fluent-bit", "fluentd", "consul", "vault", "kafka",
-            "zookeeper", "elasticsearch", "opensearch", "rabbitmq", "memcached", "pause");
 
     /** CVE buckets Upwind reports per scan, in the order a reviewer cares about. */
     private static final List<String> CODE_CVE_BUCKETS =
@@ -1209,11 +1144,10 @@ public class XamSecureService {
         if (fingerprint == null || fingerprint.isBlank() || !apiClient.isConfigured()) {
             return Map.of();
         }
-        // The fingerprint arrives from the client, so it cannot be trusted to be one we served.
-        // Upwind answers 200 for a fingerprint from any tenant, and it echoes unknown ones back,
-        // so the only safe check is that this scan appears in the list we attributed to the
-        // caller. The list read is cached, so this costs nothing on the common path.
-        if (!isScanVisibleToClient(clientId, fingerprint)) {
+        // The fingerprint arrives from the client and Upwind answers 200 for any tenant's
+        // fingerprint, echoing unknown ones back — so a caller who cannot see the list must not be
+        // able to read a result by guessing one.
+        if (!ownsOrgLevelData(clientId)) {
             return Map.of();
         }
         JsonNode r;

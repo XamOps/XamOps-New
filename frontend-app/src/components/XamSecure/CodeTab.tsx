@@ -76,38 +76,8 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
     );
   }
 
-  const withheld = (data?.withheldNoMatch ?? 0) + (data?.withheldNoImage ?? 0)
-    + (data?.withheldGenericImage ?? 0);
-
   return (
     <div className="space-y-4">
-      {/* This view is partial by construction, so it says so rather than looking complete.
-          Shift-left events carry no cloud account; a scan is shown only when its image is one we
-          hold under an account you own. */}
-      {withheld > 0 && (
-        <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-          <Icon icon="mdi:information-outline" width={15}
-                className="mt-0.5 flex-shrink-0 text-gray-400" />
-          <p className="text-[11px] leading-relaxed text-gray-500">
-            Showing {all.length.toLocaleString()} of {(all.length + withheld).toLocaleString()} CI
-            scans in this Upwind organization. Scans carry no cloud account, so one is shown only
-            when the image it built is running in an account you own.
-            {' '}
-            {data?.withheldNoImage ? (
-              <>{data.withheldNoImage.toLocaleString()} carry no image at all (every IaC scan
-                does not).{' '}</>
-            ) : null}
-            {data?.withheldNoMatch ? (
-              <>{data.withheldNoMatch.toLocaleString()} built an image you do not run.{' '}</>
-            ) : null}
-            {data?.withheldGenericImage ? (
-              <>{data.withheldGenericImage.toLocaleString()} built a public base image, where a
-                name match would be coincidence rather than ownership.</>
-            ) : null}
-          </p>
-        </div>
-      )}
-
       {branches.length > 1 && (
         <FilterChips
           options={branches.map(([b, n]) => ({ value: b, label: b, count: n }))}
@@ -155,20 +125,6 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
                           {s.repository ?? '—'}
                         </span>
                       </span>
-                      {/* The image, and the account it runs in, are the evidence for showing
-                          this row at all — so they belong on the row, not hidden in a drawer. */}
-                      {s.image && (
-                        <span className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-400">
-                          <Icon icon="mdi:package-variant-closed" width={10}
-                                className="flex-shrink-0" />
-                          <span className="truncate max-w-[150px]" title={s.image}>{s.image}</span>
-                          {s.cloudAccountIds && s.cloudAccountIds.length > 0 && (
-                            <span className="font-mono" title="Account this image runs in">
-                              · {s.cloudAccountIds.join(', ')}
-                            </span>
-                          )}
-                        </span>
-                      )}
                     </td>
                     <td className="px-3 py-3">
                       <span className="flex items-center gap-1 text-gray-600">
