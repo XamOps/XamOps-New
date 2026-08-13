@@ -134,6 +134,30 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(demo.demoCodeScanFindings('fp-does-not-exist')).toBeNull();
   });
 
+  it('Code separates IaC scans from image builds, as Upwind orders the page', () => {
+    // A Terraform misconfiguration and a dependency CVE are not comparable rows, so one flat
+    // table read as a single stream of unrelated builds.
+    draw(<CodeTab data={demo.demoCodeScans} isLoading={false}
+                  loadFindings={demo.demoCodeScanFindings as never} />);
+    const iac = demo.demoCodeScans.scans.filter((s) => s.type === 'IAC_SCAN_BUILD').length;
+    const img = demo.demoCodeScans.scans.filter((s) => s.type === 'IMAGE_BUILD').length;
+    expect(iac).toBeGreaterThan(0);
+    expect(img).toBeGreaterThan(0);
+
+    // Image builds are the default view, and the table is scoped to the selected kind.
+    const imageTab = screen.getByRole('button', { name: new RegExp(`Image build.*${img}`) });
+    expect(imageTab).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(`${img} scans`)).toBeInTheDocument();
+
+    const iacTab = screen.getByRole('button', { name: new RegExp(`IaC scan.*${iac}`) });
+    fireEvent.click(iacTab);
+    expect(iacTab).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(`${iac} scans`)).toBeInTheDocument();
+
+    // The two columns Upwind has and the API does not are named, not left blank.
+    expect(screen.getByText(/deploy recommendation per scan/)).toBeInTheDocument();
+  });
+
   it('Code says it is withheld rather than showing an empty table', () => {
     // Scans belong to a source repository, not a cloud account, so a tenant that connected no
     // repository is told that plainly instead of being shown a bare "no data" table. The wording
