@@ -12,6 +12,7 @@ import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.ObservabilityConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class OpenObserveService {
@@ -103,15 +105,47 @@ public class OpenObserveService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
+    /** Short-lived cache for O2 stream listings, keyed by "orgId|streamType". */
+    private final TtlCache<List<Map<String, Object>>> streamCache = new TtlCache<>(30_000);
+
+    /**
+     * Minimal time-boxed cache. Entries are read far more often than they are
+     * written and the map only ever holds a handful of org/type keys, so a plain
+     * ConcurrentHashMap with per-entry expiry is enough — no eviction policy needed.
+     */
+    private static final class TtlCache<V> {
+        private record Entry<V>(V value, long expiresAt) {}
+
+        private final Map<String, Entry<V>> entries = new ConcurrentHashMap<>();
+        private final long ttlMs;
+
+        TtlCache(long ttlMs) { this.ttlMs = ttlMs; }
+
+        V get(String key) {
+            Entry<V> e = entries.get(key);
+            if (e == null) return null;
+            if (System.currentTimeMillis() >= e.expiresAt()) {
+                entries.remove(key, e);
+                return null;
+            }
+            return e.value();
+        }
+
+        void put(String key, V value) {
+            entries.put(key, new Entry<>(value, System.currentTimeMillis() + ttlMs));
+        }
+    }
+
     public OpenObserveService(ObservabilityConfigRepository configRepo,
                               AccountObservabilityConfigRepository accountConfigRepo,
                               CloudAccountRepository cloudAccountRepo,
-                              KubernetesClusterConfigRepository clusterConfigRepo) {
+                              KubernetesClusterConfigRepository clusterConfigRepo,
+                              @Qualifier("openObserveRestTemplate") RestTemplate restTemplate) {
         this.configRepo = configRepo;
         this.accountConfigRepo = accountConfigRepo;
         this.cloudAccountRepo = cloudAccountRepo;
         this.clusterConfigRepo = clusterConfigRepo;
-        this.restTemplate = new RestTemplate();
+        this.restTemplate = restTemplate;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -504,6 +538,16 @@ public class OpenObserveService {
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> listStreams(Long clientId, String providerAccountId, String streamType) {
         String orgId = getEffectiveOrgId(clientId, providerAccountId);
+
+        // The stream list is the hot path on the Observability screens — Overview
+        // asks for every type and Logs asks for the logs subset on the same page
+        // load, and O2 recomputes per-stream storage stats on each call. The set of
+        // streams only changes when an agent starts shipping a new one, so a short
+        // TTL keeps the numbers fresh while collapsing repeat calls to one.
+        String cacheKey = orgId + "|" + (streamType == null ? "*" : streamType);
+        List<Map<String, Object>> cached = streamCache.get(cacheKey);
+        if (cached != null) return cached;
+
         HttpHeaders headers = buildAdminHeaders();
         try {
             String url = o2Url + "/api/" + orgId + "/streams";
@@ -517,7 +561,9 @@ public class OpenObserveService {
                     Map.class
             );
             if (resp.getBody() != null && resp.getBody().containsKey("list")) {
-                return (List<Map<String, Object>>) resp.getBody().get("list");
+                List<Map<String, Object>> list = (List<Map<String, Object>>) resp.getBody().get("list");
+                streamCache.put(cacheKey, list);
+                return list;
             }
         } catch (Exception e) {
             logger.error("O2 list streams failed for client {}: {}", clientId, e.getMessage());

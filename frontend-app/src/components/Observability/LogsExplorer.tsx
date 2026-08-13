@@ -491,9 +491,11 @@ function LogRow({ log, count = 1, oldestTs = 0, expanded, onToggle, onOpenDetail
 
 interface LogsExplorerProps {
   streams: LogStream[];
+  /** True once the stream list has resolved, so `streams: []` means "none" rather than "not loaded yet". */
+  streamsReady?: boolean;
 }
 
-const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
+const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams, streamsReady = true }) => {
   const { logs, logTotal, histogram, logsLoading, searchLogs, fetchLogHosts, fetchHistogram } = useObservabilityData();
 
   // Hosts sending logs to the selected stream — populates the Host/Source dropdown.
@@ -568,9 +570,16 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
 
   const now = useCallback(() => Date.now(), []);
 
+  // True while `selectedStream` still points at something the org doesn't have —
+  // the stream-reconciliation effect further down is about to replace it, so
+  // querying now would throw away the results and immediately repeat every call.
+  const streamPendingSwap = streamsReady && streams.length > 0
+    && !streams.some(s => s.name === selectedStream);
+
   // Load the list of hosts sending logs to the selected stream, so the Host/Source
   // filter is a dropdown of real hosts (auto-updates as new EC2s start shipping).
   useEffect(() => {
+    if (!streamsReady || streamPendingSwap) return;
     const end = customRange ? customRange.end : Date.now();
     const start = customRange ? customRange.start : end - timeRange.ms;
     let cancelled = false;
@@ -578,7 +587,7 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
       if (!cancelled) setHostOptions(hosts);
     });
     return () => { cancelled = true; };
-  }, [selectedStream, timeRange, customRange, fetchLogHosts]);
+  }, [selectedStream, timeRange, customRange, fetchLogHosts, streamsReady, streamPendingSwap]);
 
   // Reflect the active filters in the URL (replace, not push) so any view can be
   // shared by copying the address, and refresh doesn't reset the page.
@@ -699,9 +708,10 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams }) => {
   }, [selectedStream, keyword, level, sourceFilter, timeRange, customRange, mode, sqlQuery, page, pageSize, searchLogs, fetchHistogram, now]);
 
   useEffect(() => {
+    if (!streamsReady || streamPendingSwap) return;
     doSearch(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStream, level, timeRange, pageSize, customRange, searchNonce]);
+  }, [selectedStream, level, timeRange, pageSize, customRange, searchNonce, streamsReady, streamPendingSwap]);
 
   // ── Click-to-filter ─────────────────────────────────────────────────────────
   // Any value in a row or the detail drawer becomes a filter with one click.

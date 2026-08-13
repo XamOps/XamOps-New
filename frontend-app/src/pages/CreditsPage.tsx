@@ -38,6 +38,7 @@ const CreditsPage: React.FC = () => {
   const {
     filteredRequests,
     loading,
+    isSubmitting,
     error,
     selectedFilter,
     showForm,
@@ -63,6 +64,14 @@ const CreditsPage: React.FC = () => {
     setIsDraggingFiles(false);
     addFiles(Array.from(e.dataTransfer.files || []));
   };
+
+  // Large documents can take a while to upload — say what is being sent, not just "Submitting".
+  const pendingUploadLabel = React.useMemo(() => {
+    const files = newRequestData.files || [];
+    if (files.length === 0) return '';
+    const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+    return `${files.length} ${files.length === 1 ? 'file' : 'files'} · ${formatFileSize(totalBytes)}`;
+  }, [newRequestData.files]);
 
   const formatCurrency = (value: number): string => {
     return new Intl.NumberFormat('en-US', {
@@ -221,16 +230,23 @@ const CreditsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleCloseForm}
-                className="px-4 py-2 border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.88)] font-medium rounded-md text-sm hover:bg-[rgba(0,0,0,0.04)] transition-colors cursor-pointer"
+                disabled={isSubmitting}
+                className="px-4 py-2 border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.88)] font-medium rounded-md text-sm hover:bg-[rgba(0,0,0,0.04)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 form="credits-request-form"
-                className="px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white font-medium rounded-md text-sm hover:bg-black transition-colors cursor-pointer"
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white font-medium rounded-md text-sm hover:bg-black transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
               >
-                Submit Request
+                {isSubmitting && <Icon icon="mdi:loading" width={14} className="animate-spin" />}
+                {isSubmitting
+                  ? pendingUploadLabel
+                    ? `Uploading ${pendingUploadLabel}…`
+                    : 'Submitting…'
+                  : 'Submit Request'}
               </button>
             </>
           }
@@ -357,7 +373,7 @@ const CreditsPage: React.FC = () => {
                     </button>
                   </p>
                   <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1">
-                    Invoices, quotes, architecture docs or screenshots — up to 50MB each
+                    Invoices, quotes, architecture docs, screenshots — any file type or size
                   </p>
                   <input
                     ref={fileInputRef}

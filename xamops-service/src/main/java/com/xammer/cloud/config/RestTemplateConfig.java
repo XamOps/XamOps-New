@@ -116,6 +116,30 @@ public class RestTemplateConfig {
     }
 
     /**
+     * RestTemplate for OpenObserve API calls.
+     *
+     * The Observability screens fan out hard — the Metrics tab alone issues ~18
+     * concurrent query_range calls — so the pool must allow real parallelism
+     * (HttpClient's built-in default is only 2 connections per route, which would
+     * serialise the whole dashboard). Timeouts are mandatory: O2 is a remote
+     * service and a bare RestTemplate waits forever, pinning a Tomcat thread and
+     * leaving the browser spinner up indefinitely.
+     */
+    @Bean
+    @Qualifier("openObserveRestTemplate")
+    public RestTemplate openObserveRestTemplate() {
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setMaxConnTotal(100)
+                .setMaxConnPerRoute(50)   // one route (the O2 host) — must cover the dashboard fan-out
+                .build();
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
+        factory.setConnectTimeout(5000);           // 5 s — O2 is same-network, fail fast if down
+        factory.setReadTimeout(20000);             // 20 s — covers wide-range PromQL / stream stats
+        factory.setConnectionRequestTimeout(5000); // 5 s — don't queue forever on a saturated pool
+        return new RestTemplate(factory);
+    }
+
+    /**
      * Short-timeout RestTemplate for LiteLLM sidecar calls.
      * LiteLLM is optional — if it's not running we must fail fast so the
      * calling thread (even async) doesn't block for 15+ seconds.

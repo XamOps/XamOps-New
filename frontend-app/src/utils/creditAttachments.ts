@@ -95,6 +95,3 @@ export const formatFileSize = (bytes?: number | null): string => {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
-
-/** Rejects files that are empty or over the backend's 50MB per-file limit. */
-export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;

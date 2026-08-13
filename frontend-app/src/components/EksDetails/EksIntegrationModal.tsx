@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { DialogRoot, DialogPanel } from '../ui';
-import { useAgentInstallConfig } from '../../hooks/useAgentInstallConfig';
+import { useAgentInstallConfig, type AgentInstallConfig } from '../../hooks/useAgentInstallConfig';
 import {
   GuideTokensContext,
   GuideVariableBar,
@@ -79,6 +79,15 @@ const EKS_VAR_SPECS: GuideVarSpec[] = [
     hint: 'aws eks describe-nodegroup … --query "nodegroup.nodeRole"',
   },
 ];
+
+/**
+ * Agent image tag shown in this guide. Declared once so the Quick Install summary and the Part 3
+ * manifest cannot disagree — they did before, when the manifest said v2.0.0 while a newer image was
+ * already published, and there was no way to tell from the UI.
+ *
+ * Keep in step with AGENT_IMAGE in resources/agent-install/install-k8s.sh; CI asserts they match.
+ */
+export const AGENT_IMAGE_TAG = 'v2.1.0';
 
 /** Host portion of a base URL, for prose like "outbound HTTPS to <host>:443". */
 function hostOf(url: string): string {
@@ -193,7 +202,11 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({
   clusterName,
   region,
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'part1' | 'part2' | 'part3' | 'part4' | 'part5'>('overview');
+  // Quick Install is the default: correct for almost everyone, and also what an existing cluster
+  // needs in order to converge onto the current stack. The manual parts stay for change-control
+  // review and for debugging a failed run.
+  const [activeTab, setActiveTab] =
+    useState<'quick' | 'overview' | 'part1' | 'part2' | 'part3' | 'part4' | 'part5'>('quick');
 
   // Only requested once the guide is actually opened.
   const { config } = useAgentInstallConfig(isOpen);
@@ -238,13 +251,18 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({
     };
   }, [isOpen]);
 
+  // `manual` marks the tabs Quick Install replaces. They are separated in the strip so the two
+  // routes do not read as one sequence to work through.
   const tabs = [
-    { id: 'overview', label: 'Overview', icon: 'fas fa-info-circle' },
-    { id: 'part1', label: 'Part 1: Monitoring Stack', icon: 'fas fa-chart-line' },
-    { id: 'part2', label: 'Part 2: Security Tools', icon: 'fas fa-shield-alt' },
-    { id: 'part3', label: 'Part 3: XamOps Agent', icon: 'fas fa-robot' },
-    { id: 'part5', label: 'Part 4: Verification', icon: 'fas fa-check-circle' },
+    { id: 'quick', label: 'Quick Install', icon: 'fas fa-bolt', manual: false },
+    { id: 'overview', label: 'Overview', icon: 'fas fa-info-circle', manual: false },
+    { id: 'part1', label: 'Part 1: Monitoring Stack', icon: 'fas fa-chart-line', manual: true },
+    { id: 'part2', label: 'Part 2: Security Tools', icon: 'fas fa-shield-alt', manual: true },
+    { id: 'part3', label: 'Part 3: XamOps Agent', icon: 'fas fa-robot', manual: true },
+    { id: 'part5', label: 'Part 4: Verification', icon: 'fas fa-check-circle', manual: true },
   ];
+
+  const firstManualTabId = tabs.find(t => t.manual)?.id;
 
   return (
     <DialogRoot isOpen={isOpen} onClose={onClose} maxWidth="max-w-6xl">
@@ -266,17 +284,26 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({
         {/* Tab Navigation */}
         <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto -mx-6 px-6 mb-4">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
-                  ? 'text-blue-600 border-blue-600 bg-white'
-                  : 'text-gray-600 border-transparent hover:text-gray-800 hover:bg-gray-100'
-                }`}
-            >
-              <i className={tab.icon}></i>
-              {tab.label}
-            </button>
+            <React.Fragment key={tab.id}>
+              {tab.id === firstManualTabId && (
+                <div className="flex items-center gap-2 pl-3 pr-1 self-center" aria-hidden="true">
+                  <span className="h-4 w-px bg-gray-300" />
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                    Manual steps
+                  </span>
+                </div>
+              )}
+              <button
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
+                    ? 'text-blue-600 border-blue-600 bg-white'
+                    : 'text-gray-600 border-transparent hover:text-gray-800 hover:bg-gray-100'
+                  }`}
+              >
+                <i className={tab.icon}></i>
+                {tab.label}
+              </button>
+            </React.Fragment>
           ))}
         </div>
 
@@ -294,6 +321,7 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({
           />
 
           <div className="overflow-y-auto max-h-[60vh]" style={{ overscrollBehavior: 'contain' }}>
+            {activeTab === 'quick' && <QuickInstallTab config={config} tunnelUrl={tunnelUrl} vars={vars} />}
             {activeTab === 'overview' && <OverviewTab />}
             {activeTab === 'part1' && <Part1Tab />}
             {activeTab === 'part2' && <Part2Tab />}
@@ -305,6 +333,177 @@ const EksIntegrationModal: React.FC<EksIntegrationModalProps> = ({
     </DialogRoot>
   );
 };
+
+/**
+ * The one-command path.
+ *
+ * Everything the installer needs is passed as flags rather than baked into the script, so the script
+ * itself contains no secrets and can be served unauthenticated. That matters: the command has to run
+ * in CloudShell, which has no XamOps session to authenticate a download with.
+ *
+ * Tokens are single-quoted in the command. Unquoted `<` is a shell redirect, so pasting an unfilled
+ * command would fail with a bash syntax error instead of the installer's own "still needed" message.
+ */
+const QuickInstallTab: React.FC<{
+  config: AgentInstallConfig;
+  tunnelUrl: string;
+  vars: GuideTokenValues;
+}> = ({ config, tunnelUrl, vars }) => {
+  const serverUrl = (tunnelUrl.trim() || config.serverUrl).replace(/\/+$/, '');
+  const scriptUrl = `${serverUrl}/api/v1/agent/install/eks.sh`;
+
+  const cluster = vars[EKS_PLACEHOLDERS.clusterName]?.trim() || EKS_PLACEHOLDERS.clusterName;
+  const region = vars[EKS_PLACEHOLDERS.region]?.trim() || EKS_PLACEHOLDERS.region;
+  const q = (v: string) => (v.startsWith('<') ? `'${v}'` : v);
+
+  const oneLiner = [
+    `curl -sSL ${scriptUrl} | bash -s -- \\`,
+    `  --cluster ${q(cluster)} \\`,
+    `  --region ${q(region)} \\`,
+    `  --server-url ${serverUrl} \\`,
+    `  --api-key ${config.apiKey}`,
+  ].join('\n');
+
+  const allClusters = [
+    `curl -sSL ${scriptUrl} | bash -s -- \\`,
+    `  --all \\`,
+    `  --region ${q(region)} \\`,
+    `  --server-url ${serverUrl} \\`,
+    `  --api-key ${config.apiKey}`,
+  ].join('\n');
+
+  const inspectFirst = [
+    '# For environments where piping to bash is not permitted.',
+    `curl -sSL -o xamops-install-eks.sh ${scriptUrl}`,
+    'less xamops-install-eks.sh          # review it',
+    'chmod +x xamops-install-eks.sh',
+    `./xamops-install-eks.sh --cluster ${q(cluster)} --region ${q(region)} \\`,
+    `  --server-url ${serverUrl} --api-key ${config.apiKey}`,
+  ].join('\n');
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl p-5 text-white">
+        <h3 className="text-lg font-bold mb-1 flex items-center gap-2">
+          <i className="fas fa-bolt"></i> One command, per cluster
+        </h3>
+        <p className="text-sm text-blue-100">
+          Runs every step in Parts 1&ndash;3 and then performs the Part 4 checks.{' '}
+          <strong className="text-white">This is the whole setup — there is nothing to run afterwards.</strong>{' '}
+          Safe to run as many times as you like: re-running is how you update a cluster, not something
+          to avoid.
+        </p>
+      </div>
+
+      <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+        <i className="fas fa-sync-alt mr-2"></i>
+        <strong>Already ran an earlier version of this guide? Nothing to undo.</strong> Helm upgrades each
+        release in place and the agent rolls over to the current image, so an old cluster converges. The
+        installer also clears the leftovers that cannot fix themselves — the unpublished{' '}
+        <code className="bg-green-100 px-1 rounded">cost-exporter</code>, a Falco release stranded by the
+        old <code className="bg-green-100 px-1 rounded">driver.kind=ebpf</code> value, and a stale{' '}
+        <code className="bg-green-100 px-1 rounded">PROMETHEUS_URL</code> pointing at port 9090.
+      </div>
+
+      <CollapsibleSection title="Run for one cluster" icon="fas fa-cube" iconColor="text-indigo-600" defaultOpen>
+        <VariableNote variables={[EKS_PLACEHOLDERS.clusterName, EKS_PLACEHOLDERS.region]} />
+        <CodeBlock code={oneLiner} />
+        <p className="text-xs text-gray-500 mt-1">
+          Paste into AWS CloudShell. Roughly 5&ndash;10 minutes; most of it is waiting for Prometheus to
+          bind its volume and for the scanners to start.
+        </p>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Run for every cluster in the region" icon="fas fa-th" iconColor="text-cyan-600">
+        <VariableNote variables={[EKS_PLACEHOLDERS.region]} />
+        <CodeBlock code={allClusters} />
+        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800 mt-2">
+          <i className="fas fa-info-circle mr-2"></i>
+          EKS is region-scoped, so unlike Azure there is no account-wide list — <code>--all</code> means
+          every cluster in this region. Clusters that are not <code>ACTIVE</code> are skipped with a
+          reason, and a failure on one does not stop the others.
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Preview without changing anything" icon="fas fa-eye" iconColor="text-amber-600">
+        <CodeBlock code={`${oneLiner} \\\n  --dry-run`} />
+        <p className="text-xs text-gray-500 mt-1">
+          Prints every command and manifest and touches nothing. Useful for a change request.
+        </p>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Download and inspect before running" icon="fas fa-shield-alt" iconColor="text-red-600">
+        <CodeBlock code={inspectFirst} />
+      </CollapsibleSection>
+
+      <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm text-amber-900">
+        <div className="font-semibold mb-1.5 flex items-center gap-2">
+          <i className="fas fa-key"></i> One thing EKS needs that AKS does not
+        </div>
+        Prometheus needs a PersistentVolume, and EKS has no CSI StorageClass out of the box. If your
+        cluster already has a default CSI StorageClass the installer uses it and does nothing further.
+        If it does not, the installer <strong>stops and prints the commands for you</strong> rather than
+        acting, because fixing it means attaching an IAM policy to your node group role — an
+        account-level change. Add <code className="bg-amber-100 px-1 rounded">--setup-ebs-csi</code> only
+        if you want the installer to do it. <code className="bg-amber-100 px-1 rounded">--yes</code> does
+        not imply consent to an IAM change.
+      </div>
+
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-600">
+        <div className="font-semibold text-gray-800 mb-1.5 flex items-center gap-2">
+          <i className="fas fa-tasks"></i> What it installs
+        </div>
+        <ul className="space-y-1 mb-2">
+          {[
+            ['Step 1.1', 'kubeconfig, and a check that kubectl is pointed at the intended cluster'],
+            ['Step 1.2', 'a CSI StorageClass if one is missing (see above)'],
+            ['Step 1.3', 'Prometheus, with node-exporter and kube-state-metrics'],
+            ['Step 1.4', 'Metrics Server, unless already present'],
+            ['Step 1.5', 'Falco with FalcoSidekick'],
+            ['Step 1.6', 'OpenCost'],
+            ['Step 2.1', 'Trivy Operator'],
+            ['Step 2.2', 'Kubescape, plus a first scan so results appear today rather than tomorrow'],
+            ['Step 3.1', 'read-only RBAC for the agent'],
+            ['Step 3.2', 'agent ConfigMap and Secret for this environment'],
+            ['Step 3.3', `the agent itself (${AGENT_IMAGE_TAG}), with the Karpenter collector enabled`],
+            ['Part 4', 'verification of all of the above'],
+          ].map(([step, what]) => (
+            <li key={step} className="flex items-start gap-2">
+              <i className="fas fa-check text-green-600 text-xs mt-1 flex-shrink-0"></i>
+              <span><code className="bg-gray-100 px-1 rounded">{step}</code> — {what}</span>
+            </li>
+          ))}
+        </ul>
+        Run with <code className="bg-gray-100 px-1 rounded">--dry-run</code> to see each command filled in
+        with your values, or open the manual tabs to read them one step at a time.
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+        <i className="fas fa-exclamation-triangle mr-2"></i>
+        Requires <code className="bg-amber-100 px-1 rounded">aws</code>,{' '}
+        <code className="bg-amber-100 px-1 rounded">kubectl</code> and{' '}
+        <code className="bg-amber-100 px-1 rounded">helm</code> 3.12+, and an account with cluster-admin
+        on the cluster. AWS CloudShell has all three. The installer checks before it starts and stops
+        with a clear message rather than failing halfway.
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Shown at the top of every manual Part.
+ *
+ * Without it the tab strip reads "Quick Install · Overview · Part 1 · Part 2 …", which looks like a
+ * sequence to work through rather than two alternative routes.
+ */
+const ManualStepsNotice: React.FC<{ part: string }> = ({ part }) => (
+  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-600">
+    <i className="fas fa-info-circle mr-2"></i>
+    <strong className="text-gray-800">Reference — Quick Install already performs {part}.</strong>{' '}
+    Run these commands only if you would rather install by hand, or if you are reviewing exactly what
+    the installer does. Doing both is harmless but unnecessary.
+  </div>
+);
 
 // ─── Overview Tab ──────────────────────────────────────────────────────────────
 const OverviewTab: React.FC = () => {
@@ -436,6 +635,7 @@ const OverviewTab: React.FC = () => {
 const Part1Tab: React.FC = () => (
   <div className="space-y-6">
     <h3 className="text-xl font-bold text-gray-800 mb-2">Part 1: In-Cluster Monitoring Stack</h3>
+    <ManualStepsNotice part="these steps" />
     <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg text-sm text-blue-800">
       <i className="fas fa-info-circle mr-2"></i>
       All monitoring tools run inside your cluster in the <code className="bg-blue-100 px-1 rounded">monitoring</code> namespace.
@@ -695,6 +895,7 @@ EOF`}
 const Part2Tab: React.FC = () => (
   <div className="space-y-6">
     <h3 className="text-xl font-bold text-gray-800 mb-2">Part 2: Security Tools</h3>
+    <ManualStepsNotice part="these steps" />
     <div className="bg-purple-50 border-l-4 border-purple-500 p-4 rounded-r-lg text-sm text-purple-800">
       <i className="fas fa-info-circle mr-2"></i>
       Trivy creates <code>VulnerabilityReport</code> CRDs. Kubescape creates <code>ConfigurationScanSummary</code> CRDs.
@@ -781,6 +982,7 @@ const Part3Tab: React.FC = () => {
   return (
   <div className="space-y-6">
     <h3 className="text-xl font-bold text-gray-800 mb-2">Part 3: XamOps Observability Agent</h3>
+    <ManualStepsNotice part="these steps" />
     <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded-r-lg">
       <p className="text-sm text-green-800">
         <i className="fas fa-robot mr-2"></i>
@@ -965,7 +1167,7 @@ spec:
       serviceAccountName: xamops-agent-sa
       containers:
         - name: xamops-agent
-          image: docker.io/xamops/agent:v2.1.0
+          image: docker.io/xamops/agent:${AGENT_IMAGE_TAG}
           imagePullPolicy: Always
           resources:
             requests:
@@ -1020,6 +1222,7 @@ const Part5Tab: React.FC = () => {
   return (
   <div className="space-y-6">
     <h3 className="text-xl font-bold text-gray-800 mb-2">Part 4: Verification</h3>
+    <ManualStepsNotice part="these checks" />
 
     <CollapsibleSection title="Step 4.1: Verify All Pods Are Running" icon="fas fa-check-circle" iconColor="text-green-500">
       <CodeBlock code={`# Monitoring stack

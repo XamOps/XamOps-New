@@ -109,13 +109,10 @@ export function useAccountManager(): UseAccountManagerReturn {
           }
         }
 
-        // Check if it's a constraint violation
-        if (errorMessage.includes('constraint') || errorMessage.includes('ConstraintViolationException')) {
-          throw new Error(
-            'Cannot delete account because it has associated data (costs, resources, billing records, etc.).\n\n' +
-            'The account must be cleaned up first before deletion.\n\n' +
-            'Technical details: Database foreign key constraint violation.'
-          );
+        // 409 means the backend identified exactly what is blocking the delete and
+        // said so — pass that through rather than replacing it with a generic message.
+        if (res.status === 409) {
+          throw new Error(errorMessage);
         }
 
         throw new Error(`${errorMessage} (Status: ${res.status})`);

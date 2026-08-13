@@ -62,6 +62,8 @@ export interface UseCreditsReturn {
   creditRequests: CreditRequest[];
   filteredRequests: CreditRequest[];
   loading: boolean;
+  /** True while a request is being submitted — uploads of large documents can run for a while */
+  isSubmitting: boolean;
   error: string | null;
   selectedFilter: CreditFilter;
   showForm: boolean;

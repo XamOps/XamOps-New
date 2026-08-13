@@ -466,9 +466,10 @@ public class AgentController {
      * Authorization: Bearer <global_api_key>
      */
     @GetMapping("/commands")
-    public ResponseEntity<Map<String, Object>> pollCommands(
+    public ResponseEntity<?> pollCommands(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestParam String agentName) {
+            @RequestParam(value = "agentName", required = false) String agentNameParam,
+            @RequestHeader(value = "X-Agent-Name", required = false) String agentNameHeader) {
 
         String apiKey = extractApiKey(authHeader);
         if (apiKey == null || !agentIngestService.validateApiKey(apiKey)) {
@@ -476,20 +477,40 @@ public class AgentController {
                     .body(Map.of("error", "Invalid or missing API key"));
         }
 
-        return explainRequestRepository
-                .findFirstByAgentNameAndStatusOrderByCreatedAtAsc(agentName, "PENDING")
-                .map(req -> {
-                    req.setStatus("IN_FLIGHT");
-                    explainRequestRepository.save(req);
-                    Map<String, Object> cmd = new HashMap<>();
-                    cmd.put("commandId",  req.getId());
-                    cmd.put("type",       "explain-query");
-                    cmd.put("dsnAlias",   req.getDsnAlias());
-                    cmd.put("queryText",  req.getQueryText());
-                    cmd.put("dbEngine",   req.getDbEngine());
-                    return ResponseEntity.ok(cmd);
-                })
-                .orElse(ResponseEntity.noContent().<Map<String, Object>>build());
+        // The deployed agent sends its name in the X-Agent-Name header, never as a query
+        // parameter. Declaring the parameter required meant every poll from every agent
+        // raised MissingServletRequestParameterException, which the catch-all handler in
+        // GlobalExceptionHandler reports as 500 — so a malformed request looked like a
+        // server fault in the logs. Accept either form and reject a missing one as 400.
+        String agentName = (agentNameParam != null && !agentNameParam.isBlank())
+                ? agentNameParam
+                : agentNameHeader;
+        if (agentName == null || agentName.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "agentName query parameter or X-Agent-Name header is required"));
+        }
+
+        var pending = explainRequestRepository
+                .findFirstByAgentNameAndStatusOrderByCreatedAtAsc(agentName, "PENDING");
+        if (pending.isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
+
+        var req = pending.get();
+        req.setStatus("IN_FLIGHT");
+        explainRequestRepository.save(req);
+
+        Map<String, Object> cmd = new HashMap<>();
+        cmd.put("commandId",  req.getId());
+        // The agent skips any command whose type is not exactly "explain".
+        cmd.put("type",       "explain");
+        cmd.put("dsnAlias",   req.getDsnAlias());
+        cmd.put("queryText",  req.getQueryText());
+        cmd.put("dbEngine",   req.getDbEngine());
+
+        // Returned as a single-element array: the agent decodes the body into a slice, so a
+        // bare object is discarded and the command is never executed.
+        return ResponseEntity.ok(List.of(cmd));
     }
 
     /**

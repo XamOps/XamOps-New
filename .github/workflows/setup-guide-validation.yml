@@ -66,8 +66,8 @@ jobs:
           # The installer is what customers actually run, so a shell bug in it is worse than a
           # wrong command in the guide: it fails mid-way through a cluster.
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          shellcheck xamops-service/src/main/resources/agent-install/install-aks.sh
-          bash -n xamops-service/src/main/resources/agent-install/install-aks.sh
+          shellcheck xamops-service/src/main/resources/agent-install/install-k8s.sh
+          bash -n xamops-service/src/main/resources/agent-install/install-k8s.sh
           echo "ok  installer lints clean"
 
       - name: Installer and guide must agree on the agent image tag
@@ -77,16 +77,19 @@ jobs:
           GUIDE_TAG=$(grep -oE "AGENT_IMAGE_TAG = '[^']+'" \
             frontend-app/src/components/AzureCloudK8s/AzureCloudK8sHelpModal.tsx \
             | head -1 | sed "s/.*'\(.*\)'/\1/")
+          EKS_TAG=$(grep -oE "AGENT_IMAGE_TAG = '[^']+'" \
+            frontend-app/src/components/EksDetails/EksIntegrationModal.tsx \
+            | head -1 | sed "s/.*'\(.*\)'/\1/")
           SCRIPT_TAG=$(grep -oE 'AGENT_IMAGE="docker\.io/xamops/agent:[^"]+"' \
-            xamops-service/src/main/resources/agent-install/install-aks.sh \
+            xamops-service/src/main/resources/agent-install/install-k8s.sh \
             | head -1 | sed 's/.*agent://; s/"$//')
           echo "guide=$GUIDE_TAG script=$SCRIPT_TAG"
           if [ -z "$GUIDE_TAG" ] || [ -z "$SCRIPT_TAG" ]; then
             echo "::error::Could not extract the agent image tag from both sources"
             exit 1
           fi
-          if [ "$GUIDE_TAG" != "$SCRIPT_TAG" ]; then
-            echo "::error::Agent image tag mismatch — guide says $GUIDE_TAG, installer says $SCRIPT_TAG"
+          if [ "$GUIDE_TAG" != "$SCRIPT_TAG" ] || [ "$EKS_TAG" != "$SCRIPT_TAG" ]; then
+            echo "::error::Agent image tag mismatch — aks guide=$GUIDE_TAG eks guide=$EKS_TAG installer=$SCRIPT_TAG"
             exit 1
           fi
           echo "ok  both deploy agent:$GUIDE_TAG"

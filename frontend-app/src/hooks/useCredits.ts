@@ -20,7 +20,6 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiFetch } from '../utils/apiClient';
-import { MAX_ATTACHMENT_BYTES } from '../utils/creditAttachments';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAuth } from '../contexts/AuthContext';
 import type {
@@ -39,6 +38,7 @@ export const useCredits = (): UseCreditsReturn => {
 
   const [creditRequests, setCreditRequests] = useState<CreditRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<CreditFilter>('all');
   const [showForm, setShowForm] = useState(false);
@@ -105,6 +105,7 @@ export const useCredits = (): UseCreditsReturn => {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const files = newRequestData.files || [];
 
@@ -150,6 +151,10 @@ export const useCredits = (): UseCreditsReturn => {
     } catch (err) {
       console.error('Error submitting credit request:', err);
       showNotification('Failed to submit request.', 'error');
+    } finally {
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
     }
   }, [newRequestData, userId, fetchRequests]);
 
@@ -168,23 +173,16 @@ export const useCredits = (): UseCreditsReturn => {
   }, []);
 
   /**
-   * Add supporting documents to the pending request, skipping duplicates and oversized files
+   * Add supporting documents to the pending request. Any file type and size is accepted;
+   * duplicates of an already-attached file are skipped.
    */
   const addFiles = useCallback((incoming: File[]) => {
-    const accepted = incoming.filter((file) => {
-      if (file.size > MAX_ATTACHMENT_BYTES) {
-        showNotification(`"${file.name}" is larger than 50MB and was not attached.`, 'error');
-        return false;
-      }
-      return true;
-    });
-
-    if (accepted.length === 0) return;
+    if (incoming.length === 0) return;
 
     setNewRequestData((prev) => {
       const existing = prev.files || [];
       const isNew = (file: File) => !existing.some((f) => f.name === file.name && f.size === file.size);
-      return { ...prev, files: [...existing, ...accepted.filter(isNew)] };
+      return { ...prev, files: [...existing, ...incoming.filter(isNew)] };
     });
   }, []);
 
@@ -279,6 +277,7 @@ export const useCredits = (): UseCreditsReturn => {
     creditRequests,
     filteredRequests,
     loading,
+    isSubmitting,
     error,
     selectedFilter,
     showForm,

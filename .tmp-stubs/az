@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+CTX_FILE="${STUB_CTX_FILE:-/tmp/stub-kube-context}"
+case "$1 $2" in
+  "account show")
+    if [ "${3:-}" = "--query" ] && [ "${4:-}" = "id" ]; then echo "sub-1234-stub"; exit 0; fi
+    echo '{"id":"sub-1234-stub"}'; exit 0 ;;
+  "account set") exit 0 ;;
+  "aks get-credentials")
+    prev=""; for a in "$@"; do [ "$prev" = "--name" ] && { echo "$a" > "$CTX_FILE"; break; }; prev="$a"; done
+    exit 0 ;;
+  "aks list")
+    QUERY=""; PREV=""
+    for a in "$@"; do [ "$PREV" = "--query" ] && QUERY="$a"; PREV="$a"; done
+    case "$QUERY" in
+      *".resourceGroup"*)
+        NAME="$(printf '%s' "$QUERY" | sed -n "s/.*name=='\([^']*\)'.*/\1/p")"
+        case "$NAME" in
+          aks-alpha) echo "rg-a" ;;
+          prod-us)   echo "rg-prod" ;;
+          dupe)      printf 'rg-one\nrg-two\n' ;;
+          *) : ;;
+        esac
+        exit 0 ;;
+    esac
+    printf 'aks-alpha\trg-a\tSucceeded\n'
+    printf 'aks-bad\trg-b\tFailed\n'
+    printf 'prod-us\trg-prod\tSucceeded\n'
+    exit 0 ;;
+esac
+exit 0
