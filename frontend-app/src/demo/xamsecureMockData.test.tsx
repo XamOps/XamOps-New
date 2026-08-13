@@ -171,6 +171,29 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(panel.getByText('Resolved CVEs')).toBeInTheDocument();
   });
 
+  it('draws scan-volume bars inside a track with a definite height', () => {
+    // jsdom does no layout, so it cannot tell a visible bar from a collapsed one. What it can
+    // check is the cause of the collapse that shipped: the bar sizes itself with a percentage
+    // height, and a percentage resolves against nothing unless its parent height is definite.
+    // The row is `items-end`, so columns are never stretched — the track must carry its own
+    // height class.
+    const { container } = draw(
+      <CodeTab data={demo.demoCodeScans} isLoading={false}
+               loadFindings={demo.demoCodeScanFindings as never} />);
+
+    const bars = Array.from(container.querySelectorAll<HTMLElement>('.bg-gray-800[style*="height"]'));
+    expect(bars.length).toBeGreaterThan(0);
+    for (const bar of bars) {
+      expect(bar.style.height).toMatch(/^\d+(\.\d+)?%$/);
+      const track = bar.parentElement!;
+      // A definite height, not `height: 100%` against an unstretched flex column.
+      expect(track.className).toMatch(/\bh-\d+\b/);
+      expect(track.style.height).toBe('');
+    }
+    // The tallest day is full height, so the scale has a reachable top.
+    expect(bars.some((b) => b.style.height === '100%')).toBe(true);
+  });
+
   it('Code separates IaC scans from image builds, as Upwind orders the page', () => {
     // A Terraform misconfiguration and a dependency CVE are not comparable rows, so one flat
     // table read as a single stream of unrelated builds.

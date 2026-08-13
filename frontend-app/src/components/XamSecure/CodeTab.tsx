@@ -134,19 +134,28 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
             </p>
             <p className="text-[10px] text-gray-400">Last 14 days</p>
           </div>
-          <div className="mt-3 flex items-end gap-1.5 h-24">
+          {/* The track carries a fixed height (h-24), not `height: 100%`. The row is
+              `items-end`, so columns are not stretched and a percentage height had nothing to
+              resolve against — the track collapsed to zero and only the labels rendered. This
+              mirrors the trend chart in ThreatsDashboard, which is the structure known to work. */}
+          <div className="mt-3 flex items-end justify-between gap-1.5 h-32">
             {timeline.map((b) => (
               <div key={b.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-                <span className="text-[9px] font-semibold text-gray-500">
-                  {b.count > 0 ? b.count : ''}
+                {/* Reserves its line even at zero, so bars do not shift as counts change. */}
+                <span className={`text-[9px] font-semibold leading-none ${
+                  b.count > 0 ? 'text-gray-500' : 'text-transparent'}`}>
+                  {b.count > 0 ? b.count : '0'}
                 </span>
-                <div className="w-full bg-gray-100 rounded-sm flex flex-col justify-end"
-                     style={{ height: '100%' }} title={`${b.label}: ${b.count} scans`}>
-                  <div className="w-full bg-gray-800 rounded-sm"
-                       style={{ height: `${(b.count / timelineMax) * 100}%` }} />
+                <div className="w-full flex flex-col justify-end h-24"
+                     title={`${b.label} — ${b.count} scan${b.count === 1 ? '' : 's'}`}>
+                  {b.count > 0
+                    ? <div className="w-full bg-gray-800 rounded-sm"
+                           style={{ height: `${(b.count / timelineMax) * 100}%` }} />
+                    // A day with no CI activity is a fact worth seeing, not a blank column.
+                    : <div className="w-full h-0.5 bg-gray-100 rounded" />}
                 </div>
-                <span className="text-[8px] text-gray-400 truncate w-full text-center">
-                  {b.label}
+                <span className="text-[9px] text-gray-400 whitespace-nowrap">
+                  {b.label.split(' ')[0]}
                 </span>
               </div>
             ))}
