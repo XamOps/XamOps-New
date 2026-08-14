@@ -181,7 +181,9 @@ describe('XamSecure demo data renders in every tab', () => {
       <CodeTab data={demo.demoCodeScans} isLoading={false}
                loadFindings={demo.demoCodeScanFindings as never} />);
 
-    const bars = Array.from(container.querySelectorAll<HTMLElement>('.bg-gray-800[style*="height"]'));
+    // Selected by test id, not by colour class: the bar is tinted per scan kind now, so keying
+    // on a Tailwind colour would break the moment the palette changes.
+    const bars = Array.from(container.querySelectorAll<HTMLElement>('[data-testid="scan-bar"]'));
     expect(bars.length).toBeGreaterThan(0);
     for (const bar of bars) {
       expect(bar.style.height).toMatch(/^\d+(\.\d+)?%$/);
@@ -192,6 +194,23 @@ describe('XamSecure demo data renders in every tab', () => {
     }
     // The tallest day is full height, so the scale has a reachable top.
     expect(bars.some((b) => b.style.height === '100%')).toBe(true);
+  });
+
+  it('colours the volume bars by scan kind, the one dimension the API supports', () => {
+    // Upwind tints its bars by deploy recommendation, which is absent from both payloads. Scan
+    // kind is real, so the tab, the bars and the table cell share one palette per kind.
+    const { container } = draw(
+      <CodeTab data={demo.demoCodeScans} isLoading={false}
+               loadFindings={demo.demoCodeScanFindings as never} />);
+    const barClass = () => container
+      .querySelector<HTMLElement>('[data-testid="scan-bar"]')!.className;
+
+    expect(barClass()).toContain('bg-blue-500');          // image builds
+    fireEvent.click(screen.getByRole('button', { name: /IaC scan/ }));
+    expect(barClass()).toContain('bg-purple-500');         // IaC scans
+
+    // Severity colours stay reserved for severity — a scan kind must not read as a risk level.
+    expect(barClass()).not.toMatch(/bg-(red|orange|amber|emerald)-/);
   });
 
   it('lists CI scans newest first, so the table matches the period the chart plots', () => {
@@ -256,7 +275,7 @@ describe('XamSecure demo data renders in every tab', () => {
       <CodeTab data={data as never} isLoading={false}
                loadFindings={demo.demoCodeScanFindings as never} />);
 
-    const bars = Array.from(container.querySelectorAll<HTMLElement>('.bg-gray-800[style*="height"]'));
+    const bars = Array.from(container.querySelectorAll<HTMLElement>('[data-testid="scan-bar"]'));
     expect(bars).toHaveLength(1);
 
     // Last column = today. Its own bar must be the one that rendered.

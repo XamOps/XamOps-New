@@ -13,9 +13,40 @@ interface Props {
 
 const fmt = (iso: string | null): string => (iso ? new Date(iso).toLocaleString() : '—');
 
-const TYPE_META: Record<string, { label: string; icon: string; color: string }> = {
-  IMAGE_BUILD: { label: 'Image build', icon: 'logos:docker-icon', color: 'text-blue-600' },
-  IAC_SCAN_BUILD: { label: 'IaC scan', icon: 'simple-icons:terraform', color: 'text-purple-600' },
+/**
+ * One palette per scan kind, carried through the tab, the volume bars and the table cell so the
+ * two kinds are distinguishable at a glance. `color` was declared here from the start and never
+ * referenced, which is why every row rendered in the same grey.
+ */
+const TYPE_META: Record<string, {
+  label: string; icon: string; text: string; bar: string; tint: string;
+}> = {
+  IMAGE_BUILD: {
+    label: 'Image build', icon: 'logos:docker-icon',
+    text: 'text-blue-700', bar: 'bg-blue-500',
+    tint: 'border-blue-200 bg-blue-50 text-blue-800',
+  },
+  IAC_SCAN_BUILD: {
+    label: 'IaC scan', icon: 'simple-icons:terraform',
+    text: 'text-purple-700', bar: 'bg-purple-500',
+    tint: 'border-purple-200 bg-purple-50 text-purple-800',
+  },
+};
+
+/**
+ * Avatar tint for an initiator, deterministic on the name.
+ *
+ * Purely to break up a column of identical grey text — the colour carries no meaning and must not
+ * be read as one, which is why none of these are the red/amber/emerald used for severity.
+ */
+const AVATAR_TINTS = [
+  'bg-sky-100 text-sky-700', 'bg-violet-100 text-violet-700', 'bg-teal-100 text-teal-700',
+  'bg-indigo-100 text-indigo-700', 'bg-fuchsia-100 text-fuchsia-700', 'bg-cyan-100 text-cyan-700',
+];
+const avatarTint = (name: string): string => {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  return AVATAR_TINTS[h % AVATAR_TINTS.length];
 };
 
 const SOURCE_ICON: Record<string, string> = {
@@ -61,6 +92,12 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
       .slice()
       .sort((a, b) => ts(b) - ts(a));
   }, [scans, kind]);
+  const activeMeta = TYPE_META[kind];
+
+  const totals = useMemo(() => ({
+    branches: new Set(scans.map((s) => s.branch).filter(Boolean)).size,
+    initiators: new Set(scans.map((s) => s.initiator).filter(Boolean)).size,
+  }), [scans]);
 
   const branches = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -153,11 +190,26 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
           we have no scan type for it, so it is not shown rather than shown empty. */}
       <div className="flex items-center gap-2">
         {Object.entries(TYPE_META).map(([type, meta]) => (
-          <KindTab key={type} label={meta.label} icon={meta.icon}
+          <KindTab key={type} label={meta.label} icon={meta.icon} tint={meta.tint}
                    count={kindCounts[type] ?? 0}
                    active={kind === type}
                    onClick={() => { setKind(type); setBranch(null); setPage(0); }} />
         ))}
+      </div>
+
+      {/* Counts describe the whole stream, not the selected kind, so they hold still while
+          switching tabs. Every one is derived from the list already in hand — no extra request. */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <Stat icon="mdi:source-branch-sync" label="CI scans" value={scans.length}
+              accent="text-gray-900" />
+        <Stat icon="logos:docker-icon" label="Image builds"
+              value={kindCounts.IMAGE_BUILD ?? 0} accent="text-blue-700" />
+        <Stat icon="simple-icons:terraform" label="IaC scans"
+              value={kindCounts.IAC_SCAN_BUILD ?? 0} accent="text-purple-700" />
+        <Stat icon="mdi:source-branch" label="Branches" value={totals.branches}
+              accent="text-emerald-700" />
+        <Stat icon="mdi:account-multiple-outline" label="Contributors"
+              value={totals.initiators} accent="text-amber-700" />
       </div>
 
       {/* Scan volume, so a gap in CI shows up as a gap. */}
@@ -185,8 +237,12 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
                 </span>
                 <div className="w-full flex flex-col justify-end h-24"
                      title={`${b.label} — ${b.count} scan${b.count === 1 ? '' : 's'}`}>
+                  {/* Tinted by scan kind, which is real data. Upwind tints by deploy
+                      recommendation; that verdict is not in the API, so this is the honest
+                      dimension to colour by. */}
                   {b.count > 0
-                    ? <div className="w-full bg-gray-800 rounded-sm"
+                    ? <div data-testid="scan-bar"
+                           className={`w-full rounded-sm ${activeMeta?.bar ?? 'bg-gray-800'}`}
                            style={{ height: `${(b.count / timelineMax) * 100}%` }} />
                     // A day with no CI activity is a fact worth seeing, not a blank column.
                     : <div className="w-full h-0.5 bg-gray-100 rounded" />}
@@ -263,23 +319,34 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
                     </td>
                     <td className="px-3 py-3">
                       {meta ? (
-                        <span className="flex items-center gap-1.5">
-                          <Icon icon={meta.icon} width={13} className="flex-shrink-0" />
-                          <span className="text-gray-700">{meta.label}</span>
+                        <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5
+                                          text-[10px] font-semibold ${meta.tint}`}>
+                          <Icon icon={meta.icon} width={12} className="flex-shrink-0" />
+                          {meta.label}
                         </span>
                       ) : <span className="text-gray-400">{s.type ?? '—'}</span>}
                     </td>
                     <td className="px-3 py-3 font-mono text-[11px] text-gray-500">
                       {s.commitSha ? s.commitSha.slice(0, 7) : '—'}
                     </td>
-                    <td className="px-3 py-3 text-gray-600 truncate max-w-[140px]">
-                      {s.initiator ?? '—'}
+                    <td className="px-3 py-3">
+                      {s.initiator ? (
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center
+                                            rounded-full text-[9px] font-bold uppercase
+                                            ${avatarTint(s.initiator)}`}>
+                            {s.initiator.slice(0, 2)}
+                          </span>
+                          <span className="truncate max-w-[110px] text-gray-600"
+                                title={s.initiator}>{s.initiator}</span>
+                        </span>
+                      ) : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-3 py-3">
                       {s.pullRequestUrl ? (
                         <a href={s.pullRequestUrl} target="_blank" rel="noreferrer noopener"
                            onClick={(e) => e.stopPropagation()}
-                           className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900 underline decoration-dotted">
+                           className="inline-flex items-center gap-1 font-medium text-blue-700 hover:text-blue-900 underline decoration-dotted">
                           {s.pullRequestId ? `#${s.pullRequestId}` : 'Open'}
                           <Icon icon="mdi:arrow-top-right" width={11} />
                         </a>
@@ -320,21 +387,35 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
   );
 };
 
+/** Compact rollup tile, matching the classification strip on Inventory. */
+const Stat: React.FC<{ icon: string; label: string; value: number; accent: string }> =
+  ({ icon, label, value, accent }) => (
+  <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
+    <div className="flex items-center gap-1.5 mb-0.5">
+      <Icon icon={icon} width={13} className="flex-shrink-0 text-gray-400" />
+      <p className="text-[10px] text-gray-500 truncate" title={label}>{label}</p>
+    </div>
+    <p className={`text-xl font-bold ${accent}`}>{value.toLocaleString()}</p>
+  </div>
+);
+
 const KindTab: React.FC<{
-  label: string; icon: string; count: number; active: boolean; onClick: () => void;
-}> = ({ label, icon, count, active, onClick }) => (
+  label: string; icon: string; tint: string; count: number; active: boolean; onClick: () => void;
+}> = ({ label, icon, tint, count, active, onClick }) => (
   <button
     type="button"
     onClick={onClick}
     aria-pressed={active}
-    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold
+    // The selected kind carries its own colour rather than a generic dark pill, so the tab, the
+    // volume bars and the table cell all read as one thing.
+    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold
                 transition-colors focus:outline-none focus-visible:ring-2
                 focus-visible:ring-gray-900 ${
-      active ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+      active ? tint : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
   >
     <Icon icon={icon} width={13} className="flex-shrink-0" />
     {label}
-    <span className={active ? 'text-gray-300' : 'text-gray-400'}>{count}</span>
+    <span className={active ? 'opacity-70' : 'text-gray-400'}>{count}</span>
   </button>
 );
 
