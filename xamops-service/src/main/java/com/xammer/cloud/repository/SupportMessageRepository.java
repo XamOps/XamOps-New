@@ -2,13 +2,29 @@ package com.xammer.cloud.repository;
 
 import com.xammer.cloud.domain.SupportMessage;
 import com.xammer.cloud.domain.User;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import java.util.List;
+import java.util.Optional;
 
 public interface SupportMessageRepository extends JpaRepository<SupportMessage, Long> {
     // Find chat history for a specific user, ordered by time
     List<SupportMessage> findBySenderOrderByTimestampAsc(User sender);
+
+    /**
+     * Most recent N messages for a user, newest first.
+     *
+     * The unbounded findBySenderOrderByTimestampAsc above was being called on a 5s poll
+     * from two separate frontend hooks, returning the user's entire message history every
+     * time. Long-running conversations made that query grow without limit. Callers page
+     * with this and reverse for display.
+     */
+    List<SupportMessage> findBySenderOrderByTimestampDesc(User sender, Pageable pageable);
+
+    /** Newest unread admin reply — lets the notification poller avoid fetching history at all. */
+    Optional<SupportMessage> findFirstBySenderAndIsUserMessageFalseAndStatusOrderByTimestampDesc(
+            User sender, String status);
 
     List<SupportMessage> findByAccountIdOrderByTimestampAsc(String accountId);
 

@@ -5,11 +5,14 @@ import { notifyNewSupportReply, initNotificationService, playNotificationSound }
 
 const POLL_INTERVAL = 5000;
 const MAX_CONSECUTIVE_ERRORS = 5;
+/** Backoff applied after MAX_CONSECUTIVE_ERRORS, instead of giving up permanently. */
+const ERROR_BACKOFF_MS = 60_000;
 
-interface ChatHistoryItem {
-    content: string;
-    userMessage: boolean;
-    timestamp: string;
+interface UnreadSummary {
+    unreadCount: number;
+    latestMessage?: string;
+    latestId?: number;
+    latestTimestamp?: string;
 }
 
 const UserSupportNotificationListener: React.FC = () => {
@@ -17,11 +20,11 @@ const UserSupportNotificationListener: React.FC = () => {
     const isXamopsUser = hasAnyRole('ROLE_XAMOPS');
 
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
-    const previousMessageCountRef = useRef<number>(0);
-    const previousLastTimestampRef = useRef<string>('');
+    const lastNotifiedIdRef = useRef<number | null>(null);
     const isInitializedRef = useRef(false);
     const isMountedRef = useRef(true);
     const consecutiveErrorsRef = useRef<number>(0);
+    const backoffUntilRef = useRef<number>(0);
 
     useEffect(() => {
         if (!isXamopsUser) {
@@ -34,54 +37,52 @@ const UserSupportNotificationListener: React.FC = () => {
 
         const checkNewMessages = async () => {
             if (!isMountedRef.current) return;
+            // Skip while backgrounded — nobody can see a notification on a hidden tab,
+            // and this used to poll the backend every 5s regardless.
+            if (document.hidden) return;
+            if (Date.now() < backoffUntilRef.current) return;
 
             try {
-                const selectedIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
-                const accountId = selectedIds.length > 0 ? selectedIds[0] : null;
-                const url = accountId
-                    ? `/api/ai/chat/history?accountId=${encodeURIComponent(accountId)}`
-                    : '/api/ai/chat/history';
+                // Uses /chat/unread rather than /chat/history: a count plus one row, instead
+                // of the user's entire message history downloaded every 5 seconds.
+                const summary = await apiClient.get<UnreadSummary>('/api/ai/chat/unread');
+                if (!isMountedRef.current || !summary) return;
 
-                const history = await apiClient.get<ChatHistoryItem[]>(url);
-                if (!isMountedRef.current || !history || !Array.isArray(history)) return;
+                const latestId = summary.latestId ?? null;
 
-                const currentCount = history.length;
-
+                // First successful poll only establishes a baseline, so existing unread
+                // messages don't fire a notification burst on page load.
                 if (!isInitializedRef.current) {
-                    previousMessageCountRef.current = currentCount;
-                    if (history.length > 0) {
-                        previousLastTimestampRef.current = history[history.length - 1].timestamp;
-                    }
+                    lastNotifiedIdRef.current = latestId;
                     isInitializedRef.current = true;
+                    consecutiveErrorsRef.current = 0;
                     return;
                 }
 
-                if (currentCount > previousMessageCountRef.current) {
-                    const newMessages = history.slice(previousMessageCountRef.current);
-                    const newAdminMessages = newMessages.filter(msg => !msg.userMessage);
-
-                    if (newAdminMessages.length > 0) {
-                        const latestMessage = newAdminMessages[newAdminMessages.length - 1];
-                        playNotificationSound();
-                        notifyNewSupportReply(latestMessage.content, { playSound: false });
-                        window.dispatchEvent(new CustomEvent('newAdminMessage', {
-                            detail: { message: latestMessage.content, count: newAdminMessages.length }
-                        }));
-                    }
+                const isNew = latestId !== null && latestId !== lastNotifiedIdRef.current;
+                if (isNew && summary.unreadCount > 0 && summary.latestMessage) {
+                    lastNotifiedIdRef.current = latestId;
+                    playNotificationSound();
+                    notifyNewSupportReply(summary.latestMessage, { playSound: false });
+                    window.dispatchEvent(new CustomEvent('newAdminMessage', {
+                        detail: { message: summary.latestMessage, count: summary.unreadCount }
+                    }));
+                } else if (latestId !== null) {
+                    lastNotifiedIdRef.current = latestId;
                 }
 
-                previousMessageCountRef.current = currentCount;
-                if (history.length > 0) {
-                    previousLastTimestampRef.current = history[history.length - 1].timestamp;
-                }
                 consecutiveErrorsRef.current = 0;
 
             } catch (error) {
                 consecutiveErrorsRef.current++;
-                console.error('[UserNotification] Failed to poll chat history:', error);
+                console.error('[UserNotification] Failed to poll unread messages:', error);
                 if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
-                    console.warn(`[UserNotification] Stopping poll after ${MAX_CONSECUTIVE_ERRORS} consecutive failures.`);
-                    if (intervalRef.current) clearInterval(intervalRef.current);
+                    // Back off rather than stopping forever. The previous version cleared the
+                    // interval permanently, so a transient backend outage silently disabled
+                    // support notifications until a full page reload.
+                    console.warn(`[UserNotification] Backing off ${ERROR_BACKOFF_MS}ms after ${MAX_CONSECUTIVE_ERRORS} failures.`);
+                    backoffUntilRef.current = Date.now() + ERROR_BACKOFF_MS;
+                    consecutiveErrorsRef.current = 0;
                 }
             }
         };
@@ -98,8 +99,7 @@ const UserSupportNotificationListener: React.FC = () => {
 
     useEffect(() => {
         const handleStorageChange = () => {
-            previousMessageCountRef.current = 0;
-            previousLastTimestampRef.current = '';
+            lastNotifiedIdRef.current = null;
             isInitializedRef.current = false;
         };
         window.addEventListener('storage', handleStorageChange);
