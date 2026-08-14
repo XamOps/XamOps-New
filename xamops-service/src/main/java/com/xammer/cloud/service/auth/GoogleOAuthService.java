@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.dto.auth.GoogleIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -43,8 +44,14 @@ public class GoogleOAuthService {
     @Value("${google.oauth.redirect-uri:}")
     private String redirectUri;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    // Timeout-bounded (5s connect / 15s read). Must not be `new RestTemplate()`: these
+    // calls run inline during browser login, and the default has no timeouts at all.
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public GoogleOAuthService(@Qualifier("oauthRestTemplate") RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
     public boolean isConfigured() {
         return clientId != null && !clientId.isBlank()

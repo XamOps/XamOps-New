@@ -427,15 +427,47 @@ public class AgentIngestService {
         return agentDataCacheRepository.getLatestCollectedAt(clusterConfigId);
     }
 
+    /** Rows removed per transaction when pruning. Small enough to keep lock windows short. */
+    static final int CLEANUP_BATCH_SIZE = 5_000;
+    /** Safety valve so a runaway loop can't run indefinitely against the database. */
+    static final int CLEANUP_MAX_BATCHES = 200;
+
     /**
      * Cleanup old agent data (retention policy).
+     *
+     * Deletes in bounded batches, each in its own transaction. This is deliberately not one
+     * big {@code @Transactional} delete: nothing pruned these tables until this job was
+     * scheduled, so the first run may have to remove a very large backlog, and a single
+     * statement would hold one long transaction and a lot of locks against the same Postgres
+     * whose connection pool has already caused a production outage. Batching keeps each lock
+     * window short and lets other work interleave.
+     *
+     * Partial progress is fine — anything left over is picked up on the next run.
      */
-    @Transactional
     public int cleanupStaleData(int retentionDays) {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(retentionDays);
-        int deletedData = agentDataCacheRepository.deleteStaleData(cutoff);
-        int deletedEvents = agentEventRepository.deleteOldEvents(cutoff);
-        logger.info("Cleaned up {} stale data records and {} old events", deletedData, deletedEvents);
+
+        int deletedData = deleteInBatches(
+                batch -> agentDataCacheRepository.deleteStaleDataBatch(cutoff, batch), "agent_data_cache");
+        int deletedEvents = deleteInBatches(
+                batch -> agentEventRepository.deleteOldEventsBatch(cutoff, batch), "agent_events");
+
+        logger.info("Cleaned up {} stale data records and {} old events (cutoff={})",
+                deletedData, deletedEvents, cutoff);
         return deletedData + deletedEvents;
+    }
+
+    private int deleteInBatches(java.util.function.IntUnaryOperator deleteBatch, String label) {
+        int total = 0;
+        for (int i = 0; i < CLEANUP_MAX_BATCHES; i++) {
+            int deleted = deleteBatch.applyAsInt(CLEANUP_BATCH_SIZE);
+            total += deleted;
+            // A short batch means we've caught up.
+            if (deleted < CLEANUP_BATCH_SIZE) return total;
+        }
+        logger.warn("Cleanup of {} hit the {}-batch cap with rows still remaining; "
+                        + "the rest will be removed on the next run",
+                label, CLEANUP_MAX_BATCHES);
+        return total;
     }
 }

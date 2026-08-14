@@ -316,6 +316,23 @@ ${receiver_blocks}
         mute_process_io_error: true
       paging: {}
 
+  # -- Collector self-telemetry ------------------------------------------------
+  # The collector already exposes its own metrics on 127.0.0.1:8888, but nothing
+  # shipped them - so when the agent was running yet failing to scrape or export,
+  # that fact never left the host and XamOps could only say "not reporting",
+  # which is indistinguishable from a dead agent.
+  #
+  # Scraping them yields otelcol_process_uptime (agent is alive) and
+  # otelcol_exporter_send_failed_metric_points (alive but cannot ship), which is
+  # what lets the console tell a broken pipeline apart from a stopped agent.
+  prometheus/self:
+    config:
+      scrape_configs:
+        - job_name: otel-collector-self
+          scrape_interval: 60s
+          static_configs:
+            - targets: [127.0.0.1:8888]
+
   # ── OTLP Receiver — application traces ─────────────────────────────────────
   otlp:
     protocols:
@@ -399,7 +416,7 @@ service:
       processors: [memory_limiter, resourcedetection, resource, filter/healthcheck, batch]
       exporters: [otlphttp]
     metrics:
-      receivers: [hostmetrics]
+      receivers: [hostmetrics, prometheus/self]
       processors: [memory_limiter, resourcedetection, resource, batch]
       exporters: [otlphttp]
     traces:

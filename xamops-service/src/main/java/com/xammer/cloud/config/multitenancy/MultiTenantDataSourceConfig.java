@@ -63,6 +63,16 @@ public class MultiTenantDataSourceConfig {
     private String connectionTestQuery;
 
     /**
+     * These pools are built by hand rather than by Spring Boot autoconfiguration, so
+     * spring.datasource.hikari.* is only honoured for the properties explicitly applied
+     * below. leak-detection-threshold was set in application-prod.properties but never
+     * read, which meant connections leaked by long external HTTP calls were invisible.
+     * 0 disables detection; prod sets 30000.
+     */
+    @Value("${spring.datasource.hikari.leak-detection-threshold:0}")
+    private long leakDetectionThreshold;
+
+    /**
      * Helper method to create a HikariCP-pooled DataSource for master DB access.
      * Used in PROD/PREPROD for querying tenant_config and global_users tables.
      * Uses connection pooling to prevent connection exhaustion on PostgreSQL.
@@ -90,6 +100,7 @@ public class MultiTenantDataSourceConfig {
         ds.setKeepaliveTime(keepaliveTime);
         ds.setValidationTimeout(validationTimeout);
         ds.setConnectionTestQuery(connectionTestQuery);
+        ds.setLeakDetectionThreshold(leakDetectionThreshold);
     }
 
     /**
@@ -105,6 +116,7 @@ public class MultiTenantDataSourceConfig {
         ds.setKeepaliveTime(keepaliveTime);
         ds.setValidationTimeout(validationTimeout);
         ds.setConnectionTestQuery(connectionTestQuery);
+        ds.setLeakDetectionThreshold(leakDetectionThreshold);
     }
 
     /**
