@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -58,9 +59,18 @@ public interface AgentEventRepository extends JpaRepository<AgentEvent, Long> {
     /**
      * Delete old events (cleanup)
      */
+    /**
+     * Deletes at most {@code batchSize} old events. Batched for the same reason as
+     * {@code AgentDataCacheRepository.deleteStaleDataBatch}: this table has never been
+     * pruned, so the first run must not become one enormous transaction.
+     */
     @Modifying
-    @Query("DELETE FROM AgentEvent e WHERE e.createdAt < :cutoff")
-    int deleteOldEvents(@Param("cutoff") LocalDateTime cutoff);
+    @Transactional // one short transaction per batch — the caller loops without holding one
+    @Query(value = "DELETE FROM agent_events WHERE id IN ("
+            + "SELECT id FROM agent_events WHERE created_at < :cutoff LIMIT :batchSize)",
+            nativeQuery = true)
+    int deleteOldEventsBatch(@Param("cutoff") LocalDateTime cutoff,
+                             @Param("batchSize") int batchSize);
 
     /**
      * Count errors in last 24 hours for a cluster

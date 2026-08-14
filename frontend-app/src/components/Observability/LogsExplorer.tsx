@@ -808,13 +808,29 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams, streamsReady = tru
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStream]);
 
-  // Live refresh — only in filter mode on page 0
+  // Live refresh — only in filter mode on page 0, and only while the tab is visible.
+  // Each tick costs a logs/search plus two logs/histogram calls, so a forgotten
+  // background tab was polling the backend three times every 10s indefinitely.
   useEffect(() => {
-    if (liveTimerRef.current) clearInterval(liveTimerRef.current);
-    if (liveRefresh && mode === 'filter' && page === 0) {
-      liveTimerRef.current = setInterval(() => doSearch(false, 0), liveInterval * 1000);
-    }
-    return () => { if (liveTimerRef.current) clearInterval(liveTimerRef.current); };
+    const stop = () => {
+      if (liveTimerRef.current) {
+        clearInterval(liveTimerRef.current);
+        liveTimerRef.current = null;
+      }
+    };
+    const start = () => {
+      stop();
+      if (liveRefresh && mode === 'filter' && page === 0 && !document.hidden) {
+        liveTimerRef.current = setInterval(() => doSearch(false, 0), liveInterval * 1000);
+      }
+    };
+
+    start();
+    document.addEventListener('visibilitychange', start);
+    return () => {
+      document.removeEventListener('visibilitychange', start);
+      stop();
+    };
   }, [liveRefresh, liveInterval, mode, page, doSearch]);
 
   const handleFilterSearch = (e: React.FormEvent) => { e.preventDefault(); doSearch(true); };

@@ -759,9 +759,18 @@ export interface CodeScan {
  * false with a reason for any client that did not connect the repository.
  */
 export interface CodeScansResponse {
+  /** Newest first, capped at the requested limit. */
   scans: CodeScan[];
   available: boolean;
   unavailableReason?: string | null;
+  /** How many scans the backend read from Upwind before keeping the newest `scans.length`. */
+  scansRead?: number;
+  /**
+   * True when older scans exist that this payload does not include. Upwind's search has no sort
+   * and a broken date filter, so the backend pages the stream and keeps the newest N — anything
+   * beyond that is absent, and the UI must not present the result as complete history.
+   */
+  historyTruncated?: boolean;
 }
 
 /** A CVE as reported against a build, richer than our runtime rows: carries the fix version. */

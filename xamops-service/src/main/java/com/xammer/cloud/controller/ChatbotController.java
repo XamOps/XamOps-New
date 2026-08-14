@@ -53,10 +53,18 @@ public class ChatbotController {
         return new ChatResponse(ack);
     }
 
+    /**
+     * Recent chat history for the current user, oldest first.
+     *
+     * {@code limit} bounds the result set (default 200, hard cap 500). The unbounded
+     * version of this endpoint was being polled every 5s by two separate frontend hooks
+     * and returned the user's entire message history each time.
+     */
     @GetMapping("/chat/history")
     @PreAuthorize("hasAuthority('ROLE_XAMOPS')")
-    public List<SupportMessage> getChatHistory(@RequestParam(required = false) String accountId) {
-        return supportChatService.getMessagesForCurrentUser(accountId);
+    public List<SupportMessage> getChatHistory(@RequestParam(required = false) String accountId,
+                                              @RequestParam(defaultValue = "200") int limit) {
+        return supportChatService.getMessagesForCurrentUser(accountId, limit);
     }
 
     /**
@@ -69,6 +77,14 @@ public class ChatbotController {
         long unreadCount = supportChatService.getUnreadAdminMessageCount(accountId);
         Map<String, Object> response = new HashMap<>();
         response.put("unreadCount", unreadCount);
+
+        // Include just enough of the newest unread reply for the notification toast, so the
+        // global poller never has to download the full history to detect a new message.
+        supportChatService.getLatestUnreadAdminMessage().ifPresent(latest -> {
+            response.put("latestMessage", latest.getContent());
+            response.put("latestTimestamp", latest.getTimestamp());
+            response.put("latestId", latest.getId());
+        });
         return response;
     }
 

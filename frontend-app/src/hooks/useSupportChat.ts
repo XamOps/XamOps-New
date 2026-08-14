@@ -86,6 +86,14 @@ export const useSupportChat = (): UseSupportChatReturn => {
     isOpenRef.current = isOpen;
   }, [isOpen]);
 
+  // Refresh immediately on open. Polling only runs while the widget is open, so without
+  // this the user would see stale messages for up to one poll interval after opening it.
+  useEffect(() => {
+    if (isOpen && isXamopsUser) {
+      fetchHistoryRef.current?.();
+    }
+  }, [isOpen, isXamopsUser]);
+
   /**
    * Scroll to bottom of chat
    */
@@ -235,9 +243,16 @@ export const useSupportChat = (): UseSupportChatReturn => {
     // Initial fetch
     fetchHistoryRef.current?.();
 
-    // Set up polling every 5 seconds
-    // Use fetchHistoryRef.current to always call the latest version of fetchHistory
+    // Poll every 5s, but only when the conversation is actually on screen.
+    //
+    // This used to run unconditionally for the whole session, which meant every logged-in
+    // user pulled their full chat history 12 times a minute whether or not the widget was
+    // open. The unread badge is driven separately by UserSupportNotificationListener via
+    // the much cheaper /chat/unread endpoint, and that listener dispatches
+    // 'newAdminMessage' which triggers a refresh below — so a closed widget needs no polling.
     intervalRef.current = setInterval(() => {
+      if (document.hidden) return;
+      if (!isOpenRef.current) return;
       fetchHistoryRef.current?.();
     }, 5000);
 

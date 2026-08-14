@@ -50,7 +50,17 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
     return c;
   }, [scans]);
 
-  const all = useMemo(() => scans.filter((s) => (s.type ?? 'OTHER') === kind), [scans, kind]);
+  // Newest first. Upwind returns the scan stream in its own order — in practice oldest first —
+  // and neither the backend nor this component reordered it. The table therefore opened on scans
+  // from weeks earlier while the chart showed the last 14 days, so the two panels appeared to
+  // describe unrelated periods. A CI history should lead with the most recent scan regardless.
+  const all = useMemo(() => {
+    const ts = (s: CodeScan) => (s.createTime ? new Date(s.createTime).getTime() : 0);
+    return scans
+      .filter((s) => (s.type ?? 'OTHER') === kind)
+      .slice()
+      .sort((a, b) => ts(b) - ts(a));
+  }, [scans, kind]);
 
   const branches = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -76,23 +86,48 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
   // scan event and the findings payload, so tinting them here would be invention.
   const timeline = useMemo(() => {
     const DAYS = 14;
-    const day = 86_400_000;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const buckets: { label: string; count: number }[] = [];
+    // Bucket boundaries walk the calendar rather than adding 86_400_000ms. Fixed-millisecond
+    // steps drift by an hour across a DST change, which silently shifts a day's scans into the
+    // neighbouring bucket for anyone outside a no-DST timezone.
+    const buckets: { label: string; axisLabel: string; count: number }[] = [];
     for (let i = DAYS - 1; i >= 0; i--) {
-      const start = today.getTime() - i * day;
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      dayStart.setDate(dayStart.getDate() - i);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      const start = dayStart.getTime();
+      const end = dayEnd.getTime();
+
+      // Month is shown on the first column and whenever the month turns over, so the axis reads
+      // as a date range. Bare day numbers ("31 01 02 …") gave no way to tell what period the
+      // chart covered, which is why it looked unrelated to the dates in the table below.
+      const isMonthBoundary = i === DAYS - 1 || dayStart.getDate() === 1;
+
+      // Day and month are composed explicitly rather than taken from a localised string.
+      // `toLocaleDateString({ day, month })` orders them by locale — "31 Jul" under en-GB but
+      // "Jul 31" under en-US — and the axis previously took the first token of that string, so
+      // US users saw the month repeated down the axis instead of the day of the month.
+      const dayNum = String(dayStart.getDate()).padStart(2, '0');
+      const monthName = dayStart.toLocaleDateString(undefined, { month: 'short' });
+
       buckets.push({
-        label: new Date(start).toLocaleDateString(undefined, { day: '2-digit', month: 'short' }),
+        label: `${dayNum} ${monthName}`,
+        axisLabel: isMonthBoundary ? `${dayNum} ${monthName}` : dayNum,
         count: all.filter((s) => {
           if (!s.createTime) return false;
           const t = new Date(s.createTime).getTime();
-          return t >= start && t < start + day;
+          return t >= start && t < end;
         }).length,
       });
     }
     return buckets;
   }, [all]);
   const timelineMax = Math.max(1, ...timeline.map((b) => b.count));
+  // The chart is a 14-day window while the table lists every scan. Stating the subset stops the
+  // two panels reading as a contradiction when most scans predate the window.
+  const timelineTotal = timeline.reduce((sum, b) => sum + b.count, 0);
 
   if (isLoading && scans.length === 0) {
     return <div className="text-center py-16 text-sm text-gray-400">Loading code scans...</div>;
@@ -132,7 +167,9 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
               Scans per day
             </p>
-            <p className="text-[10px] text-gray-400">Last 14 days</p>
+            <p className="text-[10px] text-gray-400">
+              {timelineTotal.toLocaleString()} of {all.length.toLocaleString()} in last 14 days
+            </p>
           </div>
           {/* The track carries a fixed height (h-24), not `height: 100%`. The row is
               `items-end`, so columns are not stretched and a percentage height had nothing to
@@ -155,7 +192,7 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
                     : <div className="w-full h-0.5 bg-gray-100 rounded" />}
                 </div>
                 <span className="text-[9px] text-gray-400 whitespace-nowrap">
-                  {b.label.split(' ')[0]}
+                  {b.axisLabel}
                 </span>
               </div>
             ))}
@@ -177,7 +214,12 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
             CI scans
           </p>
-          <span className="text-[10px] text-gray-400">{total.toLocaleString()} scans</span>
+          {/* Upwind's search has no sort and an unusable date filter, so the backend keeps the
+              newest N scans. Saying so stops a clipped history reading as the complete record. */}
+          <span className="text-[10px] text-gray-400">
+            {total.toLocaleString()} scans
+            {data?.historyTruncated && ' · newest only, older history not loaded'}
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">

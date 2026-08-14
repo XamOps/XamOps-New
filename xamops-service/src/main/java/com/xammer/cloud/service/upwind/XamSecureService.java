@@ -1099,8 +1099,11 @@ public class XamSecureService {
                 redisCacheService.get(cacheKey, new TypeReference<Map<String, Object>>() {});
         if (cached.isPresent()) return cached.get();
 
+        UpwindApiClient.ShiftLeftScans page =
+                apiClient.searchShiftLeftScans(Math.min(Math.max(limit, 1), 500));
+
         List<Map<String, Object>> scans = new ArrayList<>();
-        for (JsonNode s : apiClient.searchShiftLeftScans(Math.min(Math.max(limit, 1), 500))) {
+        for (JsonNode s : page.items) {
             Map<String, Object> m = new LinkedHashMap<>();
             // Absent on ~11% of scans (28 of 256 measured); without it there is no way to fetch
             // findings, so the client must render those rows as history only.
@@ -1123,6 +1126,11 @@ public class XamSecureService {
         }
         out.put("scans", scans);
         out.put("available", true);
+        // Scans are the newest `limit` of `scanned` read from Upwind. Surfacing this lets the UI
+        // say the history is clipped instead of presenting a partial window as the whole truth —
+        // the failure mode that made the scans-per-day chart look wrong.
+        out.put("scansRead", page.scanned);
+        out.put("historyTruncated", page.truncated || page.scanned > scans.size());
         out.remove("unavailableReason");
         if (!scans.isEmpty()) redisCacheService.put(cacheKey, out, SUMMARY_CACHE_MINUTES);
         return out;

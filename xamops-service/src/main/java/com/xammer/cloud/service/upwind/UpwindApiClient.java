@@ -252,28 +252,99 @@ public class UpwindApiClient {
      * ("conditions: must not be empty"), and {@code create_time gte} returns 500 upstream, so a
      * {@code branch like %} match-all is used instead. Both are Upwind-side quirks.
      */
-    public List<JsonNode> searchShiftLeftScans(int maxItems) {
-        java.util.List<JsonNode> items = new java.util.ArrayList<>();
+    /** Result of a shift-left scan search, with enough context to tell the user if it was cut short. */
+    public static final class ShiftLeftScans {
+        /** Newest first. */
+        public final List<JsonNode> items;
+        /** How many scans were read from Upwind before selecting the newest. */
+        public final int scanned;
+        /** True when the page ceiling or time budget stopped us before the stream ended. */
+        public final boolean truncated;
+
+        ShiftLeftScans(List<JsonNode> items, int scanned, boolean truncated) {
+            this.items = items;
+            this.scanned = scanned;
+            this.truncated = truncated;
+        }
+    }
+
+    /** Pages to read at most, so one tenant's history cannot make this unbounded. */
+    static final int SHIFT_LEFT_MAX_PAGES = 30;
+    /** Wall-clock budget: a slow upstream must not hold a request thread for the full 30 pages. */
+    static final long SHIFT_LEFT_BUDGET_MS = 20_000L;
+
+    /**
+     * CI scan events — Upwind's shift-left stream, newest first.
+     *
+     * The search accepts no sort field (verified: no sort/order parameter exists on this route)
+     * and Upwind returns the stream oldest-first. The previous implementation stopped as soon as
+     * it had {@code maxItems}, which therefore returned the {@code maxItems} *oldest* scans and
+     * silently discarded everything newer. That is not a cosmetic issue: the Code tab's 14-day
+     * chart plotted an empty final week because those scans were never in the payload at all.
+     *
+     * Since the date filter is unusable too ({@code create_time gte} 500s upstream), the only
+     * correct approach is to page through the stream and select the newest {@code maxItems}
+     * ourselves — bounded by a page ceiling and a time budget so a large tenant or a slow
+     * upstream cannot turn this into an unbounded crawl. When either bound is hit the result is
+     * flagged, because quietly returning a partial window is what caused this bug.
+     */
+    public ShiftLeftScans searchShiftLeftScans(int maxItems) {
+        List<JsonNode> all = new java.util.ArrayList<>();
         String base = apiBaseUrl + "/v2/organizations/" + orgId
                 + "/events/shift-left/search?limit=" + SEARCH_PAGE_SIZE;
         String url = base;
+        boolean truncated = false;
+        long deadline = System.currentTimeMillis() + SHIFT_LEFT_BUDGET_MS;
+
         try {
             String body = objectMapper.writeValueAsString(java.util.Map.of("conditions",
                     java.util.List.of(java.util.Map.of("field", "branch",
                             "operator", "like", "value", java.util.List.of("%")))));
-            while (url != null && items.size() < maxItems) {
+            int pages = 0;
+            while (url != null) {
+                if (pages >= SHIFT_LEFT_MAX_PAGES || System.currentTimeMillis() > deadline) {
+                    truncated = true;
+                    log.warn("[Upwind] shift-left search stopped after {} page(s) ({} scans); "
+                            + "newest {} returned but older history was not read",
+                            pages, all.size(), maxItems);
+                    break;
+                }
                 HttpHeaders headers = authHeaders();
                 ResponseEntity<String> resp = exchangeWithRetry(
                         URI.create(url), HttpMethod.POST, new HttpEntity<>(body, headers));
                 JsonNode json = objectMapper.readTree(resp.getBody());
-                for (JsonNode item : json.path("items")) items.add(item);
+                for (JsonNode item : json.path("items")) all.add(item);
+                pages++;
                 String cursor = json.path("metadata").path("next_cursor").asText(null);
                 url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
             }
         } catch (Exception e) {
-            log.warn("[Upwind] shift-left scan search failed: {}", e.getMessage());
+            // Partial results are still useful; report what we managed to read.
+            truncated = true;
+            log.warn("[Upwind] shift-left scan search failed after {} scans: {}",
+                    all.size(), e.getMessage());
         }
-        return items;
+
+        int scanned = all.size();
+        all.sort(java.util.Comparator.comparingLong(
+                (JsonNode n) -> createTimeMillis(n)).reversed());
+        List<JsonNode> newest = all.size() > maxItems ? new java.util.ArrayList<>(all.subList(0, maxItems)) : all;
+        return new ShiftLeftScans(newest, scanned, truncated);
+    }
+
+    /** Epoch millis of a scan's create_time; 0 when absent or unparseable, so it sorts last. */
+    private static long createTimeMillis(JsonNode scan) {
+        String raw = scan.path("create_time").asText(null);
+        if (raw == null || raw.isBlank()) return 0L;
+        try {
+            return java.time.Instant.parse(raw).toEpochMilli();
+        } catch (Exception ignored) {
+            try {
+                return java.time.OffsetDateTime.parse(raw).toInstant().toEpochMilli();
+            } catch (Exception alsoIgnored) {
+                return 0L;
+            }
+        }
     }
 
     /**

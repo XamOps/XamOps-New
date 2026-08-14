@@ -926,17 +926,21 @@ class XamSecureServiceTest {
         service.setShiftLeftOwnerAccountIds("605134457560");
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("605134457560")));
         var om = new com.fasterxml.jackson.databind.ObjectMapper();
-        when(apiClient.searchShiftLeftScans(anyInt())).thenReturn(List.of(om.readTree(
+        when(apiClient.searchShiftLeftScans(anyInt())).thenReturn(
+                new UpwindApiClient.ShiftLeftScans(List.of(om.readTree(
                 "{\"type\":\"IMAGE_BUILD\",\"source\":\"GITHUB\",\"image\":\"XamOps-New\","
                 + "\"os\":\"linux\",\"fingerprint\":\"fp-1\",\"repository\":\"XamOps-New\","
                 + "\"branch\":\"main\",\"initiator\":\"dev\",\"commit_sha\":\"abc123\","
                 + "\"repository_scan_details\":{\"pr_link\":\"https://gh/pull/295\"},"
-                + "\"create_time\":\"2026-07-13T07:23:52Z\"}")));
+                + "\"create_time\":\"2026-07-13T07:23:52Z\"}")), 1, false));
 
         var out = service.getCodeScans(1L, 50);
 
         assertEquals(true, out.get("available"));
         assertNull(out.get("unavailableReason"));
+        // Nothing was clipped here, so the UI must not claim the history is partial.
+        assertEquals(false, out.get("historyTruncated"));
+        assertEquals(1, out.get("scansRead"));
         @SuppressWarnings("unchecked")
         var scans = (List<java.util.Map<String, Object>>) out.get("scans");
         assertEquals(1, scans.size());
@@ -944,6 +948,27 @@ class XamSecureServiceTest {
         assertEquals("IMAGE_BUILD", scans.get(0).get("type"));
         assertEquals("abc123", scans.get(0).get("commitSha"));
         assertEquals("https://gh/pull/295", scans.get(0).get("pullRequestUrl"));
+    }
+
+    @Test
+    void codeScansReportClippedHistorySoAPartialWindowIsNotShownAsComplete() throws Exception {
+        when(apiClient.isConfigured()).thenReturn(true);
+        service.setShiftLeftOwnerAccountIds("605134457560");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("605134457560")));
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        // One scan returned out of 250 read upstream: older history exists but is absent.
+        when(apiClient.searchShiftLeftScans(anyInt())).thenReturn(
+                new UpwindApiClient.ShiftLeftScans(List.of(om.readTree(
+                        "{\"type\":\"IMAGE_BUILD\",\"fingerprint\":\"fp-1\","
+                        + "\"create_time\":\"2026-08-14T07:23:52Z\"}")), 250, false));
+
+        var out = service.getCodeScans(1L, 1);
+
+        // The scans-per-day chart plotted a partial window as though it were the whole record;
+        // the flag is what lets the UI say otherwise.
+        assertEquals(true, out.get("historyTruncated"));
+        assertEquals(250, out.get("scansRead"));
     }
 
     @Test

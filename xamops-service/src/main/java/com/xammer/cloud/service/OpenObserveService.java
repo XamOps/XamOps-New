@@ -14,9 +14,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -90,10 +90,16 @@ public class OpenObserveService {
     }
 
     private String resolveClientLevelOrgId() {
-        // If only one client exists (single-tenant dev setup), use that org
-        List<ObservabilityConfig> all = configRepo.findAll();
-        if (all.size() == 1 && all.get(0).getO2OrgId() != null) {
-            return all.get(0).getO2OrgId();
+        // Single-tenant dev setup: if exactly one config row exists, use its org.
+        //
+        // Fetches two rows rather than findAll() — this runs on the agent-config path and
+        // only needs to distinguish "exactly one" from "more than one", so loading every
+        // tenant's config into memory to check size() == 1 was wasted work that grew with
+        // the customer count.
+        List<ObservabilityConfig> candidates =
+                configRepo.findAll(PageRequest.of(0, 2)).getContent();
+        if (candidates.size() == 1 && candidates.get(0).getO2OrgId() != null) {
+            return candidates.get(0).getO2OrgId();
         }
         return "default";
     }
@@ -134,6 +140,11 @@ public class OpenObserveService {
         void put(String key, V value) {
             entries.put(key, new Entry<>(value, System.currentTimeMillis() + ttlMs));
         }
+
+        /** Drops every entry under a key prefix, for invalidating one client's keys at once. */
+        void invalidateWithPrefix(String prefix) {
+            entries.keySet().removeIf(k -> k.startsWith(prefix));
+        }
     }
 
     public OpenObserveService(ObservabilityConfigRepository configRepo,
@@ -145,13 +156,65 @@ public class OpenObserveService {
         this.accountConfigRepo = accountConfigRepo;
         this.cloudAccountRepo = cloudAccountRepo;
         this.clusterConfigRepo = clusterConfigRepo;
+        // Injected, timeout-bounded template. Do NOT replace with `new RestTemplate()`:
+        // the default has no connect/read timeout, so a slow O2 hangs request threads
+        // forever and starves the JDBC pool.
         this.restTemplate = restTemplate;
         this.objectMapper = new ObjectMapper();
     }
 
     // ── Tenant Provisioning ───────────────────────────────────────────────────
 
-    @Transactional
+    /**
+     * Backoff for failed provisioning attempts, keyed by client/account.
+     *
+     * Without this, a half-provisioned row (record saved but o2OrgId still null) makes
+     * every single GET /api/observability/config re-attempt the full O2 org creation.
+     * The Observability page calls /config on every mount, so an unreachable O2 turned
+     * into a permanent retry storm of blocking HTTP calls.
+     */
+    /**
+     * Retention applied when no client-level config exists yet. Must match the default on
+     * {@link ObservabilityConfig#getRetentionDays()} so a per-account org provisioned before
+     * its parent client config doesn't silently fall back to OpenObserve's 7-day default.
+     */
+    static final int DEFAULT_RETENTION_DAYS = 30;
+
+    private static final long REPROVISION_BACKOFF_MS = 120_000L;
+    private final Map<String, Long> provisionFailedAt = new ConcurrentHashMap<>();
+
+    private boolean inProvisionBackoff(String key) {
+        Long failedAt = provisionFailedAt.get(key);
+        if (failedAt == null) return false;
+        if (System.currentTimeMillis() - failedAt < REPROVISION_BACKOFF_MS) return true;
+        provisionFailedAt.remove(key);
+        return false;
+    }
+
+    private void recordProvisionFailure(String key) {
+        provisionFailedAt.put(key, System.currentTimeMillis());
+    }
+
+    /**
+     * Drops cached org IDs for a client after (re)provisioning, so queries don't keep hitting
+     * a stale or previously-missing org for up to the cache TTL.
+     */
+    private void invalidateOrgIdCache(Long clientId) {
+        orgIdCache.invalidateWithPrefix(clientId + ":");
+    }
+
+    /**
+     * Deliberately NOT @Transactional.
+     *
+     * This method makes up to 5 sequential HTTP calls to OpenObserve. Wrapping it in a
+     * transaction held one of the 20 Hikari connections open for the full duration of
+     * those calls, so a slow O2 drained the pool and every unrelated endpoint started
+     * failing with "Unable to acquire JDBC Connection".
+     *
+     * The external O2 side effects cannot be rolled back anyway, so the transaction
+     * bought no real atomicity. Each `configRepo.save(...)` below runs in its own
+     * short transaction (Spring Data manages it), which is a single-row write.
+     */
     public ObservabilityConfig provisionTenant(Client client) {
         Optional<ObservabilityConfig> existing = configRepo.findByClientId(client.getId());
         if (existing.isPresent()) {
@@ -159,7 +222,13 @@ public class OpenObserveService {
             // Return immediately if already fully provisioned
             if (cfg.getO2OrgId() != null) return cfg;
             // Previous provisioning attempt saved the record but failed to create the O2 org —
-            // re-attempt org creation and update the existing row in-place.
+            // re-attempt org creation and update the existing row in-place, but not on
+            // every request: back off so a down O2 can't be hammered by page loads.
+            String backoffKey = "client:" + client.getId();
+            if (inProvisionBackoff(backoffKey)) {
+                logger.debug("Skipping re-provision for client {} — in backoff window", client.getId());
+                return cfg;
+            }
             logger.info("Re-provisioning O2 org for client {} (previous attempt left null orgId)", client.getId());
             try {
                 String orgId = createO2OrgAndGetIdentifier(client.getName(), client.getId());
@@ -169,12 +238,19 @@ public class OpenObserveService {
                 cfg.setO2IngestionKey(ingestionKey);
                 cfg.setO2ApiKey(apiKey);
                 ObservabilityConfig saved = configRepo.save(cfg);
+                invalidateOrgIdCache(client.getId());
                 applyOrgDefaultRetention(orgId, saved.getRetentionDays());
                 return saved;
             } catch (Exception e) {
+                recordProvisionFailure(backoffKey);
                 logger.error("Re-provisioning failed for client {}: {}", client.getId(), e.getMessage());
                 throw new RuntimeException("Failed to re-provision observability: " + e.getMessage(), e);
             }
+        }
+
+        String backoffKey = "client:" + client.getId();
+        if (inProvisionBackoff(backoffKey)) {
+            throw new RuntimeException("Observability provisioning recently failed; retrying shortly");
         }
 
         logger.info("Provisioning O2 org for client {}", client.getId());
@@ -193,11 +269,13 @@ public class OpenObserveService {
             config.setO2IngestionKey(ingestionKey);
             config.setO2ApiKey(apiKey);
             ObservabilityConfig saved = configRepo.save(config);
+            invalidateOrgIdCache(client.getId());
 
             // Apply org-level retention so agent-created streams don't inherit O2's 7-day default
             applyOrgDefaultRetention(orgId, saved.getRetentionDays());
             return saved;
         } catch (Exception e) {
+            recordProvisionFailure(backoffKey);
             logger.error("Failed to provision O2 org for client {}: {}", client.getId(), e.getMessage());
             throw new RuntimeException("Failed to provision observability: " + e.getMessage(), e);
         }
@@ -306,44 +384,79 @@ public class OpenObserveService {
      * Provisions (or returns existing) an O2 org for a specific cloud account.
      * Each cloud account gets its own isolated O2 org for log/metric isolation.
      */
-    @Transactional
+    // Not @Transactional — see provisionTenant. Holds no JDBC connection across the
+    // O2 org/service-account HTTP calls.
     public AccountObservabilityConfig provisionForAccount(Client client, String providerAccountId) {
         // Return existing config if already fully provisioned
         Optional<AccountObservabilityConfig> existing =
                 accountConfigRepo.findByClientIdAndProviderAccountId(client.getId(), providerAccountId);
         if (existing.isPresent() && existing.get().getO2OrgId() != null) return existing.get();
 
-        // Look up the CloudAccount entity
-        CloudAccount account = cloudAccountRepo.findByProviderAccountId(providerAccountId)
-                .orElseThrow(() -> new RuntimeException("Cloud account not found: " + providerAccountId));
-
-        if (!account.getClient().getId().equals(client.getId())) {
-            throw new RuntimeException("Account does not belong to this client");
+        // Don't re-attempt O2 provisioning on every page load when it just failed.
+        String backoffKey = "account:" + client.getId() + ":" + providerAccountId;
+        if (inProvisionBackoff(backoffKey)) {
+            if (existing.isPresent()) return existing.get();
+            throw new RuntimeException("Account observability provisioning recently failed; retrying shortly");
         }
 
-        logger.info("Provisioning O2 org for account {} ({})", account.getAccountName(), providerAccountId);
+        try {
+            // Look up the CloudAccount entity
+            CloudAccount account = cloudAccountRepo.findByProviderAccountId(providerAccountId)
+                    .orElseThrow(() -> new RuntimeException("Cloud account not found: " + providerAccountId));
 
-        // Use account name as O2 org name — O2 allows only alphanumeric, spaces, underscores
-        String orgName = "acct_" + account.getAccountName()
-                .replaceAll("[^a-zA-Z0-9]", "_").toLowerCase().replaceAll("_+", "_");
-        String orgId = createO2OrgAndGetIdentifier(orgName, account.getId());
+            if (!account.getClient().getId().equals(client.getId())) {
+                throw new RuntimeException("Account does not belong to this client");
+            }
 
-        String ingestionKey = createServiceAccount(orgId, "ingest-acc-" + account.getId());
+            logger.info("Provisioning O2 org for account {} ({})", account.getAccountName(), providerAccountId);
 
-        AccountObservabilityConfig config = new AccountObservabilityConfig();
-        config.setClientId(client.getId());
-        config.setCloudAccountId(account.getId());
-        config.setProviderAccountId(providerAccountId);
-        config.setAccountName(account.getAccountName());
-        config.setO2OrgId(orgId);
-        config.setO2IngestionKey(ingestionKey);
-        AccountObservabilityConfig saved = accountConfigRepo.save(config);
+            // Use account name as O2 org name — O2 allows only alphanumeric, spaces, underscores
+            String orgName = "acct_" + account.getAccountName()
+                    .replaceAll("[^a-zA-Z0-9]", "_").toLowerCase().replaceAll("_+", "_");
+            String orgId = createO2OrgAndGetIdentifier(orgName, account.getId());
 
-        // Inherit retention from the client-level config so streams don't use O2's 7-day default
-        configRepo.findByClientId(client.getId()).ifPresent(clientCfg ->
-                applyOrgDefaultRetention(orgId, clientCfg.getRetentionDays()));
-        return saved;
+            String ingestionKey = createServiceAccount(orgId, "ingest-acc-" + account.getId());
+
+            AccountObservabilityConfig config = new AccountObservabilityConfig();
+            config.setClientId(client.getId());
+            config.setCloudAccountId(account.getId());
+            config.setProviderAccountId(providerAccountId);
+            config.setAccountName(account.getAccountName());
+            config.setO2OrgId(orgId);
+            config.setO2IngestionKey(ingestionKey);
+            AccountObservabilityConfig saved = accountConfigRepo.save(config);
+            invalidateOrgIdCache(client.getId());
+
+            // Inherit retention from the client-level config so streams don't use O2's 7-day
+            // default.
+            //
+            // This used to be an ifPresent() over the client config, which silently did
+            // nothing when the client-level row didn't exist yet. On a brand-new tenant that
+            // was always the case, so the per-account org — the org that actually holds the
+            // data the UI queries — kept OpenObserve's built-in 7-day retention forever, and
+            // every metric older than a week was quietly deleted while the Overview tab
+            // reported "30d". Always apply a value now, falling back to the default.
+            int retentionDays = configRepo.findByClientId(client.getId())
+                    .map(ObservabilityConfig::getRetentionDays)
+                    .orElse(DEFAULT_RETENTION_DAYS);
+            applyOrgDefaultRetention(orgId, retentionDays);
+            return saved;
+        } catch (Exception e) {
+            recordProvisionFailure(backoffKey);
+            throw e;
+        }
     }
+
+    /**
+     * Cache of resolved org IDs.
+     *
+     * Every query endpoint resolves the org before talking to O2, and the metrics dashboard
+     * issues ~19 queries per page load plus the same again every 30s. That was ~19 identical
+     * indexed lookups per load against the same connection pool that was failing under load.
+     * Org IDs effectively never change for a provisioned account, so a short TTL removes the
+     * repetition while still picking up re-provisioning within a minute.
+     */
+    private final TtlCache<String> orgIdCache = new TtlCache<>(60_000);
 
     /**
      * Returns the O2 org ID to use for a query.
@@ -351,10 +464,24 @@ public class OpenObserveService {
      * Otherwise fall back to the client-level org.
      */
     private String getEffectiveOrgId(Long clientId, String providerAccountId) {
+        String cacheKey = clientId + ":" + (providerAccountId == null ? "" : providerAccountId);
+        String cached = orgIdCache.get(cacheKey);
+        if (cached != null) return cached;
+
+        String resolved = resolveEffectiveOrgId(clientId, providerAccountId);
+        // Only cache real resolutions; a failure should be retried, not remembered.
+        if (resolved != null) orgIdCache.put(cacheKey, resolved);
+        return resolved;
+    }
+
+    private String resolveEffectiveOrgId(Long clientId, String providerAccountId) {
         if (providerAccountId != null && !providerAccountId.isBlank()) {
             Optional<AccountObservabilityConfig> acc =
                     accountConfigRepo.findByClientIdAndProviderAccountId(clientId, providerAccountId);
-            if (acc.isPresent()) return acc.get().getO2OrgId();
+            // A row with a null org id is a half-finished provisioning attempt. Returning it
+            // built request URLs like /api/null/_search, so the query failed with a confusing
+            // O2 error instead of falling back to something that works.
+            if (acc.isPresent() && acc.get().getO2OrgId() != null) return acc.get().getO2OrgId();
             // Account not provisioned yet — still return client-level org as fallback
             logger.warn("Account {} not yet provisioned for client {}, falling back to client org", providerAccountId, clientId);
         }
@@ -838,9 +965,28 @@ public class OpenObserveService {
             indexSizeMb      += toDouble(st.getOrDefault("index_size", 0));
         }
 
+        // Report the retention O2 is really enforcing on the org we just queried, not the
+        // value in our database. Where they disagree, flag it so the UI can warn instead of
+        // presenting a configured-but-unapplied number as fact.
+        Integer actualRetention = fetchOrgRetentionDays(orgId);
+        int configuredRetention = clientConfig.getRetentionDays();
+
+        // Whether these numbers describe the selected account or the whole organisation.
+        // When an account isn't provisioned the query silently falls back to the client-level
+        // org, which used to be a log line only — the user saw organisation-wide totals
+        // attributed to the account they had selected.
+        boolean accountScoped = providerAccountId != null
+                && !providerAccountId.isBlank()
+                && !orgId.equals(clientConfig.getO2OrgId());
+
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("orgId", orgId);
-        stats.put("retentionDays", clientConfig.getRetentionDays());
+        stats.put("scope", accountScoped ? "account" : "client");
+        stats.put("accountProvisioned",
+                providerAccountId == null || providerAccountId.isBlank() || accountScoped);
+        stats.put("retentionDays", actualRetention != null ? actualRetention : configuredRetention);
+        stats.put("configuredRetentionDays", configuredRetention);
+        stats.put("retentionMismatch", actualRetention != null && actualRetention != configuredRetention);
         stats.put("streamCount", streams.size());
         stats.put("logStreamCount", logStreamCount);
         stats.put("metricStreamCount", metricStreamCount);
@@ -1681,24 +1827,54 @@ public class OpenObserveService {
                 .orElseThrow(() -> new RuntimeException("Observability not provisioned for this tenant"));
     }
 
-    @Transactional
+    /**
+     * Not @Transactional — applyRetentionByType issues one PUT per stream in a loop,
+     * which previously ran inside the transaction and could hold a JDBC connection for
+     * minutes on a tenant with many streams. The DB write is committed first, then the
+     * O2 calls are made with no connection held.
+     */
     public ObservabilityConfig updateConfig(Long clientId, int retentionDays) {
         ObservabilityConfig config = getConfig(clientId);
         config.setRetentionDays(retentionDays);
-        configRepo.save(config);
+        config = configRepo.save(config);
 
-        // Apply retention to all existing streams and set the org-level default for new streams
-        String orgId = config.getO2OrgId();
-        applyOrgDefaultRetention(orgId, retentionDays);
-        applyRetentionByType(orgId, "logs",    retentionDays);
-        applyRetentionByType(orgId, "metrics", retentionDays);
-        applyRetentionByType(orgId, "traces",  retentionDays);
-
+        // Apply to the client-level org and to every per-account org belonging to this
+        // client.
+        //
+        // Account orgs were previously ignored here, which made the retention setting
+        // largely cosmetic: agent data lands in the per-account org, so changing retention
+        // in the UI updated an org that holds little or nothing while the org actually
+        // storing the metrics kept whatever it was created with (often O2's 7-day default).
+        // The caller is responsible for pushing the value to O2 (see
+        // ObservabilityRetentionReconciler). That work is hundreds of sequential HTTP calls
+        // for a tenant with several accounts and many streams, so it must not run on the
+        // request thread — the DB value is saved here and the UI can confirm immediately.
         return config;
     }
 
+    /**
+     * Every O2 org that holds data for a client: the client-level org plus one per cloud
+     * account. Retention has to be applied to all of them — agent data lands in the
+     * per-account orgs, so updating only the client-level org left the orgs that actually
+     * store the metrics on whatever they were created with.
+     */
+    public List<String> listOrgIdsForClient(Long clientId) {
+        List<String> orgIds = new ArrayList<>();
+        configRepo.findByClientId(clientId)
+                .map(ObservabilityConfig::getO2OrgId)
+                .filter(Objects::nonNull)
+                .ifPresent(orgIds::add);
+        accountConfigRepo.findByClientId(clientId).stream()
+                .map(AccountObservabilityConfig::getO2OrgId)
+                .filter(Objects::nonNull)
+                .filter(id -> !orgIds.contains(id))
+                .forEach(orgIds::add);
+        return orgIds;
+    }
+
+    // Package-private so ObservabilityRetentionReconciler can drive it off the request thread.
     @SuppressWarnings("unchecked")
-    private void applyRetentionByType(String orgId, String streamType, int retentionDays) {
+    void applyRetentionByType(String orgId, String streamType, int retentionDays) {
         HttpHeaders headers = buildAdminHeaders();
         try {
             String listUrl = o2Url + "/api/" + orgId + "/streams?type=" + streamType;
@@ -1735,7 +1911,41 @@ public class OpenObserveService {
      * All streams created after this call (e.g. by the OTel collector) will inherit this value
      * instead of OpenObserve's built-in 7-day default.
      */
-    private void applyOrgDefaultRetention(String orgId, int retentionDays) {
+    /**
+     * Reads the retention OpenObserve is actually enforcing on an org.
+     *
+     * The Overview tab used to display the retention value stored in our own database, which
+     * is only what we intended, not what O2 applied. Those can disagree — a per-account org
+     * created before its client config existed silently kept O2's 7-day default while the UI
+     * confidently reported 30 days. Returns null when the value can't be determined, so
+     * callers can fall back rather than invent a number.
+     */
+    @SuppressWarnings("unchecked")
+    Integer fetchOrgRetentionDays(String orgId) {
+        try {
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
+                    o2Url + "/api/" + orgId + "/settings",
+                    HttpMethod.GET,
+                    new HttpEntity<>(buildAdminHeaders()),
+                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
+            Map<String, Object> body = resp.getBody();
+            if (body == null) return null;
+
+            // O2 has returned this both flat and nested under "data" across versions.
+            Object retention = body.get("data_retention");
+            if (retention == null && body.get("data") instanceof Map) {
+                retention = ((Map<String, Object>) body.get("data")).get("data_retention");
+            }
+            if (retention instanceof Number) return ((Number) retention).intValue();
+            if (retention != null) return Integer.parseInt(String.valueOf(retention));
+        } catch (Exception e) {
+            logger.warn("Could not read retention for org={}: {}", orgId, e.getMessage());
+        }
+        return null;
+    }
+
+    // Package-private so ObservabilityRetentionReconciler can drive it off the request thread.
+    void applyOrgDefaultRetention(String orgId, int retentionDays) {
         HttpHeaders headers = buildAdminHeaders();
         try {
             Map<String, Object> body = Map.of("data_retention", retentionDays);

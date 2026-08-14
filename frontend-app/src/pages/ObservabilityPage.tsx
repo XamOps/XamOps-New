@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useObservabilityData, ObservabilityConfig, OverviewStats, EksCluster, ConnectedInstance, ObservabilityAlert, AlertDestination } from '../hooks/useObservabilityData';
+import AgentHealthBanner from '../components/Observability/AgentHealthBanner';
+import ScopeFallbackBanner from '../components/Observability/ScopeFallbackBanner';
+import { AGENT_STATUS_PRESENTATION, statusHint, toAgentHealth } from '../utils/agentHealth';
 import { Icon } from '@iconify/react';
 
 // The three explorers are the heaviest components in the app (~145 KB of source
@@ -51,11 +54,12 @@ function relativeTime(ms: number): string {
   return `${Math.floor(diff / 3600)}h ago`;
 }
 
-function OverviewTab({ config, overview, instances, loading }: {
+function OverviewTab({ config, overview, instances, loading, activeAccountId }: {
   config: ObservabilityConfig | null;
   overview: OverviewStats | null;
   instances: ConnectedInstance[];
   loading: boolean;
+  activeAccountId: string | null;
 }) {
   const statCards = [
     {
@@ -83,10 +87,17 @@ function OverviewTab({ config, overview, instances, loading }: {
       tooltip: 'Streams receiving distributed traces — spans from your services via OTLP. Used to track request flows across microservices.',
     },
     {
-      label: 'Retention',
-      value: config ? `${config.retentionDays}d` : '—',
+      // Prefer the retention OpenObserve is actually enforcing. This tile used to read our
+      // own database value, which could differ from reality — an org left on OpenObserve's
+      // 7-day default would still display "30d" while a week-old data was being deleted.
+      label: overview?.retentionMismatch ? 'Retention ⚠' : 'Retention',
+      value: overview?.retentionDays != null
+        ? `${overview.retentionDays}d`
+        : config ? `${config.retentionDays}d` : '—',
       icon: 'mdi:clock-outline',
-      tooltip: 'How long your data is stored before being automatically deleted. Configurable under the Setup tab.',
+      tooltip: overview?.retentionMismatch
+        ? `OpenObserve is enforcing ${overview.retentionDays} days on this org, but ${overview.configuredRetentionDays} days is configured. Re-save retention under the Setup tab to apply it.`
+        : 'How long your data is stored before being automatically deleted. Configurable under the Setup tab.',
     },
     {
       label: 'Org ID',
@@ -153,16 +164,27 @@ function OverviewTab({ config, overview, instances, loading }: {
         </div>
       )}
 
-      {/* Connected Instances */}
+      {/* Warns when these figures cover the whole org rather than the selected account */}
+      <ScopeFallbackBanner config={config} selectedAccountId={activeAccountId} />
+
+      {/* Agent health — silent when everything is reporting normally */}
+      <AgentHealthBanner
+        agents={instances.map(i => toAgentHealth(i.hostName, i.lastSeenMs, i.status, i.collectorAlive))}
+        showEmptyState
+      />
+
+      {/* Agents */}
       {instances.length > 0 && (
         <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)] flex items-center justify-between">
             <div>
-              <h2 className="text-[14px] font-semibold text-black">Connected Instances</h2>
-              <p className="text-[12px] text-[rgba(0,0,0,0.45)]">Hosts that reported data in the selected window.</p>
+              <h2 className="text-[14px] font-semibold text-black">Agents</h2>
+              <p className="text-[12px] text-[rgba(0,0,0,0.45)]">
+                Hosts known to this account, with current reporting status.
+              </p>
             </div>
             <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)]">
-              {instances.length}
+              {instances.filter(i => i.status === 'healthy').length}/{instances.length} healthy
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 p-4">
@@ -170,21 +192,25 @@ function OverviewTab({ config, overview, instances, loading }: {
               const short = inst.hostName.includes('.')
                 ? inst.hostName.split('.')[0]
                 : inst.hostName.length > 22 ? inst.hostName.slice(0, 20) + '…' : inst.hostName;
-              const ageMins = (Date.now() - inst.lastSeenMs) / 60_000;
-              const isOnline = ageMins < 15;
+              const presentation = AGENT_STATUS_PRESENTATION[inst.status];
               return (
                 <div key={inst.hostName}
+                  title={statusHint(toAgentHealth(inst.hostName, inst.lastSeenMs, inst.status, inst.collectorAlive))}
                   className="flex items-center gap-3 rounded-lg border px-3 py-2.5 bg-white border-[rgba(0,0,0,0.08)] hover:border-[rgba(0,0,0,0.2)] transition-colors">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${presentation.dot}`} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[12px] font-medium truncate text-black"
                        title={inst.hostName}>
                       {short}
                     </p>
                     <p className="text-[11px] mt-0.5 text-[rgba(0,0,0,0.4)]">
-                      {isOnline ? 'Online' : 'Last seen'} · {relativeTime(inst.lastSeenMs)}
+                      {presentation.label} · {relativeTime(inst.lastSeenMs)}
                     </p>
                   </div>
+                  {presentation.needsAttention && (
+                    <Icon icon={presentation.icon} width={14}
+                      className="flex-shrink-0 text-[rgba(0,0,0,0.35)]" />
+                  )}
                 </div>
               );
             })}
@@ -1370,13 +1396,16 @@ const ObservabilityPage: React.FC = () => {
 
       <Suspense fallback={tabFallback}>
         {activeTab === 'overview' && (
-          <OverviewTab config={config} overview={overview} instances={instances} loading={!overviewReady} />
+          <OverviewTab config={config} overview={overview} instances={instances}
+                       loading={!overviewReady} activeAccountId={activeAccountId} />
         )}
         {activeTab === 'logs' && (
           <LogsExplorer streams={streams} streamsReady={streamsReady} />
         )}
         {activeTab === 'metrics' && (
-          <MetricsDashboard />
+          // config/activeAccountId are already loaded here, so the scope warning
+          // costs no extra request.
+          <MetricsDashboard config={config} activeAccountId={activeAccountId} />
         )}
         {activeTab === 'traces' && (
           <TracesExplorer />

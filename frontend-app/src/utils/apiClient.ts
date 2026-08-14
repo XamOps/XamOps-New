@@ -17,7 +17,23 @@ import { resolveDemoResponse } from '../demo/demoRouter';
 
 interface FetchOptions extends RequestInit {
   headers?: HeadersInit;
+  /**
+   * Abort the request after this many ms. Defaults to DEFAULT_TIMEOUT_MS.
+   * Pass 0 to disable (e.g. for genuinely long-running uploads/exports).
+   */
+  timeoutMs?: number;
 }
+
+/**
+ * Every request gets a client-side deadline.
+ *
+ * Without this, a hung backend leaves requests pending until the browser or nginx
+ * gives up (nginx proxy_read_timeout is 300s). Polling hooks then stack up requests
+ * on top of each other, multiplying load on an already-struggling backend. Bounding
+ * the client side means a stalled call fails, gets rendered as an error, and does not
+ * silently hold a connection slot.
+ */
+const DEFAULT_TIMEOUT_MS = 45_000;
 
 /**
  * Get CSRF token from cookies
@@ -145,11 +161,24 @@ export const apiFetch = async (url: string | URL, options: FetchOptions = {}): P
     }
   }
 
+  // Apply a client-side deadline unless the caller opted out or supplied its own signal.
+  const { timeoutMs, ...fetchOptions } = options;
+  const effectiveTimeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let signal = options.signal ?? undefined;
+
+  if (effectiveTimeout > 0 && !options.signal && typeof AbortController !== 'undefined') {
+    const controller = new AbortController();
+    signal = controller.signal;
+    timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
+  }
+
   // Execute the request
   try {
     const response = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       headers,
+      signal,
       credentials: 'include', // Always include credentials for session management
     });
 
@@ -166,8 +195,15 @@ export const apiFetch = async (url: string | URL, options: FetchOptions = {}): P
 
     return response;
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError' && timeoutId) {
+      const timeoutError = new Error(`Request timed out after ${effectiveTimeout}ms: ${urlStr}`);
+      console.error('API Fetch Timeout:', urlStr);
+      throw timeoutError;
+    }
     console.error('API Fetch Error:', error);
     throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 };
 

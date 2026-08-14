@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -53,9 +54,22 @@ public interface AgentDataCacheRepository extends JpaRepository<AgentDataCache, 
     /**
      * Delete stale data older than specified time
      */
+    /**
+     * Deletes at most {@code batchSize} stale rows.
+     *
+     * Nothing pruned this table until now, so the first cleanup run has to remove however
+     * much has accumulated since the deployment was created. Each row carries a TEXT
+     * {@code data_json} payload, so a single unbounded DELETE would hold one long
+     * transaction — and a lot of locks — against the same Postgres whose connection pool has
+     * already failed in production. Callers loop over small batches instead.
+     */
     @Modifying
-    @Query("DELETE FROM AgentDataCache a WHERE a.collectedAt < :cutoff")
-    int deleteStaleData(@Param("cutoff") LocalDateTime cutoff);
+    @Transactional // one short transaction per batch — the caller loops without holding one
+    @Query(value = "DELETE FROM agent_data_cache WHERE id IN ("
+            + "SELECT id FROM agent_data_cache WHERE collected_at < :cutoff LIMIT :batchSize)",
+            nativeQuery = true)
+    int deleteStaleDataBatch(@Param("cutoff") LocalDateTime cutoff,
+                             @Param("batchSize") int batchSize);
 
     /**
      * Get latest collected timestamp for a cluster

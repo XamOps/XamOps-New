@@ -3,6 +3,7 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import javax.servlet.http.HttpServletRequest;
@@ -36,9 +37,13 @@ public class MarketplaceProcurementController {
     private final CloudAccountRepository cloudAccountRepository;
     private final RestTemplate restTemplate;
 
-    public MarketplaceProcurementController(CloudAccountRepository cloudAccountRepository) {
+    public MarketplaceProcurementController(
+            CloudAccountRepository cloudAccountRepository,
+            @Qualifier("internalServiceRestTemplate") RestTemplate restTemplate) {
         this.cloudAccountRepository = cloudAccountRepository;
-        this.restTemplate = new RestTemplate();
+        // Injected with connect/read timeouts. A bare `new RestTemplate()` has none, so an
+        // unresponsive procurement sidecar would hold request threads open indefinitely.
+        this.restTemplate = restTemplate;
     }
 
     /**
