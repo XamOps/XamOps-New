@@ -1,0 +1,80 @@
+# Build context exclusions for builds that use the repo root as context:
+#   - root Dockerfile           (docker build -t ... --build-arg MODULE_NAME=<module> .)
+#   - */Dockerfile via Jenkins  (buildAndPush uses context '.')
+#
+# Both compile from source inside the maven stage, so nothing here is needed at
+# build time. Without this file the context is ~2.7GB, which makes every build
+# spend 2+ minutes on "load build context" and intermittently kills BuildKit
+# with "error reading from server: EOF".
+#
+# NOTE: builds that use a subdirectory as context (GitHub Actions passes
+# ./billops, ./xamops-service, ./frontend-app, ./media-ops-service) do NOT read
+# this file — they read <subdir>/.dockerignore. In particular the CI images for
+# xamops-service and media-ops-service do `COPY target/*.jar`, and the **/target
+# rule below cannot affect them.
+
+# --- Version control & tooling metadata (341MB) ---
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+.claude
+.agent
+.agents
+.kiro
+.postman
+.superset
+.playwright-mcp
+.tmp-stubs
+
+# --- Node dependencies and frontend build output (1.2GB) ---
+# The frontend image builds from ./frontend-app as its own context and runs
+# `npm ci` itself, so neither is ever needed from the root context.
+**/node_modules
+**/dist
+**/.vite
+**/*.tsbuildinfo
+**/vite.config.js.timestamp-*
+
+# --- Maven output (531MB) ---
+# Every root-context Dockerfile runs `mvn clean package`, which regenerates these.
+**/target
+
+# --- Python virtualenvs and caches (299MB, forecast-service/venv) ---
+**/venv
+**/.venv
+**/__pycache__
+**/*.pyc
+
+# --- Prebuilt Go agent binaries (101MB) ---
+xamops-agent/xamops-agent_linux_*
+xamops-agent/xamops-agent_darwin_*
+xamops-agent/xamops-agent_windows_*
+
+# --- Local runtime artifacts (99MB) ---
+# **/logs, not logs: modules keep their own (e.g. xamops-service/logs).
+**/logs
+**/*.log
+my-vault
+preview_*.png
+
+# NOTE: xamops-service/src/main/resources/static/agent/ holds the ~101MB of
+# prebuilt agent binaries the service serves from its download endpoint. They
+# are git-tracked and must stay in the jar, so they are deliberately NOT
+# excluded here — they are most of the remaining build context.
+
+# --- Docs, tests and local compose/config not used by the JVM build ---
+docs
+postman
+jmeter-tests
+eks
+scripts
+opensre
+**/README.md
+**/CONTRIBUTING.md
+*.md
+docker-compose*.yml
+Jenkinsfile
+.dockerignore

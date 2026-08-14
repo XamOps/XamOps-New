@@ -184,6 +184,27 @@ Resources:
                   - 'aws-marketplace:CancelAgreementCancellationRequest'
                 Resource: '*'
 
+              # ------------------------------------------------------------------
+              # MediaOps output storage
+              #
+              # MediaOps transcodes media and writes the output into a bucket of this
+              # account by assuming this role, so it needs object writes even on the
+              # read-only stack — without them every job fails at submission with
+              # "not authorized to perform: s3:PutObject".
+              #
+              # Deliberately scoped to the xamops-mediaops/ key prefix (OUTPUT_ROOT in
+              # AccountS3Service) rather than the whole bucket: the role can create and
+              # remove only the objects XamOps itself wrote, and stays read-only for
+              # every other object in every bucket. Keep this prefix in sync with
+              # AccountS3Service.OUTPUT_ROOT.
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsMediaOpsOutputWrite'
+                Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:DeleteObject'
+                Resource: 'arn:aws:s3:::*/xamops-mediaops/*'
+
   # =================================================================
   # 2. IAM Role for the EKS Automation Lambda
   # =================================================================

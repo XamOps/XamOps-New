@@ -60,6 +60,19 @@ export interface GcpAccountState {
   scriptUrl: string;
 }
 
+/**
+ * Whether we're still listening for the CloudFormation stack to report itself connected.
+ *
+ * This never gates the manual form — the customer can fill it in at any point. It only
+ * drives the status banner above it.
+ *
+ * - `idle`     — not listening (EventBridge disabled on this environment, or not launched yet)
+ * - `listening`— stack is within its expected build time
+ * - `slow`     — past that, still listening; a stack can legitimately run long
+ * - `stopped`  — gave up polling; manual entry is the only route left
+ */
+export type AutoConnectStatus = 'idle' | 'listening' | 'slow' | 'stopped';
+
 export interface StackUrlResponse {
   url: string;
   externalId: string;

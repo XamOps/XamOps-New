@@ -134,13 +134,24 @@ public class AwsAccountService {
         CloudAccount account = cloudAccountRepository.findByExternalId(request.getExternalId())
                 .orElseThrow(() -> new RuntimeException("No pending account found for the given external ID."));
 
+        String roleArn = String.format("arn:aws:iam::%s:role/%s", request.getAwsAccountId(), request.getRoleName());
+
+        // The EventBridge callback may have already connected this account — most likely when a
+        // slow stack pushed the browser onto the manual form and then reported in behind it.
+        // Re-submitting the same role is then a no-op, not an error: without this the customer
+        // is told verification failed for an account that is connected and working.
+        if ("CONNECTED".equals(account.getStatus()) && roleArn.equals(account.getRoleArn())) {
+            logger.info("Account {} was already connected via callback; treating manual verification as a no-op.",
+                    account.getAccountName());
+            return account;
+        }
+
         if (!"PENDING".equals(account.getStatus()) && !"FAILED".equals(account.getStatus())) {
             throw new RuntimeException("Account is not in a PENDING or FAILED state.");
         }
 
         String previousStatus = account.getStatus();
         account.setAwsAccountId(request.getAwsAccountId());
-        String roleArn = String.format("arn:aws:iam::%s:role/%s", request.getAwsAccountId(), request.getRoleName());
         account.setRoleArn(roleArn);
 
         // Evict any cached clients for this account so the new roleArn is used
