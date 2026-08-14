@@ -194,6 +194,77 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(bars.some((b) => b.style.height === '100%')).toBe(true);
   });
 
+  it('lists CI scans newest first, so the table matches the period the chart plots', () => {
+    // Upwind returns the stream oldest-first and nothing reordered it, so the table opened on
+    // scans from weeks earlier while the chart showed the last 14 days. The two panels read as
+    // describing unrelated periods.
+    const { container } = draw(
+      <CodeTab data={demo.demoCodeScans} isLoading={false}
+               loadFindings={demo.demoCodeScanFindings as never} />);
+
+    const scanned = Array.from(container.querySelectorAll('tbody tr'))
+      .map((tr) => tr.querySelector('td:last-child')!.textContent!.trim())
+      .filter((t) => t !== '—')
+      .map((t) => new Date(t).getTime())
+      .filter((t) => Number.isFinite(t));
+
+    expect(scanned.length).toBeGreaterThan(1);
+    for (let i = 1; i < scanned.length; i++) {
+      expect(scanned[i]).toBeLessThanOrEqual(scanned[i - 1]);
+    }
+  });
+
+  it('labels the scan-volume axis with the month, not bare day numbers', () => {
+    // "31 01 02 … 13" gave no way to tell which fortnight the chart covered, which is why it
+    // looked unrelated to the fully-qualified dates in the table underneath.
+    const { container } = draw(
+      <CodeTab data={demo.demoCodeScans} isLoading={false}
+               loadFindings={demo.demoCodeScanFindings as never} />);
+
+    const axis = Array.from(container.querySelectorAll<HTMLElement>('.whitespace-nowrap'))
+      .map((el) => el.textContent!.trim())
+      .filter((t) => /^\d{2}( \w+)?$/.test(t));
+
+    expect(axis).toHaveLength(14);
+    // The leftmost column always carries its month so the range is readable.
+    expect(axis[0]).toMatch(/^\d{2} \w+$/);
+  });
+
+  it('says how many scans fall inside the charted window', () => {
+    // The chart covers 14 days while the table lists every scan, so a bar total far below the
+    // row count is expected rather than a contradiction — but only if it is stated.
+    draw(<CodeTab data={demo.demoCodeScans} isLoading={false}
+                  loadFindings={demo.demoCodeScanFindings as never} />);
+
+    expect(screen.getByText(/of \d+ in last 14 days/)).toBeInTheDocument();
+  });
+
+  it('counts a scan from today in the final bucket', () => {
+    // Bucket boundaries are calendar days, not fixed 86_400_000ms steps, which drift across a
+    // DST change and move a day's scans into the neighbouring column.
+    const today = new Date();
+    const data = {
+      ...demo.demoCodeScans,
+      scans: [{
+        ...demo.demoCodeScans.scans[0],
+        type: 'IMAGE_BUILD',
+        createTime: today.toISOString(),
+      }],
+    };
+
+    const { container } = draw(
+      <CodeTab data={data as never} isLoading={false}
+               loadFindings={demo.demoCodeScanFindings as never} />);
+
+    const bars = Array.from(container.querySelectorAll<HTMLElement>('.bg-gray-800[style*="height"]'));
+    expect(bars).toHaveLength(1);
+
+    // Last column = today. Its own bar must be the one that rendered.
+    const columns = Array.from(container.querySelectorAll('.flex-1.flex.flex-col.items-center'));
+    expect(columns).toHaveLength(14);
+    expect(columns[13].contains(bars[0])).toBe(true);
+  });
+
   it('Code separates IaC scans from image builds, as Upwind orders the page', () => {
     // A Terraform misconfiguration and a dependency CVE are not comparable rows, so one flat
     // table read as a single stream of unrelated builds.
