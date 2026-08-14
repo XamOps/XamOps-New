@@ -111,6 +111,42 @@ public class OpenObserveService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
+    /** Short-lived cache for O2 stream listings, keyed by "orgId|streamType". */
+    private final TtlCache<List<Map<String, Object>>> streamCache = new TtlCache<>(30_000);
+
+    /**
+     * Minimal time-boxed cache. Entries are read far more often than they are
+     * written and the map only ever holds a handful of org/type keys, so a plain
+     * ConcurrentHashMap with per-entry expiry is enough — no eviction policy needed.
+     */
+    private static final class TtlCache<V> {
+        private record Entry<V>(V value, long expiresAt) {}
+
+        private final Map<String, Entry<V>> entries = new ConcurrentHashMap<>();
+        private final long ttlMs;
+
+        TtlCache(long ttlMs) { this.ttlMs = ttlMs; }
+
+        V get(String key) {
+            Entry<V> e = entries.get(key);
+            if (e == null) return null;
+            if (System.currentTimeMillis() >= e.expiresAt()) {
+                entries.remove(key, e);
+                return null;
+            }
+            return e.value();
+        }
+
+        void put(String key, V value) {
+            entries.put(key, new Entry<>(value, System.currentTimeMillis() + ttlMs));
+        }
+
+        /** Drops every entry under a key prefix, for invalidating one client's keys at once. */
+        void invalidateWithPrefix(String prefix) {
+            entries.keySet().removeIf(k -> k.startsWith(prefix));
+        }
+    }
+
     public OpenObserveService(ObservabilityConfigRepository configRepo,
                               AccountObservabilityConfigRepository accountConfigRepo,
                               CloudAccountRepository cloudAccountRepo,
@@ -164,7 +200,7 @@ public class OpenObserveService {
      * a stale or previously-missing org for up to the cache TTL.
      */
     private void invalidateOrgIdCache(Long clientId) {
-        orgIdCache.keySet().removeIf(k -> k.startsWith(clientId + ":"));
+        orgIdCache.invalidateWithPrefix(clientId + ":");
     }
 
     /**
@@ -420,14 +456,7 @@ public class OpenObserveService {
      * Org IDs effectively never change for a provisioned account, so a short TTL removes the
      * repetition while still picking up re-provisioning within a minute.
      */
-    private static final long ORG_ID_CACHE_TTL_MS = 60_000L;
-    private final Map<String, CachedOrgId> orgIdCache = new ConcurrentHashMap<>();
-
-    private static final class CachedOrgId {
-        final String orgId;
-        final long expiresAt;
-        CachedOrgId(String orgId, long expiresAt) { this.orgId = orgId; this.expiresAt = expiresAt; }
-    }
+    private final TtlCache<String> orgIdCache = new TtlCache<>(60_000);
 
     /**
      * Returns the O2 org ID to use for a query.
@@ -436,17 +465,12 @@ public class OpenObserveService {
      */
     private String getEffectiveOrgId(Long clientId, String providerAccountId) {
         String cacheKey = clientId + ":" + (providerAccountId == null ? "" : providerAccountId);
-        CachedOrgId cached = orgIdCache.get(cacheKey);
-        if (cached != null && System.currentTimeMillis() < cached.expiresAt) {
-            return cached.orgId;
-        }
+        String cached = orgIdCache.get(cacheKey);
+        if (cached != null) return cached;
 
         String resolved = resolveEffectiveOrgId(clientId, providerAccountId);
         // Only cache real resolutions; a failure should be retried, not remembered.
-        if (resolved != null) {
-            orgIdCache.put(cacheKey, new CachedOrgId(
-                    resolved, System.currentTimeMillis() + ORG_ID_CACHE_TTL_MS));
-        }
+        if (resolved != null) orgIdCache.put(cacheKey, resolved);
         return resolved;
     }
 
@@ -641,6 +665,16 @@ public class OpenObserveService {
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> listStreams(Long clientId, String providerAccountId, String streamType) {
         String orgId = getEffectiveOrgId(clientId, providerAccountId);
+
+        // The stream list is the hot path on the Observability screens — Overview
+        // asks for every type and Logs asks for the logs subset on the same page
+        // load, and O2 recomputes per-stream storage stats on each call. The set of
+        // streams only changes when an agent starts shipping a new one, so a short
+        // TTL keeps the numbers fresh while collapsing repeat calls to one.
+        String cacheKey = orgId + "|" + (streamType == null ? "*" : streamType);
+        List<Map<String, Object>> cached = streamCache.get(cacheKey);
+        if (cached != null) return cached;
+
         HttpHeaders headers = buildAdminHeaders();
         try {
             String url = o2Url + "/api/" + orgId + "/streams";
@@ -654,7 +688,9 @@ public class OpenObserveService {
                     Map.class
             );
             if (resp.getBody() != null && resp.getBody().containsKey("list")) {
-                return (List<Map<String, Object>>) resp.getBody().get("list");
+                List<Map<String, Object>> list = (List<Map<String, Object>>) resp.getBody().get("list");
+                streamCache.put(cacheKey, list);
+                return list;
             }
         } catch (Exception e) {
             logger.error("O2 list streams failed for client {}: {}", clientId, e.getMessage());

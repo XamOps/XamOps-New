@@ -116,30 +116,26 @@ public class RestTemplateConfig {
     }
 
     /**
-     * Dedicated RestTemplate for OpenObserve (O2) calls.
+     * RestTemplate for OpenObserve API calls.
      *
-     * Timeouts are mandatory here: every Observability page load fans out into
-     * ~19 parallel /metrics/query requests plus logs search/histogram polling.
-     * A plain `new RestTemplate()` has no connect or read timeout, so a slow or
-     * unreachable O2 pins Tomcat worker threads — and, on the provisioning path,
-     * JDBC connections — indefinitely, which surfaces as
-     * "Unable to acquire JDBC Connection" on every other endpoint.
-     *
-     * maxConnPerRoute is capped below the Tomcat thread count so O2 backpressure
-     * shows up as a fast queue wait rather than an unbounded socket pile-up.
+     * The Observability screens fan out hard — the Metrics tab alone issues ~18
+     * concurrent query_range calls — so the pool must allow real parallelism
+     * (HttpClient's built-in default is only 2 connections per route, which would
+     * serialise the whole dashboard). Timeouts are mandatory: O2 is a remote
+     * service and a bare RestTemplate waits forever, pinning a Tomcat thread and
+     * leaving the browser spinner up indefinitely.
      */
     @Bean
     @Qualifier("openObserveRestTemplate")
     public RestTemplate openObserveRestTemplate() {
         CloseableHttpClient httpClient = HttpClients.custom()
-                .setMaxConnTotal(60)
-                .setMaxConnPerRoute(30)
+                .setMaxConnTotal(100)
+                .setMaxConnPerRoute(50)   // one route (the O2 host) — must cover the dashboard fan-out
                 .build();
-        HttpComponentsClientHttpRequestFactory factory =
-                new HttpComponentsClientHttpRequestFactory(httpClient);
-        factory.setConnectTimeout(5000);           // 5s — O2 is in-VPC, should connect instantly
-        factory.setReadTimeout(20000);             // 20s — bounds the worst-case query
-        factory.setConnectionRequestTimeout(5000); // 5s — don't queue forever for a pooled socket
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
+        factory.setConnectTimeout(5000);           // 5 s — O2 is same-network, fail fast if down
+        factory.setReadTimeout(20000);             // 20 s — covers wide-range PromQL / stream stats
+        factory.setConnectionRequestTimeout(5000); // 5 s — don't queue forever on a saturated pool
         return new RestTemplate(factory);
     }
 

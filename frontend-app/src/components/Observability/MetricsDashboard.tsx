@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -710,8 +710,14 @@ const MetricsDashboard: React.FC<{
     };
   }, [liveEnabled, doRefresh]);
 
-  const endTime = Date.now() + refreshTick * 0; // re-evaluate on tick
-  const startTime = endTime - timeRange.ms;
+  // Pinned to the range + refresh tick, not to render. Recomputing Date.now() on
+  // every render made startTime/endTime new values each time, and since every
+  // panel keys its query effect on them, unrelated state changes (toggling Live,
+  // editing PromQL) re-fired all ~18 metric queries at once.
+  const { startTime, endTime } = useMemo(() => {
+    const end = Date.now();
+    return { startTime: end - timeRange.ms, endTime: end };
+  }, [timeRange, refreshTick]);
 
   // The newest sample we know about, across all hosts.
   const latestDataMs = agents.reduce((max, a) => Math.max(max, a.lastSeenMs), 0);

@@ -4,12 +4,14 @@ import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.VerifyAccountRequest;
 import com.xammer.cloud.event.CloudAccountConnectedEvent;
+import com.xammer.cloud.exception.AccountDeletionBlockedException;
 import com.xammer.cloud.repository.AsgSpotConfigRepository;
 import com.xammer.cloud.repository.AutoSpottingSettingsRepository;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.DbAgentConfigRepository;
+import com.xammer.cloud.repository.DiskAlertStateRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
 import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
@@ -17,6 +19,7 @@ import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
 import com.xammer.cloud.repository.ResourceLabelAssignmentRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
+import com.xammer.cloud.repository.SreInvestigationRepository;
 import com.xammer.cloud.repository.StatefulAsgConfigRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.VmssSpotConfigRepository;
@@ -30,7 +33,11 @@ import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.sts.StsClient;
 
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -127,13 +134,24 @@ public class AwsAccountService {
         CloudAccount account = cloudAccountRepository.findByExternalId(request.getExternalId())
                 .orElseThrow(() -> new RuntimeException("No pending account found for the given external ID."));
 
+        String roleArn = String.format("arn:aws:iam::%s:role/%s", request.getAwsAccountId(), request.getRoleName());
+
+        // The EventBridge callback may have already connected this account — most likely when a
+        // slow stack pushed the browser onto the manual form and then reported in behind it.
+        // Re-submitting the same role is then a no-op, not an error: without this the customer
+        // is told verification failed for an account that is connected and working.
+        if ("CONNECTED".equals(account.getStatus()) && roleArn.equals(account.getRoleArn())) {
+            logger.info("Account {} was already connected via callback; treating manual verification as a no-op.",
+                    account.getAccountName());
+            return account;
+        }
+
         if (!"PENDING".equals(account.getStatus()) && !"FAILED".equals(account.getStatus())) {
             throw new RuntimeException("Account is not in a PENDING or FAILED state.");
         }
 
         String previousStatus = account.getStatus();
         account.setAwsAccountId(request.getAwsAccountId());
-        String roleArn = String.format("arn:aws:iam::%s:role/%s", request.getAwsAccountId(), request.getRoleName());
         account.setRoleArn(roleArn);
 
         // Evict any cached clients for this account so the new roleArn is used
@@ -229,9 +247,29 @@ public class AwsAccountService {
     @Autowired private KubernetesClusterConfigRepository kubernetesClusterConfigRepository;
     @Autowired private KubernetesClusterRepository kubernetesClusterRepository;
     @Autowired private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+    @Autowired private DiskAlertStateRepository diskAlertStateRepository;
+    @Autowired private SreInvestigationRepository sreInvestigationRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    /**
+     * Tables owned by billops (separate service, same database) that hold financial
+     * records. billops runs ddl-auto=update, so it creates NOT NULL foreign keys to
+     * cloud_account with no cascade — an account carrying these rows cannot be
+     * deleted, and we refuse rather than destroy billing history behind the user's back.
+     */
+    private static final List<String> FINANCIAL_DEPENDENTS = List.of("invoice", "agreement");
 
     @Transactional
     public void deleteAccountById(Long accountId) {
+        List<String> blockers = findFinancialDependents(accountId);
+        if (!blockers.isEmpty()) {
+            throw new AccountDeletionBlockedException(
+                    "This account still has " + String.join(" and ", blockers)
+                            + ". Financial records are not deleted automatically — remove or reassign them first.");
+        }
+
         resourceLabelAssignmentRepository.deleteByCloudAccountId(accountId);
         ebsVolumeActionRepository.deleteByAccountId(accountId);
         spotOptimizationEventRepository.deleteByAccountId(accountId);
@@ -240,13 +278,52 @@ public class AwsAccountService {
         statefulAsgConfigRepository.deleteByAccount_Id(accountId);
         vmssSpotConfigRepository.deleteByAccountId(accountId);
         diskPolicyRepository.deleteByAccountId(accountId);
+        diskAlertStateRepository.deleteByAccount_Id(accountId);
         autoSpottingSettingsRepository.deleteByAccountId(accountId);
         finOpsReportScheduleRepository.deleteByCloudAccountId(accountId);
         dbAgentConfigRepository.deleteByCloudAccountId(accountId);
         kubernetesClusterConfigRepository.deleteByCloudAccountId(accountId);
         kubernetesClusterRepository.deleteByCloudAccount_Id(accountId);
         userCloudAccountAccessRepository.deleteByCloudAccountId(accountId);
+        sreInvestigationRepository.detachCloudAccount(accountId);
         cloudAccountRepository.deleteById(accountId);
+
+        // Force the DELETE out now so any remaining foreign key surfaces inside this
+        // call — at commit time it would escape the caller's try/catch and land in the
+        // generic 500 handler as an opaque "constraint" message.
+        entityManager.flush();
+
         clearAllCaches();
+    }
+
+    /**
+     * Counts the financial rows still pointing at this account, as human-readable
+     * phrases ("3 invoices"). Each table is checked against information_schema first:
+     * billops may never have run against this database, in which case the table is
+     * simply absent. That probe is deliberately a lookup rather than a try/catch —
+     * a failed statement aborts the surrounding Postgres transaction, which would
+     * poison the deletes below even though Java caught the exception.
+     */
+    private List<String> findFinancialDependents(Long accountId) {
+        List<String> found = new ArrayList<>();
+        for (String table : FINANCIAL_DEPENDENTS) {
+            Number linkable = (Number) entityManager.createNativeQuery(
+                    "SELECT COUNT(*) FROM information_schema.columns "
+                            + "WHERE table_name = :table AND column_name = 'cloud_account_id' "
+                            + "AND table_schema = ANY (current_schemas(false))")
+                    .setParameter("table", table)
+                    .getSingleResult();
+            if (linkable.longValue() == 0) {
+                continue;
+            }
+            long count = ((Number) entityManager
+                    .createNativeQuery("SELECT COUNT(*) FROM " + table + " WHERE cloud_account_id = :id")
+                    .setParameter("id", accountId)
+                    .getSingleResult()).longValue();
+            if (count > 0) {
+                found.add(count + " " + table + (count == 1 ? "" : "s"));
+            }
+        }
+        return found;
     }
 }

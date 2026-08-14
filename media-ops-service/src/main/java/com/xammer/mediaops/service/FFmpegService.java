@@ -55,6 +55,12 @@ public class FFmpegService {
     // distinguish CANCELLED from FAILED when transcode() returns false.
     private final Set<Long> stopRequested = ConcurrentHashMap.newKeySet();
 
+    // Where ffmpeg/ffprobe usually land, tried in order when the configured path is
+    // not runnable: Debian/Ubuntu apt, /usr/local builds, Homebrew (Apple silicon),
+    // snap, then bare name so a $PATH install still works.
+    private static final List<String> BINARY_SEARCH_DIRS =
+            List.of("/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/snap/bin");
+
     @PostConstruct
     public void init() {
         // Resolve ffprobe path: use configured value or derive from ffmpeg path
@@ -65,6 +71,13 @@ public class FFmpegService {
                 ffprobePath = "ffprobe";
             }
         }
+
+        // Verify both binaries at boot. Without this the first symptom is a failed job
+        // hours later reading "Cannot run program ... No such file or directory", with
+        // nothing in the logs pointing at the misconfigured path or missing install.
+        ffmpegPath  = resolveBinary("ffmpeg", ffmpegPath);
+        ffprobePath = resolveBinary("ffprobe", ffprobePath);
+
         try {
             Files.createDirectories(Paths.get(baseStorageDir, "jobs"));
             Files.createDirectories(Paths.get(baseStorageDir, "streams"));
@@ -74,14 +87,61 @@ public class FFmpegService {
         }
     }
 
-    public boolean isAvailable() {
+    /**
+     * Returns a runnable path for {@code name}, preferring the configured one and
+     * falling back to the usual install locations. When nothing is runnable the
+     * configured value is returned unchanged so the eventual job error still names
+     * the path an operator has to fix.
+     */
+    private String resolveBinary(String name, String configured) {
+        if (runs(configured)) {
+            log.info("[MediaOps] {} resolved: {}", name, configured);
+            return configured;
+        }
+
+        List<String> candidates = new ArrayList<>();
+        for (String dir : BINARY_SEARCH_DIRS) {
+            candidates.add(dir + File.separator + name);
+        }
+        candidates.add(name); // $PATH lookup
+
+        for (String candidate : candidates) {
+            if (!candidate.equals(configured) && runs(candidate)) {
+                log.warn("[MediaOps] {} is not runnable at configured path '{}' — falling back to '{}'. "
+                                + "Set mediaops.{}.path to silence this.",
+                        name, configured, candidate, name);
+                return candidate;
+            }
+        }
+
+        log.error("[MediaOps] {} NOT FOUND. Configured path '{}' is not runnable and no fallback exists in {} or $PATH. "
+                        + "Every transcode/stream job will fail with \"Cannot run program\". "
+                        + "Install ffmpeg on the host/container (the media-ops Dockerfile bakes it in at /usr/bin/ffmpeg) "
+                        + "or point mediaops.{}.path at an existing binary.",
+                name, configured, BINARY_SEARCH_DIRS, name);
+        return configured;
+    }
+
+    /** True when the binary exists and answers {@code -version} with exit code 0. */
+    private boolean runs(String binary) {
+        if (binary == null || binary.isEmpty()) return false;
         try {
-            Process p = new ProcessBuilder(ffmpegPath, "-version").redirectErrorStream(true).start();
-            p.waitFor(5, TimeUnit.SECONDS);
+            Process p = new ProcessBuilder(binary, "-version").redirectErrorStream(true).start();
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return false;
+            }
             return p.exitValue() == 0;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         } catch (Exception e) {
             return false;
         }
+    }
+
+    public boolean isAvailable() {
+        return runs(ffmpegPath);
     }
 
     public int probeDurationSeconds(String sourceUrl) {

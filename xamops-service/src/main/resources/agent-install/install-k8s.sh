@@ -1,46 +1,38 @@
 #!/usr/bin/env bash
 #
-# XamOps AKS onboarding — one command, safe to run repeatedly.
+# XamOps Kubernetes onboarding — one command per cluster, safe to run repeatedly.
 #
-# This is the executable form of the in-app "AKS Setup Guide". Every command the guide asks a
-# user to paste is reproduced here in the same order, with the same flags. If you change one,
-# change the other: .github/workflows/setup-guide-validation.yml validates both.
+# Handles both AKS and EKS from a single file, selected with --provider. Roughly 85% of the work
+# is identical across clouds — the five Helm installs, the agent RBAC/ConfigMap/Deployment, and
+# verification do not differ — so keeping one script is what stops the two from drifting. We
+# already learned that lesson from having the same bug in three separate guide modals.
+#
+# This is the executable form of the in-app setup guides. Every command a guide asks a user to
+# paste is reproduced here in the same order with the same flags. If you change one, change the
+# other: .github/workflows/setup-guide-validation.yml validates both.
 #
 # It lives under xamops-service/src/main/resources so the backend can serve it, unauthenticated
-# and with no secrets in it, from GET /api/v1/agent/install/aks.sh — see
-# AgentInstallScriptController. Azure Cloud Shell has no XamOps session, so a session-protected
+# and with no secrets in it, from GET /api/v1/agent/install/{aks,eks}.sh — see
+# AgentInstallScriptController. Cloud Shell has no XamOps session, so a session-protected
 # download would make `curl | bash` impossible; the server URL and API key arrive as flags that
 # the setup guide fills in for the environment the user is signed in to.
 #
-# WHY THIS EXISTS
-#   The guide is ~20 copy-paste steps and has to be repeated per cluster. A customer with five
-#   clusters does it five times, and any transcription slip is silent rather than loud — a
-#   cluster name typed differently in the Kubescape --set than in the agent ConfigMap does not
-#   error, it files the data under the wrong cluster.
-#
 # RE-RUNNING IS THE NORMAL CASE, NOT A SPECIAL ONE
 #   `helm upgrade --install` installs when absent and upgrades when present. `kubectl apply`
-#   creates or updates. So a cluster set up with an older version of the guide converges to the
+#   creates or updates. So a cluster set up with an older version of a guide converges to the
 #   current one by running this — there is no uninstall step to perform first.
 #
-#   Three things genuinely do not self-heal, and are handled explicitly in repair_legacy():
-#     1. the cost-exporter the old guide installed into the `default` namespace, whose image
-#        (xamops/cost-exporter-azure) was never published, so it sits in ImagePullBackOff
-#        forever and nothing in the current guide removes it
-#     2. a Helm release left in pending-* state, which `helm upgrade` refuses to touch. The old
-#        guide's `driver.kind=ebpf` is rejected by Falco 0.44 at render time, so Falco is the
-#        usual casualty
-#     3. KS_KEEP_LOCAL on the kubescape Deployment, which some troubleshooting advice suggested
-#        and which guarantees scan results never reach in-cluster storage
+#   The things that genuinely do not self-heal are handled explicitly in repair_legacy().
 #
 # WHAT IT WILL NOT DO
 #   It creates and updates its own objects only. It never deletes a namespace, never touches a
 #   workload it did not install, and in `default` it addresses exactly three objects by name.
+#   On EKS it never modifies IAM unless --setup-ebs-csi is passed.
 #
 # Usage:
-#   ./install-aks.sh --cluster NAME --resource-group RG [--subscription SUB_ID]
-#   ./install-aks.sh --all [--subscription SUB_ID]
-#   ./install-aks.sh --cluster NAME --resource-group RG --dry-run
+#   ./install-k8s.sh --provider aks --cluster NAME --resource-group RG
+#   ./install-k8s.sh --provider eks --cluster NAME --region REGION
+#   ./install-k8s.sh --provider eks --all --region REGION
 #
 set -uo pipefail
 
@@ -60,9 +52,15 @@ XAMOPS_API_KEY="${XAMOPS_API_KEY:-__XAMOPS_API_KEY__}"
 DEFAULT_SERVER_URL="https://live.xamops.com"
 DEFAULT_API_KEY="xamops_SecureAgentKey2024XamOps"
 
-# Prometheus storage. The guide pins managed-csi; verified to exist during preflight and
-# falls back to the cluster default if the customer's cluster does not have it.
-STORAGE_CLASS="managed-csi"
+# Which cloud. Baked in per endpoint when served by the backend, so the customer-facing command
+# does not need --provider; overridable for standalone use.
+PROVIDER="${PROVIDER:-__PROVIDER__}"
+
+# Prometheus storage. Left empty and resolved per provider: AKS already has managed-csi, EKS has
+# to be given (or install) a CSI-backed default.
+STORAGE_CLASS=""
+AKS_STORAGE_CLASS="managed-csi"
+EKS_STORAGE_CLASS="gp3"
 
 HELM_TIMEOUT="10m"
 
@@ -70,22 +68,38 @@ HELM_TIMEOUT="10m"
 CLUSTER_NAME=""
 RESOURCE_GROUP=""
 SUBSCRIPTION_ID=""
+REGION=""
+# Resolved in preflight: subscription id for AKS, 12-digit account number for EKS.
+CLOUD_ACCOUNT_ID=""
 ALL_CLUSTERS=false
 DRY_RUN=false
 ASSUME_YES=false
 SKIP_VERIFY=false
+# Opting in to an account-level IAM change. Deliberately NOT implied by --yes: consenting to
+# unattended execution is not consenting to editing your IAM.
+SETUP_EBS_CSI=false
 
 usage() {
   cat <<'USAGE'
-XamOps AKS onboarding
+XamOps Kubernetes onboarding (AKS / EKS)
 
-  --cluster NAME            AKS cluster name
+  --provider aks|eks        Which cloud (baked in when served from the XamOps guide)
+  --cluster NAME            Cluster name
+  --all                     Onboard every healthy cluster in the subscription (AKS) or region (EKS)
+
+  AKS only:
   --resource-group RG       Resource group containing the cluster
   --subscription ID         Azure subscription id (default: current az subscription)
-  --all                     Onboard every healthy AKS cluster in the subscription
+
+  EKS only:
+  --region REGION           AWS region (required)
+  --setup-ebs-csi           Install the EBS CSI driver, which ATTACHES AN IAM POLICY to the node
+                            group role. Off by default; without it the installer stops and prints
+                            the commands for you to run instead.
+
   --server-url URL          XamOps backend base URL
   --api-key KEY             XamOps agent API key
-  --storage-class NAME      StorageClass for the Prometheus PVC (default: managed-csi)
+  --storage-class NAME      StorageClass for the Prometheus PVC
   --timeout DURATION        Helm timeout per release (default: 10m)
   --dry-run                 Print every command without changing anything
   --skip-verify             Skip the post-install verification pass
@@ -93,17 +107,20 @@ XamOps AKS onboarding
   -h, --help                This message
 
 Examples
-  ./install-aks.sh --cluster xamops-cluster --resource-group xamops-rg
-  ./install-aks.sh --all
-  ./install-aks.sh --all --dry-run
+  ./install-k8s.sh --provider aks --cluster my-aks --resource-group my-rg
+  ./install-k8s.sh --provider eks --cluster my-eks --region ap-south-1
+  ./install-k8s.sh --provider eks --all --region ap-south-1 --dry-run
 USAGE
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --provider)       PROVIDER="${2:-}"; shift 2 ;;
     --cluster)        CLUSTER_NAME="${2:-}"; shift 2 ;;
     --resource-group) RESOURCE_GROUP="${2:-}"; shift 2 ;;
     --subscription)   SUBSCRIPTION_ID="${2:-}"; shift 2 ;;
+    --region)         REGION="${2:-}"; shift 2 ;;
+    --setup-ebs-csi)  SETUP_EBS_CSI=true; shift ;;
     --server-url)     XAMOPS_SERVER_URL="${2:-}"; shift 2 ;;
     --api-key)        XAMOPS_API_KEY="${2:-}"; shift 2 ;;
     --storage-class)  STORAGE_CLASS="${2:-}"; shift 2 ;;
@@ -195,6 +212,75 @@ apply_manifest() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# ─── helm ─────────────────────────────────────────────────────────────────────────────────
+# 3.12+ because the guide's escaped-comma --set form depends on modern parsing.
+HELM_MIN_MAJOR=3
+HELM_MIN_MINOR=12
+# Under $HOME so no sudo is needed and Cloud Shell's persistent home keeps it between
+# sessions. /usr/local/bin would need sudo and is wiped when a Cloud Shell session recycles.
+HELM_INSTALL_TO="$HOME/.xamops/bin"
+
+helm_version() { helm version --short 2>/dev/null | sed 's/^v//' | cut -d+ -f1; }
+
+helm_is_current() {
+  local hv major minor
+  hv="$(helm_version)"
+  [ -n "$hv" ] || return 1
+  major="${hv%%.*}"; minor="$(printf '%s' "$hv" | cut -d. -f2)"
+  [ "${major:-0}" -gt "$HELM_MIN_MAJOR" ] && return 0
+  [ "${major:-0}" -eq "$HELM_MIN_MAJOR" ] && [ "${minor:-0}" -ge "$HELM_MIN_MINOR" ]
+}
+
+# Installs helm instead of failing preflight. Neither AWS CloudShell nor Azure Cloud Shell
+# ships helm, so "Missing required tool(s): helm" stopped every customer on their first run —
+# a guaranteed dead end for a step the script can simply do itself.
+ensure_helm() {
+  if helm_is_current; then
+    ok "helm $(helm_version)"
+    return 0
+  fi
+
+  local found; found="$(helm_version)"
+  if [ -n "$found" ]; then
+    info "helm $found is older than ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR} — installing a current build"
+  else
+    info "helm not found — installing"
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    info "would install helm into $HELM_INSTALL_TO"
+    return 0
+  fi
+
+  have curl || die "helm is missing and curl is unavailable to install it. Install helm ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}+ manually: https://helm.sh/docs/intro/install/"
+
+  local getter; getter="$(mktemp)"
+  if ! curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o "$getter" 2>"$RUN_LOG"; then
+    rm -f "$getter"; run_tail
+    die "Could not download the helm installer. Install helm ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}+ manually: https://helm.sh/docs/intro/install/"
+  fi
+
+  mkdir -p "$HELM_INSTALL_TO"
+  if ! HELM_INSTALL_DIR="$HELM_INSTALL_TO" USE_SUDO=false bash "$getter" >"$RUN_LOG" 2>&1; then
+    rm -f "$getter"; run_tail
+    die "helm install failed. Install helm ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}+ manually: https://helm.sh/docs/intro/install/"
+  fi
+  rm -f "$getter"
+
+  # Only this shell's PATH is affected; the installed binary outlives it under $HOME.
+  case ":$PATH:" in
+    *":$HELM_INSTALL_TO:"*) ;;
+    *) PATH="$HELM_INSTALL_TO:$PATH"; export PATH ;;
+  esac
+  hash -r 2>/dev/null || true
+
+  local installed; installed="$(helm_version)"
+  helm_is_current \
+    || die "helm installed but reports ${installed:-unknown}, below ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}"
+  ok "helm $installed — installed into $HELM_INSTALL_TO"
+  info "add to your PATH to reuse it later: export PATH=\"$HELM_INSTALL_TO:\$PATH\""
+}
+
 # ─── Preflight ────────────────────────────────────────────────────────────────────────────
 # The context the user was on before we started, so it can be handed back at the end.
 ORIGINAL_CONTEXT=""
@@ -203,30 +289,59 @@ preflight() {
   step "Preflight"
   ORIGINAL_CONTEXT="$(kubectl config current-context 2>/dev/null || true)"
 
+  # Resolve the provider before anything else — every later check depends on it.
+  case "$PROVIDER" in
+    __PROVIDER__|"") PROVIDER="aks"
+      warn "No --provider given; defaulting to aks" ;;
+    aks|eks) : ;;
+    *) die "Unknown --provider '$PROVIDER' (expected aks or eks)" ;;
+  esac
+  ok "provider $PROVIDER"
+
+  local cloud_cli="az"
+  [ "$PROVIDER" = "eks" ] && cloud_cli="aws"
+
+  # helm is deliberately not in this list — ensure_helm installs it rather than failing.
   local missing=()
-  for t in az kubectl helm; do have "$t" || missing+=("$t"); done
+  for t in "$cloud_cli" kubectl; do have "$t" || missing+=("$t"); done
   [ ${#missing[@]} -eq 0 ] || die "Missing required tool(s): ${missing[*]}"
 
-  # helm 3.12+ — the guide's escaped-comma --set form depends on modern parsing.
-  local hv hmajor hminor
-  hv="$(helm version --short 2>/dev/null | sed 's/^v//' | cut -d+ -f1)"
-  hmajor="${hv%%.*}"; hminor="$(echo "$hv" | cut -d. -f2)"
-  if [ "${hmajor:-0}" -lt 3 ] || { [ "${hmajor:-0}" -eq 3 ] && [ "${hminor:-0}" -lt 12 ]; }; then
-    die "helm 3.12+ required, found ${hv:-unknown}"
-  fi
-  ok "helm $hv"
+  ensure_helm
 
   have jq || warn "jq not found — Kubescape result verification will be approximate"
 
-  az account show >/dev/null 2>&1 || die "Not signed in to Azure. Run: az login"
+  if [ "$PROVIDER" = "aks" ]; then
+    az account show >/dev/null 2>&1 || die "Not signed in to Azure. Run: az login"
 
-  if [ -n "$SUBSCRIPTION_ID" ]; then
-    run az account set --subscription "$SUBSCRIPTION_ID" \
-      || die "Cannot select subscription $SUBSCRIPTION_ID"
+    if [ -n "$SUBSCRIPTION_ID" ]; then
+      run az account set --subscription "$SUBSCRIPTION_ID" \
+        || die "Cannot select subscription $SUBSCRIPTION_ID"
+    else
+      SUBSCRIPTION_ID="$(az account show --query id -o tsv 2>/dev/null)"
+    fi
+    # For Azure the subscription id is what identifies the account to XamOps.
+    CLOUD_ACCOUNT_ID="$SUBSCRIPTION_ID"
+    ok "subscription $SUBSCRIPTION_ID"
+    STORAGE_CLASS="${STORAGE_CLASS:-$AKS_STORAGE_CLASS}"
   else
-    SUBSCRIPTION_ID="$(az account show --query id -o tsv 2>/dev/null)"
+    aws sts get-caller-identity >/dev/null 2>&1 \
+      || die "Not authenticated to AWS. Configure credentials (aws configure / SSO / instance role)."
+
+    # The 12-digit account number, not any XamOps-internal id — it keys the cluster in
+    # agent_data_cache and has to match what the dashboard looks up.
+    CLOUD_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/null)"
+    [ -n "$CLOUD_ACCOUNT_ID" ] || die "Could not determine the AWS account id"
+    ok "aws account $CLOUD_ACCOUNT_ID"
+
+    # AWS is regional, so unlike a subscription there is no account-wide default to fall back on.
+    if [ -z "$REGION" ]; then
+      REGION="$(aws configure get region 2>/dev/null || true)"
+      [ -n "$REGION" ] && info "using region from aws config: $REGION"
+    fi
+    [ -n "$REGION" ] || die "--region is required for EKS (no default found in your aws config)"
+    ok "region $REGION"
+    STORAGE_CLASS="${STORAGE_CLASS:-$EKS_STORAGE_CLASS}"
   fi
-  ok "subscription $SUBSCRIPTION_ID"
 
   # Resolve backend config. Placeholders mean the script was not served by the backend.
   case "$XAMOPS_SERVER_URL" in
@@ -257,8 +372,15 @@ connect_cluster() {
   local cluster="$1" rg="$2"
   step "Connecting to $cluster ($rg)"
 
-  run az aks get-credentials --resource-group "$rg" --name "$cluster" --overwrite-existing \
-    || die "Could not fetch credentials for $cluster in $rg"
+  if [ "$PROVIDER" = "aks" ]; then
+    run az aks get-credentials --resource-group "$rg" --name "$cluster" --overwrite-existing \
+      || die "Could not fetch credentials for $cluster in $rg"
+  else
+    # --alias is load-bearing: without it the context is named after the cluster ARN, and the
+    # assertion below (which is what stops us onboarding the wrong cluster) could never match.
+    run aws eks update-kubeconfig --region "$REGION" --name "$cluster" --alias "$cluster" \
+      || die "Could not fetch credentials for $cluster in $REGION"
+  fi
 
   if [ "$DRY_RUN" = true ]; then
     dim "dry-run: skipping context assertion and node check"
@@ -281,19 +403,125 @@ connect_cluster() {
   kubectl auth can-i create clusterrole >/dev/null 2>&1 \
     || warn "You may lack cluster-admin; ClusterRole creation could fail"
 
-  # The guide pins managed-csi. Verify rather than assume, since a Pending PVC keeps Prometheus
-  # from ever starting and the cause is not obvious from the pod status alone.
-  if ! kubectl get storageclass "$STORAGE_CLASS" >/dev/null 2>&1; then
-    local fallback
-    fallback="$(kubectl get storageclass -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{end}' 2>/dev/null)"
-    if [ -n "$fallback" ]; then
-      warn "StorageClass '$STORAGE_CLASS' not found; using cluster default '$fallback'"
-      STORAGE_CLASS="$fallback"
-    else
-      die "StorageClass '$STORAGE_CLASS' not found and no default StorageClass exists"
-    fi
+}
+
+# ─── Storage ──────────────────────────────────────────────────────────────────────────────
+# A Pending PVC keeps Prometheus from ever starting, and the cause is not obvious from the pod
+# status, so this is verified rather than assumed. It is also the single most common EKS
+# onboarding failure, because unlike AKS there is no CSI StorageClass out of the box.
+ensure_storage_class() {
+  if [ "$DRY_RUN" = true ]; then
+    dim "dry-run: skipping storage class check (would use $STORAGE_CLASS)"
+    return 0
   fi
+
+  if kubectl get storageclass "$STORAGE_CLASS" >/dev/null 2>&1; then
+    ok "storageClass $STORAGE_CLASS"
+    return 0
+  fi
+
+  # Any existing CSI-backed default is preferable to installing anything.
+  local fallback
+  fallback="$(kubectl get storageclass -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{end}' 2>/dev/null)"
+  if [ -n "$fallback" ]; then
+    warn "StorageClass '$STORAGE_CLASS' not found; using cluster default '$fallback'"
+    STORAGE_CLASS="$fallback"
+    return 0
+  fi
+
+  if [ "$PROVIDER" = "aks" ]; then
+    die "StorageClass '$STORAGE_CLASS' not found and no default StorageClass exists"
+  fi
+
+  # EKS with no usable StorageClass. Fixing this means attaching an IAM policy to the node group
+  # role, which is an account-level change. A script downloaded over curl must not do that
+  # silently, so the default is to stop and hand the commands over.
+  if [ "$SETUP_EBS_CSI" != true ]; then
+    fail "no CSI StorageClass on this cluster, so Prometheus's volume can never bind"
+    printf '\n   %sThis needs the EBS CSI driver, which requires an IAM change.%s\n' "$C_BOLD" "$C_RESET"
+    printf '   Either re-run with %s--setup-ebs-csi%s, or run these yourself:\n\n' "$C_BOLD" "$C_RESET"
+    local role
+    role="$(eks_nodegroup_role "$CLUSTER_NAME")"
+    cat <<EOF
+     aws iam attach-role-policy \\
+       --role-name ${role:-<NODEGROUP_ROLE_NAME>} \\
+       --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
+
+     aws eks create-addon --region $REGION --cluster-name $CLUSTER_NAME \\
+       --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE
+
+     aws eks wait addon-active --region $REGION --cluster-name $CLUSTER_NAME \\
+       --addon-name aws-ebs-csi-driver
+
+EOF
+    printf '   More restrictive alternative: create a dedicated role and use IRSA on the\n'
+    printf '   ebs-csi-controller-sa ServiceAccount instead of the node role.\n'
+    return 1
+  fi
+
+  setup_ebs_csi || return 1
   ok "storageClass $STORAGE_CLASS"
+}
+
+# Best-effort discovery of the node group's IAM role name, so the user does not have to find it.
+eks_nodegroup_role() {
+  local cluster="$1" ng arn
+  ng="$(aws eks list-nodegroups --region "$REGION" --cluster-name "$cluster" \
+        --query 'nodegroups[0]' --output text 2>/dev/null)"
+  [ -n "$ng" ] && [ "$ng" != "None" ] || return 0
+  arn="$(aws eks describe-nodegroup --region "$REGION" --cluster-name "$cluster" \
+         --nodegroup-name "$ng" --query 'nodegroup.nodeRole' --output text 2>/dev/null)"
+  [ -n "$arn" ] && printf '%s' "${arn##*/}"
+}
+
+setup_ebs_csi() {
+  step "EBS CSI driver (explicitly requested with --setup-ebs-csi)"
+
+  local role
+  role="$(eks_nodegroup_role "$CLUSTER_NAME")"
+  [ -n "$role" ] || { fail "could not determine the node group IAM role for $CLUSTER_NAME"; return 1; }
+  info "node group role: $role"
+
+  # Idempotent: attaching an already-attached policy is a no-op in IAM.
+  run aws iam attach-role-policy --role-name "$role" \
+    --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+    || { fail "could not attach AmazonEBSCSIDriverPolicy to $role"; run_tail; return 1; }
+  ok "AmazonEBSCSIDriverPolicy attached"
+
+  # create-addon fails if it already exists; that is fine, so the result is not fatal.
+  run aws eks create-addon --region "$REGION" --cluster-name "$CLUSTER_NAME" \
+    --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE || true
+  run aws eks wait addon-active --region "$REGION" --cluster-name "$CLUSTER_NAME" \
+    --addon-name aws-ebs-csi-driver \
+    || { fail "the aws-ebs-csi-driver addon did not become active"; run_tail; return 1; }
+  ok "aws-ebs-csi-driver addon active"
+
+  # Demote any existing default. A patch, never a delete — existing PVCs keep working.
+  local sc
+  for sc in gp2 gp3; do
+    kubectl get storageclass "$sc" >/dev/null 2>&1 || continue
+    run kubectl patch storageclass "$sc" \
+      -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' || true
+  done
+
+  apply_manifest "storageclass/gp3" <<'EOF'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  fsType: ext4
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+EOF
+  STORAGE_CLASS="gp3"
+  ok "gp3 StorageClass created as cluster default"
 }
 
 # ─── Legacy repair ────────────────────────────────────────────────────────────────────────
@@ -447,6 +675,33 @@ EOF
   rm -f "$values"
 }
 
+# ─── Part 1.4 (EKS): Metrics Server ───────────────────────────────────────────────────────
+# AKS provides metrics-server as a managed addon; EKS does not. The agent uses it for real-time
+# pod/node usage, and `kubectl top` stops working without it.
+install_metrics_server() {
+  [ "$PROVIDER" = "eks" ] || return 0
+
+  step "Metrics Server"
+  if kubectl get apiservice v1beta1.metrics.k8s.io >/dev/null 2>&1; then
+    ok "already present, skipping"
+    return 0
+  fi
+
+  run helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ || true
+  run helm repo update metrics-server || true
+
+  # The quoted index matters: unquoted args[0] is glob-expanded by zsh and never reaches helm.
+  if run helm upgrade --install metrics-server metrics-server/metrics-server \
+      --namespace kube-system \
+      --set 'args[0]=--kubelet-insecure-tls' \
+      --reset-values --wait --timeout "$HELM_TIMEOUT"; then
+    ok "metrics-server"
+  else
+    fail "metrics-server install failed — kubectl -n kube-system get pods -l app.kubernetes.io/name=metrics-server"
+    run_tail
+  fi
+}
+
 # ─── Part 1.4: Falco ──────────────────────────────────────────────────────────────────────
 # modern_ebpf uses CO-RE and needs kernel 5.8+. Rather than install and react to a
 # CrashLoopBackOff, read the node kernel versions and choose up front.
@@ -509,7 +764,15 @@ install_opencost() {
   run helm repo add opencost https://opencost.github.io/opencost-helm-chart || true
   run helm repo update opencost || true
 
-  local values
+  local values exporter_block
+  if [ "$PROVIDER" = "eks" ]; then
+    exporter_block="    aws:
+      region: \"$REGION\""
+  else
+    exporter_block="    azure:
+      subscriptionId: \"$CLOUD_ACCOUNT_ID\""
+  fi
+
   values="$(mktemp)"
   cat > "$values" <<EOF
 opencost:
@@ -522,8 +785,7 @@ opencost:
   cloudCost:
     enabled: true
   exporter:
-    azure:
-      subscriptionId: "$SUBSCRIPTION_ID"
+$exporter_block
 EOF
 
   if [ "$DRY_RUN" = true ]; then
@@ -551,12 +813,17 @@ install_trivy() {
   # The commas in trivy.severity must reach Helm escaped. Helm treats a bare comma as a
   # separator between key=value pairs, so the unescaped form is parsed as one key plus four
   # malformed ones and the install errors out.
+  #
+  # concurrentScanJobsLimit is lowered from the chart default of 10. Each scan pod reserves 100m
+  # CPU and ~100M memory, so the default reserves over a full vCPU in bursts and starves small
+  # clusters. Scans still all complete; they queue instead of flooding the scheduler.
   if run helm upgrade --install trivy-operator aquasecurity/trivy-operator \
       --namespace trivy-system --create-namespace \
       --set trivy.ignoreUnfixed=false \
       --set 'trivy.severity=UNKNOWN\,LOW\,MEDIUM\,HIGH\,CRITICAL' \
       --set operator.vulnerabilityScanner.enabled=true \
       --set operator.configAuditScannerEnabled=true \
+      --set operator.concurrentScanJobsLimit=3 \
       --reset-values --wait --timeout "$HELM_TIMEOUT"; then
     ok "trivy-operator"
   else
@@ -573,10 +840,17 @@ install_kubescape() {
 
   # No --set account: supplying an account ships results to Kubescape Cloud instead of writing
   # them to in-cluster storage, which is where the agent reads them from.
+  #
+  # vulnerabilityScan=disable drops kubevuln, which requests 1000Mi + 300m — the single largest
+  # reservation in the whole stack, and enough to be unschedulable on a 2-node cluster. Its only
+  # output is vulnerabilitymanifestsummaries, which the agent never reads: the collector lists
+  # workloadconfigurationscansummaries alone and emits one batch, kubescape-compliance. Image
+  # CVEs come from Trivy instead.
   if run helm upgrade --install kubescape kubescape/kubescape-operator \
       --namespace kubescape --create-namespace \
       --set clusterName="$CLUSTER_NAME" \
       --set capabilities.continuousScan=enable \
+      --set capabilities.vulnerabilityScan=disable \
       --set storage.enabled=true \
       --reset-values --wait --timeout "$HELM_TIMEOUT"; then
     ok "kubescape (clusterName=$CLUSTER_NAME)"
@@ -695,6 +969,15 @@ EOF
 # ─── Part 3.2: ConfigMap + Secret ─────────────────────────────────────────────────────────
 install_agent_config() {
   step "Part 3.2 — Agent ConfigMap and Secret"
+
+  # Karpenter is AWS-only, so enabling its collector on Azure just logs failures every cycle.
+  local cloud_provider collect_karpenter
+  if [ "$PROVIDER" = "eks" ]; then
+    cloud_provider="AWS"; collect_karpenter="true"
+  else
+    cloud_provider="AZURE"; collect_karpenter="false"
+  fi
+
   # CLUSTER_NAME must match the Kubescape --set clusterName exactly; both come from the same
   # variable here, which is the main reason this script exists.
   if ! apply_manifest "xamops-agent-config" <<EOF
@@ -709,15 +992,15 @@ data:
   HEARTBEAT_INTERVAL: "60"
   XAMOPS_SERVER_URL: "$XAMOPS_SERVER_URL"
   CLUSTER_NAME: "$CLUSTER_NAME"
-  CLOUD_ACCOUNT_ID: "$SUBSCRIPTION_ID"
-  CLOUD_PROVIDER: "AZURE"
+  CLOUD_ACCOUNT_ID: "$CLOUD_ACCOUNT_ID"
+  CLOUD_PROVIDER: "$cloud_provider"
   COLLECTOR_K8S_RESOURCES: "true"
   COLLECTOR_PROMETHEUS_METRICS: "true"
   PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:80"
   COLLECTOR_TRIVY: "true"
   COLLECTOR_KUBESCAPE: "true"
   COLLECTOR_OPENCOST: "true"
-  COLLECTOR_KARPENTER: "false"
+  COLLECTOR_KARPENTER: "$collect_karpenter"
 EOF
   then
     fail "agent ConfigMap could not be applied"
@@ -766,7 +1049,7 @@ spec:
       annotations:
         # Forces a rollout when only the ConfigMap changed, which a Deployment would otherwise
         # ignore, leaving the agent running with stale settings.
-        xamops.io/config-revision: "$(printf '%s|%s|%s|%s' "$XAMOPS_SERVER_URL" "$CLUSTER_NAME" "$SUBSCRIPTION_ID" "$STACK_VERSION" | cksum | cut -d' ' -f1)"
+        xamops.io/config-revision: "$(printf '%s|%s|%s|%s' "$XAMOPS_SERVER_URL" "$CLUSTER_NAME" "$CLOUD_ACCOUNT_ID" "$STACK_VERSION" | cksum | cut -d' ' -f1)"
     spec:
       serviceAccountName: xamops-agent-sa
       containers:
@@ -885,13 +1168,21 @@ onboard_cluster() {
   CURRENT_CLUSTER="$1"
 
   printf '\n%s══════════════════════════════════════════════════════════════%s\n' "$C_BOLD" "$C_RESET"
-  printf '%s  %s  (resource group: %s)%s\n' "$C_BOLD" "$CLUSTER_NAME" "$RESOURCE_GROUP" "$C_RESET"
+  if [ -n "$RESOURCE_GROUP" ]; then
+    printf '%s  %s  (resource group: %s)%s\n' "$C_BOLD" "$CLUSTER_NAME" "$RESOURCE_GROUP" "$C_RESET"
+  else
+    printf '%s  %s  (region: %s)%s\n' "$C_BOLD" "$CLUSTER_NAME" "$REGION" "$C_RESET"
+  fi
   printf '%s══════════════════════════════════════════════════════════════%s\n' "$C_BOLD" "$C_RESET"
 
   connect_cluster "$CLUSTER_NAME" "$RESOURCE_GROUP"
+  # Before anything is installed: Prometheus cannot start without a bindable volume, and on EKS
+  # this may stop the run to ask for IAM consent.
+  ensure_storage_class || return 1
   repair_legacy
   install_namespaces
   install_prometheus
+  install_metrics_server
   install_falco
   install_opencost
   install_trivy
@@ -904,14 +1195,14 @@ onboard_cluster() {
 
 # ─── Main ─────────────────────────────────────────────────────────────────────────────────
 main() {
-  printf '%sXamOps AKS onboarding%s  (stack %s, agent %s)\n' "$C_BOLD" "$C_RESET" "$STACK_VERSION" "$AGENT_IMAGE"
+  printf '%sXamOps Kubernetes onboarding%s  (stack %s, agent %s)\n' "$C_BOLD" "$C_RESET" "$STACK_VERSION" "$AGENT_IMAGE"
   [ "$DRY_RUN" = true ] && printf '%sDRY RUN — nothing will be changed%s\n' "$C_YELLOW" "$C_RESET"
 
   preflight
 
   local -a targets=()
 
-  if [ "$ALL_CLUSTERS" = true ]; then
+  if [ "$ALL_CLUSTERS" = true ] && [ "$PROVIDER" = "aks" ]; then
     step "Discovering AKS clusters in subscription $SUBSCRIPTION_ID"
     local name rg state
     while IFS=$'\t' read -r name rg state; do
@@ -926,9 +1217,36 @@ main() {
       info "queued $name ($rg)"
     done < <(az aks list --query "[].[name,resourceGroup,provisioningState]" -o tsv 2>/dev/null)
     [ ${#targets[@]} -gt 0 ] || die "No healthy AKS clusters found in subscription $SUBSCRIPTION_ID"
+
+  elif [ "$ALL_CLUSTERS" = true ]; then
+    # EKS is region-scoped: there is no account-wide list, so --all means "this region".
+    step "Discovering EKS clusters in $REGION"
+    local name status
+    while read -r name; do
+      [ -n "${name:-}" ] || continue
+      status="$(aws eks describe-cluster --region "$REGION" --name "$name" \
+                --query 'cluster.status' --output text 2>/dev/null)"
+      if [ "$status" != "ACTIVE" ]; then
+        warn "skipping $name — status=$status"
+        continue
+      fi
+      targets+=("$name|")
+      info "queued $name"
+    done < <(aws eks list-clusters --region "$REGION" --query 'clusters[]' --output text 2>/dev/null | tr '\t' '\n')
+    [ ${#targets[@]} -gt 0 ] || die "No active EKS clusters found in region $REGION"
+
   else
     [ -n "$CLUSTER_NAME" ] || die "--cluster is required (or use --all)"
-    if [ -z "$RESOURCE_GROUP" ]; then
+    if [ "$PROVIDER" = "eks" ]; then
+      # Nothing to resolve: an EKS cluster is identified by name within a region.
+      local st
+      st="$(aws eks describe-cluster --region "$REGION" --name "$CLUSTER_NAME" \
+            --query 'cluster.status' --output text 2>/dev/null)"
+      [ -n "$st" ] && [ "$st" != "None" ] \
+        || die "No EKS cluster named '$CLUSTER_NAME' in region $REGION"
+      [ "$st" = "ACTIVE" ] || die "Cluster '$CLUSTER_NAME' is not ACTIVE (status=$st)"
+      targets+=("$CLUSTER_NAME|")
+    elif [ -z "$RESOURCE_GROUP" ]; then
       # Cluster names are only unique within a resource group, so resolve all matches and
       # refuse to guess. Picking the first would silently onboard the wrong cluster, and the
       # symptom — data under the wrong name — is very hard to trace back to here.
@@ -941,8 +1259,10 @@ main() {
         *) printf '   %s\n' "$matches" | sed 's/^/     - /'
            die "'$CLUSTER_NAME' exists in $count resource groups; pass --resource-group to disambiguate" ;;
       esac
+      targets+=("$CLUSTER_NAME|$RESOURCE_GROUP")
+    else
+      targets+=("$CLUSTER_NAME|$RESOURCE_GROUP")
     fi
-    targets+=("$CLUSTER_NAME|$RESOURCE_GROUP")
   fi
 
   if [ "$ASSUME_YES" != true ] && [ "$DRY_RUN" != true ] && [ -t 0 ]; then
@@ -968,6 +1288,7 @@ main() {
   printf '\n%s══════════════════════════════════════════════════════════════%s\n' "$C_BOLD" "$C_RESET"
   printf '%s  Summary%s\n' "$C_BOLD" "$C_RESET"
   printf '%s══════════════════════════════════════════════════════════════%s\n' "$C_BOLD" "$C_RESET"
+  printf '   provider           : %s\n' "$PROVIDER"
   printf '   clusters succeeded : %s of %s\n' "$ok_count" "${#targets[@]}"
   printf '   backend            : %s\n' "$XAMOPS_SERVER_URL"
   printf '   agent image        : %s\n' "$AGENT_IMAGE"

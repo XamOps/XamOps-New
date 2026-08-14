@@ -83,9 +83,13 @@ public class AccountS3Service {
                     RequestBody.fromString("xamops"));
             s3.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(testKey).build());
         } catch (S3Exception e) {
+            // Both onboarding stacks now grant s3:PutObject/DeleteObject under OUTPUT_ROOT,
+            // so a denial here means the account is still on an IAM role created before that
+            // — re-deploying the XamOps stack is the fix, not switching to read-write.
             throw new IllegalArgumentException("Cannot write to bucket '" + bucket + "' in account "
                     + awsAccountId + ": " + e.awsErrorDetails().errorMessage()
-                    + " (the account may be connected read-only).");
+                    + " — update the XamOps CloudFormation stack in this account so its role"
+                    + " allows s3:PutObject under " + OUTPUT_ROOT + "/.");
         } catch (Exception e) {
             throw new IllegalArgumentException("Cannot write to bucket '" + bucket + "': " + e.getMessage());
         }

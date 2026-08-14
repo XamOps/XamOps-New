@@ -1,0 +1,1096 @@
+# =====================================================================
+# This is the template currently served from
+#   s3://xamopscftemplate/xamops-readwrite-role.yml
+# with the XamOps auto-connect callback (sections 9-11) added.
+#
+# It is a SEPARATE file from xamops-readwrite-role.yml in this directory,
+# which has been refactored into nine standalone managed policies and does
+# NOT match what customers are deploying today. Decide which of the two is
+# canonical before collapsing them — uploading the other one silently
+# changes the permission model for every new customer.
+# =====================================================================
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps Read-Write + AutoSpotting Stack: Creates a secure IAM Role for the XamOps platform
+  to monitor AND manage this AWS account, including auto-spotting event forwarding,
+  user management, resource modification, and full operational control over supported services.
+  Deploys EventBridge rules and a Lambda forwarder for real-time Spot instance event capture.
+  Automatically notifies XamOps when setup is complete so the account connects without manual entry.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "XamOps Platform Configuration"
+        Parameters:
+          - XamOpsAccountId
+          - ExternalId
+          - XamOpsEventBusArn
+      - Label:
+          default: "Amazon EKS Configuration"
+        Parameters:
+          - EKSClusterNames
+      - Label:
+          default: "AutoSpotting Configuration"
+        Parameters:
+          - XammerSQSQueueUrl
+          - XammerRegion
+          - EnableAutoSpotting
+    ParameterLabels:
+      XamOpsAccountId:
+        default: "XamOps AWS Account ID"
+      ExternalId:
+        default: "Unique External ID"
+      XamOpsEventBusArn:
+        default: "XamOps EventBridge Bus ARN"
+      EKSClusterNames:
+        default: "EKS Cluster Names (Optional)"
+      XammerSQSQueueUrl:
+        default: "Xammer SQS Queue URL"
+      XammerRegion:
+        default: "Xammer AWS Region"
+      EnableAutoSpotting:
+        default: "Enable AutoSpotting"
+
+Parameters:
+  XamOpsAccountId:
+    Type: String
+    Description: The 12-digit AWS Account ID for the XamOps platform. Provided by XamOps.
+    AllowedPattern: '^\d{12}$'
+    ConstraintDescription: Must be a 12-digit AWS Account ID.
+
+  ExternalId:
+    Type: String
+    Description: A unique secret value provided by XamOps to secure the connection (cross-account IAM role assumption).
+    MinLength: 10
+    ConstraintDescription: Must be the unique external ID from the XamOps platform.
+
+  EKSClusterNames:
+    Type: CommaDelimitedList
+    Description: (Optional) A comma-separated list of your EKS cluster names. XamOps will be granted admin access to these clusters.
+    Default: ""
+
+  XammerSQSQueueUrl:
+    Type: String
+    Description: URL of the Xammer SQS queue for AutoSpotting events. Provided by XamOps.
+    Default: 'https://sqs.ap-south-1.amazonaws.com/605134457560/autospotting-events.fifo'
+
+  XammerRegion:
+    Type: String
+    Description: AWS Region where Xammer infrastructure is deployed.
+    Default: 'ap-south-1'
+
+  EnableAutoSpotting:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable or disable AutoSpotting event forwarding to XamOps.
+
+  XamOpsEventBusArn:
+    Type: String
+    Description: ARN of the XamOps EventBridge custom bus that receives the connection confirmation.
+    Default: 'arn:aws:events:ap-south-1:605134457560:event-bus/xamops-onboarding-events'
+
+  XamOpsCallbackUrl:
+    Type: String
+    Description: XamOps backend endpoint that receives the direct auto-connect callback.
+    Default: 'https://live.xamops.com/api/xamops/account-manager/eventbridge-callback'
+
+Conditions:
+  IsAutoSpottingEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
+
+Resources:
+  # =================================================================
+  # 1. IAM Role for the XamOps Platform to Assume (Read-Write)
+  # =================================================================
+  XamOpsReadWriteRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'XamOpsReadWriteRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${XamOpsAccountId}:role/XamOps-App-EC2-Role'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+      Policies:
+        - PolicyName: XamOpsReadWritePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+
+              # ------------------------------------------------------------------
+              # Read Permissions (same as read-only stack)
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsReadPermissions'
+                Effect: Allow
+                Action:
+                  - 'acm:ListCertificates'
+                  - 'access-analyzer:ListAnalyzers'
+                  - 'access-analyzer:ListFindings'
+                  - 'autoscaling:DescribeAutoScalingGroups'
+                  - 'autoscaling:DescribeInstanceRefreshes'
+                  - 'autoscaling:DescribeLaunchConfigurations'
+                  - 'autoscaling:DescribePolicies'
+                  - 'autoscaling:DescribeScheduledActions'
+                  - 'budgets:ViewBudget'
+                  - 'budgets:ModifyBudget'
+                  - 'ce:GetAnomalies'
+                  - 'ce:GetCostAndUsage'
+                  - 'ce:GetDimensionValues'
+                  - 'ce:GetReservationCoverage'
+                  - 'ce:GetReservationPurchaseRecommendation'
+                  - 'ce:GetReservationUtilization'
+                  - 'cloudtrail:DescribeTrails'
+                  - 'cloudtrail:GetTrailStatus'
+                  - 'cloudtrail:LookupEvents'
+                  - 'cloudwatch:DescribeAlarms'
+                  - 'cloudwatch:GetMetricData'
+                  - 'cloudwatch:GetMetricStatistics'
+                  - 'compute-optimizer:GetEBSVolumeRecommendations'
+                  - 'compute-optimizer:GetEc2InstanceRecommendations'
+                  - 'compute-optimizer:GetLambdaFunctionRecommendations'
+                  - 'dynamodb:DescribeTable'
+                  - 'dynamodb:ListTables'
+                  - 'ec2:Describe*'
+                  - 'ecr:DescribeRepositories'
+                  - 'ecs:DescribeClusters'
+                  - 'ecs:ListClusters'
+                  - 'eks:DescribeCluster'
+                  - 'eks:ListClusters'
+                  - 'elasticache:DescribeCacheClusters'
+                  - 'elasticloadbalancing:DescribeLoadBalancers'
+                  - 'elasticloadbalancing:DescribeTargetGroups'
+                  - 'elasticloadbalancing:DescribeTargetHealth'
+                  - 'iam:GetAccountPasswordPolicy'
+                  - 'iam:GetLoginProfile'
+                  - 'iam:GetPolicyVersion'
+                  - 'iam:GetRole'
+                  - 'iam:ListAccessKeys'
+                  - 'iam:ListAccountAliases'
+                  - 'iam:ListAttachedUserPolicies'
+                  - 'iam:ListGroups'
+                  - 'iam:ListGroupsForUser'
+                  - 'iam:ListMFADevices'
+                  - 'iam:ListPolicies'
+                  - 'iam:ListRoles'
+                  - 'iam:ListUserPolicies'
+                  - 'iam:ListUsers'
+                  - 'kms:DescribeKey'
+                  - 'kms:GetKeyRotationStatus'
+                  - 'kms:ListKeys'
+                  - 'lambda:GetFunction'
+                  - 'lambda:ListFunctions'
+                  - 'lambda:ListProvisionedConcurrencyConfigs'
+                  - 'lambda:ListVersionsByFunction'
+                  - 'logs:DescribeLogGroups'
+                  - 'logs:DescribeLogStreams'
+                  - 'logs:GetQueryResults'
+                  - 'logs:StartQuery'
+                  - 'organizations:DescribeAccount'
+                  - 'organizations:ListAccounts'
+                  - 'pricing:DescribeServices'
+                  - 'pricing:GetProducts'
+                  - 'pricing:ListPriceLists'
+                  - 'rds:DescribeDBInstances'
+                  - 'rds:DescribeDBSnapshots'
+                  - 'rds:ListTagsForResource'
+                  - 'route53:ListHostedZones'
+                  - 's3:GetBucketAcl'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetBucketPublicAccessBlock'
+                  - 's3:GetLifecycleConfiguration'
+                  - 's3:ListAccessGrantsInstances'
+                  - 's3:ListAccessGrantsLocations'
+                  - 's3:ListAllMyBuckets'
+                  - 's3:ListBucket'
+                  - 's3:ListBucketVersions'
+                  - 's3:ListMultiRegionAccessPoints'
+                  - 'servicequotas:ListServiceQuotas'
+                  - 'sns:ListTopics'
+                  - 'sqs:GetQueueAttributes'
+                  - 'sqs:ListQueues'
+                  - 'sts:GetCallerIdentity'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # EC2 Write Permissions (instance management, snapshots, tags)
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsEC2WritePermissions'
+                Effect: Allow
+                Action:
+                  - 'ec2:StartInstances'
+                  - 'ec2:StopInstances'
+                  - 'ec2:RebootInstances'
+                  - 'ec2:TerminateInstances'
+                  - 'ec2:RunInstances'
+                  - 'ec2:ModifyInstanceAttribute'
+                  - 'ec2:ModifyInstanceCreditSpecification'
+                  - 'ec2:ModifyVolume'
+                  - 'ec2:ModifyVolumeAttribute'
+                  - 'ec2:CreateSnapshot'
+                  - 'ec2:DeleteSnapshot'
+                  - 'ec2:CreateTags'
+                  - 'ec2:DeleteTags'
+                  - 'ec2:CreateVolume'
+                  - 'ec2:DeleteVolume'
+                  - 'ec2:AttachVolume'
+                  - 'ec2:DetachVolume'
+                  - 'ec2:AuthorizeSecurityGroupIngress'
+                  - 'ec2:AuthorizeSecurityGroupEgress'
+                  - 'ec2:RevokeSecurityGroupIngress'
+                  - 'ec2:RevokeSecurityGroupEgress'
+                  - 'ec2:CreateSecurityGroup'
+                  - 'ec2:DeleteSecurityGroup'
+                  - 'ec2:AllocateAddress'
+                  - 'ec2:ReleaseAddress'
+                  - 'ec2:AssociateAddress'
+                  - 'ec2:DisassociateAddress'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # Auto Spotting Permissions (Spot Fleet & Auto Scaling with Spot)
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsAutoSpottingPermissions'
+                Effect: Allow
+                Action:
+                  - 'ec2:RequestSpotInstances'
+                  - 'ec2:CancelSpotInstanceRequests'
+                  - 'ec2:DescribeSpotInstanceRequests'
+                  - 'ec2:DescribeSpotFleetInstances'
+                  - 'ec2:DescribeSpotFleetRequests'
+                  - 'ec2:DescribeSpotPriceHistory'
+                  - 'ec2:RequestSpotFleet'
+                  - 'ec2:CancelSpotFleetRequests'
+                  - 'ec2:ModifySpotFleetRequest'
+                  - 'ec2:CreateFleet'
+                  - 'ec2:DeleteFleets'
+                  - 'ec2:DescribeFleets'
+                  - 'ec2:DescribeFleetInstances'
+                  - 'ec2:ModifyFleet'
+                  - 'ec2:CreateLaunchTemplate'
+                  - 'ec2:ModifyLaunchTemplate'
+                  - 'ec2:DeleteLaunchTemplate'
+                  - 'ec2:CreateLaunchTemplateVersion'
+                  - 'ec2:DeleteLaunchTemplateVersions'
+                  - 'autoscaling:CreateAutoScalingGroup'
+                  - 'autoscaling:UpdateAutoScalingGroup'
+                  - 'autoscaling:DeleteAutoScalingGroup'
+                  - 'autoscaling:SetDesiredCapacity'
+                  - 'autoscaling:TerminateInstanceInAutoScalingGroup'
+                  - 'autoscaling:PutScalingPolicy'
+                  - 'autoscaling:DeletePolicy'
+                  - 'autoscaling:PutScheduledUpdateGroupAction'
+                  - 'autoscaling:DeleteScheduledAction'
+                  - 'autoscaling:AttachInstances'
+                  - 'autoscaling:DetachInstances'
+                  - 'autoscaling:CreateLaunchConfiguration'
+                  - 'autoscaling:DeleteLaunchConfiguration'
+                  - 'autoscaling:CreateOrUpdateTags'
+                  - 'autoscaling:DeleteTags'
+                  - 'autoscaling:StartInstanceRefresh'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # IAM User & Group Management (user creation, access keys, policies)
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsIAMUserManagement'
+                Effect: Allow
+                Action:
+                  - 'iam:CreateUser'
+                  - 'iam:DeleteUser'
+                  - 'iam:UpdateUser'
+                  - 'iam:CreateAccessKey'
+                  - 'iam:DeleteAccessKey'
+                  - 'iam:UpdateAccessKey'
+                  - 'iam:CreateLoginProfile'
+                  - 'iam:DeleteLoginProfile'
+                  - 'iam:UpdateLoginProfile'
+                  - 'iam:AttachUserPolicy'
+                  - 'iam:DetachUserPolicy'
+                  - 'iam:PutUserPolicy'
+                  - 'iam:DeleteUserPolicy'
+                  - 'iam:AddUserToGroup'
+                  - 'iam:RemoveUserFromGroup'
+                  - 'iam:CreateGroup'
+                  - 'iam:DeleteGroup'
+                  - 'iam:UpdateGroup'
+                  - 'iam:AttachGroupPolicy'
+                  - 'iam:DetachGroupPolicy'
+                  - 'iam:PutGroupPolicy'
+                  - 'iam:DeleteGroupPolicy'
+                  - 'iam:TagUser'
+                  - 'iam:UntagUser'
+                  - 'iam:GetUser'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # RDS Write Permissions
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsRDSWritePermissions'
+                Effect: Allow
+                Action:
+                  - 'rds:StartDBInstance'
+                  - 'rds:StopDBInstance'
+                  - 'rds:RebootDBInstance'
+                  - 'rds:ModifyDBInstance'
+                  - 'rds:CreateDBSnapshot'
+                  - 'rds:DeleteDBSnapshot'
+                  - 'rds:RestoreDBInstanceFromDBSnapshot'
+                  - 'rds:AddTagsToResource'
+                  - 'rds:RemoveTagsFromResource'
+                  - 'rds:ModifyDBCluster'
+                  - 'rds:StartDBCluster'
+                  - 'rds:StopDBCluster'
+                  - 'rds:CreateDBClusterSnapshot'
+                  - 'rds:DeleteDBClusterSnapshot'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # Lambda Write Permissions
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsLambdaWritePermissions'
+                Effect: Allow
+                Action:
+                  - 'lambda:UpdateFunctionCode'
+                  - 'lambda:UpdateFunctionConfiguration'
+                  - 'lambda:PutFunctionConcurrency'
+                  - 'lambda:DeleteFunctionConcurrency'
+                  - 'lambda:PutProvisionedConcurrencyConfig'
+                  - 'lambda:DeleteProvisionedConcurrencyConfig'
+                  - 'lambda:InvokeFunction'
+                  - 'lambda:AddPermission'
+                  - 'lambda:RemovePermission'
+                  - 'lambda:TagResource'
+                  - 'lambda:UntagResource'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # ECS Write Permissions
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsECSWritePermissions'
+                Effect: Allow
+                Action:
+                  - 'ecs:UpdateService'
+                  - 'ecs:RegisterTaskDefinition'
+                  - 'ecs:DeregisterTaskDefinition'
+                  - 'ecs:StartTask'
+                  - 'ecs:StopTask'
+                  - 'ecs:RunTask'
+                  - 'ecs:TagResource'
+                  - 'ecs:UntagResource'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # EKS Write Permissions
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsEKSWritePermissions'
+                Effect: Allow
+                Action:
+                  - 'eks:UpdateNodegroupConfig'
+                  - 'eks:UpdateClusterConfig'
+                  - 'eks:UpdateClusterVersion'
+                  - 'eks:TagResource'
+                  - 'eks:UntagResource'
+                  - 'eks:CreateNodegroup'
+                  - 'eks:DeleteNodegroup'
+                  - 'eks:UpdateNodegroupVersion'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # S3 Write Permissions
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsS3WritePermissions'
+                Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:DeleteObject'
+                  - 's3:PutBucketLifecycleConfiguration'
+                  - 's3:PutBucketTagging'
+                  - 's3:PutObjectTagging'
+                  - 's3:DeleteObjectTagging'
+                  - 's3:PutBucketVersioning'
+                  - 's3:PutBucketPublicAccessBlock'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # CloudWatch Write Permissions
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsCloudWatchWritePermissions'
+                Effect: Allow
+                Action:
+                  - 'cloudwatch:PutMetricAlarm'
+                  - 'cloudwatch:DeleteAlarms'
+                  - 'cloudwatch:EnableAlarmActions'
+                  - 'cloudwatch:DisableAlarmActions'
+                  - 'cloudwatch:PutDashboard'
+                  - 'cloudwatch:DeleteDashboards'
+                  - 'cloudwatch:PutMetricData'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # SNS & SQS Write Permissions
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsSNSSQSWritePermissions'
+                Effect: Allow
+                Action:
+                  - 'sns:CreateTopic'
+                  - 'sns:DeleteTopic'
+                  - 'sns:Subscribe'
+                  - 'sns:Unsubscribe'
+                  - 'sns:Publish'
+                  - 'sns:SetTopicAttributes'
+                  - 'sqs:CreateQueue'
+                  - 'sqs:DeleteQueue'
+                  - 'sqs:SendMessage'
+                  - 'sqs:SetQueueAttributes'
+                  - 'sqs:PurgeQueue'
+                  - 'sqs:TagQueue'
+                  - 'sqs:UntagQueue'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # Budget & Cost Management Write Permissions
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsBudgetWritePermissions'
+                Effect: Allow
+                Action:
+                  - 'budgets:CreateBudget'
+                  - 'budgets:ModifyBudget'
+                  - 'budgets:DeleteBudget'
+                  - 'ce:CreateCostCategoryDefinition'
+                  - 'ce:UpdateCostCategoryDefinition'
+                  - 'ce:DeleteCostCategoryDefinition'
+                  - 'ce:CreateAnomalyMonitor'
+                  - 'ce:UpdateAnomalyMonitor'
+                  - 'ce:DeleteAnomalyMonitor'
+                  - 'ce:CreateAnomalySubscription'
+                  - 'ce:UpdateAnomalySubscription'
+                  - 'ce:DeleteAnomalySubscription'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # Service Quota Write Permissions
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsServiceQuotaWritePermissions'
+                Effect: Allow
+                Action:
+                  - 'servicequotas:RequestServiceQuotaIncrease'
+                  - 'servicequotas:PutServiceQuotaIncreaseRequestIntoTemplate'
+                Resource: '*'
+
+  # =================================================================
+  # 2. IAM Role for the EKS ConfigMap Automation Lambda
+  # =================================================================
+  ConfigMapLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EKSDescribeAndModifyAuthConfigMapPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'eks:DescribeCluster'
+                Resource: !Sub 'arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/*'
+              - Effect: Allow
+                Action: 'sts:GetCallerIdentity'
+                Resource: '*'
+
+  # =================================================================
+  # 3. Lambda Function to Update EKS 'aws-auth' ConfigMap
+  #    (grants system:masters for full cluster admin access)
+  # =================================================================
+  EKSAuthMapUpdaterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt ConfigMapLambdaExecutionRole.Arn
+      Runtime: python3.12
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+          import base64
+          import urllib3
+          import os
+          import time
+          from botocore.signers import RequestSigner
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def get_bearer_token(cluster_name, region):
+              sts_client = boto3.client('sts', region_name=region)
+              service_id = sts_client.meta.service_model.service_id
+              signer = RequestSigner(
+                  service_id, region, 'sts', 'v4',
+                  boto3.Session().get_credentials(),
+                  boto3.Session().events
+              )
+              params = {
+                  'method': 'GET',
+                  'url': f'https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15',
+                  'body': {},
+                  'headers': { 'x-k8s-aws-id': cluster_name },
+                  'context': {}
+              }
+              signed_url = signer.generate_presigned_url(
+                  params, region_name=region, expires_in=60, operation_name=''
+              )
+              base64_url = base64.urlsafe_b64encode(signed_url.encode('utf-8')).rstrip(b'=').decode('utf-8')
+              return 'k8s-aws-v1.' + base64_url
+
+          def handler(event, context):
+              request_type = event['RequestType']
+              props = event['ResourceProperties']
+              role_arn = props['RoleArn']
+              cluster_names = props['ClusterNames']
+              physical_resource_id = f"eks-auth-updater-{props.get('StackId', 'default')}"
+
+              try:
+                  if request_type == 'Delete':
+                      logger.info("Stack deletion triggered. No action taken on aws-auth ConfigMap.")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+                      return
+
+                  if not cluster_names or not cluster_names[0]:
+                      logger.info("No EKS cluster names provided. Skipping ConfigMap update.")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+                      return
+
+                  eks_client = boto3.client('eks')
+                  for cluster_name in cluster_names:
+                      cluster_name = cluster_name.strip()
+                      if not cluster_name: continue
+
+                      logger.info(f"Processing cluster: {cluster_name}")
+                      cluster_info = eks_client.describe_cluster(name=cluster_name)['cluster']
+                      endpoint = cluster_info['endpoint']
+                      ca_data_b64 = cluster_info['certificateAuthority']['data']
+                      region = cluster_info['arn'].split(':')[3]
+
+                      ca_cert_file = '/tmp/ca.crt'
+                      with open(ca_cert_file, 'wb') as f:
+                          f.write(base64.b64decode(ca_data_b64))
+
+                      token = get_bearer_token(cluster_name, region)
+                      http = urllib3.PoolManager(ca_certs=ca_cert_file)
+
+                      headers = {'Authorization': f'Bearer {token}'}
+                      get_url = f"{endpoint}/api/v1/namespaces/kube-system/configmaps/aws-auth"
+
+                      resp = http.request('GET', get_url, headers=headers)
+                      if resp.status != 200:
+                          raise Exception(f"Failed to get aws-auth ConfigMap for {cluster_name}: Status {resp.status} - {resp.data.decode('utf-8')}")
+
+                      cm = json.loads(resp.data.decode('utf-8'))
+                      map_roles_str = cm['data'].get('mapRoles', '[]')
+                      map_roles = json.loads(map_roles_str) if map_roles_str else []
+
+                      role_exists = any(entry.get('rolearn') == role_arn for entry in map_roles)
+
+                      if not role_exists:
+                          logger.info(f"Role ARN not found. Adding '{role_arn}' to ConfigMap for cluster '{cluster_name}'.")
+                          map_roles.append({
+                              'rolearn': role_arn,
+                              'username': 'xamops-admin-role:{{SessionName}}',
+                              'groups': ['system:masters']
+                          })
+                          cm['data']['mapRoles'] = json.dumps(map_roles, indent=2)
+
+                          patch_headers = headers.copy()
+                          patch_headers['Content-Type'] = 'application/strategic-merge-patch+json'
+
+                          patch_payload = json.dumps({'data': cm['data']})
+                          patch_resp = http.request('PATCH', get_url, headers=patch_headers, body=patch_payload.encode('utf-8'))
+
+                          if patch_resp.status != 200:
+                              raise Exception(f"Failed to update aws-auth ConfigMap for {cluster_name}: Status {patch_resp.status} - {patch_resp.data.decode('utf-8')}")
+
+                          logger.info(f"Successfully added role to aws-auth ConfigMap for cluster {cluster_name}")
+                      else:
+                          updated = False
+                          for entry in map_roles:
+                              if entry.get('rolearn') == role_arn:
+                                  if 'system:masters' not in entry.get('groups', []):
+                                      entry['groups'] = ['system:masters']
+                                      entry['username'] = 'xamops-admin-role:{{SessionName}}'
+                                      updated = True
+                                  break
+
+                          if updated:
+                              cm['data']['mapRoles'] = json.dumps(map_roles, indent=2)
+                              patch_headers = headers.copy()
+                              patch_headers['Content-Type'] = 'application/strategic-merge-patch+json'
+                              patch_payload = json.dumps({'data': cm['data']})
+                              patch_resp = http.request('PATCH', get_url, headers=patch_headers, body=patch_payload.encode('utf-8'))
+                              if patch_resp.status != 200:
+                                  raise Exception(f"Failed to update aws-auth ConfigMap for {cluster_name}: Status {patch_resp.status} - {patch_resp.data.decode('utf-8')}")
+                              logger.info(f"Upgraded role to system:masters for cluster {cluster_name}")
+                          else:
+                              logger.info(f"Role {role_arn} already has system:masters access for cluster {cluster_name}. No changes made.")
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+
+              except Exception as e:
+                  logger.error(f"Error processing EKS auth config: {e}", exc_info=True)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)}, physical_resource_id)
+
+  # =================================================================
+  # 4. Custom Resource to Trigger the EKS ConfigMap Lambda
+  # =================================================================
+  EKSAuthConfig:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt EKSAuthMapUpdaterFunction.Arn
+      RoleArn: !GetAtt XamOpsReadWriteRole.Arn
+      ClusterNames: !Ref EKSClusterNames
+      StackId: !Ref AWS::StackId
+
+  # =================================================================
+  # 5. IAM Role for AutoSpotting Event Forwarder Lambda
+  # =================================================================
+  AutoSpottingEventForwarderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: xamops-autospotting-forwarder-role
+      Description: IAM role for AutoSpotting event forwarder Lambda
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SendToXammerSQS
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowSendToXammerQueue
+                Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:GetQueueUrl
+                Resource: !Sub 'arn:aws:sqs:${XammerRegion}:${XamOpsAccountId}:autospotting-events.fifo'
+              - Sid: AllowEC2Describe
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeSpotPriceHistory
+                Resource: '*'
+      Tags:
+        - Key: Service
+          Value: XamOps-AutoSpotting
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # =================================================================
+  # 6. Lambda Function — AutoSpotting Event Forwarder
+  #    Captures EC2 Spot events and forwards them to XamOps SQS
+  # =================================================================
+  AutoSpottingEventForwarderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: xamops-autospotting-event-forwarder
+      Description: Forward EC2 spot instance events to XamOps AutoSpotting engine
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt AutoSpottingEventForwarderRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          XAMMER_SQS_QUEUE_URL: !Ref XammerSQSQueueUrl
+          XAMMER_REGION: !Ref XammerRegion
+          CUSTOMER_ACCOUNT_ID: !Ref 'AWS::AccountId'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+
+          sqs = boto3.client('sqs', region_name=os.environ['XAMMER_REGION'])
+
+          def lambda_handler(event, context):
+              """Forward EC2 spot events and interruption warnings to XamOps SQS queue"""
+
+              print(f"Received event: {json.dumps(event)}")
+
+              detail_type = event.get('detail-type', '')
+              detail = event.get('detail', {})
+              instance_id = detail.get('instance-id', 'unknown')
+              state = detail.get('state', '')
+              instance_lifecycle = detail.get('instance-lifecycle', '')
+
+              # Always forward Spot interruption warnings (no instance-lifecycle field)
+              is_interruption = (detail_type == 'EC2 Spot Instance Interruption Warning')
+
+              # For state-change events: forward Spot launches and OD launches
+              # (OD launches indicate Spot was unavailable — useful for fallback tracking)
+              is_spot_launch = (state == 'running' and instance_lifecycle == 'spot')
+              is_od_launch = (state == 'running' and instance_lifecycle == 'normal')
+              is_termination = (state in ('terminated', 'stopped') and instance_lifecycle == 'spot')
+
+              if not (is_interruption or is_spot_launch or is_od_launch or is_termination):
+                  print(f"Skipping event: detail-type={detail_type} state={state} lifecycle={instance_lifecycle}")
+                  return {'statusCode': 200, 'body': 'Event not relevant'}
+
+              enriched_event = {
+                  'version': event.get('version'),
+                  'id': event.get('id'),
+                  'detail-type': detail_type,
+                  'source': event.get('source'),
+                  'account': os.environ['CUSTOMER_ACCOUNT_ID'],
+                  'time': event.get('time'),
+                  'region': event.get('region'),
+                  'resources': event.get('resources', []),
+                  'detail': detail
+              }
+
+              try:
+                  dedup_id = f"{instance_id}-{state or detail_type}-{event.get('time', '')}"
+                  response = sqs.send_message(
+                      QueueUrl=os.environ['XAMMER_SQS_QUEUE_URL'],
+                      MessageBody=json.dumps(enriched_event),
+                      MessageGroupId='customer-events',
+                      MessageDeduplicationId=dedup_id
+                  )
+                  print(f"Forwarded {detail_type} event for {instance_id}: {response['MessageId']}")
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({'message': 'Event forwarded successfully', 'messageId': response['MessageId']})
+                  }
+              except Exception as e:
+                  print(f"Error forwarding event: {str(e)}")
+                  raise
+      Tags:
+        - Key: Service
+          Value: XamOps-AutoSpotting
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # CloudWatch Log Group for the forwarder Lambda (7-day retention)
+  AutoSpottingForwarderLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AutoSpottingEventForwarderFunction}'
+      RetentionInDays: 7
+
+  # =================================================================
+  # 7. EventBridge Rules — capture Spot events in this account
+  # =================================================================
+
+  # Rule: Spot instance launches
+  SpotInstanceLaunchRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: xamops-autospotting-spot-launch
+      Description: Capture spot instance launch events and forward to XamOps
+      State: !If [IsAutoSpottingEnabled, ENABLED, DISABLED]
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-change Notification
+        detail:
+          state:
+            - running
+          instance-lifecycle:
+            - spot
+      Targets:
+        - Arn: !GetAtt AutoSpottingEventForwarderFunction.Arn
+          Id: XamOpsSpotLaunchTarget
+
+  LaunchRuleLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AutoSpottingEventForwarderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SpotInstanceLaunchRule.Arn
+
+  # Rule: Spot instance terminations
+  SpotInstanceTerminationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: xamops-autospotting-spot-termination
+      Description: Capture spot instance termination events and forward to XamOps
+      State: !If [IsAutoSpottingEnabled, ENABLED, DISABLED]
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-change Notification
+        detail:
+          state:
+            - terminated
+            - stopped
+          instance-lifecycle:
+            - spot
+      Targets:
+        - Arn: !GetAtt AutoSpottingEventForwarderFunction.Arn
+          Id: XamOpsSpotTerminationTarget
+
+  TerminationRuleLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AutoSpottingEventForwarderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SpotInstanceTerminationRule.Arn
+
+  # Rule: Spot interruption warnings (2-minute advance notice)
+  SpotInterruptionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: xamops-autospotting-spot-interruption
+      Description: Capture Spot interruption warnings (2-min notice) and forward to XamOps
+      State: !If [IsAutoSpottingEnabled, ENABLED, DISABLED]
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Spot Instance Interruption Warning
+      Targets:
+        - Arn: !GetAtt AutoSpottingEventForwarderFunction.Arn
+          Id: XamOpsInterruptionTarget
+
+  InterruptionRuleLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AutoSpottingEventForwarderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SpotInterruptionRule.Arn
+
+  # Rule: On-demand instance launches (fallback detection when Spot unavailable)
+  ODFallbackRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: xamops-autospotting-od-fallback
+      Description: Capture OD launches to detect when Spot is unavailable
+      State: !If [IsAutoSpottingEnabled, ENABLED, DISABLED]
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-change Notification
+        detail:
+          state:
+            - running
+          instance-lifecycle:
+            - normal
+      Targets:
+        - Arn: !GetAtt AutoSpottingEventForwarderFunction.Arn
+          Id: XamOpsODFallbackTarget
+
+  ODFallbackRuleLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AutoSpottingEventForwarderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ODFallbackRule.Arn
+
+  # =================================================================
+  # 8. CloudWatch Alarms — monitor the event forwarder Lambda
+  # =================================================================
+
+  AutoSpottingLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: xamops-autospotting-forwarder-errors
+      AlarmDescription: Alert when AutoSpotting event forwarder Lambda encounters errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AutoSpottingEventForwarderFunction
+      TreatMissingData: notBreaching
+
+  AutoSpottingLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: xamops-autospotting-forwarder-throttles
+      AlarmDescription: Alert when AutoSpotting event forwarder Lambda is throttled
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AutoSpottingEventForwarderFunction
+      TreatMissingData: notBreaching
+
+  # =================================================================
+  # 9. IAM Role for Auto-Callback Lambda (EventBridge PutEvents)
+  # =================================================================
+  AutoCallbackLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: XamOpsEventBridgePutEventsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: !Ref XamOpsEventBusArn
+
+  # =================================================================
+  # 10. Auto-Callback Lambda — reports the new role back to XamOps
+  # =================================================================
+  AutoCallbackFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt AutoCallbackLambdaRole.Arn
+      Runtime: python3.12
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+          import urllib3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def handler(event, context):
+              request_type = event['RequestType']
+              props = event['ResourceProperties']
+              physical_resource_id = 'xamops-auto-callback'
+
+              if request_type == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+                  return
+
+              event_bus_arn = props['EventBusArn']
+              external_id = props['ExternalId']
+              aws_account_id = props['AwsAccountId']
+              role_arn = props['RoleArn']
+              callback_url = props.get('CallbackUrl', '')
+
+              detail = json.dumps({
+                  'externalId': external_id,
+                  'awsAccountId': aws_account_id,
+                  'roleArn': role_arn
+              })
+
+              # 1. Send EventBridge event (for audit/logging)
+              try:
+                  bus_region = event_bus_arn.split(':')[3]
+                  eb = boto3.client('events', region_name=bus_region)
+                  response = eb.put_events(Entries=[{
+                      'Source': 'com.xamops.onboarding',
+                      'DetailType': 'AccountOnboardingComplete',
+                      'Detail': detail,
+                      'EventBusName': event_bus_arn
+                  }])
+                  failed = response.get('FailedEntryCount', 0)
+                  if failed > 0:
+                      logger.error(f"EventBridge PutEvents had {failed} failed entries: {response['Entries']}")
+                  else:
+                      logger.info(f"EventBridge event sent for externalId={external_id}")
+              except Exception as e:
+                  logger.warning(f"EventBridge PutEvents failed (non-fatal): {str(e)}")
+
+              # 2. Call XamOps backend directly so account status updates immediately
+              if callback_url:
+                  try:
+                      http = urllib3.PoolManager()
+                      payload_bytes = detail.encode('utf-8')
+                      cb_resp = http.request(
+                          'POST', callback_url,
+                          body=payload_bytes,
+                          headers={'Content-Type': 'application/json'},
+                          timeout=urllib3.Timeout(connect=5.0, read=15.0)
+                      )
+                      logger.info(f"Direct callback to {callback_url} returned HTTP {cb_resp.status}")
+                  except Exception as cb_err:
+                      logger.warning(f"Direct callback failed (non-fatal): {str(cb_err)}")
+
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+
+  # =================================================================
+  # 11. Custom Resource to Trigger Auto-Callback
+  #     Depends on every other resource in the stack so XamOps is only
+  #     told the account is ready once nothing is left that could fail
+  #     and roll the whole stack (including the role) back.
+  # =================================================================
+  XamOpsAutoCallback:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - EKSAuthConfig
+      - LaunchRuleLambdaPermission
+      - TerminationRuleLambdaPermission
+      - InterruptionRuleLambdaPermission
+      - ODFallbackRuleLambdaPermission
+      - AutoSpottingForwarderLogGroup
+      - AutoSpottingLambdaErrorAlarm
+      - AutoSpottingLambdaThrottleAlarm
+    Properties:
+      ServiceToken: !GetAtt AutoCallbackFunction.Arn
+      EventBusArn: !Ref XamOpsEventBusArn
+      CallbackUrl: !Ref XamOpsCallbackUrl
+      ExternalId: !Ref ExternalId
+      AwsAccountId: !Ref AWS::AccountId
+      RoleArn: !GetAtt XamOpsReadWriteRole.Arn
+
+Outputs:
+  XamOpsRoleArn:
+    Description: ARN of the IAM role created for the XamOps platform (Read-Write access).
+    Value: !GetAtt XamOpsReadWriteRole.Arn
+
+  XamOpsRoleName:
+    Description: Name of the IAM role created for the XamOps platform.
+    Value: !Ref XamOpsReadWriteRole
+
+  AutoSpottingForwarderFunctionArn:
+    Description: ARN of the AutoSpotting event forwarder Lambda function.
+    Value: !GetAtt AutoSpottingEventForwarderFunction.Arn
+
+  AutoSpottingStatus:
+    Description: AutoSpotting event forwarding status in this account.
+    Value: !If [IsAutoSpottingEnabled, 'ENABLED', 'DISABLED']

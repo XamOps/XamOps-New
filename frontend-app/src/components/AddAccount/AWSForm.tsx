@@ -1,13 +1,14 @@
 import React from 'react';
 import { Icon } from '@iconify/react';
-import type { AccessType, VerificationDetails } from '../../types/addAccount';
+import { roleNameFor } from '../../hooks/useAddAccount';
+import type { AccessType, AutoConnectStatus, VerificationDetails } from '../../types/addAccount';
 
 interface AWSFormProps {
   accountName: string;
   accessType: AccessType;
   isLoading: boolean;
   isVerifying: boolean;
-  isAutoConnecting: boolean;
+  autoConnectStatus: AutoConnectStatus;
   autoConnected: boolean;
   verificationDetails: VerificationDetails;
   verificationError: string;
@@ -24,7 +25,7 @@ const labelCls = 'block text-[13px] font-medium text-[rgba(0,0,0,0.7)] mb-1.5';
 const hintCls = 'text-[11px] text-[rgba(0,0,0,0.4)] mt-1';
 
 const AWSForm: React.FC<AWSFormProps> = ({
-  accountName, accessType, isLoading, isVerifying, isAutoConnecting, autoConnected,
+  accountName, accessType, isLoading, isVerifying, autoConnectStatus, autoConnected,
   verificationDetails, verificationError,
   onAccountNameChange, onAccessTypeChange, onVerificationDetailsChange,
   onLaunchStack, onVerifyAccount, onOpenPolicyModal,
@@ -34,6 +35,9 @@ const AWSForm: React.FC<AWSFormProps> = ({
     if (isVerifying) onVerifyAccount();
     else onLaunchStack();
   };
+
+  const isListening = autoConnectStatus === 'listening' || autoConnectStatus === 'slow';
+  const expectedRoleName = roleNameFor(accessType);
 
   // ── Success ──
   if (autoConnected) {
@@ -60,66 +64,96 @@ const AWSForm: React.FC<AWSFormProps> = ({
       <div className="max-w-lg">
         <h2 className="text-[16px] font-bold text-black mb-1">Verify Connection</h2>
         <p className="text-[13px] text-[rgba(0,0,0,0.5)] mb-6">
-          {isAutoConnecting
-            ? 'Waiting for CloudFormation stack to complete — usually 1–3 minutes.'
+          {isListening
+            ? 'We\'ll connect this automatically when the stack finishes — or enter the details yourself, whichever comes first.'
             : 'Enter the details from your CloudFormation stack outputs.'}
         </p>
 
-        {isAutoConnecting && (
+        {/* Status only — never a gate. The form below stays usable in every state, so a
+            customer who doesn't want to wait for the stack never has to. */}
+        {autoConnectStatus === 'listening' && (
           <div className="flex items-center gap-3 px-4 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-lg mb-6">
             <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-            <span className="text-[12px] font-medium text-[rgba(0,0,0,0.6)]">Auto-connecting via EventBridge...</span>
+            <span className="text-[12px] font-medium text-[rgba(0,0,0,0.6)]">
+              Waiting for the CloudFormation stack — usually 1–3 minutes.
+            </span>
           </div>
         )}
 
-        {!isAutoConnecting && (
-          <form onSubmit={handleSubmit} className="space-y-5">
+        {autoConnectStatus === 'slow' && (
+          <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg mb-6">
+            <Icon icon="mdi:clock-alert-outline" width={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
             <div>
-              <label htmlFor="awsAccountId" className={labelCls}>AWS Account ID</label>
-              <input
-                id="awsAccountId"
-                type="text"
-                placeholder="123456789012"
-                value={verificationDetails.awsAccountId}
-                onChange={(e) => onVerificationDetailsChange({ awsAccountId: e.target.value })}
-                className={inputCls}
-                required
-              />
-              <p className={hintCls}>12-digit AWS account identifier</p>
+              <p className="text-[12px] font-medium text-amber-900">This is taking longer than usual</p>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Still listening — if the stack completes, this page will connect on its own. If it
+                rolled back, or you'd rather not wait, fill in the details below.
+              </p>
             </div>
-
-            <div>
-              <label htmlFor="roleName" className={labelCls}>IAM Role Name</label>
-              <input
-                id="roleName"
-                type="text"
-                placeholder="XamOps-ReadOnly-Role"
-                value={verificationDetails.roleName}
-                onChange={(e) => onVerificationDetailsChange({ roleName: e.target.value })}
-                className={inputCls}
-                required
-              />
-              <p className={hintCls}>Name of the IAM role created by the stack</p>
-            </div>
-
-            {verificationError && (
-              <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-100 rounded-lg">
-                <Icon icon="mdi:alert-circle-outline" width={16} className="text-red-500 flex-shrink-0" />
-                <span className="text-[12px] text-red-700">{verificationError}</span>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 bg-black text-white text-[13px] font-medium rounded-lg hover:bg-[rgba(0,0,0,0.85)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Verifying...</>
-              ) : 'Verify & Connect'}
-            </button>
-          </form>
+          </div>
         )}
+
+        {autoConnectStatus === 'stopped' && (
+          <div className="flex items-start gap-2.5 px-4 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-lg mb-6">
+            <Icon icon="mdi:bell-off-outline" width={16} className="text-[rgba(0,0,0,0.4)] flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[12px] font-medium text-[rgba(0,0,0,0.7)]">Stopped waiting for the stack</p>
+              <p className="text-[11px] text-[rgba(0,0,0,0.5)] mt-0.5">
+                Check whether it reached CREATE_COMPLETE in CloudFormation, then enter the details
+                from its Outputs tab below.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label htmlFor="awsAccountId" className={labelCls}>AWS Account ID</label>
+            <input
+              id="awsAccountId"
+              type="text"
+              placeholder="123456789012"
+              value={verificationDetails.awsAccountId}
+              onChange={(e) => onVerificationDetailsChange({ awsAccountId: e.target.value })}
+              className={inputCls}
+              required
+            />
+            <p className={hintCls}>12-digit AWS account identifier</p>
+          </div>
+
+          <div>
+            <label htmlFor="roleName" className={labelCls}>IAM Role Name</label>
+            <input
+              id="roleName"
+              type="text"
+              placeholder={expectedRoleName}
+              value={verificationDetails.roleName}
+              onChange={(e) => onVerificationDetailsChange({ roleName: e.target.value })}
+              className={inputCls}
+              required
+            />
+            <p className={hintCls}>
+              The stack names this role <span className="font-medium">{expectedRoleName}</span>
+            </p>
+          </div>
+
+          {verificationError && (
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-100 rounded-lg">
+              <Icon icon="mdi:alert-circle-outline" width={16} className="text-red-500 flex-shrink-0" />
+              <span className="text-[12px] text-red-700">{verificationError}</span>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full py-2.5 bg-black text-white text-[13px] font-medium rounded-lg hover:bg-[rgba(0,0,0,0.85)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {isLoading ? (
+              <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Verifying...</>
+            ) : 'Verify & Connect'}
+          </button>
+        </form>
       </div>
     );
   }

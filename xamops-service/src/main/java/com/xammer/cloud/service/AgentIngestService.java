@@ -155,24 +155,29 @@ public class AgentIngestService {
 
     /**
      * Find the cluster config for a Kubernetes agent push, auto-registering the
-     * cluster on first contact when it belongs to an Azure account.
+     * cluster on first contact when it belongs to an AWS or Azure account.
      *
-     * AKS is onboarded agent-only: no UI creates a KubernetesClusterConfig row, and
-     * the one API that does (POST /api/xamops/k8s/security/configure) needs a
-     * kubeconfig plus inbound reachability from this server to the cluster — neither
-     * of which an agent-based install has. Without this, an AKS agent pushes valid
-     * data every interval and gets a 404 forever.
+     * AKS and EKS are both onboarded agent-only: no UI creates a
+     * KubernetesClusterConfig row, and the one API that does
+     * (POST /api/xamops/k8s/security/configure) needs a kubeconfig plus inbound
+     * reachability from this server to the cluster — neither of which an
+     * agent-based install has. Without this, an agent pushes valid data every
+     * interval and gets a 404 forever.
      *
-     * Scoped to Azure deliberately: EKS and GKE keep their existing
-     * register-before-push behaviour, so this cannot change what those agents do.
-     * DB agents already auto-register on first push (see the caller in
-     * AgentController), so the trust model here is not new — any holder of the
-     * global agent API key can already create rows this way.
+     * This was Azure-only while EKS still onboarded through the kubeconfig wizard.
+     * The unified install script (install-k8s.sh) moved EKS onto the same push-only
+     * agent as AKS — "no inbound connections required" — which put EKS in exactly
+     * the failure mode described above, so the guard now covers AWS too.
+     *
+     * GKE is unchanged and keeps its register-before-push behaviour. DB agents
+     * already auto-register on first push (see the caller in AgentController), so
+     * the trust model here is not new — any holder of the global agent API key can
+     * already create rows this way.
      *
      * @param clusterName    cluster name from the agent payload
      * @param cloudAccountId provider account ID from the payload (Azure subscription ID for AKS)
      * @return the existing or newly created config, or null if the account is unknown
-     *         or belongs to a non-Azure provider
+     *         or belongs to a provider that registers before pushing
      */
     @Transactional
     public KubernetesClusterConfig findOrAutoRegisterClusterConfig(String clusterName, String cloudAccountId) {
@@ -195,9 +200,10 @@ public class AgentIngestService {
             return null;
         }
 
-        if (!"Azure".equalsIgnoreCase(account.getProvider())) {
-            logger.warn("Auto-register skipped: cluster '{}' belongs to {} account {} (Azure only)",
-                    clusterName, account.getProvider(), cloudAccountId);
+        String provider = account.getProvider();
+        if (!"Azure".equalsIgnoreCase(provider) && !"AWS".equalsIgnoreCase(provider)) {
+            logger.warn("Auto-register skipped: cluster '{}' belongs to {} account {} (AWS and Azure only)",
+                    clusterName, provider, cloudAccountId);
             return null;
         }
 
@@ -209,7 +215,7 @@ public class AgentIngestService {
         cfg.setDataSourceMode("agent");
         cfg.setAgentStatus("active");
         cfg.setLastAgentCheckin(LocalDateTime.now());
-        logger.info("Auto-registered AKS cluster '{}' for Azure subscription {}", clusterName, cloudAccountId);
+        logger.info("Auto-registered {} cluster '{}' for account {}", provider, clusterName, cloudAccountId);
         return clusterConfigRepository.save(cfg);
     }
 

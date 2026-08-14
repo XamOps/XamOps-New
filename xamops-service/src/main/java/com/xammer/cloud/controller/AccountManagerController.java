@@ -8,6 +8,7 @@ import com.xammer.cloud.domain.User;
 import com.xammer.cloud.domain.UserCloudAccountAccess;
 import com.xammer.cloud.dto.*;
 import com.xammer.cloud.event.CloudAccountConnectedEvent;
+import com.xammer.cloud.exception.AccountDeletionBlockedException;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
@@ -20,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -234,13 +236,37 @@ public class AccountManagerController {
 
     @DeleteMapping("/accounts/{id}")
     public ResponseEntity<?> deleteAccount(@PathVariable Long id) {
-        return cloudAccountRepository.findById(id)
-                .map(account -> {
-                    String accountName = account.getAccountName();
-                    awsAccountService.deleteAccountById(id);
-                    return ResponseEntity
-                            .ok(Map.of("message", "Account " + accountName + " removed successfully."));
-                }).orElse(ResponseEntity.notFound().build());
+        Optional<CloudAccount> existing = cloudAccountRepository.findById(id);
+        if (existing.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        String accountName = existing.get().getAccountName();
+
+        try {
+            awsAccountService.deleteAccountById(id);
+            return ResponseEntity.ok(Map.of("message", "Account " + accountName + " removed successfully."));
+        } catch (AccountDeletionBlockedException e) {
+            logger.warn("Deletion of account {} ({}) blocked: {}", id, accountName, e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("message", "Cannot delete " + accountName + ". " + e.getMessage()));
+        } catch (DataIntegrityViolationException e) {
+            // A dependent table we do not clean up yet. Surface the table/constraint the
+            // database named so the gap is diagnosable instead of an opaque failure.
+            String detail = rootCauseMessage(e);
+            logger.error("Deletion of account {} ({}) hit an unhandled foreign key: {}", id, accountName, detail);
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("message", "Cannot delete " + accountName
+                            + " — it still has linked data in the database. Details: " + detail));
+        }
+    }
+
+    private String rootCauseMessage(Throwable t) {
+        Throwable cause = t;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        String message = cause.getMessage();
+        return message == null ? t.toString() : message.trim();
     }
 
     @PostMapping("/add-gcp-account")

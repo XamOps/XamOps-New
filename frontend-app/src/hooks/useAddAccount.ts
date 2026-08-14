@@ -20,12 +20,49 @@ import { apiFetch } from '../utils/apiClient';
 import type {
   Provider,
   AccessType,
+  AutoConnectStatus,
   VerificationDetails,
   AzureDetails,
   JenkinsDetails,
   StackUrlResponse,
   AzureCredentials,
 } from '../types/addAccount';
+
+/**
+ * Auto-connect never blocks the customer: the manual form is on screen the whole time, and
+ * whichever route finishes first wins. These timings only decide how eagerly we listen and
+ * what the banner above the form says.
+ */
+
+/** Cadence while the stack is within its expected build time (~1-3 min in practice). */
+const POLL_INTERVAL_MS = 5_000;
+
+/** Slower cadence once it's running long — still listening, just less eagerly. */
+const SLOW_POLL_INTERVAL_MS = 15_000;
+
+/**
+ * When to stop claiming this is nearly done and admit it's running long.
+ *
+ * A stack can legitimately pass this (many EKS clusters, or the aws-auth Lambda burning its
+ * own 300s timeout against an unreachable endpoint), and it can also mean the stack rolled
+ * back and nothing is ever coming. We can't tell the two apart from here, so we keep
+ * listening and say so.
+ */
+const SLOW_AFTER_MS = 5 * 60 * 1000;
+
+/** Hard stop, so a tab left open overnight isn't polling the accounts endpoint forever. */
+const POLL_GIVE_UP_MS = 30 * 60 * 1000;
+
+/**
+ * The name the CloudFormation stack gives the role it creates.
+ *
+ * Both templates hardcode `RoleName`, so this is knowable without asking the customer —
+ * we prefill it and they only have to supply the account ID. Kept in step with
+ * cloudformation/xamops-readonly-role.yml and xamops-readwrite-role.live.yml; if either
+ * template's RoleName changes, change it here too.
+ */
+export const roleNameFor = (accessType: AccessType): string =>
+  accessType === 'read-write' ? 'XamOpsReadWriteRole' : 'XamOpsReadOnlyRole';
 
 interface UseAddAccountReturn {
   // State
@@ -34,7 +71,7 @@ interface UseAddAccountReturn {
   accessType: AccessType;
   isLoading: boolean;
   isVerifying: boolean;
-  isAutoConnecting: boolean;
+  autoConnectStatus: AutoConnectStatus;
   autoConnected: boolean;
   isPolicyModalOpen: boolean;
   verificationError: string;
@@ -70,7 +107,7 @@ export function useAddAccount(): UseAddAccountReturn {
   const [accessType, setAccessType] = useState<AccessType>('read-only');
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [isAutoConnecting, setIsAutoConnecting] = useState(false);
+  const [autoConnectStatus, setAutoConnectStatus] = useState<AutoConnectStatus>('idle');
   const [autoConnected, setAutoConnected] = useState(false);
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [verificationError, setVerificationError] = useState('');
@@ -90,14 +127,54 @@ export function useAddAccount(): UseAddAccountReturn {
   });
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const giveUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingExternalIdRef = useRef<string>('');
 
-  // Clean up polling interval on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
+  /** Tears down every timer. Safe to call when none are running. */
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+    if (giveUpTimerRef.current) {
+      clearTimeout(giveUpTimerRef.current);
+      giveUpTimerRef.current = null;
+    }
   }, []);
+
+  /**
+   * (Re)starts the connection poll at the given cadence, replacing any interval already
+   * running. Leaves the fallback/give-up timers alone — only the interval is swapped.
+   */
+  const startPolling = useCallback((intervalMs: number) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const accountsRes = await apiFetch('/api/xamops/account-manager/accounts');
+        if (accountsRes.ok) {
+          const accounts: Array<{ externalId?: string; status: string }> = await accountsRes.json();
+          const connected = accounts.find(
+            (a) => a.externalId === pendingExternalIdRef.current && a.status === 'CONNECTED'
+          );
+          if (connected) {
+            stopPolling();
+            setAutoConnectStatus('idle');
+            setAutoConnected(true);
+          }
+        }
+      } catch {
+        // network blip — will retry next tick
+      }
+    }, intervalMs);
+  }, [stopPolling]);
+
+  // Clean up both timers on unmount
+  useEffect(() => stopPolling, [stopPolling]);
 
   /**
    * Update verification details partially
@@ -169,41 +246,35 @@ export function useAddAccount(): UseAddAccountReturn {
       // Open AWS CloudFormation in a new tab
       window.open(data.url, '_blank');
 
-      // Store externalId and switch to verification mode
-      setVerificationDetails({ externalId: data.externalId });
+      // Store externalId and switch to verification mode. roleName is prefilled from the
+      // template's hardcoded RoleName so manual entry is one field, not two — the customer
+      // can still edit it if they deployed a modified template.
+      setVerificationDetails({ externalId: data.externalId, roleName: roleNameFor(accessType) });
       setIsVerifying(true);
 
       // Only poll for auto-connect if EventBridge is configured on this environment
       if (data.eventBridgeEnabled !== 'true') return;
 
       pendingExternalIdRef.current = data.externalId;
-      setIsAutoConnecting(true);
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      pollingRef.current = setInterval(async () => {
-        try {
-          const accountsRes = await apiFetch('/api/xamops/account-manager/accounts');
-          if (accountsRes.ok) {
-            const accounts: Array<{ externalId?: string; status: string }> = await accountsRes.json();
-            const connected = accounts.find(
-              (a) => a.externalId === pendingExternalIdRef.current && a.status === 'CONNECTED'
-            );
-            if (connected) {
-              clearInterval(pollingRef.current!);
-              pollingRef.current = null;
-              setIsAutoConnecting(false);
-              setAutoConnected(true);
-            }
-          }
-        } catch {
-          // network blip — will retry next tick
-        }
-      }, 5000);
+      setAutoConnectStatus('listening');
+      stopPolling();
+      startPolling(POLL_INTERVAL_MS);
+
+      fallbackTimerRef.current = setTimeout(() => {
+        setAutoConnectStatus('slow');
+        startPolling(SLOW_POLL_INTERVAL_MS);
+      }, SLOW_AFTER_MS);
+
+      giveUpTimerRef.current = setTimeout(() => {
+        stopPolling();
+        setAutoConnectStatus('stopped');
+      }, POLL_GIVE_UP_MS);
     } catch (err) {
       alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
     }
-  }, [accountName, accessType, setVerificationDetails]);
+  }, [accountName, accessType, setVerificationDetails, stopPolling, startPolling]);
 
   /**
    * Verify AWS Account connection
@@ -347,12 +418,9 @@ export function useAddAccount(): UseAddAccountReturn {
     setAccountName('');
     setAccessType('read-only');
     setIsVerifying(false);
-    setIsAutoConnecting(false);
     setAutoConnected(false);
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
+    setAutoConnectStatus('idle');
+    stopPolling();
     setVerificationError('');
     setVerificationDetailsState({
       awsAccountId: '',
@@ -368,7 +436,7 @@ export function useAddAccount(): UseAddAccountReturn {
       username: '',
       token: '',
     });
-  }, []);
+  }, [stopPolling]);
 
   return {
     // State
@@ -377,7 +445,7 @@ export function useAddAccount(): UseAddAccountReturn {
     accessType,
     isLoading,
     isVerifying,
-    isAutoConnecting,
+    autoConnectStatus,
     autoConnected,
     isPolicyModalOpen,
     verificationError,

@@ -10,6 +10,35 @@ import AzureCloudK8sIntegrations from '../components/AzureCloudK8s/AzureCloudK8s
 import AzureCloudK8sHelpModal from '../components/AzureCloudK8s/AzureCloudK8sHelpModal';
 import { AKSCluster } from '../types/aksTypes';
 
+// The list is cached per tab so navigating back is instant. Without an expiry a
+// long-lived tab never sees a cluster added or removed in Azure, so entries older
+// than this are dropped and refetched.
+const CLUSTER_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type CachedClusters = { ts: number; data: AKSCluster[] };
+
+const readCachedClusters = (cacheKey: string): AKSCluster[] | null => {
+  const raw = sessionStorage.getItem(cacheKey);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as CachedClusters;
+    // Entries written before this envelope existed are bare arrays: discard them.
+    if (!parsed || typeof parsed.ts !== 'number' || !Array.isArray(parsed.data)) {
+      sessionStorage.removeItem(cacheKey);
+      return null;
+    }
+    if (Date.now() - parsed.ts > CLUSTER_CACHE_TTL_MS) {
+      sessionStorage.removeItem(cacheKey);
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    sessionStorage.removeItem(cacheKey);
+    return null;
+  }
+};
+
 const AzureCloudK8sPage: React.FC = () => {
   const navigate = useNavigate();
   const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
@@ -32,25 +61,28 @@ const AzureCloudK8sPage: React.FC = () => {
 
     if (forceRefresh) {
       sessionStorage.removeItem(cacheKey);
-    }
-
-    const cachedData = sessionStorage.getItem(cacheKey);
-    if (cachedData && !forceRefresh) {
-      setClusters(JSON.parse(cachedData));
-      setIsLoading(false);
-      return;
+    } else {
+      const cachedData = readCachedClusters(cacheKey);
+      if (cachedData) {
+        setClusters(cachedData);
+        setIsLoading(false);
+        return;
+      }
     }
 
     setIsLoading(true);
     if (forceRefresh) setIsRefreshing(true);
 
     try {
+      // forceRefresh has to reach the server. The cluster list is Redis-cached for
+      // 60 minutes, so dropping only the sessionStorage copy re-reads the same stale
+      // list and clusters created or deleted in Azure stay invisible until it expires.
       const data = await apiClient.get<AKSCluster[]>(
-        `/api/xamops/aks/clusters?accountIds=${selectedAccountId}`
+        `/api/xamops/aks/clusters?accountIds=${encodeURIComponent(selectedAccountId)}&forceRefresh=${forceRefresh}`
       );
 
       setClusters(data);
-      sessionStorage.setItem(cacheKey, JSON.stringify(data));
+      sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data }));
     } catch (err: any) {
       console.error('Failed to fetch AKS clusters', err);
       setClusters([]);

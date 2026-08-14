@@ -2,9 +2,11 @@ package com.xammer.cloud.repository;
 
 import com.xammer.cloud.domain.SreInvestigation;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -32,4 +34,14 @@ public interface SreInvestigationRepository extends JpaRepository<SreInvestigati
     int countRecentByResourceId(@Param("resourceId") String resourceId, @Param("since") Instant since);
 
     Optional<SreInvestigation> findByIncidentId(String incidentId);
+
+    /**
+     * Detaches investigations from an account being deleted. The FK is nullable, so
+     * the incident history survives the account it was raised against — dropping the
+     * link is enough to clear the constraint.
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE SreInvestigation i SET i.cloudAccountId = NULL WHERE i.cloudAccountId = :accountId")
+    int detachCloudAccount(@Param("accountId") Long accountId);
 }

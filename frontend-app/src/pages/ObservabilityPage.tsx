@@ -1,14 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useObservabilityData, ObservabilityConfig, OverviewStats, EksCluster, ConnectedInstance, ObservabilityAlert, AlertDestination } from '../hooks/useObservabilityData';
-import LogsExplorer from '../components/Observability/LogsExplorer';
-import MetricsDashboard from '../components/Observability/MetricsDashboard';
 import AgentHealthBanner from '../components/Observability/AgentHealthBanner';
 import ScopeFallbackBanner from '../components/Observability/ScopeFallbackBanner';
 import { AGENT_STATUS_PRESENTATION, statusHint, toAgentHealth } from '../utils/agentHealth';
-import TracesExplorer from '../components/Observability/TracesExplorer';
 import { Icon } from '@iconify/react';
+
+// The three explorers are the heaviest components in the app (~145 KB of source
+// between them, plus Recharts). Loading them eagerly meant opening Overview paid
+// for code no other tab needs, so each is fetched only when its tab is opened.
+const LogsExplorer    = lazy(() => import('../components/Observability/LogsExplorer'));
+const MetricsDashboard = lazy(() => import('../components/Observability/MetricsDashboard'));
+const TracesExplorer  = lazy(() => import('../components/Observability/TracesExplorer'));
 
 // ── Tab types ─────────────────────────────────────────────────────────────────
 
@@ -50,10 +54,11 @@ function relativeTime(ms: number): string {
   return `${Math.floor(diff / 3600)}h ago`;
 }
 
-function OverviewTab({ config, overview, instances, activeAccountId }: {
+function OverviewTab({ config, overview, instances, loading, activeAccountId }: {
   config: ObservabilityConfig | null;
   overview: OverviewStats | null;
   instances: ConnectedInstance[];
+  loading: boolean;
   activeAccountId: string | null;
 }) {
   const statCards = [
@@ -253,8 +258,9 @@ function OverviewTab({ config, overview, instances, activeAccountId }: {
         </div>
       )}
 
-      {/* Empty state */}
-      {(!overview || overview.streamCount === 0) && (
+      {/* Empty state — suppressed while the first load is still in flight so the
+          "No data yet" prompt can't flash in front of an org that does have data. */}
+      {!loading && (!overview || overview.streamCount === 0) && (
         <div className="rounded-xl border border-dashed border-[rgba(0,0,0,0.15)] p-12 flex flex-col items-center gap-2 text-[rgba(0,0,0,0.4)]">
           <Icon icon="mdi:satellite-uplink" width={32} className="opacity-40" />
           <p className="text-[13px] font-medium text-[rgba(0,0,0,0.6)]">No data yet</p>
@@ -1330,63 +1336,90 @@ const ObservabilityPage: React.FC = () => {
   const { setTitle } = useTopbar();
   const {
     config, overview, streams,
-    configLoading, activeAccountId,
+    activeAccountId,
     fetchConfig, fetchOverview, fetchStreams, fetchConnectedInstances,
   } = useObservabilityData();
 
   const [instances, setInstances] = useState<ConnectedInstance[]>([]);
+  const [streamsReady, setStreamsReady] = useState(false);
+  const [overviewReady, setOverviewReady] = useState(false);
   const activeTab = useActiveTab();
 
   useEffect(() => {
     setTitle('Observability');
-    setInstances([]);
-    fetchConfig().then(() => {
-      fetchOverview();
-      fetchStreams();
-      fetchConnectedInstances().then(setInstances);
-    });
     return () => setTitle(null);
-  }, [setTitle, fetchConfig, fetchOverview, fetchStreams, fetchConnectedInstances]);
+  }, [setTitle]);
+
+  // Each dataset is fetched once per account, only for the tabs that render it,
+  // and all in parallel. Previously every tab waited on /config before anything
+  // else started, then Overview's three calls ran behind it — so opening Logs or
+  // Traces paid for an Overview round-trip it never used.
+  const loaded = useRef<{ account: string | null; keys: Set<string> }>({ account: null, keys: new Set() });
+
+  useEffect(() => {
+    const store = loaded.current;
+    if (store.account !== activeAccountId) {
+      store.account = activeAccountId;
+      store.keys.clear();
+      setInstances([]);
+      setStreamsReady(false);
+      setOverviewReady(false);
+    }
+    const once = (key: string, run: () => void) => {
+      if (store.keys.has(key)) return;
+      store.keys.add(key);
+      run();
+    };
+
+    // Retention + org ID come from config; only Overview and Setup show them.
+    if (activeTab === 'overview' || activeTab === 'setup') {
+      once('config', () => { void fetchConfig(); });
+    }
+    if (activeTab === 'overview') {
+      once('overview', () => { void fetchOverview().finally(() => setOverviewReady(true)); });
+      once('instances', () => { void fetchConnectedInstances().then(setInstances); });
+    }
+    if (activeTab === 'logs') {
+      once('streams', () => { void fetchStreams().finally(() => setStreamsReady(true)); });
+    }
+  }, [activeTab, activeAccountId, fetchConfig, fetchOverview, fetchStreams, fetchConnectedInstances]);
+
+  const tabFallback = (
+    <div className="flex items-center justify-center py-20">
+      <div className="obs-spinner" />
+    </div>
+  );
 
   return (
     <div className="obs-wrap px-6 pb-12 pt-6 space-y-6">
+      <TabHeader tab={activeTab} />
 
-      {/* Loading state */}
-      {configLoading && (
-        <div className="flex items-center justify-center py-20">
-          <div className="obs-spinner" />
-        </div>
-      )}
-
-      {!configLoading && (
-        <>
-          <TabHeader tab={activeTab} />
-          {activeTab === 'overview' && (
-            <OverviewTab config={config} overview={overview} instances={instances}
-              activeAccountId={activeAccountId} />
-          )}
-          {activeTab === 'logs' && (
-            <LogsExplorer streams={streams} />
-          )}
-          {activeTab === 'metrics' && (
-            // config/activeAccountId are already loaded here, so the scope warning costs no
-            // extra request.
-            <MetricsDashboard config={config} activeAccountId={activeAccountId} />
-          )}
-          {activeTab === 'traces' && (
-            <TracesExplorer />
-          )}
-          {activeTab === 'alerts' && (
-            <AlertsTab />
-          )}
-          {activeTab === 'setup' && (
-            <div className="space-y-6">
-              <SetupTab />
-              <SettingsPanel config={config} />
-            </div>
-          )}
-        </>
-      )}
+      <Suspense fallback={tabFallback}>
+        {activeTab === 'overview' && (
+          <OverviewTab config={config} overview={overview} instances={instances}
+                       loading={!overviewReady} activeAccountId={activeAccountId} />
+        )}
+        {activeTab === 'logs' && (
+          <LogsExplorer streams={streams} streamsReady={streamsReady} />
+        )}
+        {activeTab === 'metrics' && (
+          // config/activeAccountId are already loaded here, so the scope warning
+          // costs no extra request.
+          <MetricsDashboard config={config} activeAccountId={activeAccountId} />
+        )}
+        {activeTab === 'traces' && (
+          <TracesExplorer />
+        )}
+        {activeTab === 'alerts' && (
+          <AlertsTab />
+        )}
+        {activeTab === 'setup' && (
+          <div className="space-y-6">
+            <SetupTab />
+            <SettingsPanel config={config} />
+          </div>
+        )}
+      </Suspense>
     </div>
   );
 };
