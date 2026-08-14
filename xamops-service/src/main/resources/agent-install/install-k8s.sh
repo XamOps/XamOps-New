@@ -212,6 +212,75 @@ apply_manifest() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# ─── helm ─────────────────────────────────────────────────────────────────────────────────
+# 3.12+ because the guide's escaped-comma --set form depends on modern parsing.
+HELM_MIN_MAJOR=3
+HELM_MIN_MINOR=12
+# Under $HOME so no sudo is needed and Cloud Shell's persistent home keeps it between
+# sessions. /usr/local/bin would need sudo and is wiped when a Cloud Shell session recycles.
+HELM_INSTALL_TO="$HOME/.xamops/bin"
+
+helm_version() { helm version --short 2>/dev/null | sed 's/^v//' | cut -d+ -f1; }
+
+helm_is_current() {
+  local hv major minor
+  hv="$(helm_version)"
+  [ -n "$hv" ] || return 1
+  major="${hv%%.*}"; minor="$(printf '%s' "$hv" | cut -d. -f2)"
+  [ "${major:-0}" -gt "$HELM_MIN_MAJOR" ] && return 0
+  [ "${major:-0}" -eq "$HELM_MIN_MAJOR" ] && [ "${minor:-0}" -ge "$HELM_MIN_MINOR" ]
+}
+
+# Installs helm instead of failing preflight. Neither AWS CloudShell nor Azure Cloud Shell
+# ships helm, so "Missing required tool(s): helm" stopped every customer on their first run —
+# a guaranteed dead end for a step the script can simply do itself.
+ensure_helm() {
+  if helm_is_current; then
+    ok "helm $(helm_version)"
+    return 0
+  fi
+
+  local found; found="$(helm_version)"
+  if [ -n "$found" ]; then
+    info "helm $found is older than ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR} — installing a current build"
+  else
+    info "helm not found — installing"
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    info "would install helm into $HELM_INSTALL_TO"
+    return 0
+  fi
+
+  have curl || die "helm is missing and curl is unavailable to install it. Install helm ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}+ manually: https://helm.sh/docs/intro/install/"
+
+  local getter; getter="$(mktemp)"
+  if ! curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o "$getter" 2>"$RUN_LOG"; then
+    rm -f "$getter"; run_tail
+    die "Could not download the helm installer. Install helm ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}+ manually: https://helm.sh/docs/intro/install/"
+  fi
+
+  mkdir -p "$HELM_INSTALL_TO"
+  if ! HELM_INSTALL_DIR="$HELM_INSTALL_TO" USE_SUDO=false bash "$getter" >"$RUN_LOG" 2>&1; then
+    rm -f "$getter"; run_tail
+    die "helm install failed. Install helm ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}+ manually: https://helm.sh/docs/intro/install/"
+  fi
+  rm -f "$getter"
+
+  # Only this shell's PATH is affected; the installed binary outlives it under $HOME.
+  case ":$PATH:" in
+    *":$HELM_INSTALL_TO:"*) ;;
+    *) PATH="$HELM_INSTALL_TO:$PATH"; export PATH ;;
+  esac
+  hash -r 2>/dev/null || true
+
+  local installed; installed="$(helm_version)"
+  helm_is_current \
+    || die "helm installed but reports ${installed:-unknown}, below ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}"
+  ok "helm $installed — installed into $HELM_INSTALL_TO"
+  info "add to your PATH to reuse it later: export PATH=\"$HELM_INSTALL_TO:\$PATH\""
+}
+
 # ─── Preflight ────────────────────────────────────────────────────────────────────────────
 # The context the user was on before we started, so it can be handed back at the end.
 ORIGINAL_CONTEXT=""
@@ -232,18 +301,12 @@ preflight() {
   local cloud_cli="az"
   [ "$PROVIDER" = "eks" ] && cloud_cli="aws"
 
+  # helm is deliberately not in this list — ensure_helm installs it rather than failing.
   local missing=()
-  for t in "$cloud_cli" kubectl helm; do have "$t" || missing+=("$t"); done
+  for t in "$cloud_cli" kubectl; do have "$t" || missing+=("$t"); done
   [ ${#missing[@]} -eq 0 ] || die "Missing required tool(s): ${missing[*]}"
 
-  # helm 3.12+ — the guide's escaped-comma --set form depends on modern parsing.
-  local hv hmajor hminor
-  hv="$(helm version --short 2>/dev/null | sed 's/^v//' | cut -d+ -f1)"
-  hmajor="${hv%%.*}"; hminor="$(echo "$hv" | cut -d. -f2)"
-  if [ "${hmajor:-0}" -lt 3 ] || { [ "${hmajor:-0}" -eq 3 ] && [ "${hminor:-0}" -lt 12 ]; }; then
-    die "helm 3.12+ required, found ${hv:-unknown}"
-  fi
-  ok "helm $hv"
+  ensure_helm
 
   have jq || warn "jq not found — Kubescape result verification will be approximate"
 
