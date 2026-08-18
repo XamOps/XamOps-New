@@ -46,15 +46,33 @@ export const useLayout = (): UseLayoutReturn => {
   }, []);
 
   /**
-   * Apply layout order to DOM
+   * Apply layout order to DOM.
+   *
+   * A saved order is only honoured when it still accounts for every widget on
+   * screen. An order saved against an older widget set (or the demo fixture)
+   * resolves just a couple of ids, and appending those few pushes them to the
+   * bottom while the unlisted widgets keep their JSX slots — that is how the
+   * KPI row ended up underneath the charts. Falling back to the default order
+   * is the safer failure.
+   *
+   * Extra ids in the order are fine: a widget switched off in the customizer is
+   * absent from the DOM but must not invalidate the rest of the order.
    */
   const applyLayoutOrder = useCallback((order: string[], containerId: string) => {
     const container = document.getElementById(containerId);
     if (!container) return;
 
+    const covered = Array.from(container.children).every(
+      child => child.id && order.includes(child.id)
+    );
+    if (!covered) {
+      console.warn('⚠️ Saved layout does not cover the current widgets, keeping default order');
+      return;
+    }
+
     order.forEach(widgetId => {
       const widget = document.getElementById(widgetId);
-      if (widget) {
+      if (widget && widget.parentElement === container) {
         container.appendChild(widget);
       }
     });

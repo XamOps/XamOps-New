@@ -157,8 +157,18 @@ export const demoMultiAccountDashboard = {
 };
 
 // ─── /api/xamops/dashboard/layout ────────────────────────────────────────────
+// These ids must match the top-level widgets rendered by pages/Dashboard.tsx,
+// in the order the demo should present them — KPI row first, as on a real
+// account. useLayout ignores an order that no longer names every widget on
+// screen, so a stale list here silently falls back to the default order.
 export const demoDashboardLayout = {
-  widgetOrder: ['widget-kpi', 'widget-middle', 'widget-optimization', 'widget-costs'],
+  widgetOrder: [
+    'widget-kpi',
+    'widget-summary-cards',
+    'widget-insights',
+    'widget-services',
+    'widget-costs',
+  ],
 };
 
 // ─── /api/xamops/dashboard/unified/summary ───────────────────────────────────

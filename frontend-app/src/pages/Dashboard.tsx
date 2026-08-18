@@ -55,7 +55,10 @@ const loadWidgets = (): Record<string, boolean> => {
   } catch { return DEFAULT_VISIBLE; }
 };
 
-const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
+// `id` is what makes a section addressable by the saved layout: useLayout only
+// applies an order that names every child of #widgets-container, so a section
+// left without one would pin the whole dashboard to the default order.
+const RevealSection: React.FC<{ children: React.ReactNode; id?: string; delay?: number }> = ({ children, id, delay = 0 }) => {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -70,7 +73,7 @@ const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = (
     return () => clearTimeout(timer);
   }, []);
   return (
-    <div ref={ref} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>
+    <div ref={ref} id={id} className="section-reveal" style={delay ? { transitionDelay: `${delay}s` } : undefined}>
       {children}
     </div>
   );
@@ -226,7 +229,7 @@ export const Dashboard: React.FC = () => {
 
           {/* Row 1b: Summary Cards — Alerts, Security, Waste, Rightsizing, Lambda */}
           {show('summaryCards') && (
-            <RevealSection delay={0.02}>
+            <RevealSection id="widget-summary-cards" delay={0.02}>
               <SummaryCardsSection
                 accountId={accountId}
                 isLoading={loadingState.optimization}
@@ -236,7 +239,7 @@ export const Dashboard: React.FC = () => {
 
           {/* Row 2: Cost Trend + Resource Inventory */}
           {(show('costTrend') || show('inventory')) && (
-            <RevealSection>
+            <RevealSection id="widget-insights">
               <div className="grid gap-5 lg:grid-cols-5" style={{ minHeight: 380 }}>
                 {show('costTrend') && (
                   <CostTrendSection
@@ -260,7 +263,7 @@ export const Dashboard: React.FC = () => {
           {/* Row 3: Top Services (3 cols) + Compliance Posture (2 cols).
               Compliance takes the slot Cost by Region used to occupy. */}
           {(show('topServices') || show('compliance') || show('costByRegion')) && (
-            <RevealSection delay={0.04}>
+            <RevealSection id="widget-services" delay={0.04}>
               <div className="grid gap-5 lg:grid-cols-5" style={{ minHeight: 340 }}>
                 {show('topServices') && (
                   <TopServicesSection
@@ -299,8 +302,8 @@ export const Dashboard: React.FC = () => {
 
           {/* Row 5: Cost Breakdown + Billing Summary */}
           {show('costSection') && (
-            <RevealSection delay={0.08}>
-              <div id="widget-costs" className="widget grid gap-5 lg:grid-cols-5">
+            <RevealSection id="widget-costs" delay={0.08}>
+              <div className="widget grid gap-5 lg:grid-cols-5">
                 <CostSection
                   costHistory={dashboardData.costHistory}
                   billingSummary={dashboardData.billingSummary}
