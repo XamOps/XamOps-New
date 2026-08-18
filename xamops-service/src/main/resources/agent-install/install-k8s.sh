@@ -283,23 +283,28 @@ ensure_helm() {
   fi
 
   mkdir -p "$HELM_INSTALL_TO"
-  if ! HELM_INSTALL_DIR="$HELM_INSTALL_TO" USE_SUDO=false bash "$getter" >"$RUN_LOG" 2>&1; then
-    rm -f "$getter"; run_tail
-    die "helm install failed. Install helm ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}+ manually: https://helm.sh/docs/intro/install/"
-  fi
-  rm -f "$getter"
 
-  # Only this shell's PATH is affected; the installed binary outlives it under $HOME.
+  # PATH has to include the target directory BEFORE get-helm-3 runs. The installer verifies
+  # its own work by invoking `helm` from PATH, so installing into a directory that is not on
+  # PATH makes it place the binary correctly and then exit non-zero with
+  # "helm not found. Is <dir> on your $PATH?". Only this shell is affected; the binary itself
+  # outlives it under $HOME.
   case ":$PATH:" in
     *":$HELM_INSTALL_TO:"*) ;;
     *) PATH="$HELM_INSTALL_TO:$PATH"; export PATH ;;
   esac
+
+  # Judged by outcome, not by exit status: get-helm-3 also exits non-zero for conditions that
+  # are not failures here (notably "already latest" when a prior run installed it).
+  HELM_INSTALL_DIR="$HELM_INSTALL_TO" USE_SUDO=false bash "$getter" >"$RUN_LOG" 2>&1 || true
+  rm -f "$getter"
   hash -r 2>/dev/null || true
 
-  local installed; installed="$(helm_version)"
-  helm_is_current \
-    || die "helm installed but reports ${installed:-unknown}, below ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}"
-  ok "helm $installed — installed into $HELM_INSTALL_TO"
+  if ! helm_is_current; then
+    run_tail
+    die "helm install failed. Install helm ${HELM_MIN_MAJOR}.${HELM_MIN_MINOR}+ manually: https://helm.sh/docs/intro/install/"
+  fi
+  ok "helm $(helm_version) — installed into $HELM_INSTALL_TO"
   info "add to your PATH to reuse it later: export PATH=\"$HELM_INSTALL_TO:\$PATH\""
 }
 
