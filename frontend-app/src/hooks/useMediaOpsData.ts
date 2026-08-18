@@ -16,6 +16,8 @@ export interface MediaOpsOverview {
 export interface ApiTranscodeJob {
   id: number;
   sourceUrl: string;
+  /** S3 key the source was picked from, e.g. "DRSAKSHI/1.mp4". Absent for uploads/URLs. */
+  sourceKey?: string | null;
   outputFormat: string;
   resolution: string;
   bitrate: number;
@@ -64,6 +66,9 @@ export interface ApiStorageFile {
 
 export interface CreateJobRequest {
   sourceUrl: string;
+  // Key the source was picked from in S3, e.g. "DRSAKSHI/1.mp4". Sent only for
+  // browser-picked sources; the backend mirrors it into the output path.
+  sourceKey?: string;
   outputFormat: string;
   resolution: string;
   bitrate?: string;
@@ -230,6 +235,32 @@ export function timeAgo(iso: string): string {
   if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
   return `${Math.floor(diff / 86400)} day ago`;
+}
+
+/**
+ * Path portion of a job's source, without the filename — "DRSAKSHI" for
+ * "DRSAKSHI/1.mp4", empty for a source that was uploaded or pasted as a URL.
+ */
+function sourceFolderOf(j: ApiTranscodeJob): string {
+  const key = j.sourceKey;
+  if (!key || !key.includes('/')) return '';
+  return key.slice(0, key.lastIndexOf('/'));
+}
+
+/** Filename of a job's source, with any presigned query string stripped. */
+function sourceFileName(j: ApiTranscodeJob): string {
+  if (j.sourceKey) return j.sourceKey.split('/').pop() || j.sourceKey;
+  if (!j.sourceUrl) return 'Unknown';
+  const withoutQuery = j.sourceUrl.split('?')[0];
+  return decodeURIComponent(withoutQuery.split('/').pop() || withoutQuery);
+}
+
+/** Uppercased source extension for the FORMAT column, e.g. "MP4". */
+function sourceExtension(j: ApiTranscodeJob): string {
+  const name = sourceFileName(j);
+  const dot = name.lastIndexOf('.');
+  if (dot < 0) return 'MP4';
+  return name.slice(dot + 1).toUpperCase().slice(0, 4);
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -586,10 +617,19 @@ export function useMediaOpsData() {
 
   // ── Derived / adapted view-layer data ─────────────────────────────────────
 
+  // Source naming. sourceKey is authoritative when present; falling back to the URL means
+  // parsing a presigned link, whose last path segment drags the whole
+  // "?X-Amz-Security-Token=…" query string along with it — which is what made the table
+  // read "3.mp4?X-Amz-Security-…" instead of "DRSAKSHI/3.mp4".
+
   const jobs = rawJobs.map(j => ({
     id: String(j.id),
-    name: j.sourceUrl ? (j.sourceUrl.split('/').pop() || j.sourceUrl) : 'Unknown',
-    inputFormat: ((j.sourceUrl?.split('.').pop() || 'MP4').toUpperCase().slice(0, 4)),
+    name: sourceFileName(j),
+    /** Folder the source came from, e.g. "DRSAKSHI". Empty for uploads and pasted URLs. */
+    sourceFolder: sourceFolderOf(j),
+    /** Full path shown when the name is expanded, e.g. "DRSAKSHI/1.mp4". */
+    sourcePath: j.sourceKey || sourceFileName(j),
+    inputFormat: sourceExtension(j),
     outputFormat: j.outputFormat ?? '—',
     resolution: j.enableAdaptive ? 'Adaptive (1080p·720p·480p)' : (j.resolution ?? '—'),
     status: (j.status ?? 'queued').toLowerCase() as 'queued' | 'processing' | 'paused' | 'completed' | 'failed' | 'cancelled',

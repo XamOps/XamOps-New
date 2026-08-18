@@ -41,13 +41,12 @@ public class AccountS3Service {
 
     private static final Logger log = LoggerFactory.getLogger(AccountS3Service.class);
 
-    /** Root prefix under which all XamOps transcode output is written in a customer bucket. */
-    public static final String OUTPUT_ROOT = "xamops-mediaops";
-
-    /** Key prefix (no trailing slash) for a specific job's output in a customer bucket. */
-    public static String outputPrefixForJob(long jobId) {
-        return OUTPUT_ROOT + "/jobs/" + jobId;
-    }
+    /**
+     * Root prefix under which all XamOps transcode output is written in a customer bucket.
+     * Must stay in step with the XamOpsMediaOpsOutputWrite statement in the onboarding
+     * CloudFormation templates, which scopes s3:PutObject to exactly this prefix.
+     */
+    public static final String OUTPUT_ROOT = MediaOutputPath.OUTPUT_ROOT;
 
     private final CloudAccountRepository accountRepo;
     private final StsClient stsClient;
@@ -83,15 +82,46 @@ public class AccountS3Service {
                     RequestBody.fromString("xamops"));
             s3.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(testKey).build());
         } catch (S3Exception e) {
-            // Both onboarding stacks now grant s3:PutObject/DeleteObject under OUTPUT_ROOT,
-            // so a denial here means the account is still on an IAM role created before that
-            // — re-deploying the XamOps stack is the fix, not switching to read-write.
             throw new IllegalArgumentException("Cannot write to bucket '" + bucket + "' in account "
-                    + awsAccountId + ": " + e.awsErrorDetails().errorMessage()
-                    + " — update the XamOps CloudFormation stack in this account so its role"
-                    + " allows s3:PutObject under " + OUTPUT_ROOT + "/.");
+                    + awsAccountId + ": " + e.awsErrorDetails().errorMessage() + remedyFor(e));
         } catch (Exception e) {
             throw new IllegalArgumentException("Cannot write to bucket '" + bucket + "': " + e.getMessage());
+        }
+    }
+
+    /**
+     * Advice appended to a failed write check, chosen by error code.
+     *
+     * A denial and a bad credential look alike to a user — both surface as a 403 that says
+     * the write did not happen — but they need opposite responses, and telling someone to
+     * go edit CloudFormation when their credentials are simply stale sends them rebuilding
+     * infrastructure that was never broken.
+     */
+    private static String remedyFor(S3Exception e) {
+        String code = e.awsErrorDetails() != null ? e.awsErrorDetails().errorCode() : null;
+        if (code == null) return "";
+        switch (code) {
+            case "AccessDenied":
+            case "AllAccessDisabled":
+                // Both onboarding stacks grant s3:PutObject/DeleteObject under OUTPUT_ROOT,
+                // so a genuine denial means the account still runs an IAM role created
+                // before that — re-deploying the stack is the fix, not switching to
+                // read-write onboarding.
+                return " — update the XamOps CloudFormation stack in this account so its role"
+                        + " allows s3:PutObject under " + OUTPUT_ROOT + "/.";
+            case "InvalidAccessKeyId":
+            case "ExpiredToken":
+            case "TokenRefreshRequired":
+            case "SignatureDoesNotMatch":
+                // Not a permissions problem: the cached assume-role session is no longer
+                // valid, usually because the IAM role was recreated after this client was
+                // built. Nothing in the customer's account needs changing.
+                return " — this is a stale credential, not a missing permission;"
+                        + " the cached session for this account needs to be rebuilt.";
+            case "NoSuchBucket":
+                return " — the bucket no longer exists in this account.";
+            default:
+                return "";
         }
     }
 

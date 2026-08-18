@@ -302,12 +302,7 @@ public class UserS3Service {
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     /** Root prefix under which all XamOps transcode output is written in a customer bucket. */
-    public static final String OUTPUT_ROOT = "xamops-mediaops";
-
-    /** Key prefix (no trailing slash) for a specific job's output in a customer bucket. */
-    public static String outputPrefixForJob(long jobId) {
-        return OUTPUT_ROOT + "/jobs/" + jobId;
-    }
+    public static final String OUTPUT_ROOT = MediaOutputPath.OUTPUT_ROOT;
 
     private UserS3Config requireConfig(Long configId, Long clientId) {
         return configRepo.findByIdAndClientId(configId, clientId)

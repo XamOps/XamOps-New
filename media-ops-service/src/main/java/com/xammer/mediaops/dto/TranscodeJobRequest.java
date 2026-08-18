@@ -7,6 +7,11 @@ import java.time.Instant;
 @Data
 public class TranscodeJobRequest {
     private String sourceUrl;
+
+    // Set by the S3 browser: the key the source was picked from, e.g. "DRSAKSHI/1.mp4".
+    // Output is written under a mirror of this path so results are identifiable.
+    private String sourceKey;
+
     private String outputFormat = "HLS";
     private String resolution = "1080p";
     private String bitrate;

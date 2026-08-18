@@ -18,6 +18,10 @@ public class TranscodeJobDto {
     private Long id;
     private String name;
     private String sourceUrl;
+
+    // Key the source was picked from, e.g. "DRSAKSHI/1.mp4". Lets the UI show a path the
+    // user recognises instead of the tail of a presigned URL with its query string.
+    private String sourceKey;
     private String outputFormat;
     private String resolution;
     private String bitrate;
@@ -70,6 +74,7 @@ public class TranscodeJobDto {
         dto.id = j.getId();
         dto.name = j.getName();
         dto.sourceUrl = j.getSourceUrl();
+        dto.sourceKey = j.getSourceKey();
         dto.outputFormat = j.getOutputFormat() != null ? j.getOutputFormat().name() : null;
         dto.resolution = j.getResolution();
         dto.bitrate = j.getBitrate();

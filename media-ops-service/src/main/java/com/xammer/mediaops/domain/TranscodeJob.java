@@ -27,6 +27,12 @@ public class TranscodeJob {
     @Column(name = "source_url", nullable = false, columnDefinition = "TEXT")
     private String sourceUrl;
 
+    // The S3 key the source was picked from, e.g. "DRSAKSHI/1.mp4". Drives the mirrored
+    // output layout. Null when the source was a direct URL or an upload — sourceUrl is a
+    // presigned link and cannot be relied on to reveal this.
+    @Column(name = "source_key", columnDefinition = "TEXT")
+    private String sourceKey;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "output_format", nullable = false, length = 20)
     private OutputFormat outputFormat;

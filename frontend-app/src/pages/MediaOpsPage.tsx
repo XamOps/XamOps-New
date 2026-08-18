@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
@@ -9,6 +10,7 @@ import { useMediaOpsData, formatBytes, fetchUserS3Configs, type MediaOpsOverview
 import { SimpleMode } from '../components/mediaops/SimpleMode';
 import { AdvancedMode, type AdvancedModeState } from '../components/mediaops/AdvancedMode';
 import { useMediaOpsNotifications } from '../hooks/useMediaOpsNotifications';
+import { applyAuthToXhr } from '../utils/xhrAuth';
 import { NotificationBell } from '../components/mediaops/NotificationBell';
 import { NotificationList } from '../components/mediaops/NotificationList';
 import { S3PickerModal } from '../components/mediaops/S3PickerModal';
@@ -25,6 +27,10 @@ interface TranscodeJob {
   id: string;
   rawId: number;
   name: string;
+  /** Folder the source came from, e.g. "DRSAKSHI". Empty for uploads and pasted URLs. */
+  sourceFolder: string;
+  /** Full source path, e.g. "DRSAKSHI/1.mp4" — what search matches and expansion reveals. */
+  sourcePath: string;
   inputFormat: string;
   outputFormat: string;
   resolution: string;
@@ -424,6 +430,12 @@ function outputCompatNote(format: string): { good: boolean; text: string } {
 function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, onDownloadJob, onCancelJob, onPauseJob, onResumeJob }: TranscodeTabProps) {
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState<JobStatus | 'all'>('all');
+  const [jobSearch, setJobSearch] = useState('');
+  const [jobFormatFilter, setJobFormatFilter] = useState<string>('all');
+  const [jobPage, setJobPage] = useState(1);
+  const [jobPageSize, setJobPageSize] = useState(25);
+  // Rows whose source path the user clicked to read in full.
+  const [expandedJobNames, setExpandedJobNames] = useState<Set<string>>(new Set());
   const [sourceMode, setSourceMode] = useState<'url' | 'upload'>('url');
   const [sourceUrl, setSourceUrl] = useState('');
   const [localFile, setLocalFile] = useState<File | null>(null);
@@ -435,7 +447,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
   const [priorityFormat, setPriorityFormat] = useState<string | null>(null);
   const [generateAdaptiveBundle, setGenerateAdaptiveBundle] = useState(false);
   const [s3PickerOpen, setS3PickerOpen] = useState(false);
-  const [s3PickedFile, setS3PickedFile] = useState<import('../components/mediaops/S3PickerModal').S3PickedFile | null>(null);
+  const [s3PickedFiles, setS3PickedFiles] = useState<import('../components/mediaops/S3PickerModal').S3PickedFile[]>([]);
   const [enableHLS, setEnableHLS] = useState(true);
   // Output destination, encoded as a single dropdown value:
   //   ''            → XamOps storage (default)
@@ -508,9 +520,26 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
   }, [showForm, outputAccountId]);
 
   // Paused jobs stay visible under the Processing filter — they're still active work.
-  const filtered = filterStatus === 'all'
+  const statusFiltered = filterStatus === 'all'
     ? jobs
     : jobs.filter(j => j.status === filterStatus || (filterStatus === 'processing' && j.status === 'paused'));
+
+  const formatOptions = Array.from(new Set(jobs.map(j => j.outputFormat).filter(f => f && f !== '—'))).sort();
+
+  const filtered = statusFiltered.filter(j => {
+    if (jobFormatFilter !== 'all' && j.outputFormat !== jobFormatFilter) return false;
+    if (!jobSearch.trim()) return true;
+    const q = jobSearch.trim().toLowerCase();
+    // Match on the full path so "drsakshi" finds every job from that folder.
+    return j.sourcePath.toLowerCase().includes(q) || j.name.toLowerCase().includes(q);
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / jobPageSize));
+  const currentPage = Math.min(jobPage, totalPages);
+  const pagedJobs = filtered.slice((currentPage - 1) * jobPageSize, currentPage * jobPageSize);
+
+  // Any change to what is being filtered invalidates the current page number.
+  useEffect(() => { setJobPage(1); }, [filterStatus, jobSearch, jobFormatFilter, jobPageSize]);
 
   const handleRetry = useCallback(async (job: TranscodeJob) => {
     setRetryingId(job.rawId);
@@ -547,12 +576,14 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
     }
   }, [onDownloadJob]);
 
-  const canSubmit = sourceMode === 'url' ? !!sourceUrl.trim() : !!localFile;
+  const canSubmit = s3PickedFiles.length > 0
+    ? true
+    : sourceMode === 'url' ? !!sourceUrl.trim() : !!localFile;
 
   const formState: import('../components/mediaops/SimpleMode').SimpleModeFormState = {
     sourceMode, sourceUrl, localFile, uploadProgress,
     outputFormats: outputFmts, resolutions, bitrate, encodingSpeed,
-    enableAdaptive: enableHLS, generateAdaptiveBundle, priorityFormat, s3PickedFile,
+    enableAdaptive: enableHLS, generateAdaptiveBundle, priorityFormat, s3PickedFiles,
   };
 
   const handleFormChange = useCallback((updates: Partial<import('../components/mediaops/SimpleMode').SimpleModeFormState>) => {
@@ -567,7 +598,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
     if (updates.enableAdaptive !== undefined) setEnableHLS(updates.enableAdaptive);
     if (updates.generateAdaptiveBundle !== undefined) setGenerateAdaptiveBundle(updates.generateAdaptiveBundle);
     if ('priorityFormat' in updates) setPriorityFormat(updates.priorityFormat ?? null);
-    if ('s3PickedFile' in updates) setS3PickedFile(updates.s3PickedFile ?? null);
+    if ('s3PickedFiles' in updates) setS3PickedFiles(updates.s3PickedFiles ?? []);
   }, []);
 
   const submitJob = useCallback(async (advancedState?: AdvancedModeState) => {
@@ -605,13 +636,23 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
         }
       };
 
-      const buildRequest = (fmt: string, res: string, jobPriority: 'HIGH' | 'NORMAL' | 'LOW'): CreateJobRequest => {
+      // One entry per source. Files picked from S3 carry their key so output mirrors the
+      // input path; a pasted URL or upload has no key and keeps the jobs/<id> layout.
+      const sources: Array<{ url: string; key?: string }> = s3PickedFiles.length > 0
+        ? s3PickedFiles.map(f => ({ url: f.url, key: f.key }))
+        : [{ url: finalSourceUrl }];
+
+      const buildRequest = (
+        source: { url: string; key?: string },
+        fmt: string, res: string, jobPriority: 'HIGH' | 'NORMAL' | 'LOW',
+      ): CreateJobRequest => {
         const req: CreateJobRequest = {
-          sourceUrl: finalSourceUrl,
+          sourceUrl: source.url,
           outputFormat: fmt,
           resolution: res,
           enableAdaptive: enableHLS && (fmt === 'HLS' || fmt === 'DASH'),
         };
+        if (source.key) req.sourceKey = source.key;
         if (bitrate.trim()) req.bitrate = bitrate.trim();
         req.encodingSpeed = encodingSpeed;
         if (jobPriority !== 'NORMAL') req.priority = jobPriority;
@@ -673,24 +714,28 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
         }
       }
 
-      for (const { fmt, res, prio } of combinations) {
-        await onCreateJob(buildRequest(fmt, res, prio));
-      }
+      // Every format/resolution combination is applied to every selected source.
+      for (const source of sources) {
+        for (const { fmt, res, prio } of combinations) {
+          await onCreateJob(buildRequest(source, fmt, res, prio));
+        }
 
-      // Adaptive bundle jobs — one per HLS/DASH format (combined multi-variant, enableAdaptive=true)
-      if (generateAdaptiveBundle && !enableHLS && resolutions.length > 1) {
-        const bundleFormats = outputFmts.filter(f => f === 'HLS' || f === 'DASH');
-        for (const fmt of bundleFormats) {
-          const bundleReq: CreateJobRequest = {
-            sourceUrl: finalSourceUrl,
-            outputFormat: fmt,
-            resolution: '1080p',
-            enableAdaptive: true,
-          };
-          if (bitrate.trim()) bundleReq.bitrate = bitrate.trim();
-          bundleReq.encodingSpeed = encodingSpeed;
-          applyOutputDest(bundleReq);
-          await onCreateJob(bundleReq);
+        // Adaptive bundle jobs — one per HLS/DASH format (combined multi-variant, enableAdaptive=true)
+        if (generateAdaptiveBundle && !enableHLS && resolutions.length > 1) {
+          const bundleFormats = outputFmts.filter(f => f === 'HLS' || f === 'DASH');
+          for (const fmt of bundleFormats) {
+            const bundleReq: CreateJobRequest = {
+              sourceUrl: source.url,
+              outputFormat: fmt,
+              resolution: '1080p',
+              enableAdaptive: true,
+            };
+            if (source.key) bundleReq.sourceKey = source.key;
+            if (bitrate.trim()) bundleReq.bitrate = bitrate.trim();
+            bundleReq.encodingSpeed = encodingSpeed;
+            applyOutputDest(bundleReq);
+            await onCreateJob(bundleReq);
+          }
         }
       }
 
@@ -700,14 +745,14 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
       setBitrate('');
       setPriorityFormat(null);
       setUploadProgress('idle');
-      setS3PickedFile(null);
+      setS3PickedFiles([]);
     } catch (e: any) {
       setSubmitError(e.message || 'Failed to submit job');
       setUploadProgress('idle');
     } finally {
       setSubmitLoading(false);
     }
-  }, [canSubmit, sourceMode, sourceUrl, localFile, outputFmts, resolutions, enableHLS, generateAdaptiveBundle, priorityFormat, bitrate, encodingSpeed, outputDest, outputAccountId, onCreateJob, onUploadFile]);
+  }, [canSubmit, sourceMode, sourceUrl, localFile, outputFmts, resolutions, enableHLS, generateAdaptiveBundle, priorityFormat, bitrate, encodingSpeed, outputDest, outputAccountId, s3PickedFiles, onCreateJob, onUploadFile]);
 
   const handleCancel = useCallback(() => {
     setShowForm(false);
@@ -718,7 +763,7 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
     setEncodingSpeed('veryfast');
     setSourceMode('url');
     setUploadProgress('idle');
-    setS3PickedFile(null);
+    setS3PickedFiles([]);
     setPriorityFormat(null);
     setGenerateAdaptiveBundle(false);
   }, []);
@@ -941,10 +986,12 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
       {s3PickerOpen && (
         <S3PickerModal
           onClose={() => setS3PickerOpen(false)}
-          onSelect={(url, file) => {
-            setSourceUrl(url);
+          onSelect={(files) => {
             setSourceMode('url');
-            setS3PickedFile(file);
+            setS3PickedFiles(files);
+            // Keep the URL field in step for a single pick so the rest of the form reads
+            // naturally; with several sources the picked-file list is the source of truth.
+            setSourceUrl(files.length === 1 ? files[0].url : '');
             setS3PickerOpen(false);
           }}
         />
@@ -953,18 +1000,39 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
       {/* Jobs Table */}
       <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-2xl shadow-sm overflow-hidden">
         {/* Caption strip — active filter context + clear affordance */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[rgba(0,0,0,0.06)] bg-gradient-to-b from-[rgba(0,0,0,0.012)] to-transparent">
+        <div className="flex items-center justify-between gap-3 flex-wrap px-5 py-3 border-b border-[rgba(0,0,0,0.06)] bg-gradient-to-b from-[rgba(0,0,0,0.012)] to-transparent">
           <div className="flex items-center gap-2">
             <span className="text-[12.5px] font-bold text-[rgba(0,0,0,0.82)]">{STAT_DEFS.find(s => s.id === filterStatus)?.label ?? 'All Jobs'}</span>
             <span className="px-1.5 py-0.5 rounded-md bg-[rgba(0,0,0,0.05)] text-[10.5px] font-bold text-[rgba(0,0,0,0.5)] tabular-nums">{filtered.length}</span>
           </div>
-          {filterStatus !== 'all' && (
-            <button onClick={() => setFilterStatus('all')}
-              className="flex items-center gap-1 text-[11px] font-semibold text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.8)] transition-colors">
-              <Icon icon="mdi:filter-remove-outline" className="text-[13px]" />
-              Clear filter
-            </button>
-          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <Icon icon="mdi:magnify" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)] text-sm" />
+              <input type="text" value={jobSearch} onChange={e => setJobSearch(e.target.value)}
+                placeholder="Search file or folder…"
+                className="pl-8 pr-3 py-1.5 text-[11.5px] border border-[rgba(0,0,0,0.12)] rounded-lg focus:outline-none focus:border-blue-400 w-52" />
+            </div>
+
+            <select value={jobFormatFilter} onChange={e => setJobFormatFilter(e.target.value)}
+              className="px-2.5 py-1.5 text-[11.5px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white focus:outline-none">
+              <option value="all">All formats</option>
+              {formatOptions.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+
+            <select value={jobPageSize} onChange={e => setJobPageSize(Number(e.target.value))}
+              className="px-2.5 py-1.5 text-[11.5px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white focus:outline-none">
+              {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n} / page</option>)}
+            </select>
+
+            {(filterStatus !== 'all' || jobSearch || jobFormatFilter !== 'all') && (
+              <button onClick={() => { setFilterStatus('all'); setJobSearch(''); setJobFormatFilter('all'); }}
+                className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-semibold text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.8)] transition-colors">
+                <Icon icon="mdi:filter-remove-outline" className="text-[13px]" />
+                Clear
+              </button>
+            )}
+          </div>
         </div>
         {loading ? (
           <div className="p-5 space-y-3">{Array.from({ length: 5 }).map((_, i) => <SkeletonBlock key={i} className="h-12" />)}</div>
@@ -979,15 +1047,35 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
                 </tr>
               </thead>
               <tbody className="divide-y divide-[rgba(0,0,0,0.04)]">
-                {filtered.map(job => (
+                {pagedJobs.map(job => (
                   <React.Fragment key={job.id}>
                     <tr className={`group/row transition-colors ${job.status === 'failed' ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-[rgba(0,0,0,0.018)]'}`}>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-start gap-2">
                           <div className="w-7 h-7 rounded-lg bg-[rgba(0,0,0,0.04)] group-hover/row:bg-blue-50 flex items-center justify-center flex-shrink-0 transition-colors">
                             <Icon icon="mdi:file-video-outline" className="text-[rgba(0,0,0,0.4)] group-hover/row:text-blue-500 text-sm transition-colors" />
                           </div>
-                          <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)] max-w-[160px] truncate">{job.name}</span>
+                          {/* Click to read the whole path — source names regularly outrun the
+                              column, and a folder is often the only thing distinguishing two
+                              jobs both called "1.mp4". */}
+                          <button
+                            onClick={() => setExpandedJobNames(prev => {
+                              const next = new Set(prev);
+                              if (next.has(job.id)) next.delete(job.id); else next.add(job.id);
+                              return next;
+                            })}
+                            title={expandedJobNames.has(job.id) ? 'Click to collapse' : job.sourcePath}
+                            className={`text-left ${expandedJobNames.has(job.id) ? 'max-w-[260px]' : 'max-w-[180px]'}`}>
+                            {job.sourceFolder && (
+                              <span className={`block text-[10px] text-[rgba(0,0,0,0.4)] ${expandedJobNames.has(job.id) ? 'break-all' : 'truncate'}`}>
+                                {job.sourceFolder}/
+                              </span>
+                            )}
+                            <span className={`block text-[12px] font-semibold text-[rgba(0,0,0,0.88)] hover:text-blue-700 ${
+                              expandedJobNames.has(job.id) ? 'break-all' : 'truncate'}`}>
+                              {job.name}
+                            </span>
+                          </button>
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -1175,6 +1263,37 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
             </table>
           </div>
         )}
+
+        {/* Pagination — only worth showing once there is more than one page. */}
+        {!loading && filtered.length > 0 && totalPages > 1 && (
+          <div className="flex items-center justify-between gap-3 flex-wrap px-5 py-3 border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.012)]">
+            <p className="text-[11.5px] text-[rgba(0,0,0,0.5)] tabular-nums">
+              {(currentPage - 1) * jobPageSize + 1}–{Math.min(currentPage * jobPageSize, filtered.length)} of {filtered.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setJobPage(1)} disabled={currentPage === 1}
+                className="p-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.06)] disabled:opacity-30 disabled:hover:bg-transparent transition-colors" title="First page">
+                <Icon icon="mdi:page-first" className="text-[rgba(0,0,0,0.55)] text-base" />
+              </button>
+              <button onClick={() => setJobPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
+                className="p-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.06)] disabled:opacity-30 disabled:hover:bg-transparent transition-colors" title="Previous page">
+                <Icon icon="mdi:chevron-left" className="text-[rgba(0,0,0,0.55)] text-base" />
+              </button>
+              <span className="px-2 text-[11.5px] font-semibold text-[rgba(0,0,0,0.6)] tabular-nums">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button onClick={() => setJobPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}
+                className="p-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.06)] disabled:opacity-30 disabled:hover:bg-transparent transition-colors" title="Next page">
+                <Icon icon="mdi:chevron-right" className="text-[rgba(0,0,0,0.55)] text-base" />
+              </button>
+              <button onClick={() => setJobPage(totalPages)} disabled={currentPage === totalPages}
+                className="p-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.06)] disabled:opacity-30 disabled:hover:bg-transparent transition-colors" title="Last page">
+                <Icon icon="mdi:page-last" className="text-[rgba(0,0,0,0.55)] text-base" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {!loading && filtered.length === 0 && (
           <div className="py-16 text-center">
             <Icon icon="mdi:film-off-outline" className="text-4xl text-[rgba(0,0,0,0.15)] mx-auto mb-3" />
@@ -1286,6 +1405,7 @@ function BrowserStreamCapture({ streamKey, onClose }: { streamKey: string; onClo
   }, []);
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
         {/* Header */}
@@ -1385,6 +1505,7 @@ function BrowserStreamCapture({ streamKey, onClose }: { streamKey: string; onClo
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -1443,6 +1564,7 @@ export function VideoPlayer() {
   };
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(0,0,0,0.08)]">
@@ -1486,7 +1608,29 @@ export function VideoPlayer() {
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
+}
+
+// ─── Modal portal ────────────────────────────────────────────────────────────
+
+/**
+ * Renders a modal into document.body and freezes the page behind it.
+ *
+ * `position: fixed` is resolved against the nearest ancestor carrying a transform, not
+ * the viewport — and this page animates its sections with framer-motion, which sets one.
+ * A player rendered inline therefore anchored itself to that animated box: the backdrop
+ * covered only part of the screen and the whole overlay slid away as the page scrolled.
+ * Portalling to body puts it back on the viewport, and locking scroll stops the table
+ * moving underneath a playing video.
+ */
+function ModalPortal({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, []);
+  return createPortal(children, document.body);
 }
 
 // ─── HLS Player ──────────────────────────────────────────────────────────────
@@ -1536,7 +1680,14 @@ function HlsPlayer({ src, title = 'Watch Live', onClose }: { src: string; title?
     // Chrome / Firefox — use hls.js
     import('hls.js').then(({ default: Hls }) => {
       if (!Hls.isSupported()) return;
-      hls = new Hls({ lowLatencyMode: false, autoStartLoad: true });
+      hls = new Hls({
+        lowLatencyMode: false,
+        autoStartLoad: true,
+        // hls.js fetches the playlist and every segment over XHR, which the fetch patch
+        // in main.tsx does not intercept. Without this the playback proxy sees
+        // unauthenticated requests and returns 401/403 — the whole video stays black.
+        xhrSetup: (xhr: XMLHttpRequest) => applyAuthToXhr(xhr),
+      });
       hlsRef.current = hls;
       hls.loadSource(src);
       hls.attachMedia(video);
@@ -1567,6 +1718,7 @@ function HlsPlayer({ src, title = 'Watch Live', onClose }: { src: string; title?
     : (qualityLevels[activeLevel] ?? `Level ${activeLevel + 1}`);
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="relative w-full max-w-3xl mx-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-2 px-1">
@@ -1621,6 +1773,7 @@ function HlsPlayer({ src, title = 'Watch Live', onClose }: { src: string; title?
         />
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -1634,6 +1787,7 @@ function NativeVideoPlayer({ src, onClose }: { src: string; onClose: () => void 
   const dot = formatColor[ext] ?? 'bg-gray-500';
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="relative w-full max-w-3xl mx-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-2 px-1">
@@ -1662,6 +1816,7 @@ function NativeVideoPlayer({ src, onClose }: { src: string; onClose: () => void 
         )}
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -1681,6 +1836,12 @@ function DashPlayer({ src, title = 'DASH Playback', onClose }: { src: string; ti
     import('dashjs').then((dashjs) => {
       const factory = (dashjs as any).default ?? dashjs;
       player = factory.MediaPlayer().create();
+      // Same reason as the hls.js xhrSetup above: dash.js loads the manifest and every
+      // segment over XHR, which the fetch patch in main.tsx never sees.
+      player.extend('RequestModifier', () => ({
+        modifyRequestURL: (url: string) => url,
+        modifyRequestHeader: (xhr: XMLHttpRequest) => { applyAuthToXhr(xhr); return xhr; },
+      }), true);
       player.initialize(video, src, true);
 
       player.on(factory.MediaPlayer.events.STREAM_INITIALIZED, () => {
@@ -1708,6 +1869,7 @@ function DashPlayer({ src, title = 'DASH Playback', onClose }: { src: string; ti
   }, [src]);
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="relative w-full max-w-3xl mx-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-2 px-1">
@@ -1761,6 +1923,7 @@ function DashPlayer({ src, title = 'DASH Playback', onClose }: { src: string; ti
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -1787,6 +1950,7 @@ function ObsSetupModal({ stream, onClose }: { stream: LiveStream; onClose: () =>
     'Viewers use the HLS Playback URL',
   ];
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(0,0,0,0.08)]">
@@ -1843,6 +2007,7 @@ function ObsSetupModal({ stream, onClose }: { stream: LiveStream; onClose: () =>
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
 

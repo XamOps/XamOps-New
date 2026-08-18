@@ -5,13 +5,20 @@ import com.google.container.v1.Cluster;
 import com.google.container.v1.NodePool;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesCluster;
+import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.gcp.GkeDashboardDto;
 import com.xammer.cloud.dto.gcp.GkeDashboardDto.*;
+import com.xammer.cloud.dto.k8s.KubescapeDashboard;
+import com.xammer.cloud.dto.k8s.OpenCostDashboard;
+import com.xammer.cloud.dto.k8s.TrivyDashboard;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.repository.KubernetesClusterRepository;
+import com.xammer.cloud.service.AgentDataTransformerService;
+import com.xammer.cloud.service.AgentK8sDashboardMapper;
 import com.xammer.cloud.service.PrometheusService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,15 +39,24 @@ public class GkeDashboardService {
     private final CloudAccountRepository cloudAccountRepository;
     private final KubernetesClusterRepository kubernetesClusterRepository;
     private final PrometheusService prometheusService;
+    private final KubernetesClusterConfigRepository kubernetesClusterConfigRepository;
+    private final AgentDataTransformerService agentDataTransformerService;
+    private final AgentK8sDashboardMapper agentK8sDashboardMapper;
 
     public GkeDashboardService(GcpClientProvider gcpClientProvider,
                                 CloudAccountRepository cloudAccountRepository,
                                 KubernetesClusterRepository kubernetesClusterRepository,
-                                PrometheusService prometheusService) {
+                                PrometheusService prometheusService,
+                                KubernetesClusterConfigRepository kubernetesClusterConfigRepository,
+                                AgentDataTransformerService agentDataTransformerService,
+                                AgentK8sDashboardMapper agentK8sDashboardMapper) {
         this.gcpClientProvider = gcpClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.kubernetesClusterRepository = kubernetesClusterRepository;
         this.prometheusService = prometheusService;
+        this.kubernetesClusterConfigRepository = kubernetesClusterConfigRepository;
+        this.agentDataTransformerService = agentDataTransformerService;
+        this.agentK8sDashboardMapper = agentK8sDashboardMapper;
     }
 
     /**
@@ -61,9 +77,19 @@ public class GkeDashboardService {
         // Populate cluster info and node pools from GCP API
         populateFromGcpApi(dto, gcpProjectId, clusterName, location);
 
-        // Populate Prometheus data if connected
         if (accountOpt.isPresent()) {
             CloudAccount account = accountOpt.get();
+
+            // ── Data source 1: XamOps agent (what the Quick Install produces)
+            // A GKE cluster onboarded with install-k8s.sh pushes into agent_data_cache and
+            // nothing ever sets kubernetes_cluster.prometheus_url for it. Without this the
+            // dashboard reported "not connected" while the agent was pushing valid data
+            // every interval — the same gap AKS had before AksDashboardService closed it.
+            boolean populatedFromAgent = populateFromAgentData(dto, account.getId(), clusterName);
+
+            // ── Data source 2: direct Prometheus (kubeconfig-style onboarding)
+            // Needs prometheus_url set AND this server able to reach the cluster's Prometheus
+            // inbound. Still supported, and still authoritative when available.
             Optional<KubernetesCluster> k8sClusterOpt =
                     kubernetesClusterRepository.findByCloudAccount_IdAndClusterName(account.getId(), clusterName);
 
@@ -74,12 +100,111 @@ public class GkeDashboardService {
                 dto.setConnected(true);
                 populateFromPrometheus(dto, promUrl, clusterName);
             } else {
-                log.info("Cluster {} is not connected (no Prometheus URL)", clusterName);
-                dto.setConnected(false);
+                if (!populatedFromAgent) {
+                    log.info("Cluster {} is not connected (no Prometheus URL and no agent data)", clusterName);
+                }
+                dto.setConnected(populatedFromAgent);
             }
         }
 
         return dto;
+    }
+
+    /**
+     * Populates the dashboard sections from the agent's cached batches.
+     *
+     * <p>Each section is mapped independently and failures are swallowed per-section, so a
+     * malformed batch degrades that tab rather than blanking the whole dashboard — the same
+     * contract the Prometheus path uses.
+     *
+     * @return true if at least one section was populated, meaning the cluster genuinely has
+     *         monitoring data and should not be shown as disconnected
+     */
+    private boolean populateFromAgentData(GkeDashboardDto dto, Long cloudAccountId, String clusterName) {
+        Optional<KubernetesClusterConfig> configOpt =
+                kubernetesClusterConfigRepository.findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
+        if (configOpt.isEmpty()) {
+            log.debug("No cluster config for GKE cluster {} — skipping agent data", clusterName);
+            return false;
+        }
+
+        Long configId = configOpt.get().getId();
+        if (!agentDataTransformerService.hasAgentData(configId)) {
+            log.debug("No agent data cached for GKE cluster {} (configId={})", clusterName, configId);
+            return false;
+        }
+
+        AgentDataTransformerService.K8sResourcesResult k8s;
+        try {
+            k8s = agentDataTransformerService.transformK8sResources(configId);
+        } catch (Exception e) {
+            log.warn("Failed to read agent k8s-resources for GKE cluster {}: {}", clusterName, e.getMessage());
+            return false;
+        }
+
+        // k8s-resources is the batch every other section derives from. Without nodes or pods
+        // there is nothing to show, so report not-connected rather than empty tabs.
+        if (k8s.getTotalNodes() == 0 && k8s.getTotalPods() == 0) {
+            log.debug("Agent data present but empty for GKE cluster {}", clusterName);
+            return false;
+        }
+
+        AgentDataTransformerService.PrometheusMetricsResult prom = null;
+        try {
+            prom = agentDataTransformerService.transformPrometheusMetrics(configId);
+        } catch (Exception e) {
+            log.debug("No agent prometheus-metrics for GKE cluster {}: {}", clusterName, e.getMessage());
+        }
+
+        final AgentDataTransformerService.PrometheusMetricsResult promMetrics = prom;
+        try { dto.setOverview(agentK8sDashboardMapper.buildOverview(k8s, promMetrics)); } catch (Exception ignored) {}
+        try { dto.setWorkloadHealth(agentK8sDashboardMapper.buildWorkloadHealth(k8s)); } catch (Exception ignored) {}
+        try { dto.setResourceUtilization(agentK8sDashboardMapper.buildResourceUtilization(k8s)); } catch (Exception ignored) {}
+        try { dto.setNodeMetrics(agentK8sDashboardMapper.buildNodeMetrics(k8s)); } catch (Exception ignored) {}
+        try { dto.setContainerMetrics(agentK8sDashboardMapper.buildContainerMetrics(k8s)); } catch (Exception ignored) {}
+
+        // Security: Trivy and Kubescape come from their own batches, Falco events ride along in
+        // prometheus-metrics. Each is optional — on Autopilot, where the installer cannot run
+        // Falco at all, the section still populates from the two scanners.
+        TrivyDashboard trivy = null;
+        try {
+            trivy = agentDataTransformerService.transformTrivyData(configId);
+        } catch (Exception e) {
+            log.debug("No agent Trivy data for GKE cluster {}: {}", clusterName, e.getMessage());
+        }
+        KubescapeDashboard kubescape = null;
+        try {
+            kubescape = agentDataTransformerService.transformKubescapeData(configId);
+        } catch (Exception e) {
+            log.debug("No agent Kubescape data for GKE cluster {}: {}", clusterName, e.getMessage());
+        }
+        try {
+            dto.setSecurityMetrics(
+                    agentK8sDashboardMapper.buildSecurityMetrics(trivy, kubescape, promMetrics));
+        } catch (Exception ignored) {}
+
+        // Cost: OpenCost's per-namespace allocation, already windowed to 1 day by the agent.
+        // Left unset when OpenCost returned nothing, so the tab shows its empty state rather
+        // than a table of zeros.
+        try {
+            OpenCostDashboard openCost = agentDataTransformerService.transformOpenCostData(configId);
+            GkeCostMetricsDto cost = agentK8sDashboardMapper.buildCostMetrics(openCost, k8s);
+            if (cost != null) {
+                dto.setCostMetrics(cost);
+            }
+        } catch (Exception e) {
+            log.debug("No agent OpenCost data for GKE cluster {}: {}", clusterName, e.getMessage());
+        }
+
+        // The agent reports the version actually running, which is more precise than the
+        // master version the GCP API returns for the control plane.
+        if (k8s.getK8sVersion() != null && !k8s.getK8sVersion().isBlank()) {
+            dto.setVersion(k8s.getK8sVersion());
+        }
+
+        log.info("GKE dashboard for {} populated from agent data: {} nodes, {} pods, {} namespaces",
+                clusterName, k8s.getTotalNodes(), k8s.getTotalPods(), k8s.getTotalNamespaces());
+        return true;
     }
 
     /**

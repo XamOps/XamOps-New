@@ -54,10 +54,23 @@ public class TranscodeJobService {
     }
 
     @Transactional
+    /**
+     * Where this job's output is written, relative to the destination bucket.
+     *
+     * Sources picked from S3 mirror their own path ({@code xamops-mediaops/DRSAKSHI/1.mp4/HLS-46}),
+     * so a customer browsing the output bucket can tell which video produced which folder.
+     * Direct URLs and uploads have no source key and keep the {@code jobs/<id>} layout.
+     */
+    private String outputPrefixFor(TranscodeJob job) {
+        String format = job.getOutputFormat() != null ? job.getOutputFormat().name() : null;
+        return MediaOutputPath.forSource(job.getSourceKey(), format, job.getId());
+    }
+
     public TranscodeJob createJob(Long clientId, TranscodeJobRequest req) {
         TranscodeJob job = new TranscodeJob();
         job.setClientId(clientId);
         job.setSourceUrl(req.getSourceUrl());
+        job.setSourceKey(req.getSourceKey());
         job.setResolution(req.getResolution());
         job.setBitrate(req.getBitrate());
         job.setFps(req.getFps());
@@ -194,7 +207,7 @@ public class TranscodeJobService {
                 // Customer chose a key-based connected bucket. Upload there
                 // (bucket stays private; playback/download go through the backend proxy).
                 try {
-                    String prefix = UserS3Service.outputPrefixForJob(job.getId());
+                    String prefix = outputPrefixFor(job);
                     userS3Service.uploadDirectory(job.getOutputS3ConfigId(), job.getClientId(),
                             Paths.get(job.getOutputPath()), prefix);
                     job.setOutputBucketPrefix(prefix);
@@ -208,7 +221,7 @@ public class TranscodeJobService {
                 // Customer chose a bucket in their connected AWS account. Upload via the
                 // account's assumed IAM role; bucket stays private (proxy playback/download).
                 try {
-                    String prefix = AccountS3Service.outputPrefixForJob(job.getId());
+                    String prefix = outputPrefixFor(job);
                     String region = accountS3Service.uploadDirectory(job.getOutputAccountId(), job.getClientId(),
                             job.getOutputBucket(), Paths.get(job.getOutputPath()), prefix);
                     job.setOutputBucketPrefix(prefix);

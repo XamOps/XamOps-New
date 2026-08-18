@@ -2,17 +2,17 @@
 #
 # XamOps Kubernetes onboarding — one command per cluster, safe to run repeatedly.
 #
-# Handles both AKS and EKS from a single file, selected with --provider. Roughly 85% of the work
+# Handles AKS, EKS and GKE from a single file, selected with --provider. Roughly 85% of the work
 # is identical across clouds — the five Helm installs, the agent RBAC/ConfigMap/Deployment, and
-# verification do not differ — so keeping one script is what stops the two from drifting. We
-# already learned that lesson from having the same bug in three separate guide modals.
+# verification do not differ — so keeping one script is what stops them drifting. We already
+# learned that lesson from having the same bug in three separate guide modals.
 #
 # This is the executable form of the in-app setup guides. Every command a guide asks a user to
 # paste is reproduced here in the same order with the same flags. If you change one, change the
 # other: .github/workflows/setup-guide-validation.yml validates both.
 #
 # It lives under xamops-service/src/main/resources so the backend can serve it, unauthenticated
-# and with no secrets in it, from GET /api/v1/agent/install/{aks,eks}.sh — see
+# and with no secrets in it, from GET /api/v1/agent/install/{aks,eks,gke}.sh — see
 # AgentInstallScriptController. Cloud Shell has no XamOps session, so a session-protected
 # download would make `curl | bash` impossible; the server URL and API key arrive as flags that
 # the setup guide fills in for the environment the user is signed in to.
@@ -27,12 +27,14 @@
 # WHAT IT WILL NOT DO
 #   It creates and updates its own objects only. It never deletes a namespace, never touches a
 #   workload it did not install, and in `default` it addresses exactly three objects by name.
-#   On EKS it never modifies IAM unless --setup-ebs-csi is passed.
+#   On EKS it never modifies IAM unless --setup-ebs-csi is passed. On GKE it never touches IAM
+#   at all — the Persistent Disk CSI driver is already there.
 #
 # Usage:
 #   ./install-k8s.sh --provider aks --cluster NAME --resource-group RG
 #   ./install-k8s.sh --provider eks --cluster NAME --region REGION
 #   ./install-k8s.sh --provider eks --all --region REGION
+#   ./install-k8s.sh --provider gke --cluster NAME --location LOC --project PROJECT_ID
 #
 set -uo pipefail
 
@@ -56,11 +58,12 @@ DEFAULT_API_KEY="xamops_SecureAgentKey2024XamOps"
 # does not need --provider; overridable for standalone use.
 PROVIDER="${PROVIDER:-__PROVIDER__}"
 
-# Prometheus storage. Left empty and resolved per provider: AKS already has managed-csi, EKS has
-# to be given (or install) a CSI-backed default.
+# Prometheus storage. Left empty and resolved per provider: AKS already has managed-csi and GKE
+# standard-rwo, EKS has to be given (or install) a CSI-backed default.
 STORAGE_CLASS=""
 AKS_STORAGE_CLASS="managed-csi"
 EKS_STORAGE_CLASS="gp3"
+GKE_STORAGE_CLASS="standard-rwo"
 
 HELM_TIMEOUT="10m"
 
@@ -69,7 +72,16 @@ CLUSTER_NAME=""
 RESOURCE_GROUP=""
 SUBSCRIPTION_ID=""
 REGION=""
-# Resolved in preflight: subscription id for AKS, 12-digit account number for EKS.
+# GKE: the project, and the zone or region the cluster lives in. GKE clusters are addressed by
+# location rather than region because a cluster may be zonal (us-central1-a) or regional
+# (us-central1), and the two need different gcloud flags.
+PROJECT_ID=""
+LOCATION=""
+# Set per cluster in detect_autopilot: Autopilot forbids the privileged workloads that Falco and
+# node-exporter need, so those two are skipped rather than left permanently rejected by admission.
+AUTOPILOT=false
+# Resolved in preflight: subscription id for AKS, 12-digit account number for EKS, project id
+# for GKE.
 CLOUD_ACCOUNT_ID=""
 ALL_CLUSTERS=false
 DRY_RUN=false
@@ -81,11 +93,12 @@ SETUP_EBS_CSI=false
 
 usage() {
   cat <<'USAGE'
-XamOps Kubernetes onboarding (AKS / EKS)
+XamOps Kubernetes onboarding (AKS / EKS / GKE)
 
-  --provider aks|eks        Which cloud (baked in when served from the XamOps guide)
+  --provider aks|eks|gke    Which cloud (baked in when served from the XamOps guide)
   --cluster NAME            Cluster name
-  --all                     Onboard every healthy cluster in the subscription (AKS) or region (EKS)
+  --all                     Onboard every healthy cluster in the subscription (AKS), region (EKS)
+                            or project (GKE)
 
   AKS only:
   --resource-group RG       Resource group containing the cluster
@@ -96,6 +109,11 @@ XamOps Kubernetes onboarding (AKS / EKS)
   --setup-ebs-csi           Install the EBS CSI driver, which ATTACHES AN IAM POLICY to the node
                             group role. Off by default; without it the installer stops and prints
                             the commands for you to run instead.
+
+  GKE only:
+  --project PROJECT_ID      GCP project id (default: current gcloud project)
+  --location LOC            Cluster zone (us-central1-a) or region (us-central1). Resolved from
+                            the cluster name when omitted.
 
   --server-url URL          XamOps backend base URL
   --api-key KEY             XamOps agent API key
@@ -110,6 +128,8 @@ Examples
   ./install-k8s.sh --provider aks --cluster my-aks --resource-group my-rg
   ./install-k8s.sh --provider eks --cluster my-eks --region ap-south-1
   ./install-k8s.sh --provider eks --all --region ap-south-1 --dry-run
+  ./install-k8s.sh --provider gke --cluster my-gke --location us-central1-a
+  ./install-k8s.sh --provider gke --all --project my-project-123456
 USAGE
 }
 
@@ -121,6 +141,8 @@ while [ $# -gt 0 ]; do
     --subscription)   SUBSCRIPTION_ID="${2:-}"; shift 2 ;;
     --region)         REGION="${2:-}"; shift 2 ;;
     --setup-ebs-csi)  SETUP_EBS_CSI=true; shift ;;
+    --project)        PROJECT_ID="${2:-}"; shift 2 ;;
+    --location)       LOCATION="${2:-}"; shift 2 ;;
     --server-url)     XAMOPS_SERVER_URL="${2:-}"; shift 2 ;;
     --api-key)        XAMOPS_API_KEY="${2:-}"; shift 2 ;;
     --storage-class)  STORAGE_CLASS="${2:-}"; shift 2 ;;
@@ -293,13 +315,16 @@ preflight() {
   case "$PROVIDER" in
     __PROVIDER__|"") PROVIDER="aks"
       warn "No --provider given; defaulting to aks" ;;
-    aks|eks) : ;;
-    *) die "Unknown --provider '$PROVIDER' (expected aks or eks)" ;;
+    aks|eks|gke) : ;;
+    *) die "Unknown --provider '$PROVIDER' (expected aks, eks or gke)" ;;
   esac
   ok "provider $PROVIDER"
 
   local cloud_cli="az"
-  [ "$PROVIDER" = "eks" ] && cloud_cli="aws"
+  case "$PROVIDER" in
+    eks) cloud_cli="aws" ;;
+    gke) cloud_cli="gcloud" ;;
+  esac
 
   # helm is deliberately not in this list — ensure_helm installs it rather than failing.
   local missing=()
@@ -323,6 +348,34 @@ preflight() {
     CLOUD_ACCOUNT_ID="$SUBSCRIPTION_ID"
     ok "subscription $SUBSCRIPTION_ID"
     STORAGE_CLASS="${STORAGE_CLASS:-$AKS_STORAGE_CLASS}"
+
+  elif [ "$PROVIDER" = "gke" ]; then
+    gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | grep -q . \
+      || die "Not signed in to Google Cloud. Run: gcloud auth login"
+
+    if [ -z "$PROJECT_ID" ]; then
+      # Prints "(unset)" rather than failing when no project is configured, so both forms of
+      # "no project" have to be treated as empty.
+      PROJECT_ID="$(gcloud config get-value project 2>/dev/null | tr -d '\r')"
+      case "$PROJECT_ID" in
+        "(unset)") PROJECT_ID="" ;;
+      esac
+      [ -n "$PROJECT_ID" ] && info "using project from gcloud config: $PROJECT_ID"
+    fi
+    [ -n "$PROJECT_ID" ] \
+      || die "--project is required for GKE (or run: gcloud config set project PROJECT_ID)"
+
+    # The project id keys the cluster in XamOps, exactly as the 12-digit account number does for
+    # EKS and the subscription id for AKS. It must match the project the GCP account was
+    # onboarded with, or the agent's pushes have no account to attach to.
+    CLOUD_ACCOUNT_ID="$PROJECT_ID"
+    ok "project $PROJECT_ID"
+
+    # --region is accepted as a synonym for --location so a command copied from the EKS shape
+    # still does the right thing rather than silently ignoring the value.
+    [ -z "$LOCATION" ] && LOCATION="$REGION"
+    STORAGE_CLASS="${STORAGE_CLASS:-$GKE_STORAGE_CLASS}"
+
   else
     aws sts get-caller-identity >/dev/null 2>&1 \
       || die "Not authenticated to AWS. Configure credentials (aws configure / SSO / instance role)."
@@ -367,6 +420,43 @@ preflight() {
 }
 
 # ─── Cluster connection ───────────────────────────────────────────────────────────────────
+# Which gcloud flag addresses $LOCATION.
+#
+# A GCP zone is its region plus a letter suffix — us-central1-a versus us-central1 — so it has
+# exactly one more dash-separated part. gcloud needs to be told which of the two it was given.
+# Recent releases accept --location for either, but that flag is new enough that a customer's
+# local gcloud may not have it, and counting the parts works on every version.
+gke_location_flag() {
+  case "$(printf '%s' "$LOCATION" | tr -cd '-' | wc -c | tr -d ' ')" in
+    2) printf '%s' "--zone" ;;
+    *) printf '%s' "--region" ;;
+  esac
+}
+
+# GKE Autopilot manages the nodes itself and rejects privileged pods, hostPath volumes and
+# hostNetwork at admission. Falco and Prometheus's node-exporter need all three, so they are
+# skipped there rather than installed into a permanent rejection loop.
+detect_autopilot() {
+  AUTOPILOT=false
+  [ "$PROVIDER" = "gke" ] || return 0
+  if [ "$DRY_RUN" = true ]; then
+    dim "dry-run: assuming a Standard cluster (Autopilot would skip Falco and node-exporter)"
+    return 0
+  fi
+
+  local mode
+  mode="$(gcloud container clusters describe "$CLUSTER_NAME" "$(gke_location_flag)" "$LOCATION" \
+          --project "$PROJECT_ID" --format='value(autopilot.enabled)' 2>/dev/null | tr -d '\r')"
+  case "$mode" in
+    True|true)
+      AUTOPILOT=true
+      warn "Autopilot cluster — Falco and node-exporter will be skipped (both need privileged host access)"
+      dim "everything else installs normally; node metrics come from kube-state-metrics and cadvisor"
+      ;;
+    *) ok "Standard cluster" ;;
+  esac
+}
+
 # Guide Step 1.1.
 connect_cluster() {
   local cluster="$1" rg="$2"
@@ -375,6 +465,10 @@ connect_cluster() {
   if [ "$PROVIDER" = "aks" ]; then
     run az aks get-credentials --resource-group "$rg" --name "$cluster" --overwrite-existing \
       || die "Could not fetch credentials for $cluster in $rg"
+  elif [ "$PROVIDER" = "gke" ]; then
+    run gcloud container clusters get-credentials "$cluster" \
+      "$(gke_location_flag)" "$LOCATION" --project "$PROJECT_ID" \
+      || die "Could not fetch credentials for $cluster in $LOCATION (project $PROJECT_ID)"
   else
     # --alias is load-bearing: without it the context is named after the cluster ARN, and the
     # assertion below (which is what stops us onboarding the wrong cluster) could never match.
@@ -389,9 +483,14 @@ connect_cluster() {
 
   # get-credentials names the context after the cluster. Asserting it prevents the failure mode
   # where a stale current-context silently sends the whole install at the wrong cluster.
-  local ctx
+  #
+  # gcloud is the exception: it has no --alias, and names the context
+  # gke_PROJECT_LOCATION_CLUSTER. That name is deterministic, so it is asserted as-is rather
+  # than renaming a context in the user's kubeconfig.
+  local ctx expected="$cluster"
+  [ "$PROVIDER" = "gke" ] && expected="gke_${PROJECT_ID}_${LOCATION}_${cluster}"
   ctx="$(kubectl config current-context 2>/dev/null)"
-  [ "$ctx" = "$cluster" ] || die "kubectl context is '$ctx', expected '$cluster'"
+  [ "$ctx" = "$expected" ] || die "kubectl context is '$ctx', expected '$expected'"
 
   kubectl get nodes >/dev/null 2>&1 || die "Cannot reach the API server for $cluster"
 
@@ -429,7 +528,9 @@ ensure_storage_class() {
     return 0
   fi
 
-  if [ "$PROVIDER" = "aks" ]; then
+  # AKS ships managed-csi and GKE ships standard-rwo, so reaching here on either means the
+  # cluster's storage has been changed in a way this script should not guess at.
+  if [ "$PROVIDER" != "eks" ]; then
     die "StorageClass '$STORAGE_CLASS' not found and no default StorageClass exists"
   fi
 
@@ -630,9 +731,18 @@ install_prometheus() {
   run helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
   run helm repo update prometheus-community || true
 
+  # node-exporter is a DaemonSet with hostPath mounts of /proc and /sys — exactly what Autopilot
+  # refuses. Disabling it up front keeps the release healthy; kube-state-metrics and cadvisor
+  # still cover the node metrics the agent reports.
+  local node_exporter="true"
+  if [ "$AUTOPILOT" = true ]; then
+    node_exporter="false"
+    dim "Autopilot: installing without node-exporter"
+  fi
+
   local values
   values="$(mktemp)"
-  cat > "$values" <<'EOF'
+  cat > "$values" <<EOF
 server:
   persistentVolume:
     enabled: true
@@ -643,7 +753,7 @@ alertmanager:
 pushgateway:
   enabled: false
 nodeExporter:
-  enabled: true
+  enabled: $node_exporter
 kube-state-metrics:
   enabled: true
 extraScrapeConfigs: |
@@ -676,8 +786,9 @@ EOF
 }
 
 # ─── Part 1.4 (EKS): Metrics Server ───────────────────────────────────────────────────────
-# AKS provides metrics-server as a managed addon; EKS does not. The agent uses it for real-time
-# pod/node usage, and `kubectl top` stops working without it.
+# AKS provides metrics-server as a managed addon and GKE has it built in on both Standard and
+# Autopilot; EKS does not. The agent uses it for real-time pod/node usage, and `kubectl top`
+# stops working without it.
 install_metrics_server() {
   [ "$PROVIDER" = "eks" ] || return 0
 
@@ -728,6 +839,16 @@ pick_falco_driver() {
 
 install_falco() {
   step "Part 1.4 — Falco + FalcoSidekick"
+
+  # Falco reads syscalls, which means a privileged DaemonSet on every node. Autopilot does not
+  # allow one, and the failure is an admission rejection several minutes into the install rather
+  # than anything the user can fix, so say so once and move on.
+  if [ "$AUTOPILOT" = true ]; then
+    warn "Skipping Falco — GKE Autopilot does not permit the privileged DaemonSet it requires"
+    dim "runtime security events are unavailable on Autopilot; Trivy and Kubescape are not affected"
+    return 0
+  fi
+
   run helm repo add falcosecurity https://falcosecurity.github.io/charts || true
   run helm repo update falcosecurity || true
 
@@ -765,13 +886,17 @@ install_opencost() {
   run helm repo update opencost || true
 
   local values exporter_block
-  if [ "$PROVIDER" = "eks" ]; then
-    exporter_block="    aws:
-      region: \"$REGION\""
-  else
-    exporter_block="    azure:
-      subscriptionId: \"$CLOUD_ACCOUNT_ID\""
-  fi
+  case "$PROVIDER" in
+    eks)
+      exporter_block="    aws:
+      region: \"$REGION\"" ;;
+    gke)
+      exporter_block="    gcp:
+      projectId: \"$PROJECT_ID\"" ;;
+    *)
+      exporter_block="    azure:
+      subscriptionId: \"$CLOUD_ACCOUNT_ID\"" ;;
+  esac
 
   values="$(mktemp)"
   cat > "$values" <<EOF
@@ -970,13 +1095,14 @@ EOF
 install_agent_config() {
   step "Part 3.2 — Agent ConfigMap and Secret"
 
-  # Karpenter is AWS-only, so enabling its collector on Azure just logs failures every cycle.
+  # Karpenter is AWS-only, so enabling its collector elsewhere just logs failures every cycle.
+  # GKE's equivalent, Node Auto Provisioning, is read from the GCP API rather than the cluster.
   local cloud_provider collect_karpenter
-  if [ "$PROVIDER" = "eks" ]; then
-    cloud_provider="AWS"; collect_karpenter="true"
-  else
-    cloud_provider="AZURE"; collect_karpenter="false"
-  fi
+  case "$PROVIDER" in
+    eks) cloud_provider="AWS";   collect_karpenter="true" ;;
+    gke) cloud_provider="GCP";   collect_karpenter="false" ;;
+    *)   cloud_provider="AZURE"; collect_karpenter="false" ;;
+  esac
 
   # CLUSTER_NAME must match the Kubescape --set clusterName exactly; both come from the same
   # variable here, which is the main reason this script exists.
@@ -1094,6 +1220,12 @@ verify() {
 
   local ns total ready
   for ns in monitoring falco opencost trivy-system kubescape xamops-system; do
+    # Falco was deliberately not installed on Autopilot, so an empty namespace there is the
+    # expected outcome rather than a failure that should fail the whole run.
+    if [ "$ns" = "falco" ] && [ "$AUTOPILOT" = true ]; then
+      dim "falco: skipped on Autopilot"
+      continue
+    fi
     total="$(kubectl -n "$ns" get pods --no-headers 2>/dev/null | wc -l | tr -d ' ')"
     ready="$(kubectl -n "$ns" get pods --no-headers 2>/dev/null | awk '$3=="Running"||$3=="Completed"' | wc -l | tr -d ' ')"
     if [ "$total" = "0" ]; then
@@ -1164,18 +1296,32 @@ verify() {
 # ─── Per-cluster orchestration ────────────────────────────────────────────────────────────
 onboard_cluster() {
   CLUSTER_NAME="$1"
-  RESOURCE_GROUP="$2"
   CURRENT_CLUSTER="$1"
 
+  # The second field of a target carries whatever locates the cluster for this provider: the
+  # resource group on AKS, the zone or region on GKE, and nothing on EKS (--region covers it).
+  RESOURCE_GROUP=""
+  if [ "$PROVIDER" = "gke" ]; then
+    LOCATION="$2"
+  else
+    RESOURCE_GROUP="$2"
+  fi
+
   printf '\n%s══════════════════════════════════════════════════════════════%s\n' "$C_BOLD" "$C_RESET"
-  if [ -n "$RESOURCE_GROUP" ]; then
+  if [ "$PROVIDER" = "gke" ]; then
+    printf '%s  %s  (location: %s, project: %s)%s\n' \
+      "$C_BOLD" "$CLUSTER_NAME" "$LOCATION" "$PROJECT_ID" "$C_RESET"
+  elif [ -n "$RESOURCE_GROUP" ]; then
     printf '%s  %s  (resource group: %s)%s\n' "$C_BOLD" "$CLUSTER_NAME" "$RESOURCE_GROUP" "$C_RESET"
   else
     printf '%s  %s  (region: %s)%s\n' "$C_BOLD" "$CLUSTER_NAME" "$REGION" "$C_RESET"
   fi
   printf '%s══════════════════════════════════════════════════════════════%s\n' "$C_BOLD" "$C_RESET"
 
-  connect_cluster "$CLUSTER_NAME" "$RESOURCE_GROUP"
+  connect_cluster "$CLUSTER_NAME" "${RESOURCE_GROUP:-$LOCATION}"
+  # Which components are installable is a property of the cluster, so it is read before anything
+  # is installed rather than reacted to afterwards.
+  detect_autopilot
   # Before anything is installed: Prometheus cannot start without a bindable volume, and on EKS
   # this may stop the run to ask for IAM consent.
   ensure_storage_class || return 1
@@ -1218,6 +1364,25 @@ main() {
     done < <(az aks list --query "[].[name,resourceGroup,provisioningState]" -o tsv 2>/dev/null)
     [ ${#targets[@]} -gt 0 ] || die "No healthy AKS clusters found in subscription $SUBSCRIPTION_ID"
 
+  elif [ "$ALL_CLUSTERS" = true ] && [ "$PROVIDER" = "gke" ]; then
+    # A GKE project spans locations, so --all means every cluster in the project regardless of
+    # which zone or region it sits in.
+    step "Discovering GKE clusters in project $PROJECT_ID"
+    local name loc status
+    while IFS=$'\t' read -r name loc status; do
+      [ -n "${name:-}" ] || continue
+      if [ "$status" != "RUNNING" ]; then
+        # A cluster still provisioning, or one that is suspended, has no usable API server;
+        # attempting it just hangs on the credential fetch.
+        warn "skipping $name — status=$status"
+        continue
+      fi
+      targets+=("$name|$loc")
+      info "queued $name ($loc)"
+    done < <(gcloud container clusters list --project "$PROJECT_ID" \
+             --format="value(name,location,status)" 2>/dev/null)
+    [ ${#targets[@]} -gt 0 ] || die "No running GKE clusters found in project $PROJECT_ID"
+
   elif [ "$ALL_CLUSTERS" = true ]; then
     # EKS is region-scoped: there is no account-wide list, so --all means "this region".
     step "Discovering EKS clusters in $REGION"
@@ -1246,6 +1411,33 @@ main() {
         || die "No EKS cluster named '$CLUSTER_NAME' in region $REGION"
       [ "$st" = "ACTIVE" ] || die "Cluster '$CLUSTER_NAME' is not ACTIVE (status=$st)"
       targets+=("$CLUSTER_NAME|")
+
+    elif [ "$PROVIDER" = "gke" ]; then
+      if [ -z "$LOCATION" ]; then
+        # Cluster names are unique per location, not per project, so resolve rather than guess.
+        # Picking the first match would silently onboard the wrong cluster, and the symptom —
+        # data under the right name from the wrong place — is very hard to trace back to here.
+        local locs loc_count
+        locs="$(gcloud container clusters list --project "$PROJECT_ID" \
+                --filter="name=$CLUSTER_NAME" --format="value(location)" 2>/dev/null \
+                | tr -d '\r' | sed '/^$/d')"
+        loc_count="$(printf '%s\n' "$locs" | sed '/^$/d' | wc -l | tr -d ' ')"
+        case "$loc_count" in
+          0) die "No GKE cluster named '$CLUSTER_NAME' in project $PROJECT_ID" ;;
+          1) LOCATION="$locs"; info "resolved location: $LOCATION" ;;
+          *) printf '   %s\n' "$locs" | sed 's/^/     - /'
+             die "'$CLUSTER_NAME' exists in $loc_count locations; pass --location to disambiguate" ;;
+        esac
+      else
+        local gst
+        gst="$(gcloud container clusters describe "$CLUSTER_NAME" "$(gke_location_flag)" "$LOCATION" \
+               --project "$PROJECT_ID" --format='value(status)' 2>/dev/null | tr -d '\r')"
+        [ -n "$gst" ] \
+          || die "No GKE cluster named '$CLUSTER_NAME' at $LOCATION in project $PROJECT_ID"
+        [ "$gst" = "RUNNING" ] || die "Cluster '$CLUSTER_NAME' is not RUNNING (status=$gst)"
+      fi
+      targets+=("$CLUSTER_NAME|$LOCATION")
+
     elif [ -z "$RESOURCE_GROUP" ]; then
       # Cluster names are only unique within a resource group, so resolve all matches and
       # refuse to guess. Picking the first would silently onboard the wrong cluster, and the

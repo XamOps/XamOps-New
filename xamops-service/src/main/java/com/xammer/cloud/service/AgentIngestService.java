@@ -167,15 +167,18 @@ public class AgentIngestService {
      * This was Azure-only while EKS still onboarded through the kubeconfig wizard.
      * The unified install script (install-k8s.sh) moved EKS onto the same push-only
      * agent as AKS — "no inbound connections required" — which put EKS in exactly
-     * the failure mode described above, so the guard now covers AWS too.
+     * the failure mode described above, so the guard now covers AWS too. GKE joined
+     * them when install-k8s.sh gained {@code --provider gke}: its Quick Install is
+     * the same push-only agent, and without this a GKE cluster would install
+     * cleanly and then 404 on every push forever.
      *
-     * GKE is unchanged and keeps its register-before-push behaviour. DB agents
-     * already auto-register on first push (see the caller in AgentController), so
-     * the trust model here is not new — any holder of the global agent API key can
-     * already create rows this way.
+     * DB agents already auto-register on first push (see the caller in
+     * AgentController), so the trust model here is not new — any holder of the
+     * global agent API key can already create rows this way.
      *
      * @param clusterName    cluster name from the agent payload
-     * @param cloudAccountId provider account ID from the payload (Azure subscription ID for AKS)
+     * @param cloudAccountId provider account ID from the payload (Azure subscription ID for AKS,
+     *                       12-digit account number for EKS, project ID for GKE)
      * @return the existing or newly created config, or null if the account is unknown
      *         or belongs to a provider that registers before pushing
      */
@@ -201,8 +204,10 @@ public class AgentIngestService {
         }
 
         String provider = account.getProvider();
-        if (!"Azure".equalsIgnoreCase(provider) && !"AWS".equalsIgnoreCase(provider)) {
-            logger.warn("Auto-register skipped: cluster '{}' belongs to {} account {} (AWS and Azure only)",
+        if (!"Azure".equalsIgnoreCase(provider)
+                && !"AWS".equalsIgnoreCase(provider)
+                && !"GCP".equalsIgnoreCase(provider)) {
+            logger.warn("Auto-register skipped: cluster '{}' belongs to {} account {} (AWS, Azure and GCP only)",
                     clusterName, provider, cloudAccountId);
             return null;
         }

@@ -17,13 +17,14 @@ import java.nio.charset.StandardCharsets;
  * Serves the cluster onboarding script as plain text so a customer can run one command instead of
  * pasting twenty.
  *
- * <p>There is a single script for every cloud. AKS and EKS differ in roughly 15% of the work —
- * credentials, account id, storage class, cluster discovery — while the five Helm installs, the
+ * <p>There is a single script for every cloud. AKS, EKS and GKE differ in roughly 15% of the work
+ * — credentials, account id, storage class, cluster discovery — while the five Helm installs, the
  * agent manifests and verification are identical. Serving one file with the provider substituted
- * per endpoint keeps the customer-facing command short without letting two copies drift apart.
+ * per endpoint keeps the customer-facing command short without letting the copies drift apart.
  *
- * <p><b>Why this is unauthenticated.</b> The command has to run from Azure Cloud Shell or AWS
- * CloudShell, neither of which has a XamOps session to authenticate a download with. Putting the
+ * <p><b>Why this is unauthenticated.</b> The command has to run from Azure Cloud Shell, AWS
+ * CloudShell or GCP Cloud Shell, none of which has a XamOps session to authenticate a download
+ * with. Putting the
  * script behind {@code /api/xamops/**} would make {@code curl | bash} impossible. This is safe
  * because the script contains no secrets: the server URL and API key are supplied as command-line
  * flags, which the setup guide fills in for the environment the user is signed in to. Nothing here
@@ -63,6 +64,12 @@ public class AgentInstallScriptController {
     @GetMapping(value = {"/eks.sh", "/eks"}, produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> eksInstallScript() {
         return serve("eks", "xamops-install-eks.sh");
+    }
+
+    /** GET /api/v1/agent/install/gke.sh */
+    @GetMapping(value = {"/gke.sh", "/gke"}, produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> gkeInstallScript() {
+        return serve("gke", "xamops-install-gke.sh");
     }
 
     /**
