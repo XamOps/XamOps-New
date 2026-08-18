@@ -5,6 +5,8 @@ import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.ObservabilityConfig;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.AgentHealthService;
+import com.xammer.cloud.service.ObservabilityRetentionReconciler;
 import com.xammer.cloud.service.OpenObserveService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,10 +27,17 @@ public class ObservabilityController {
 
     private final OpenObserveService openObserveService;
     private final ClientRepository clientRepository;
+    private final ObservabilityRetentionReconciler retentionReconciler;
+    private final AgentHealthService agentHealthService;
 
-    public ObservabilityController(OpenObserveService openObserveService, ClientRepository clientRepository) {
+    public ObservabilityController(OpenObserveService openObserveService,
+                                   ClientRepository clientRepository,
+                                   ObservabilityRetentionReconciler retentionReconciler,
+                                   AgentHealthService agentHealthService) {
         this.openObserveService = openObserveService;
         this.clientRepository = clientRepository;
+        this.retentionReconciler = retentionReconciler;
+        this.agentHealthService = agentHealthService;
     }
 
     // ── Provision + Config ────────────────────────────────────────────────────
@@ -49,22 +58,36 @@ public class ObservabilityController {
 
             if (providerAccountId != null && !providerAccountId.isBlank()) {
                 try {
+                    // Client-level config first: provisionForAccount inherits its retention
+                    // setting, so provisioning the account org first left the account org on
+                    // OpenObserve's 7-day default on every brand-new tenant.
+                    ObservabilityConfig clientConfig = openObserveService.provisionTenant(client);
                     AccountObservabilityConfig accConfig =
                             openObserveService.provisionForAccount(client, providerAccountId);
-                    ObservabilityConfig clientConfig = openObserveService.provisionTenant(client);
                     return ResponseEntity.ok(toAccountConfigResponse(accConfig, clientConfig));
                 } catch (Exception e) {
                     logger.warn("Account provisioning failed for {}, falling back to client config: {}",
                             providerAccountId, e.getMessage());
-                    // Fall through to client-level config below
+
+                    // Tell the caller we fell back. This used to be a log line only, so the
+                    // user was shown organisation-wide data (or nothing) for a selected
+                    // account with no indication that the account itself isn't provisioned —
+                    // indistinguishable from "the account has no data".
+                    ObservabilityConfig fallback = openObserveService.provisionTenant(client);
+                    Map<String, Object> body = toConfigResponse(fallback);
+                    body.put("scope", "client");
+                    body.put("requestedAccountId", providerAccountId);
+                    body.put("accountProvisioned", false);
+                    body.put("fallbackReason", "This account is not provisioned for observability yet, "
+                            + "so organisation-wide data is being shown.");
+                    return ResponseEntity.ok(body);
                 }
             }
 
             ObservabilityConfig config = openObserveService.provisionTenant(client);
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
-            logger.error("getConfig failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("getConfig", e);
         }
     }
 
@@ -81,10 +104,38 @@ public class ObservabilityController {
             int retentionDays = (int) body.getOrDefault("retentionDays", 30);
 
             ObservabilityConfig config = openObserveService.updateConfig(clientId, retentionDays);
+
+            // Push to OpenObserve in the background — hundreds of sequential HTTP calls for a
+            // tenant with several accounts and many streams, which would exceed the nginx
+            // read timeout if the user had to wait. Driven from here rather than from inside
+            // updateConfig so the reconciler depends on the service and not the other way
+            // round; a mutual dependency would need @Lazy and risk a startup failure.
+            retentionReconciler.applyRetentionToOrgs(
+                    openObserveService.listOrgIdsForClient(clientId), retentionDays);
+
             return ResponseEntity.ok(toConfigResponse(config));
         } catch (Exception e) {
-            logger.error("updateConfig failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("updateConfig", e);
+        }
+    }
+
+    // ── Agent health ──────────────────────────────────────────────────────────
+
+    /**
+     * GET /api/observability/agents[?providerAccountId=xxx]
+     *
+     * Hosts known to this account with a reporting status for each. Classification is done
+     * server-side so the console and the agent-silence alerts can never disagree.
+     */
+    @GetMapping("/agents")
+    public ResponseEntity<?> listAgents(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestParam(required = false) String providerAccountId) {
+        try {
+            return ResponseEntity.ok(Map.of(
+                    "agents", agentHealthService.listAgents(userDetails.getClientId(), providerAccountId)));
+        } catch (Exception e) {
+            return errorResponse("listAgents", e);
         }
     }
 
@@ -98,8 +149,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.getOverviewStats(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            logger.error("getOverview failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("getOverview", e);
         }
     }
 
@@ -114,8 +164,7 @@ public class ObservabilityController {
                     openObserveService.listStreams(userDetails.getClientId(), providerAccountId);
             return ResponseEntity.ok(streams);
         } catch (Exception e) {
-            logger.error("listStreams failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("listStreams", e);
         }
     }
 
@@ -131,8 +180,7 @@ public class ObservabilityController {
             Map<String, Object> result = openObserveService.searchLogs(userDetails.getClientId(), params);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            logger.error("searchLogs failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("searchLogs", e);
         }
     }
 
@@ -149,8 +197,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(Map.of(
                     "hosts", openObserveService.listLogHosts(userDetails.getClientId(), params)));
         } catch (Exception e) {
-            logger.error("listLogHosts failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("listLogHosts", e);
         }
     }
 
@@ -166,8 +213,7 @@ public class ObservabilityController {
             Map<String, Object> result = openObserveService.getLogHistogram(userDetails.getClientId(), params);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            logger.error("getLogHistogram failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("getLogHistogram", e);
         }
     }
 
@@ -184,8 +230,7 @@ public class ObservabilityController {
         try {
             return ResponseEntity.ok(openObserveService.searchTraces(userDetails.getClientId(), params));
         } catch (Exception e) {
-            logger.error("searchTraces failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("searchTraces", e);
         }
     }
 
@@ -200,8 +245,7 @@ public class ObservabilityController {
         try {
             return ResponseEntity.ok(openObserveService.getTraceStats(userDetails.getClientId(), params));
         } catch (Exception e) {
-            logger.error("getTraceStats failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("getTraceStats", e);
         }
     }
 
@@ -216,8 +260,7 @@ public class ObservabilityController {
         try {
             return ResponseEntity.ok(openObserveService.getTraceSpans(userDetails.getClientId(), params));
         } catch (Exception e) {
-            logger.error("getTraceSpans failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("getTraceSpans", e);
         }
     }
 
@@ -238,8 +281,7 @@ public class ObservabilityController {
                     userDetails.getClientId(), providerAccountId, query, start, end, step);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            logger.error("queryMetrics failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("queryMetrics", e);
         }
     }
 
@@ -253,8 +295,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.getClusters(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            logger.error("getClusters failed: {}", e.getMessage());
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("getClusters", e);
         }
     }
 
@@ -269,7 +310,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateFluentBitConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return errorResponseText("getFluentBitConfig", e);
         }
     }
 
@@ -282,7 +323,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateHelmValues(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return errorResponseText("getHelmValues", e);
         }
     }
 
@@ -295,7 +336,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateOtelCollectorConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return errorResponseText("getOtelConfig", e);
         }
     }
 
@@ -312,7 +353,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateHelmEksCommand(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return errorResponseText("getHelmEksCommand", e);
         }
     }
 
@@ -329,7 +370,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateEc2OtelConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return errorResponseText("getEc2OtelConfig", e);
         }
     }
 
@@ -346,7 +387,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateGceOtelConfig(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return errorResponseText("getGceOtelConfig", e);
         }
     }
 
@@ -363,7 +404,7 @@ public class ObservabilityController {
                     .header("Content-Type", "text/plain")
                     .body(openObserveService.generateAgentSecret(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return errorResponseText("getAgentSecret", e);
         }
     }
 
@@ -385,7 +426,7 @@ public class ObservabilityController {
             String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             return ResponseEntity.ok().header("Content-Type", "text/plain").body(content);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+            return errorResponseText("getAgentManifest", e);
         }
     }
 
@@ -399,7 +440,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.listAlerts(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("listAlerts", e);
         }
     }
 
@@ -412,7 +453,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.createAlert(userDetails.getClientId(), providerAccountId, body));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("createAlert", e);
         }
     }
 
@@ -427,7 +468,7 @@ public class ObservabilityController {
             openObserveService.deleteAlert(userDetails.getClientId(), providerAccountId, streamType, streamName, alertName);
             return ResponseEntity.ok(Map.of("deleted", true));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("deleteAlert", e);
         }
     }
 
@@ -443,7 +484,7 @@ public class ObservabilityController {
             openObserveService.toggleAlert(userDetails.getClientId(), providerAccountId, streamType, streamName, alertName, enable);
             return ResponseEntity.ok(Map.of("enabled", enable));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("toggleAlert", e);
         }
     }
 
@@ -457,7 +498,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.listDestinations(userDetails.getClientId(), providerAccountId));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("listDestinations", e);
         }
     }
 
@@ -470,7 +511,7 @@ public class ObservabilityController {
             return ResponseEntity.ok(
                     openObserveService.saveDestination(userDetails.getClientId(), providerAccountId, body));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("saveDestination", e);
         }
     }
 
@@ -483,17 +524,83 @@ public class ObservabilityController {
             openObserveService.deleteDestination(userDetails.getClientId(), providerAccountId, name);
             return ResponseEntity.ok(Map.of("deleted", true));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return errorResponse("deleteDestination", e);
         }
+    }
+
+    // ── Error handling ────────────────────────────────────────────────────────
+
+    /**
+     * True when the failure is infrastructure (database pool, network to OpenObserve)
+     * rather than something about the caller's request.
+     */
+    private static boolean isInfrastructureFailure(Throwable e) {
+        for (Throwable t = e; t != null && t != t.getCause(); t = t.getCause()) {
+            if (t instanceof java.sql.SQLException
+                    || t instanceof org.springframework.dao.DataAccessException
+                    || t instanceof org.springframework.transaction.CannotCreateTransactionException
+                    || t instanceof org.springframework.web.client.ResourceAccessException
+                    || t instanceof java.net.SocketTimeoutException
+                    || t instanceof java.net.ConnectException) {
+                return true;
+            }
+            String cls = t.getClass().getName();
+            if (cls.startsWith("org.hibernate.exception.") || cls.startsWith("com.zaxxer.hikari")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Builds a client-safe error response.
+     *
+     * These endpoints previously returned {@code e.getMessage()} verbatim, which pushed raw
+     * persistence internals into the browser — users saw
+     * "Unable to acquire JDBC Connection; nested exception is org.hibernate.exception..."
+     * which reveals internal stack details and tells them nothing actionable.
+     *
+     * Infrastructure failures now map to 503 with a retryable flag so the UI can show a
+     * sensible "temporarily unavailable" state, while the full detail stays in the logs.
+     */
+    private ResponseEntity<Map<String, Object>> errorResponse(String operation, Exception e) {
+        if (isInfrastructureFailure(e)) {
+            logger.error("{} failed (infrastructure): {}", operation, e.toString());
+            return ResponseEntity.status(503).body(Map.of(
+                    "error", "Observability data is temporarily unavailable. Please retry in a moment.",
+                    "retryable", true));
+        }
+        logger.error("{} failed: {}", operation, e.getMessage());
+        return ResponseEntity.internalServerError().body(Map.of(
+                "error", e.getMessage() != null ? e.getMessage() : "Unexpected error",
+                "retryable", false));
+    }
+
+    /** Plain-text variant for the config/manifest generator endpoints. */
+    private ResponseEntity<String> errorResponseText(String operation, Exception e) {
+        if (isInfrastructureFailure(e)) {
+            logger.error("{} failed (infrastructure): {}", operation, e.toString());
+            return ResponseEntity.status(503)
+                    .body("# Temporarily unavailable. Please retry in a moment.");
+        }
+        logger.error("{} failed: {}", operation, e.getMessage());
+        return ResponseEntity.internalServerError().body("# Error: could not generate configuration");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /**
+     * Client-level (organisation-wide) config. {@code scope} lets the UI tell this apart from
+     * an account-scoped response, which matters because the two can contain completely
+     * different data for the same selected account.
+     */
     private Map<String, Object> toConfigResponse(ObservabilityConfig config) {
         Map<String, Object> m = new java.util.HashMap<>();
         m.put("orgId",         config.getO2OrgId() != null ? config.getO2OrgId() : "");
         m.put("retentionDays", config.getRetentionDays());
         m.put("provisionedAt", config.getCreatedAt() != null ? config.getCreatedAt().toString() : "");
+        m.put("scope", "client");
+        m.put("accountProvisioned", true);
         return m;
     }
 
@@ -504,6 +611,8 @@ public class ObservabilityController {
         m.put("accountName",   accConfig.getAccountName() != null ? accConfig.getAccountName() : "");
         m.put("retentionDays", clientConfig.getRetentionDays());
         m.put("provisionedAt", accConfig.getCreatedAt() != null ? accConfig.getCreatedAt().toString() : "");
+        m.put("scope", "account");
+        m.put("accountProvisioned", true);
         return m;
     }
 }

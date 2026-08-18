@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react';
 import apiClient from '../utils/apiClient';
+import { observabilityQueryLimit } from '../utils/concurrencyLimit';
+import { AgentStatus } from '../utils/agentHealth';
 import { useAccounts } from '../contexts/AccountContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -9,6 +11,15 @@ export interface ObservabilityConfig {
   accountName?: string;
   retentionDays: number;
   provisionedAt: string;
+  /**
+   * Whether this config describes the selected cloud account or the whole organisation.
+   * A 'client' scope while an account is selected means we fell back — the data shown is
+   * organisation-wide, not the account's.
+   */
+  scope?: 'account' | 'client';
+  accountProvisioned?: boolean;
+  requestedAccountId?: string;
+  fallbackReason?: string;
 }
 
 export interface LogStream {
@@ -91,6 +102,22 @@ export interface ObservabilityAlert {
 export interface ConnectedInstance {
   hostName: string;
   lastSeenMs: number;
+  /** Health state as classified by the backend — see utils/agentHealth for presentation. */
+  status: AgentStatus;
+  /**
+   * Collector self-telemetry is arriving even though host metrics aren't: the agent is
+   * running and its pipeline is broken, which needs a config fix rather than a restart.
+   */
+  collectorAlive?: boolean;
+}
+
+/** Wire format of /api/observability/agents — status arrives as an uppercase enum name. */
+interface RawAgentHealth {
+  hostName: string;
+  lastSeenMs: number;
+  status: string;
+  ageMs: number;
+  collectorAlive?: boolean;
 }
 
 // A trace's root span plus per-trace rollups computed by the backend.
@@ -149,7 +176,14 @@ export interface TraceStats {
 export interface OverviewStats {
   orgId: string;
   accountName?: string;
+  /** Retention OpenObserve is actually enforcing on this org. */
   retentionDays: number;
+  /** Retention configured in XamOps — may differ from the above if it was never applied. */
+  configuredRetentionDays?: number;
+  retentionMismatch?: boolean;
+  /** 'client' while an account is selected means these totals are organisation-wide. */
+  scope?: 'account' | 'client';
+  accountProvisioned?: boolean;
   streamCount: number;
   logStreamCount: number;
   metricStreamCount: number;
@@ -329,9 +363,11 @@ export const useObservabilityData = () => {
         endTime: String(endTime),
         step,
       });
-      const data = await apiClient.get(
+      // Queued: the dashboard mounts 18 panels that each call this at once.
+      // See utils/concurrencyLimit for why the burst has to be capped.
+      const data = await observabilityQueryLimit(() => apiClient.get(
         `/api/observability/metrics/query?${params}${accountParamAmpersand}`
-      );
+      ));
       const results: MetricResult[] = data?.data?.result || [];
       setMetrics(results);
       return results;
@@ -462,36 +498,42 @@ export const useObservabilityData = () => {
 
   // ── Connected Instances ───────────────────────────────────────────────────────
 
+  /**
+   * Builds the roster of known hosts with a health state for each.
+   *
+   * Uses two windows deliberately:
+   *
+   *  - A wide 7-day window at coarse resolution establishes *which* hosts exist. The old
+   *    single 6-hour query meant a host that died 7 hours ago silently vanished from the
+   *    UI, so an agent going away looked identical to an agent that was never installed.
+   *  - A narrow 1-hour window at 60s resolution pins down *when* each host last reported.
+   *    The wide window's step is far too coarse to tell "reporting now" from "stopped 45
+   *    minutes ago", which is exactly the distinction that matters for health.
+   *
+   * Hosts present in the wide roster but absent from the recent window keep their coarse
+   * lastSeen and land in the offline/removed states.
+   */
+  /**
+   * Agent roster with a health state for each host.
+   *
+   * Classification is done server-side (`/api/observability/agents`) rather than here. It
+   * used to be computed in the browser from two raw PromQL queries, which meant the
+   * thresholds existed in two places — so the console could disagree with the agent-silence
+   * alert email a user had just been sent. The backend is now the only place that decides
+   * what "offline" means, and this is one request instead of two.
+   */
   const fetchConnectedInstances = useCallback(async (): Promise<ConnectedInstance[]> => {
     try {
-      const now = Date.now();
-      const start = now - 6 * 3600_000;
-      // Filter by cloud_account_id so hosts from other accounts don't bleed in.
-      // The ec2/gce resource detector attaches cloud.account.id which OpenObserve
-      // stores as the label cloud_account_id on every metric.
-      const accountFilter = activeAccountId
-        ? `{cloud_account_id="${activeAccountId}"}`
-        : '';
-      const params = new URLSearchParams({
-        query: `group by (host_name) (system_cpu_utilization${accountFilter})`,
-        startTime: String(start),
-        endTime: String(now),
-        step: '10m',
-      });
-      const data = await apiClient.get(
-        `/api/observability/metrics/query?${params}${accountParamAmpersand}`
-      );
-      const results: MetricResult[] = data?.data?.result || [];
-      return results
-        .filter(r => r.metric?.host_name)
-        .map(r => {
-          const lastVal = r.values[r.values.length - 1];
-          return {
-            hostName: r.metric.host_name,
-            lastSeenMs: lastVal ? Number(lastVal[0]) * 1000 : 0,
-          };
-        })
-        .sort((a, b) => b.lastSeenMs - a.lastSeenMs);
+      const data = await observabilityQueryLimit(() =>
+        apiClient.get(`/api/observability/agents${accountParam}`));
+
+      const agents: RawAgentHealth[] = data?.agents || [];
+      return agents.map(a => ({
+        hostName: a.hostName,
+        lastSeenMs: a.lastSeenMs,
+        status: (a.status?.toLowerCase() as AgentStatus) ?? 'gone',
+        collectorAlive: a.collectorAlive ?? false,
+      }));
     } catch {
       return [];
     }

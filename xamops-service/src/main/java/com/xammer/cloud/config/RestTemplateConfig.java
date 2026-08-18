@@ -140,6 +140,36 @@ public class RestTemplateConfig {
     }
 
     /**
+     * RestTemplate for external OAuth providers (Google, Microsoft).
+     *
+     * Token and userinfo exchanges happen inline during a browser login, so they must fail
+     * fast — a hung provider call would otherwise occupy a request thread indefinitely and
+     * leave the user staring at a spinner.
+     */
+    @Bean
+    @Qualifier("oauthRestTemplate")
+    public RestTemplate oauthRestTemplate() {
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);  // 5s
+        factory.setReadTimeout(15000);    // 15s
+        return new RestTemplate(factory);
+    }
+
+    /**
+     * RestTemplate for calls to our own internal sidecar services (e.g. the Python
+     * marketplace-procurement service). Bounded so an unresponsive sidecar can't pin
+     * request threads.
+     */
+    @Bean
+    @Qualifier("internalServiceRestTemplate")
+    public RestTemplate internalServiceRestTemplate() {
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);   // 5s — same network
+        factory.setReadTimeout(60000);     // 60s — some catalog operations are slow
+        return new RestTemplate(factory);
+    }
+
+    /**
      * Short-timeout RestTemplate for LiteLLM sidecar calls.
      * LiteLLM is optional — if it's not running we must fail fast so the
      * calling thread (even async) doesn't block for 15+ seconds.

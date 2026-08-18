@@ -5,6 +5,7 @@ import com.xammer.cloud.domain.SupportMessage;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.SupportMessageRepository;
 import com.xammer.cloud.repository.UserRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -131,11 +133,50 @@ public class SupportChatService {
         return userRepository.findByUsername(username).orElse(null);
     }
 
+    /** Default number of recent messages returned to the chat widget. */
+    private static final int DEFAULT_HISTORY_LIMIT = 200;
+    /** Hard ceiling so a caller can't ask for an unbounded result set. */
+    private static final int MAX_HISTORY_LIMIT = 500;
+
     public List<SupportMessage> getMessagesForCurrentUser(String selectedAccountId) {
+        return getMessagesForCurrentUser(selectedAccountId, DEFAULT_HISTORY_LIMIT);
+    }
+
+    /**
+     * Returns the most recent {@code limit} messages for the current user, oldest first.
+     *
+     * Previously this returned the user's complete history on every call, and the frontend
+     * polled it every 5 seconds from two independent hooks. On a long conversation that is
+     * a large result set fetched 24+ times a minute per user, which is a meaningful share
+     * of the load on the shared connection pool.
+     */
+    public List<SupportMessage> getMessagesForCurrentUser(String selectedAccountId, int limit) {
         User user = getCurrentUser();
         if (user == null) return Collections.emptyList();
-        // Return ALL messages for this user regardless of account (user-based conversations)
-        return messageRepository.findBySenderOrderByTimestampAsc(user);
+
+        int effectiveLimit = Math.min(Math.max(limit, 1), MAX_HISTORY_LIMIT);
+
+        // Fetch newest-first so the database can use the index and stop early, then reverse
+        // for display. Account is intentionally ignored — conversations are user-based.
+        List<SupportMessage> recent = messageRepository.findBySenderOrderByTimestampDesc(
+                user, PageRequest.of(0, effectiveLimit));
+
+        List<SupportMessage> chronological = new ArrayList<>(recent);
+        Collections.reverse(chronological);
+        return chronological;
+    }
+
+    /**
+     * Newest unread admin reply for the current user, if any.
+     *
+     * Exists so the global notification poller can detect new replies with a single-row
+     * query instead of downloading the entire chat history every 5 seconds.
+     */
+    public Optional<SupportMessage> getLatestUnreadAdminMessage() {
+        User user = getCurrentUser();
+        if (user == null) return Optional.empty();
+        return messageRepository
+                .findFirstBySenderAndIsUserMessageFalseAndStatusOrderByTimestampDesc(user, "DELIVERED");
     }
 
     /**

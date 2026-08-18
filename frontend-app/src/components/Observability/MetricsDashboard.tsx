@@ -3,7 +3,10 @@ import {
   AreaChart, Area, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
-import { useObservabilityData, MetricResult } from '../../hooks/useObservabilityData';
+import { useObservabilityData, MetricResult, ObservabilityConfig } from '../../hooks/useObservabilityData';
+import AgentHealthBanner from './AgentHealthBanner';
+import ScopeFallbackBanner from './ScopeFallbackBanner';
+import { AgentHealth, formatAge, toAgentHealth } from '../../utils/agentHealth';
 import { Icon } from '@iconify/react';
 import { useNavigate } from 'react-router-dom';
 
@@ -643,23 +646,68 @@ function SectionHeader({ icon, title, subtitle, accent = '#2a78d6' }: { icon: st
 
 const REFRESH_INTERVAL_MS = 30_000;
 
-const MetricsDashboard: React.FC = () => {
+const MetricsDashboard: React.FC<{
+  config?: ObservabilityConfig | null;
+  activeAccountId?: string | null;
+}> = ({ config = null, activeAccountId = null }) => {
   const [timeRange, setTimeRange] = useState(TIME_RANGES[1]); // default 1h
   const [refreshTick, setRefreshTick] = useState(0);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [liveEnabled, setLiveEnabled] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Agent health drives the empty-state explanation below. Without it, a dashboard full of
+  // "No data in range" panels is indistinguishable from a broken feature — the user has no
+  // way to learn that their hosts simply stopped reporting.
+  const { fetchConnectedInstances } = useObservabilityData();
+  const [agents, setAgents] = useState<AgentHealth[]>([]);
+  const lastAgentFetchRef = useRef(0);
+
+  useEffect(() => {
+    // Throttled to once a minute. This runs two extra queries (a 7-day roster and a 1-hour
+    // recency window), and the roster barely changes — re-running it on every 30s refresh
+    // tick would add load for no extra signal, given health thresholds are minutes wide.
+    const now = Date.now();
+    if (now - lastAgentFetchRef.current < 60_000) return;
+    lastAgentFetchRef.current = now;
+
+    let cancelled = false;
+    fetchConnectedInstances().then(instances => {
+      if (cancelled) return;
+      setAgents(instances.map(i =>
+        toAgentHealth(i.hostName, i.lastSeenMs, i.status, i.collectorAlive)));
+    });
+    return () => { cancelled = true; };
+  }, [fetchConnectedInstances, refreshTick]);
+
   const doRefresh = useCallback(() => {
     setRefreshTick(t => t + 1);
     setLastRefresh(new Date());
   }, []);
 
+  // Auto-refresh re-fires all 18 panel queries. Only do that while the tab is actually
+  // visible — background tabs were quietly generating a burst of 18 backend requests
+  // every 30s per open tab, which is a large share of the observability load.
   useEffect(() => {
-    if (liveEnabled) {
-      intervalRef.current = setInterval(doRefresh, REFRESH_INTERVAL_MS);
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    const stop = () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+    const start = () => {
+      stop();
+      if (liveEnabled && !document.hidden) {
+        intervalRef.current = setInterval(doRefresh, REFRESH_INTERVAL_MS);
+      }
+    };
+
+    start();
+    document.addEventListener('visibilitychange', start);
+    return () => {
+      document.removeEventListener('visibilitychange', start);
+      stop();
+    };
   }, [liveEnabled, doRefresh]);
 
   // Pinned to the range + refresh tick, not to render. Recomputing Date.now() on
@@ -671,8 +719,48 @@ const MetricsDashboard: React.FC = () => {
     return { startTime: end - timeRange.ms, endTime: end };
   }, [timeRange, refreshTick]);
 
+  // The newest sample we know about, across all hosts.
+  const latestDataMs = agents.reduce((max, a) => Math.max(max, a.lastSeenMs), 0);
+  // Data exists, but all of it predates the selected window — this is the case that used to
+  // render as eight silent "No data in range" panels with no explanation.
+  const dataIsOutsideRange = latestDataMs > 0 && latestDataMs < startTime;
+  // Smallest preset range that would actually contain the newest sample.
+  const suggestedRange = dataIsOutsideRange
+    ? TIME_RANGES.find(r => endTime - r.ms <= latestDataMs)
+    : undefined;
+
   return (
     <div className="space-y-4">
+
+      {/* Warns when these panels cover the whole org rather than the selected account */}
+      <ScopeFallbackBanner config={config} selectedAccountId={activeAccountId} />
+
+      {/* Agent problems — silent when every agent is reporting normally */}
+      <AgentHealthBanner agents={agents} />
+
+      {/* Data exists but not in the selected window */}
+      {dataIsOutsideRange && (
+        <div role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 flex items-start gap-3">
+          <Icon icon="mdi:clock-outline" width={18} className="mt-0.5 text-blue-600 flex-shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-semibold text-blue-900">
+              No metrics in the last {timeRange.label}
+            </p>
+            <p className="text-[12px] text-blue-800 mt-0.5">
+              The most recent data is {formatAge(endTime - latestDataMs)} old, so nothing falls
+              inside the selected range.
+            </p>
+            {suggestedRange && (
+              <button
+                onClick={() => setTimeRange(suggestedRange)}
+                className="mt-2 text-[12px] font-medium text-blue-700 hover:text-blue-900 inline-flex items-center gap-1"
+              >
+                Show last {suggestedRange.label} <Icon icon="mdi:arrow-right" width={13} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
