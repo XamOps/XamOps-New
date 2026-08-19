@@ -932,7 +932,11 @@ export const demoNetworkTopology: NetworkTopology = {
 const framework = (
   name: string, failCount: number, passCount: number, version: string, scanHoursAgo: number,
 ): ComplianceFramework => ({
-  framework: name, failCount, passCount, version, status: 'ACTIVE',
+  framework: name, failCount, version, status: 'ACTIVE',
+  // Null, matching the API: pass findings are no longer synced, so the grid shows Upwind's
+  // score plus the failing count. `passCount` here only feeds that score, so the demo does
+  // not advertise a column the product stopped populating.
+  passCount: null,
   // Upwind's framework id. Required for the per-control drill-down, which is keyed on it.
   frameworkId: `fw-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
   lastScanTime: hoursAgo(scanHoursAgo),

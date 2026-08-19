@@ -53,10 +53,18 @@ const ComplianceTab: React.FC<Props> = ({ data, isLoading, issues, loadControls 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {frameworks.map((f) => {
-        const total = f.failCount + f.passCount;
-        const passPct = total === 0 ? 0 : Math.round((f.passCount / total) * 100);
-        // Prefer Upwind's framework compliance score; fall back to our tenant pass rate.
-        const score = f.score ?? passPct;
+        // Upwind's own compliance score, with no local fallback.
+        //
+        // This used to fall back to failCount/(failCount+passCount) from synced findings, but
+        // PASS findings are no longer stored — they were 501k rows duplicating the same checks
+        // across 55 frameworks to recompute this very number. Where Upwind gives no score the
+        // honest answer is "not scored": 14 of the 55 enabled frameworks are Azure/GCP/OCI
+        // frameworks on an AWS-only org, and rendering those as 0% read as total failure.
+        const score = f.score ?? null;
+        const tone = score === null ? 'text-gray-400'
+          : score >= 80 ? 'text-emerald-600' : score >= 50 ? 'text-yellow-600' : 'text-red-600';
+        const bar = score === null ? 'bg-gray-200'
+          : score >= 80 ? 'bg-emerald-500' : score >= 50 ? 'bg-yellow-400' : 'bg-red-500';
         return (
           <button key={f.framework} type="button" onClick={() => setSelected(f)}
                   className="text-left bg-white border border-gray-200 rounded-xl shadow-sm p-5 hover:border-gray-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900">
@@ -78,24 +86,23 @@ const ComplianceTab: React.FC<Props> = ({ data, isLoading, issues, loadControls 
                 </div>
                 </div>
               </div>
-              <p className={`text-2xl font-extrabold flex-shrink-0 ${
-                score >= 80 ? 'text-emerald-600' : score >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>{score}%</p>
+              <p className={`text-2xl font-extrabold flex-shrink-0 ${tone}`}>
+                {score === null ? 'Not scored' : `${score}%`}
+              </p>
             </div>
             <div className="mt-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-              <div className={`h-full ${score >= 80 ? 'bg-emerald-500' : score >= 50 ? 'bg-yellow-400' : 'bg-red-500'}`}
-                   style={{ width: `${score}%` }} />
+              <div className={`h-full ${bar}`} style={{ width: `${score ?? 0}%` }} />
             </div>
             <div className="flex items-center justify-between gap-2 mt-3 text-xs text-gray-500">
-              {/* Passing counts are real now. The sync used to omit the status parameter, and
-                  Upwind's endpoint defaults to FAIL, so passCount was structurally zero and
-                  this line could only ever show failures. */}
               <span className="flex items-center gap-2 min-w-0">
                 {f.failCount > 0 ? (
                   <span><span className="font-bold text-red-600">{f.failCount}</span> failing</span>
                 ) : (
                   <span className="font-semibold text-emerald-600">No failing controls</span>
                 )}
-                {f.passCount > 0 && (
+                {/* Only when the API supplies a count. It is null by default now: pass counts
+                    come per control from the drawer's live v2 fetch, not from stored rows. */}
+                {f.passCount != null && f.passCount > 0 && (
                   <span className="text-gray-400">
                     <span className="font-bold text-emerald-600">{f.passCount}</span> passing
                   </span>

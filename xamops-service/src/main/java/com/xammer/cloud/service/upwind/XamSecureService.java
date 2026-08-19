@@ -2664,7 +2664,7 @@ public class XamSecureService {
                 redisCacheService.get(cacheKey, new TypeReference<List<Map<String, Object>>>() {});
         if (cached.isPresent()) return cached.get();
 
-        // Tenant-filtered pass/fail per framework (from synced posture findings).
+        // Tenant-filtered FAILING counts per framework (from synced posture findings).
         // Keyed by a NORMALIZED title (trim + collapse whitespace + lowercase) so it
         // reliably merges with Upwind's framework metadata even when titles differ by
         // stray whitespace/case (e.g. "NIST  SP 800-53 AWS" vs "NIST SP 800-53 AWS").
@@ -2724,7 +2724,14 @@ public class XamSecureService {
             // Prefer Upwind's canonical title; fall back to whatever the posture data used.
             m.put("framework", displayTitle.getOrDefault(key, key));
             m.put("failCount", counts.getOrDefault("FAIL", 0L));
-            m.put("passCount", counts.getOrDefault("PASS", 0L));
+            // Null, NOT zero. The sync no longer stores PASS findings (see
+            // UpwindSyncService#POSTURE_STATUSES: 501k rows, 9x duplicated across 55
+            // frameworks, to recompute a percentage Upwind already publishes as
+            // compliance_status.score). A zero here would read as "nothing passes", which is
+            // the exact bug the PASS walk was added to fix; null says "not counted, use the
+            // score". The framework drawer still shows real per-control pass/fail, live from
+            // the v2 per-framework search.
+            m.put("passCount", null);
             if (fw != null) {
                 m.put("framework", fw.path("title").asText((String) m.get("framework")));
                 // The id is what the per-control drill-down queries on; without it the drawer

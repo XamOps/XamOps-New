@@ -621,32 +621,68 @@ class UpwindSyncServiceTest {
     // --- Posture: PASS findings and Kubernetes context ---
 
     /**
-     * The endpoint defaults to status=FAIL, so omitting the parameter meant PASS findings
-     * were never fetched and every per-framework pass count was structurally zero.
+     * PASS is deliberately NOT fetched.
+     *
+     * It was, for a while, to give the Compliance tab real per-framework pass counts. Measured
+     * live it cost 501k rows against 63k FAIL — the same checks repeated once per framework
+     * across 55 enabled frameworks, a 9x duplication factor — to recompute a percentage Upwind
+     * publishes itself as compliance_status.score. This test pins the status list so a future
+     * "the endpoint defaults to FAIL, let's add PASS back" change has to read why first.
      */
     @Test
-    void syncPostureFetchesBothFailAndPassStatuses() {
+    void syncPostureFetchesFailOnly() {
         when(apiClient.isConfigured()).thenReturn(true);
         stubPostureStream(null, List.of(parse(POSTURE_JSON)), false);
 
         service.syncPosture();
 
         ArgumentCaptor<String> statuses = ArgumentCaptor.forClass(String.class);
-        verify(apiClient, times(2))
+        verify(apiClient, times(1))
                 .streamConfigurationFindings(statuses.capture(), anyInt(), any());
-        assertEquals(List.of("FAIL", "PASS"), statuses.getAllValues());
+        assertEquals(List.of("FAIL"), statuses.getAllValues());
     }
 
-    /** Reconciliation is all-or-nothing: one truncated status must block mark-resolved. */
+    /** Reconciliation is all-or-nothing: a truncated walk must block mark-resolved. */
     @Test
-    void syncPostureSkipsReconcileWhenAnyStatusTruncated() {
+    void syncPostureSkipsReconcileWhenTruncated() {
         when(apiClient.isConfigured()).thenReturn(true);
-        stubPostureStream("FAIL", List.of(parse(POSTURE_JSON)), false);
-        stubPostureStream("PASS", List.of(parse(POSTURE_JSON)), true);
+        stubPostureStream("FAIL", List.of(parse(POSTURE_JSON)), true);
 
         service.syncPosture();
 
         verify(postureRepo, never()).markResolvedNotSyncedSince(any());
+    }
+
+    /**
+     * A walk that broke part-way is recorded as partial, not as an outright error.
+     *
+     * The Data Freshness panel was showing POSTURE as "Sync issue — showing last data (400 Bad
+     * Request: [no body])" when in truth most of the domain had just been re-synced and the
+     * only actionable detail — which status and page — was thrown away. Reconciliation must
+     * still stand down, since the pages that never arrived would otherwise be archived.
+     */
+    @Test
+    void syncPostureRecordsAPartialWalkWithoutLosingWhatItRead() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(apiClient.streamConfigurationFindings(eq("FAIL"), anyInt(), any()))
+                .thenAnswer(inv -> {
+                    java.util.function.Consumer<JsonNode> sink = inv.getArgument(2);
+                    sink.accept(parse(POSTURE_JSON));
+                    return new UpwindApiClient.StreamResult(1, false,
+                            "stopped at page 41 of /configuration-findings?status=FAIL after "
+                                    + "40000 items: 400 Bad Request with an empty response body");
+                });
+
+        service.syncPosture();
+
+        verify(postureRepo, never()).markResolvedNotSyncedSince(any());
+        verify(syncStateRepo, atLeastOnce()).save(argThat(s ->
+                "POSTURE".equals(s.getDomain())
+                        && s.getLastSuccessAt() != null
+                        && s.getLastError() != null
+                        && s.getLastError().startsWith("Partial: 1 items synced")
+                        && s.getLastError().contains("page 41")
+                        && s.getLastError().contains("status=FAIL")));
     }
 
     @Test

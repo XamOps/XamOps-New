@@ -152,9 +152,28 @@ public class UpwindApiClient {
      */
     static final int PAGE_SIZE = 1000;
 
-    /** Outcome of a streaming walk: how many items were handed to the sink, and whether the
-     *  page cap cut it short. Deliberately carries no items — that is the point. */
-    public record StreamResult(int count, boolean truncated) { }
+    /**
+     * Outcome of a streaming walk: how many items were handed to the sink, and whether the
+     * walk ended early. Deliberately carries no items — that is the point.
+     *
+     * {@code failure} is null on a clean walk and otherwise describes the page that broke,
+     * with the path, page number and upstream message. It exists because the alternative was
+     * throwing: a walk of 285 pages that failed on page 220 discarded the whole run, and the
+     * caller recorded a context-free {@code "400 Bad Request: [no body]"} against the domain
+     * — no path, no page, no status, nothing to act on. The rows from the pages that did
+     * succeed are already committed by the sink, so reporting the break and keeping them
+     * beats unwinding to an error that says almost nothing.
+     */
+    public record StreamResult(int count, boolean truncated, String failure) {
+        public StreamResult(int count, boolean truncated) {
+            this(count, truncated, null);
+        }
+
+        /** True when the walk did not read the collection to its end, for whatever reason. */
+        public boolean incomplete() {
+            return truncated || failure != null;
+        }
+    }
 
     /**
      * v2 configuration findings, which carry BOTH pass and fail with the rule and framework
@@ -390,8 +409,25 @@ public class UpwindApiClient {
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(getToken());
             headers.set(HttpHeaders.USER_AGENT, "XamOps/1.0");
-            ResponseEntity<String> resp = exchangeWithRetry(
-                    URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
+            ResponseEntity<String> resp;
+            try {
+                resp = exchangeWithRetry(URI.create(url), HttpMethod.GET, new HttpEntity<>(headers));
+            } catch (RuntimeException e) {
+                // Page 1 failing means the request itself was rejected, which is a real fault
+                // and must stay loud. A failure PART-WAY THROUGH is a different animal: the
+                // request shape was already accepted, the rows read so far are committed, and
+                // these walks are long enough (measured 2026-08-18: 63,465 FAIL and 271,000+
+                // PASS configuration findings, ~285 pages of 1000) that transient upstream
+                // faults are routine rather than exceptional — a connection reset recurred
+                // around page 220 of the PASS walk. Aborting the domain for the next 6 hours
+                // over one bad page is the wrong trade.
+                if (pages == 0) throw describe(e, path, url, pages);
+                String failure = "stopped at page " + (pages + 1) + " of " + path + " after "
+                        + count + " items: " + rootMessage(e);
+                log.error("[Upwind] {} — keeping what was read and skipping mark-resolved. URL: {}",
+                        failure, url, e);
+                return new StreamResult(count, false, failure);
+            }
             try {
                 JsonNode body = objectMapper.readTree(resp.getBody());
                 if (body.isArray()) {
@@ -413,6 +449,33 @@ public class UpwindApiClient {
                     path, maxPages, count);
         }
         return new StreamResult(count, truncated);
+    }
+
+    /**
+     * Re-throws a page-1 failure with the path and URL attached.
+     *
+     * {@code HttpClientErrorException.getMessage()} on an empty response body is the whole of
+     * {@code "400 Bad Request: [no body]"} — which is exactly what the Data Freshness panel was
+     * showing for POSTURE, with no way to tell which endpoint, status or page produced it.
+     */
+    private static RuntimeException describe(RuntimeException e, String path, String url, int pages) {
+        return new IllegalStateException("Upwind " + path + " failed on page " + (pages + 1)
+                + " (" + url + "): " + rootMessage(e), e);
+    }
+
+    /** The most specific message available, including the response body for HTTP errors. */
+    private static String rootMessage(RuntimeException e) {
+        if (e instanceof org.springframework.web.client.RestClientResponseException r) {
+            String body = r.getResponseBodyAsString();
+            String status = r.getRawStatusCode() + " " + r.getStatusText();
+            return status + (body == null || body.isBlank()
+                    ? " with an empty response body" : " — " + truncate(body, 400));
+        }
+        return e.getMessage() == null ? e.toString() : e.getMessage();
+    }
+
+    private static String truncate(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max) + "…";
     }
 
     /** Streaming form of {@link #fetchVulnerabilityFindingsPaged}. */
@@ -835,11 +898,19 @@ public class UpwindApiClient {
     /**
      * Wraps restTemplate.exchange with retry-with-backoff for transient failures within a
      * single sync run: HTTP 5xx (e.g. Upwind's "503 upstream connect error"), HTTP 429
-     * (every v2 operation documents a 429 "Rate Limit Exceeded" response) and I/O errors
-     * (connection refused/reset). Other 4xx (auth/bad request) are NOT retried — they won't
-     * fix themselves. Backoff starts at retryBackoffMs and doubles each attempt; on a 429 a
-     * {@code Retry-After} header takes precedence over our own backoff, since the server
-     * knows when the window reopens and guessing shorter just burns another rejection.
+     * (every v2 operation documents a 429 "Rate Limit Exceeded" response), I/O errors
+     * (connection refused/reset) and an EMPTY-BODIED 400 (see below). Other 4xx
+     * (auth/genuine bad request) are NOT retried — they won't fix themselves. Backoff starts
+     * at retryBackoffMs and doubles each attempt; on a 429 a {@code Retry-After} header takes
+     * precedence over our own backoff, since the server knows when the window reopens and
+     * guessing shorter just burns another rejection.
+     *
+     * The empty-body carve-out is narrow on purpose. Every 400 Upwind's API itself produces
+     * explains itself in the body — "conditions: must not be empty", "Field 'conditions':
+     * must not be null" — so a 400 with NOTHING in it did not come from the API's validation;
+     * it comes from the edge, on connections these multi-hundred-page walks hold open for
+     * hours. Treating it as a verdict is what turned one bad page into a POSTURE domain that
+     * read as broken until the next 6-hourly run.
      */
     private ResponseEntity<String> exchangeWithRetry(URI uri, HttpMethod method, HttpEntity<?> entity) {
         int attempts = Math.max(1, maxAttempts);
@@ -853,6 +924,12 @@ public class UpwindApiClient {
                 last = e;
                 Long retryAfter = retryAfterMs(e.getResponseHeaders());
                 if (retryAfter != null) wait = retryAfter;
+            } catch (HttpClientErrorException e) {
+                // Status and body, not the exception subclass: only the response-error handler
+                // creates HttpClientErrorException.BadRequest, so matching on the type would
+                // quietly miss every other way a 400 reaches here.
+                if (e.getRawStatusCode() != 400 || !e.getResponseBodyAsString().isBlank()) throw e;
+                last = e;
             } catch (HttpServerErrorException | ResourceAccessException e) {
                 last = e;
             }
