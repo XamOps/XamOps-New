@@ -47,7 +47,14 @@ public class AwsPricingService {
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
 
-    private final ConcurrentHashMap<String, Double> livePriceCache = new ConcurrentHashMap<>();
+    /**
+     * Hourly EC2/RDS prices keyed by {@code instanceType:region}, with a TTL.
+     * Previously untyped and unexpiring, so an estimated price persisted for the JVM's life.
+     */
+    private final ConcurrentHashMap<String, CachedPrice> livePriceCache = new ConcurrentHashMap<>();
+
+    /** How long a resolved price is reused before being refetched. */
+    private static final java.time.Duration PRICE_CACHE_TTL = java.time.Duration.ofHours(24);
 
     // --- YOUR STATIC DATA (Required for Calculator) ---
     // Real AWS EC2 On-Demand pricing for us-east-1 (as of 2024)
@@ -200,44 +207,68 @@ public class AwsPricingService {
 
         String cacheKey = instanceType.toLowerCase() + ":" + region;
 
-        // 1. In-memory cache (avoids repeated API calls within the same JVM lifetime)
-        Double cached = livePriceCache.get(cacheKey);
-        if (cached != null) {
-            return cached;
+        // 1. In-memory cache, with a TTL. It previously had none, so a wrong or estimated
+        // price was pinned for the JVM's entire lifetime.
+        CachedPrice cached = livePriceCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            return cached.pricePerHour();
         }
 
-        // 2. Static table with regional multiplier (fast path for well-known types)
-        Double basePrice = US_EAST_1_PRICING.get(instanceType.toLowerCase());
-        if (basePrice != null) {
-            double finalPrice = basePrice * REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
-            livePriceCache.put(cacheKey, finalPrice);
-            logger.debug("Pricing for {} in {}: ${}/hour (static table)", instanceType, region, finalPrice);
-            return finalPrice;
-        }
-
-        // 3. Live AWS Pricing API for instance types not in the static table
+        // 2. Live AWS Pricing API first.
+        //
+        // The static table below used to be consulted BEFORE the API, so every listed type
+        // never reached AWS at all — the platform reported 2024 prices indefinitely, and
+        // unlisted regions silently took multiplier 1.0 (pricing Bahrain and Zurich as
+        // N. Virginia). Graviton was worst affected: no t4g/m6g/c7g entry exists, so those
+        // fell through to a substring guess that overstates t4g.micro by roughly 43%.
         try {
             double livePrice = fetchLiveHourlyCost(instanceType, region);
             if (livePrice > 0.0) {
-                livePriceCache.put(cacheKey, livePrice);
-                logger.info("Live pricing for {} in {}: ${}/hour", instanceType, region, livePrice);
+                livePriceCache.put(cacheKey, CachedPrice.of(livePrice));
+                logger.debug("Live pricing for {} in {}: ${}/hour", instanceType, region, livePrice);
                 return livePrice;
             }
         } catch (Exception e) {
             logger.warn("Live pricing lookup failed for {} in {}: {}", instanceType, region, e.getMessage());
         }
 
-        // 4. Pattern-based estimate as final fallback
+        // 3. Static table as a fallback only, so an API outage degrades rather than breaks.
+        Double basePrice = US_EAST_1_PRICING.get(instanceType.toLowerCase());
+        if (basePrice != null) {
+            double finalPrice = basePrice * REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
+            livePriceCache.put(cacheKey, CachedPrice.of(finalPrice));
+            logger.warn("Using static 2024 fallback price for {} in {}: ${}/hour. "
+                    + "This figure is not authoritative.", instanceType, region, finalPrice);
+            return finalPrice;
+        }
+
+        // 4. Pattern-based estimate as the last resort.
         double estimated = estimatePricing(instanceType);
-        livePriceCache.put(cacheKey, estimated);
+        livePriceCache.put(cacheKey, CachedPrice.of(estimated));
+        logger.warn("Using a size-pattern estimate for unknown instance type {} in {}: ${}/hour. "
+                + "This figure is not authoritative.", instanceType, region, estimated);
         return estimated;
+    }
+
+    /** A cached hourly price with its fetch time, so stale entries are refreshed. */
+    private record CachedPrice(double pricePerHour, java.time.Instant fetchedAt) {
+        static CachedPrice of(double pricePerHour) {
+            return new CachedPrice(pricePerHour, java.time.Instant.now());
+        }
+
+        boolean isExpired() {
+            return java.time.Duration.between(fetchedAt, java.time.Instant.now())
+                    .compareTo(PRICE_CACHE_TTL) > 0;
+        }
     }
 
     private double fetchLiveHourlyCost(String instanceType, String region) {
         PricingClient pricingClient = awsClientProvider.getPricingClient();
         List<Filter> filters = List.of(
                 Filter.builder().field("serviceCode").type(FilterType.TERM_MATCH).value("AmazonEC2").build(),
-                Filter.builder().field("location").type(FilterType.TERM_MATCH).value(regionToLocation(region)).build(),
+                // regionCode works for every region, including ones absent from any hardcoded
+                // location map, so a newer region no longer silently falls through.
+                Filter.builder().field("regionCode").type(FilterType.TERM_MATCH).value(region).build(),
                 Filter.builder().field("instanceType").type(FilterType.TERM_MATCH).value(instanceType).build(),
                 Filter.builder().field("operatingSystem").type(FilterType.TERM_MATCH).value("Linux").build(),
                 Filter.builder().field("preInstalledSw").type(FilterType.TERM_MATCH).value("NA").build(),
@@ -916,10 +947,11 @@ public Map<String, Object> getAllAwsServices(AwsServiceRegistry registry) {
                     .type(FilterType.TERM_MATCH)
                     .value("AmazonEC2")
                     .build());
+            // regionCode covers every region, unlike the hardcoded location map.
             filters.add(Filter.builder()
-                    .field("location")
+                    .field("regionCode")
                     .type(FilterType.TERM_MATCH)
-                    .value(regionToLocation(region))
+                    .value(region)
                     .build());
             filters.add(Filter.builder()
                     .field("operatingSystem")

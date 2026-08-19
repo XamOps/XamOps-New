@@ -9,9 +9,11 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.util.Ec2InstanceTypes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -84,6 +86,21 @@ public class OptimizationService {
     private final RedisCacheService redisCache;
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
+    private final SnapshotFreshnessService snapshotFreshnessService;
+
+    /**
+     * When true, Compute Optimizer is also asked for Graviton (ARM64) options alongside
+     * same-architecture ones. Off by default: an ARM64 target requires an AMI rebuild, so
+     * it is a migration project rather than a one-click resize.
+     */
+    @Value("${optimization.ec2.include-graviton:false}")
+    private boolean includeGravitonRecommendations;
+
+    /** CloudWatch GetMetricData accepts at most 500 queries per request. */
+    private static final int METRIC_QUERY_BATCH_SIZE = 500;
+
+    /** Ceiling on GetMetricData pages followed per batch, to bound memory. */
+    private static final int MAX_METRIC_PAGES = 20;
 
     @Autowired
     public OptimizationService(
@@ -93,7 +110,8 @@ public class OptimizationService {
             @Lazy CloudListService cloudListService,
             RedisCacheService redisCache,
             CachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            SnapshotFreshnessService snapshotFreshnessService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.pricingService = pricingService;
@@ -101,6 +119,12 @@ public class OptimizationService {
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.snapshotFreshnessService = snapshotFreshnessService;
+    }
+
+    /** Delegates to {@link Ec2InstanceTypes#architectureOf(String)}. */
+    private static String architectureOf(String instanceType) {
+        return Ec2InstanceTypes.architectureOf(instanceType);
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -150,7 +174,8 @@ public class OptimizationService {
             // 2. DB fallback — only used when Redis is cold (after restart/deployment)
             try {
                 String dbKey = "rightsizing-" + accountId;
-                Optional<CachedData> dbCache = cachedDataRepository.findById(dbKey);
+                Optional<CachedData> dbCache = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(dbKey), dbKey);
                 if (dbCache.isPresent()) {
                     List<DashboardData.OptimizationRecommendation> allRecs = objectMapper.readValue(
                             dbCache.get().getJsonData(),
@@ -226,10 +251,18 @@ public class OptimizationService {
             List<DashboardData.OptimizationRecommendation> recommendations = new ArrayList<>();
             String nextToken = null;
 
-            // **FIXED LOGIC**: Use raw strings instead of enum constants to avoid
-            // resolution issues.
+            // Ask Compute Optimizer for CURRENT (same-architecture) options by default.
+            //
+            // This previously pinned AWS_ARM64, which had two effects: every recommendation
+            // required an x86 -> Graviton migration (new AMI, recompiled binaries), and
+            // same-architecture downsizes such as m5.4xlarge -> m5.xlarge were never
+            // returned at all. Graviton options are opt-in via
+            // `optimization.ec2.include-graviton=true`, and any cross-architecture option
+            // is tagged so the UI and the apply path can require an explicit migration.
             RecommendationPreferences recommendationPreferences = RecommendationPreferences.builder()
-                    .cpuVendorArchitectures(List.of(CpuVendorArchitecture.AWS_ARM64))
+                    .cpuVendorArchitectures(includeGravitonRecommendations
+                            ? List.of(CpuVendorArchitecture.CURRENT, CpuVendorArchitecture.AWS_ARM64)
+                            : List.of(CpuVendorArchitecture.CURRENT))
                     .build();
 
             do {
@@ -302,6 +335,15 @@ public class OptimizationService {
                             if (r.instanceName() != null && !r.instanceName().isBlank()) {
                                 rec.setInstanceName(r.instanceName());
                             }
+
+                            // Flag cross-architecture targets so the UI can label them and the
+                            // apply path can refuse to stop/modify/start into an incompatible AMI.
+                            String currentArch = architectureOf(r.currentInstanceType());
+                            String targetArch = architectureOf(bestOption.instanceType());
+                            rec.setCurrentArchitecture(currentArch);
+                            rec.setRecommendedArchitecture(targetArch);
+                            rec.setRequiresArchitectureMigration(!currentArch.equals(targetArch));
+
                             return rec;
                         })
                         // Drop non-actionable recommendations: AWS sometimes returns the current
@@ -552,9 +594,13 @@ public class OptimizationService {
                     .volumes().stream()
                     .map(volume -> {
                         double monthlyCost = calculateEbsMonthlyCost(volume, regionId);
-                        return new DashboardData.WastedResource(volume.volumeId(),
-                                getTagName(volume.tags(), volume.volumeId()), "EBS Volume", regionId, monthlyCost,
-                                "Unattached Volume");
+                        String name = getTagName(volume.tags(), volume.volumeId());
+                        return PricingService.isPriceAvailable(monthlyCost)
+                                ? new DashboardData.WastedResource(volume.volumeId(), name, "EBS Volume",
+                                        regionId, monthlyCost, "Unattached Volume")
+                                : DashboardData.WastedResource.withUnknownSavings(volume.volumeId(), name,
+                                        "EBS Volume", regionId,
+                                        "Unattached Volume — monthly cost could not be determined");
                     })
                     .collect(Collectors.toList());
         }, "Unattached EBS Volumes");
@@ -888,10 +934,17 @@ public class OptimizationService {
                         : nouVals.stream().mapToDouble(Double::doubleValue).sum();
                 if (maxCpu < maxCpuThreshold && networkIn < networkThreshold && networkOut < networkThreshold) {
                     Instance inst = instances.get(i);
-                    findings.add(new DashboardData.WastedResource(inst.instanceId(),
-                            getTagName(inst.tags(), inst.instanceId()), "EC2 Instance", regionId,
-                            pricingService.getEc2InstanceMonthlyPrice(inst.instanceTypeAsString(), regionId),
-                            "Idle EC2 Instance (low CPU)"));
+                    String name = getTagName(inst.tags(), inst.instanceId());
+                    double monthlyPrice = pricingService
+                            .getEc2InstanceMonthlyPrice(inst.instanceTypeAsString(), regionId);
+                    // A pricing lookup failure returns 0.0. Reporting that as the cost of an
+                    // idle instance understates waste, so flag it as unpriced instead.
+                    findings.add(PricingService.isPriceAvailable(monthlyPrice)
+                            ? new DashboardData.WastedResource(inst.instanceId(), name, "EC2 Instance",
+                                    regionId, monthlyPrice, "Idle EC2 Instance (low CPU)")
+                            : DashboardData.WastedResource.withUnknownSavings(inst.instanceId(), name,
+                                    "EC2 Instance", regionId,
+                                    "Idle EC2 Instance (low CPU) — monthly cost could not be determined"));
                 }
             }
             return findings;
@@ -1012,12 +1065,35 @@ public class OptimizationService {
     private Map<String, List<Double>> batchGetMetrics(CloudWatchClient cw, List<MetricDataQuery> queries,
             Instant start, Instant end) {
         Map<String, List<Double>> results = new HashMap<>();
-        for (int i = 0; i < queries.size(); i += 500) {
-            List<MetricDataQuery> chunk = queries.subList(i, Math.min(i + 500, queries.size()));
-            GetMetricDataRequest req = GetMetricDataRequest.builder()
-                    .startTime(start).endTime(end).metricDataQueries(chunk).build();
-            cw.getMetricData(req).metricDataResults()
-                    .forEach(r -> results.put(r.id(), r.values()));
+        for (int i = 0; i < queries.size(); i += METRIC_QUERY_BATCH_SIZE) {
+            List<MetricDataQuery> chunk = queries.subList(i,
+                    Math.min(i + METRIC_QUERY_BATCH_SIZE, queries.size()));
+
+            // Follow nextToken. GetMetricData caps a single response at 100,800 datapoints,
+            // which 500 queries over a long window can exceed. Reading only the first page
+            // silently truncated the tail, so some resources appeared to have no data and
+            // were then treated as idle.
+            String nextToken = null;
+            int pages = 0;
+            do {
+                GetMetricDataRequest req = GetMetricDataRequest.builder()
+                        .startTime(start).endTime(end)
+                        .metricDataQueries(chunk)
+                        .nextToken(nextToken)
+                        .build();
+                GetMetricDataResponse response = cw.getMetricData(req);
+
+                // A query's datapoints can span pages, so append rather than overwrite.
+                response.metricDataResults().forEach(r ->
+                        results.computeIfAbsent(r.id(), k -> new ArrayList<>()).addAll(r.values()));
+
+                nextToken = response.nextToken();
+            } while (nextToken != null && !nextToken.isBlank() && ++pages < MAX_METRIC_PAGES);
+
+            if (pages >= MAX_METRIC_PAGES) {
+                logger.warn("GetMetricData hit the {}-page ceiling; metric results may be truncated",
+                        MAX_METRIC_PAGES);
+            }
         }
         return results;
     }

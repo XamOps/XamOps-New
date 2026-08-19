@@ -68,9 +68,14 @@ public class DashboardDataService {
     private static final String SNAPSHOT_KEY_GCP = "UNIFIED_DASHBOARD_GCP";
     private static final String SNAPSHOT_KEY_AZURE = "UNIFIED_DASHBOARD_AZURE";
 
-    // Currency Conversion Rate: INR to USD
-    // GCP billing in India is in INR, we convert to USD for unified display
-    private static final double INR_TO_USD_RATE = 0.012; // Approximately 1 INR = 0.012 USD (83 INR = 1 USD)
+    // GCP billing in India is denominated in INR; the dashboard displays USD.
+    //
+    // The conversion goes through CurrencyConversionService so there is a single
+    // configurable rate for the whole platform. This was previously a local
+    // INR_TO_USD_RATE = 0.012 constant (an implied 83.33), which disagreed with the
+    // 83.0 used by the GCP optimization service and the 84.0 used by both disk
+    // services — so the same resource cost a different amount depending on which
+    // code path a user hit.
 
     // Limit concurrent account processing to prevent multiplicative thread
     // explosion.
@@ -102,6 +107,7 @@ public class DashboardDataService {
     private final com.xammer.cloud.service.azure.AzureAutoSpottingService azureAutoSpottingService;
     private final com.xammer.cloud.service.azure.AzureDiskRightsizingService azureDiskRightsizingService;
     private final com.xammer.cloud.service.azure.AzureWasteService azureWasteService;
+    private final CurrencyConversionService currencyConversionService;
 
     // Phase 2: Master Data Access for Tenant Iteration
     private final JdbcTemplate masterJdbcTemplate;
@@ -144,6 +150,7 @@ public class DashboardDataService {
             @Lazy com.xammer.cloud.service.azure.AzureAutoSpottingService azureAutoSpottingService,
             @Lazy com.xammer.cloud.service.azure.AzureDiskRightsizingService azureDiskRightsizingService,
             @Lazy com.xammer.cloud.service.azure.AzureWasteService azureWasteService,
+            CurrencyConversionService currencyConversionService,
             @Qualifier("backgroundTaskExecutor") TaskExecutor backgroundTaskExecutor) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -172,6 +179,7 @@ public class DashboardDataService {
         this.azureAutoSpottingService = azureAutoSpottingService;
         this.azureDiskRightsizingService = azureDiskRightsizingService;
         this.azureWasteService = azureWasteService;
+        this.currencyConversionService = currencyConversionService;
         this.backgroundTaskExecutor = backgroundTaskExecutor;
     }
 
@@ -1413,9 +1421,9 @@ public class DashboardDataService {
             CloudAccount acc = accounts.get(i);
 
             // Convert GCP costs from INR to USD
-            double mtdUsd = data.getMonthToDateSpend() * INR_TO_USD_RATE;
-            double forecastUsd = data.getForecastedSpend() * INR_TO_USD_RATE;
-            double lastMonthUsd = data.getLastMonthSpend() * INR_TO_USD_RATE;
+            double mtdUsd = currencyConversionService.inrToUsd(data.getMonthToDateSpend());
+            double forecastUsd = currencyConversionService.inrToUsd(data.getForecastedSpend());
+            double lastMonthUsd = currencyConversionService.inrToUsd(data.getLastMonthSpend());
 
             totalMTD += mtdUsd;
             totalForecast += forecastUsd;
@@ -1493,7 +1501,7 @@ public class DashboardDataService {
                     // And historyList comes from gcpCostService.getHistoricalCosts(gcpProjectId).
                     // Most GCP BigQuery results are in INR.
                     double costValue = costs.get(j);
-                    double costUsd = costValue * INR_TO_USD_RATE;
+                    double costUsd = currencyConversionService.inrToUsd(costValue);
                     costHistoryMap.merge(labels.get(j), costUsd, Double::sum);
                 }
             }
@@ -1501,7 +1509,7 @@ public class DashboardDataService {
             if (data.getBillingSummary() != null) {
                 for (GcpCostDto bill : data.getBillingSummary()) {
                     // Convert billing summary from INR to USD
-                    double billUsd = bill.getAmount() * INR_TO_USD_RATE;
+                    double billUsd = currencyConversionService.inrToUsd(bill.getAmount());
                     billingSummaryMap.merge(bill.getName(), billUsd, Double::sum);
                 }
             }
@@ -2635,13 +2643,33 @@ public class DashboardDataService {
 
         return CompletableFuture.allOf(wastedFuture, ec2RecsFuture, ebsRecsFuture, lambdaRecsFuture)
                 .thenApply(v -> {
-                    double wasteSavings = wastedFuture.join().stream()
+                    List<DashboardData.WastedResource> wasted = wastedFuture.join();
+                    List<DashboardData.OptimizationRecommendation> allRecs = Stream
+                            .of(ec2RecsFuture.join(), ebsRecsFuture.join(), lambdaRecsFuture.join())
+                            .flatMap(List::stream)
+                            .collect(Collectors.toList());
+
+                    // Skip resources whose cost could not be priced, so an unpriced finding is
+                    // never counted as if the resource were free.
+                    double wasteSavings = wasted.stream()
+                            .filter(w -> !w.isSavingsUnknown())
                             .mapToDouble(DashboardData.WastedResource::getMonthlySavings)
                             .sum();
 
-                    double rightsizingSavings = Stream
-                            .of(ec2RecsFuture.join(), ebsRecsFuture.join(), lambdaRecsFuture.join())
-                            .flatMap(List::stream)
+                    // Exclude rightsizing savings for resources already booked at full cost in
+                    // the waste list. An idle EC2 instance previously contributed its entire
+                    // monthly price as waste AND a downsize delta as rightsizing; the same
+                    // applied to unattached EBS volumes, which also appear in ebsDiskSavings
+                    // below. Deleting and resizing are mutually exclusive, so the full-cost
+                    // waste figure wins.
+                    Set<String> wastedResourceIds = wasted.stream()
+                            .map(DashboardData.WastedResource::getResourceId)
+                            .filter(id -> id != null && !id.isBlank())
+                            .collect(Collectors.toSet());
+
+                    double rightsizingSavings = allRecs.stream()
+                            .filter(r -> r.getResourceId() == null
+                                    || !wastedResourceIds.contains(r.getResourceId()))
                             .mapToDouble(DashboardData.OptimizationRecommendation::getEstimatedMonthlySavings)
                             .sum();
 
@@ -2661,14 +2689,17 @@ public class DashboardDataService {
                         }
                     }
 
-                    // EBS Disk Rightsizing savings — cache-only, no live scan
+                    // EBS Disk Rightsizing savings — cache-only, no live scan.
+                    // Unattached volumes are excluded because findUnattachedEbsVolumes already
+                    // counts them in wasteSavings above.
                     double ebsDiskSavings = 0.0;
                     if (cloudAccountId != null) {
                         try {
                             String awsAccId = cloudAccountRepository.findById(cloudAccountId)
                                     .map(com.xammer.cloud.domain.CloudAccount::getAwsAccountId)
                                     .orElse(null);
-                            ebsDiskSavings = ebsDiskRightsizingService.getTotalPotentialSavings(awsAccId);
+                            ebsDiskSavings = ebsDiskRightsizingService
+                                    .getTotalPotentialSavingsExcluding(awsAccId, wastedResourceIds);
                         } catch (Exception e) {
                             logger.warn("Could not fetch EBS disk rightsizing savings for dashboard: {}",
                                     e.getMessage());
@@ -2766,8 +2797,11 @@ public class DashboardDataService {
             }
             // Azure Disk Rightsizing
             try {
+                // Internal caller: the account is already resolved and trusted here, so its
+                // own client id satisfies the service's tenant-ownership check.
+                Long ownerClientId = account.getClient() != null ? account.getClient().getId() : null;
                 java.util.List<java.util.Map<String, Object>> disks = azureDiskRightsizingService
-                        .getDisks(account.getId().toString(), false);
+                        .getDisks(account.getId().toString(), ownerClientId, false);
                 total += disks.stream()
 
                         .filter(d -> !"NONE".equals(d.get("recommendation")))
@@ -2893,10 +2927,13 @@ public class DashboardDataService {
             List<com.xammer.cloud.dto.azure.AzureWasteItem> azureWaste = azureWasteService
                     .getWasteItems(account.getAzureSubscriptionId(), false);
             if (azureWaste != null && !azureWaste.isEmpty()) {
+                // AzureWasteItem amounts are already USD. They were previously multiplied by
+                // INR_TO_USD_RATE here while the optimizationSummary in the same response was
+                // left unconverted, so two adjacent fields differed by ~83x.
                 List<DashboardData.WastedResource> mapped = azureWaste.stream()
                         .map(w -> new DashboardData.WastedResource(
                                 w.getResourceId(), w.getResourceName(), w.getResourceType(),
-                                w.getRegion(), w.getMonthlySavings() * INR_TO_USD_RATE, w.getReason()))
+                                w.getRegion(), w.getMonthlySavings(), w.getReason()))
                         .collect(Collectors.toList());
                 mainAccount.setWastedResources(mapped);
             } else {

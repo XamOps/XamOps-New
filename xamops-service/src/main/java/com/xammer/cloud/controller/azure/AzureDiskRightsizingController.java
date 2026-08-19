@@ -1,11 +1,14 @@
 package com.xammer.cloud.controller.azure;
 
 import com.xammer.cloud.domain.DiskPolicy;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.azure.AzureDiskRightsizingService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -18,34 +21,64 @@ public class AzureDiskRightsizingController {
     private static final Logger logger = LoggerFactory.getLogger(AzureDiskRightsizingController.class);
     private final AzureDiskRightsizingService azureDiskService;
 
+    /**
+     * Extracts the caller's client id. {@code accountId} is a path variable, so the
+     * service layer needs the authenticated tenant to verify ownership before touching
+     * an Azure subscription.
+     */
+    private Long clientIdOf(ClientUserDetails userDetails) {
+        if (userDetails == null || userDetails.getClientId() == null) {
+            throw new SecurityException("Unauthenticated request");
+        }
+        return userDetails.getClientId();
+    }
+
+    /** Maps tenant-isolation failures to 403 and everything else to 500. */
+    private ResponseEntity<?> toErrorResponse(String context, String accountId, Exception e) {
+        if (e instanceof SecurityException) {
+            logger.warn("Denied {} for account {}: {}", context, accountId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("success", false, "error", "Not authorized for this account"));
+        }
+        if (e instanceof IllegalArgumentException) {
+            logger.warn("Bad request for {} account {}: {}", context, accountId, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", e.getMessage()));
+        }
+        logger.error("Failed {} for account {}: {}", context, accountId, e.getMessage(), e);
+        return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+    }
+
     @GetMapping("/volumes/{accountId}")
     public ResponseEntity<?> getDisks(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
-            return ResponseEntity.ok(azureDiskService.getDisks(accountId, forceRefresh));
+            return ResponseEntity.ok(
+                    azureDiskService.getDisks(accountId, clientIdOf(userDetails), forceRefresh));
         } catch (Exception e) {
-            logger.error("Failed to list Azure disks for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return toErrorResponse("list Azure disks", accountId, e);
         }
     }
 
     @GetMapping("/recommendations/{accountId}")
     public ResponseEntity<?> getRecommendations(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
-            return ResponseEntity.ok(azureDiskService.getRecommendations(accountId, forceRefresh));
+            return ResponseEntity.ok(
+                    azureDiskService.getRecommendations(accountId, clientIdOf(userDetails), forceRefresh));
         } catch (Exception e) {
-            logger.error("Failed to get Azure disk recommendations for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return toErrorResponse("get Azure disk recommendations", accountId, e);
         }
     }
 
     @PostMapping("/action/{accountId}")
     public ResponseEntity<?> applyAction(
             @PathVariable String accountId,
-            @RequestBody Map<String, Object> request) {
+            @RequestBody Map<String, Object> request,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
             String diskName       = (String) request.get("diskName");
             String resourceGroup  = (String) request.get("resourceGroup");
@@ -53,42 +86,44 @@ public class AzureDiskRightsizingController {
             Integer targetSizeGb  = request.get("targetSizeGb") != null
                     ? ((Number) request.get("targetSizeGb")).intValue() : null;
             return ResponseEntity.ok(
-                    azureDiskService.applyAction(accountId, diskName, resourceGroup, actionType, targetSizeGb));
+                    azureDiskService.applyAction(accountId, clientIdOf(userDetails), diskName, resourceGroup,
+                            actionType, targetSizeGb));
         } catch (Exception e) {
-            logger.error("Failed to apply Azure disk action for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return toErrorResponse("apply Azure disk action", accountId, e);
         }
     }
 
     @GetMapping("/policies/{accountId}")
-    public ResponseEntity<?> getPolicies(@PathVariable String accountId) {
+    public ResponseEntity<?> getPolicies(
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
-            return ResponseEntity.ok(azureDiskService.getPolicies(accountId));
+            return ResponseEntity.ok(azureDiskService.getPolicies(accountId, clientIdOf(userDetails)));
         } catch (Exception e) {
-            logger.error("Failed to get Azure disk policies for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return toErrorResponse("get Azure disk policies", accountId, e);
         }
     }
 
     @PostMapping("/policies/{accountId}")
     public ResponseEntity<?> savePolicy(
             @PathVariable String accountId,
-            @RequestBody DiskPolicy policy) {
+            @RequestBody DiskPolicy policy,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
-            return ResponseEntity.ok(azureDiskService.savePolicy(accountId, policy));
+            return ResponseEntity.ok(azureDiskService.savePolicy(accountId, clientIdOf(userDetails), policy));
         } catch (Exception e) {
-            logger.error("Failed to save Azure disk policy for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return toErrorResponse("save Azure disk policy", accountId, e);
         }
     }
 
     @GetMapping("/history/{accountId}")
-    public ResponseEntity<?> getActionHistory(@PathVariable String accountId) {
+    public ResponseEntity<?> getActionHistory(
+            @PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
         try {
-            return ResponseEntity.ok(azureDiskService.getActionHistory(accountId));
+            return ResponseEntity.ok(azureDiskService.getActionHistory(accountId, clientIdOf(userDetails)));
         } catch (Exception e) {
-            logger.error("Failed to get Azure disk action history for account {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            return toErrorResponse("get Azure disk action history", accountId, e);
         }
     }
 }

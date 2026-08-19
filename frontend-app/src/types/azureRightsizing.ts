@@ -19,7 +19,17 @@ export interface AzureRightsizingRecommendation {
   currency: string;
   problem: string;
   solution: string;
-  maxCpuP95: string;
-  maxMemoryP95: string;
+  /**
+   * Highest observed CPU utilization. Renamed from `maxCpuP95` because the backend
+   * stores the true Azure Monitor Maximum for metric-based recommendations, not a
+   * 95th percentile.
+   */
+  maxCpuObserved: string;
+  /** Average observed CPU utilization. */
+  avgCpuObserved?: string;
+  /** Highest observed memory utilization; blank unless an in-VM agent reports it. */
+  maxMemoryObserved: string;
+  /** True when savings could not be quantified; exclude from savings totals. */
+  savingsUnknown?: boolean;
   location: string;
 }

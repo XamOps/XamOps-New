@@ -21,8 +21,30 @@ public class AzureRightsizingRecommendation {
     private String currency;          // properties.extendedProperties.savingsCurrency
     private String problem;           // properties.shortDescription.problem
     private String solution;          // properties.shortDescription.solution
-    private String maxCpuP95;         // properties.extendedProperties.maxCpuP95
-    private String maxMemoryP95;      // properties.extendedProperties.maxMemoryP95
+    /**
+     * Highest observed CPU utilization, as a formatted percentage.
+     *
+     * <p>Renamed from {@code maxCpuP95}: for metric-based recommendations this service
+     * stores the true Azure Monitor {@code Maximum}, not a 95th percentile, and labelling a
+     * maximum as p95 misrepresented how much headroom a downsize would leave.
+     */
+    private String maxCpuObserved;
+
+    /** Average observed CPU utilization, as a formatted percentage. */
+    private String avgCpuObserved;
+
+    /**
+     * Highest observed memory utilization, as a formatted percentage. Populated only when
+     * Advisor supplies it; Azure does not expose guest memory without an in-VM agent.
+     */
+    private String maxMemoryObserved;
+
+    /**
+     * True when a saving could not be quantified, so {@link #monthlySavings} is a
+     * placeholder zero. Consumers must exclude these from savings totals.
+     */
+    private boolean savingsUnknown;
+
     private String location;          // parsed from resourceId if present
 
     // --- Getters and Setters ---
@@ -66,11 +88,17 @@ public class AzureRightsizingRecommendation {
     public String getSolution() { return solution; }
     public void setSolution(String solution) { this.solution = solution; }
 
-    public String getMaxCpuP95() { return maxCpuP95; }
-    public void setMaxCpuP95(String maxCpuP95) { this.maxCpuP95 = maxCpuP95; }
+    public String getMaxCpuObserved() { return maxCpuObserved; }
+    public void setMaxCpuObserved(String maxCpuObserved) { this.maxCpuObserved = maxCpuObserved; }
 
-    public String getMaxMemoryP95() { return maxMemoryP95; }
-    public void setMaxMemoryP95(String maxMemoryP95) { this.maxMemoryP95 = maxMemoryP95; }
+    public String getAvgCpuObserved() { return avgCpuObserved; }
+    public void setAvgCpuObserved(String avgCpuObserved) { this.avgCpuObserved = avgCpuObserved; }
+
+    public String getMaxMemoryObserved() { return maxMemoryObserved; }
+    public void setMaxMemoryObserved(String maxMemoryObserved) { this.maxMemoryObserved = maxMemoryObserved; }
+
+    public boolean isSavingsUnknown() { return savingsUnknown; }
+    public void setSavingsUnknown(boolean savingsUnknown) { this.savingsUnknown = savingsUnknown; }
 
     public String getLocation() { return location; }
     public void setLocation(String location) { this.location = location; }

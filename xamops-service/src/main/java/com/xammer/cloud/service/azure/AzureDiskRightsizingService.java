@@ -8,6 +8,7 @@ import com.xammer.cloud.domain.DiskPolicy;
 import com.xammer.cloud.domain.EbsVolumeAction;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
+import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.RequiredArgsConstructor;
@@ -37,22 +38,32 @@ public class AzureDiskRightsizingService {
             "UltraSSD_LRS",    0.125
     );
     private static final double DEFAULT_COST_PER_GB = 0.075;
-    private static final double USD_TO_INR = 84.0;
 
-    private static final double SHRINK_THRESHOLD_PCT = 25.0;
-    private static final double EXPAND_THRESHOLD_PCT = 80.0;
-    private static final int    MIN_DISK_SIZE_GB      = 10;
+    // Defaults used only when no DiskPolicy is configured for the account.
+    private static final double DEFAULT_SHRINK_THRESHOLD_PCT = 25.0;
+    private static final double DEFAULT_EXPAND_THRESHOLD_PCT = 80.0;
+    private static final int    DEFAULT_MIN_DISK_SIZE_GB     = 10;
+    private static final int    DEFAULT_DESIRED_UTILIZATION  = 70;
+
+    /**
+     * Azure Managed Disks cannot be shrunk in place. Realizing a shrink means creating a
+     * smaller disk, migrating the data, and swapping it in.
+     */
+    private static final String SHRINK_UNSUPPORTED_MESSAGE =
+            "Azure Managed Disks cannot be shrunk in place. Create a smaller disk, "
+                    + "migrate the data, then detach and delete the original.";
 
     private final CloudAccountRepository    cloudAccountRepository;
     private final DiskPolicyRepository      diskPolicyRepository;
     private final EbsVolumeActionRepository ebsVolumeActionRepository;
     private final RedisCacheService         redisCacheService;
     private final AzureClientProvider       azureClientProvider;
+    private final CachedDataRepository      cachedDataRepository;
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    public List<Map<String, Object>> getDisks(String accountId, boolean forceRefresh) {
-        CloudAccount account = resolveAccount(accountId);
+    public List<Map<String, Object>> getDisks(String accountId, Long callerClientId, boolean forceRefresh) {
+        CloudAccount account = resolveAccount(accountId, callerClientId);
         String subscriptionId = account.getAzureSubscriptionId();
         if (subscriptionId == null) {
             throw new IllegalArgumentException("No Azure subscription ID for account " + accountId);
@@ -73,15 +84,15 @@ public class AzureDiskRightsizingService {
         return disks;
     }
 
-    public List<Map<String, Object>> getRecommendations(String accountId, boolean forceRefresh) {
-        return getDisks(accountId, forceRefresh).stream()
+    public List<Map<String, Object>> getRecommendations(String accountId, Long callerClientId, boolean forceRefresh) {
+        return getDisks(accountId, callerClientId, forceRefresh).stream()
                 .filter(d -> !"NONE".equals(d.get("recommendation")))
                 .collect(Collectors.toList());
     }
 
-    public Map<String, Object> applyAction(String accountId, String diskName, String resourceGroup,
+    public Map<String, Object> applyAction(String accountId, Long callerClientId, String diskName, String resourceGroup,
                                             String actionType, Integer targetSizeGb) {
-        CloudAccount account = resolveAccount(accountId);
+        CloudAccount account = resolveAccount(accountId, callerClientId);
         String subscriptionId = account.getAzureSubscriptionId();
 
         EbsVolumeAction action = new EbsVolumeAction();
@@ -99,11 +110,10 @@ public class AzureDiskRightsizingService {
                     return applyExpand(subscriptionId, resourceGroup, diskName, targetSizeGb, action, account);
                 case "SHRINK":
                     action.setStatus("FAILED");
-                    action.setErrorMessage("Azure Managed Disks cannot be shrunk; create a new smaller disk and migrate data.");
+                    action.setErrorMessage(SHRINK_UNSUPPORTED_MESSAGE);
                     action.setCompletedAt(Instant.now());
                     ebsVolumeActionRepository.save(action);
-                    return Map.of("success", false, "error",
-                            "Azure Managed Disks cannot be shrunk; create a new smaller disk and migrate data.");
+                    return Map.of("success", false, "error", SHRINK_UNSUPPORTED_MESSAGE);
                 case "DELETE_UNATTACHED":
                     return applyDelete(subscriptionId, resourceGroup, diskName, action, account);
                 default:
@@ -120,28 +130,30 @@ public class AzureDiskRightsizingService {
         }
     }
 
-    public List<DiskPolicy> getPolicies(String accountId) {
-        CloudAccount account = resolveAccount(accountId);
+    public List<DiskPolicy> getPolicies(String accountId, Long callerClientId) {
+        CloudAccount account = resolveAccount(accountId, callerClientId);
         List<DiskPolicy> policies = diskPolicyRepository.findByAccountId(account.getId()).stream()
                 .filter(p -> "AZURE".equals(p.getCloudProvider()))
                 .collect(Collectors.toList());
         if (policies.isEmpty()) {
+            // Persist the default so a later savePolicy updates a real row, and so the
+            // engine and the UI read the same thresholds.
             DiskPolicy def = new DiskPolicy();
             def.setAccount(account);
             def.setPolicyName("Default Azure Disk Policy");
-            def.setDesiredUtilization(70);
-            def.setMinDiskSizeGb(10);
+            def.setDesiredUtilization(DEFAULT_DESIRED_UTILIZATION);
+            def.setMinDiskSizeGb(DEFAULT_MIN_DISK_SIZE_GB);
             def.setMaxDiskCount(100);
             def.setPolicyType("STANDARD");
             def.setCloudProvider("AZURE");
             def.setDefault(true);
-            return List.of(def);
+            return List.of(diskPolicyRepository.save(def));
         }
         return policies;
     }
 
-    public Map<String, Object> savePolicy(String accountId, DiskPolicy policy) {
-        CloudAccount account = resolveAccount(accountId);
+    public Map<String, Object> savePolicy(String accountId, Long callerClientId, DiskPolicy policy) {
+        CloudAccount account = resolveAccount(accountId, callerClientId);
         policy.setAccount(account);
         policy.setCloudProvider("AZURE");
         diskPolicyRepository.save(policy);
@@ -149,21 +161,24 @@ public class AzureDiskRightsizingService {
         return Map.of("success", true);
     }
 
-    public List<EbsVolumeAction> getActionHistory(String accountId) {
-        return ebsVolumeActionRepository.findByAccountIdOrderByInitiatedAtDesc(resolveAccount(accountId).getId());
+    public List<EbsVolumeAction> getActionHistory(String accountId, Long callerClientId) {
+        return ebsVolumeActionRepository.findByAccountIdOrderByInitiatedAtDesc(
+                resolveAccount(accountId, callerClientId).getId());
     }
 
     // ── Disk listing ──────────────────────────────────────────────────────────
 
     private List<Map<String, Object>> listAllDisks(CloudAccount account, String subscriptionId) {
         List<Map<String, Object>> result = new ArrayList<>();
+        // Resolve the policy once per scan rather than per disk.
+        EffectiveDiskPolicy policy = resolveEffectivePolicy(account);
         try {
             AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
             StreamSupport.stream(azure.disks().list().spliterator(), false)
                     .forEach(disk -> {
                         Map<String, Object> dto = buildDiskDto(disk);
-                        enrichFromAgent(subscriptionId, disk, dto);
-                        applyRecommendation(dto);
+                        enrichFromAgent(account, disk, dto);
+                        applyRecommendation(dto, policy);
                         result.add(dto);
                     });
         } catch (Exception e) {
@@ -191,7 +206,8 @@ public class AzureDiskRightsizingService {
 
         int sizeGb = disk.sizeInGB();
         double costPerGbUsd = DISK_COST_PER_GB.getOrDefault(diskType, DEFAULT_COST_PER_GB);
-        double monthlyCostInr = sizeGb * costPerGbUsd * USD_TO_INR;
+        // USD, matching every other amount produced by the optimization services.
+        double monthlyCostUsd = sizeGb * costPerGbUsd;
 
         String diskState = "Unknown";
         try {
@@ -209,7 +225,7 @@ public class AzureDiskRightsizingService {
         dto.put("status",               diskState);
         dto.put("attached",             attached);
         dto.put("instanceName",         instanceName);
-        dto.put("monthlyCost",          Math.round(monthlyCostInr * 100.0) / 100.0);
+        dto.put("monthlyCost",          Math.round(monthlyCostUsd * 100.0) / 100.0);
         dto.put("usedPercent",          null);
         dto.put("usedGb",               null);
         dto.put("freeGb",               null);
@@ -223,17 +239,27 @@ public class AzureDiskRightsizingService {
 
     // ── Agent enrichment ──────────────────────────────────────────────────────
 
-    private void enrichFromAgent(String subscriptionId, Disk disk, Map<String, Object> dto) {
+    /**
+     * Overlays agent-reported filesystem utilization onto a disk row.
+     *
+     * <p>The key is {@code azure-disk-agent:{cloudAccountId}:{vmName}}, matching what
+     * {@code AgentController.handleDiskAgentPush} writes for {@code provider=AZURE}. This
+     * previously keyed on the Azure subscription id while the controller wrote the cloud
+     * account id under the AWS prefix, so no key ever matched and every disk kept a null
+     * {@code usedPercent}.
+     */
+    private void enrichFromAgent(CloudAccount account, Disk disk, Map<String, Object> dto) {
         String instanceName = (String) dto.get("instanceName");
         if (instanceName == null) return;
 
-        String cacheKey = "azure-disk-agent:" + subscriptionId + ":" + instanceName;
+        String agentAccountKey = String.valueOf(account.getId());
+        String cacheKey = "azure-disk-agent:" + agentAccountKey + ":" + instanceName;
         Optional<List<Map<String, Object>>> agentData = redisCacheService.get(
                 cacheKey, new TypeReference<List<Map<String, Object>>>() {});
         logger.debug("[azure-disk] agent key={} found={}", cacheKey, agentData.isPresent());
 
         if (agentData.isEmpty()) {
-            String seenKey = "azure-disk-agent-seen:" + subscriptionId + ":" + instanceName;
+            String seenKey = "azure-disk-agent-seen:" + agentAccountKey + ":" + instanceName;
             Optional<Boolean> seen = redisCacheService.get(seenKey, new TypeReference<Boolean>() {});
             if (seen.isPresent()) {
                 dto.put("agentDeployed", true);
@@ -241,7 +267,10 @@ public class AzureDiskRightsizingService {
             return;
         }
 
-        // Match mount: prefer disk-name device match, fall back to "/" root
+        // Match the mount that belongs to this disk by device name. Unlike the previous
+        // implementation there is no fallback to the root filesystem: inheriting the boot
+        // disk's usedPercent produced confident-looking SHRINK/EXPAND sizing for the wrong
+        // volume. If no device matches, utilization stays unknown.
         String diskName = disk.name();
         Map<String, Object> bestMount = null;
         for (Map<String, Object> mount : agentData.get()) {
@@ -253,12 +282,16 @@ public class AzureDiskRightsizingService {
                 bestMount = mount;
                 break;
             }
-            if ("/".equals(mount.get("mountPoint")) && bestMount == null) {
-                bestMount = mount;
-            }
         }
 
-        if (bestMount != null) {
+        if (bestMount == null) {
+            // Agent is reporting, but we cannot attribute a mount to this specific disk.
+            dto.put("agentDeployed", true);
+            logger.debug("[azure-disk] no mount matched disk {}; leaving utilization unknown", diskName);
+            return;
+        }
+
+        {
             Number usedPct = (Number) bestMount.get("usedPercent");
             if (usedPct != null) {
                 int sizeGb = (int) dto.get("sizeGb");
@@ -273,15 +306,26 @@ public class AzureDiskRightsizingService {
 
     // ── Recommendation engine ─────────────────────────────────────────────────
 
-    private void applyRecommendation(Map<String, Object> dto) {
+    /**
+     * Derives a recommendation for a single managed disk.
+     *
+     * <p>All amounts are USD. Thresholds come from the account's {@link DiskPolicy} when
+     * one is configured; previously the policy was persisted and shown in the UI while the
+     * engine used hardcoded constants and a magic {@code 0.65}/{@code 1.4} target that
+     * contradicted the policy's advertised 70% utilization.
+     */
+    private void applyRecommendation(Map<String, Object> dto, EffectiveDiskPolicy policy) {
         boolean attached = Boolean.TRUE.equals(dto.get("attached"));
         int sizeGb = (int) dto.get("sizeGb");
         String diskType = (String) dto.get("diskType");
-        double costPerGbInr = DISK_COST_PER_GB.getOrDefault(diskType, DEFAULT_COST_PER_GB) * USD_TO_INR;
+        double costPerGbUsd = DISK_COST_PER_GB.getOrDefault(diskType, DEFAULT_COST_PER_GB);
 
         if (!attached) {
             String diskState = (String) dto.get("status");
-            if ("Unattached".equalsIgnoreCase(diskState)) {
+            // Treat an unknown state as unattached too: buildDiskDto falls back to "Unknown"
+            // when the state lookup fails, and requiring an exact "Unattached" match meant
+            // those disks silently produced no recommendation at all.
+            if ("Unattached".equalsIgnoreCase(diskState) || "Unknown".equalsIgnoreCase(diskState)) {
                 dto.put("recommendation",       "DELETE_UNATTACHED");
                 dto.put("recommendationReason", "Disk is not attached to any instance");
                 dto.put("estimatedSavings",     (double) dto.get("monthlyCost"));
@@ -293,26 +337,84 @@ public class AzureDiskRightsizingService {
 
         double usedPct = ((Number) dto.get("usedPercent")).doubleValue();
 
-        if (usedPct > EXPAND_THRESHOLD_PCT) {
-            double usedGb  = sizeGb * usedPct / 100.0;
-            int targetSize = Math.max(MIN_DISK_SIZE_GB, (int) Math.ceil(usedGb / 0.65));
+        if (usedPct > policy.expandThresholdPct()) {
+            int targetSize = policy.targetSizeGb(sizeGb, usedPct);
             dto.put("recommendation",       "EXPAND");
             dto.put("recommendedSizeGb",    targetSize);
-            dto.put("recommendationReason",
-                    String.format("Disk is %.0f%% full — expand to %d GB to avoid capacity issues", usedPct, targetSize));
-            dto.put("estimatedSavings", 0.0);
-        } else if (usedPct < SHRINK_THRESHOLD_PCT && sizeGb > MIN_DISK_SIZE_GB) {
-            double usedGb  = sizeGb * usedPct / 100.0;
-            int targetSize = Math.max(MIN_DISK_SIZE_GB, (int) Math.ceil(usedGb * 1.4));
+            dto.put("recommendationReason", String.format(
+                    "Disk is %.0f%% full — expand to %d GB to avoid capacity issues", usedPct, targetSize));
+            // An expand raises cost; report it as negative so it cannot be summed as a gain.
+            double costIncrease = (targetSize - sizeGb) * costPerGbUsd;
+            dto.put("estimatedSavings", -Math.round(costIncrease * 100.0) / 100.0);
+            dto.put("estimatedMonthlyCostIncrease", Math.round(costIncrease * 100.0) / 100.0);
+        } else if (usedPct < policy.shrinkThresholdPct() && sizeGb > policy.minDiskSizeGb()) {
+            int targetSize = policy.targetSizeGb(sizeGb, usedPct);
             if (targetSize < sizeGb) {
-                double saving = (sizeGb - targetSize) * costPerGbInr;
+                double saving = (sizeGb - targetSize) * costPerGbUsd;
                 dto.put("recommendation",       "SHRINK");
                 dto.put("recommendedSizeGb",    targetSize);
-                dto.put("recommendationReason",
-                        String.format("Only %.0f%% used — shrink from %d GB to %d GB", usedPct, sizeGb, targetSize));
+                dto.put("recommendationReason", String.format(
+                        "Only %.0f%% used — a %d GB disk would suffice (currently %d GB). %s",
+                        usedPct, targetSize, sizeGb, SHRINK_UNSUPPORTED_MESSAGE));
                 dto.put("estimatedSavings", Math.round(saving * 100.0) / 100.0);
+                // Not applicable via the Azure API; realizing it needs a migration.
+                dto.put("actionable", false);
+                dto.put("requiresMigration", true);
             }
         }
+    }
+
+    /**
+     * Effective disk thresholds for an account, resolved from its {@link DiskPolicy}.
+     *
+     * @param shrinkThresholdPct utilization below which a disk is over-provisioned
+     * @param expandThresholdPct utilization above which a disk needs headroom
+     * @param minDiskSizeGb      floor for any recommended size
+     * @param desiredUtilization utilization the recommended size should achieve
+     */
+    private record EffectiveDiskPolicy(
+            double shrinkThresholdPct,
+            double expandThresholdPct,
+            int minDiskSizeGb,
+            int desiredUtilization) {
+
+        int targetSizeGb(int currentSizeGb, double usedPct) {
+            double usedGb = currentSizeGb * usedPct / 100.0;
+            double targetUtilisation = desiredUtilization / 100.0;
+            return Math.max(minDiskSizeGb, (int) Math.ceil(usedGb / targetUtilisation));
+        }
+    }
+
+    /** Loads the account's Azure disk policy, falling back to service defaults. */
+    private EffectiveDiskPolicy resolveEffectivePolicy(CloudAccount account) {
+        try {
+            List<DiskPolicy> policies = diskPolicyRepository.findByAccountId(account.getId()).stream()
+                    .filter(p -> "AZURE".equals(p.getCloudProvider()))
+                    .collect(Collectors.toList());
+            DiskPolicy policy = policies.stream()
+                    .filter(DiskPolicy::isDefault)
+                    .findFirst()
+                    .orElse(policies.isEmpty() ? null : policies.get(0));
+            if (policy == null) {
+                return defaultPolicy();
+            }
+            int desired = policy.getDesiredUtilization() > 0
+                    ? policy.getDesiredUtilization() : DEFAULT_DESIRED_UTILIZATION;
+            int minSize = policy.getMinDiskSizeGb() > 0
+                    ? policy.getMinDiskSizeGb() : DEFAULT_MIN_DISK_SIZE_GB;
+            double shrinkThreshold = Math.max(1.0, desired * 0.5);
+            return new EffectiveDiskPolicy(
+                    shrinkThreshold, DEFAULT_EXPAND_THRESHOLD_PCT, minSize, desired);
+        } catch (Exception e) {
+            logger.warn("[azure-disk] Could not load disk policy for account {}; using defaults: {}",
+                    account.getId(), e.getMessage());
+            return defaultPolicy();
+        }
+    }
+
+    private EffectiveDiskPolicy defaultPolicy() {
+        return new EffectiveDiskPolicy(DEFAULT_SHRINK_THRESHOLD_PCT, DEFAULT_EXPAND_THRESHOLD_PCT,
+                DEFAULT_MIN_DISK_SIZE_GB, DEFAULT_DESIRED_UTILIZATION);
     }
 
     // ── Apply actions ─────────────────────────────────────────────────────────
@@ -320,8 +422,8 @@ public class AzureDiskRightsizingService {
     private Map<String, Object> applyExpand(String subscriptionId, String resourceGroup,
                                               String diskName, Integer targetSizeGb,
                                               EbsVolumeAction action, CloudAccount account) {
-        if (targetSizeGb == null || targetSizeGb < MIN_DISK_SIZE_GB) {
-            throw new IllegalArgumentException("targetSizeGb must be >= " + MIN_DISK_SIZE_GB);
+        if (targetSizeGb == null || targetSizeGb < DEFAULT_MIN_DISK_SIZE_GB) {
+            throw new IllegalArgumentException("targetSizeGb must be >= " + DEFAULT_MIN_DISK_SIZE_GB);
         }
 
         AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
@@ -330,34 +432,122 @@ public class AzureDiskRightsizingService {
             throw new RuntimeException("Disk not found: " + diskName + " in resource group " + resourceGroup);
         }
 
+        if (targetSizeGb <= disk.sizeInGB()) {
+            throw new IllegalArgumentException(String.format(
+                    "targetSizeGb (%d) must exceed the current size (%d). Azure Managed Disks cannot shrink.",
+                    targetSizeGb, disk.sizeInGB()));
+        }
+
+        action.setOldSizeGb(disk.sizeInGB());
         disk.update().withSizeInGB(targetSizeGb).apply();
 
         action.setNewSizeGb(targetSizeGb);
         action.setStatus("SUCCESS");
         action.setCompletedAt(Instant.now());
         ebsVolumeActionRepository.save(action);
-        redisCacheService.evict(CACHE_KEY_DISKS + account.getId());
-        return Map.of("success", true, "message",
-                "Disk " + diskName + " expanded to " + targetSizeGb + " GB");
+        evictDiskCaches(account, subscriptionId);
+
+        // The block device is larger, but the guest filesystem is not. Until it is grown
+        // in-guest, usedPercent will not improve and the disk will keep being recommended
+        // for expansion. Say so rather than reporting unqualified success.
+        return Map.of(
+                "success", true,
+                "message", "Disk " + diskName + " expanded to " + targetSizeGb + " GB",
+                "followUpRequired", true,
+                "followUpAction", "Grow the filesystem inside the VM (for example "
+                        + "'sudo growpart /dev/sdX 1 && sudo resize2fs /dev/sdX1' on Linux, or "
+                        + "Extend Volume in Disk Management on Windows). Until then the guest still "
+                        + "sees the old capacity.");
     }
 
     private Map<String, Object> applyDelete(String subscriptionId, String resourceGroup,
                                               String diskName, EbsVolumeAction action,
                                               CloudAccount account) {
         AzureResourceManager azure = azureClientProvider.getAzureClient(subscriptionId);
+
+        // Re-validate against live state before deleting. The recommendation that triggered
+        // this can be up to CACHE_TTL_MINUTES old, so the disk may have been reattached in
+        // the meantime — previously it was deleted unconditionally.
+        Disk disk = azure.disks().getByResourceGroup(resourceGroup, diskName);
+        if (disk == null) {
+            throw new IllegalArgumentException(
+                    "Disk not found: " + diskName + " in resource group " + resourceGroup);
+        }
+        if (disk.isAttachedToVirtualMachine()) {
+            throw new IllegalStateException(String.format(
+                    "Refusing to delete disk %s: it is now attached to %s. The recommendation was stale.",
+                    diskName, disk.innerModel().managedBy()));
+        }
+        // Record the size so the action history shows what was removed.
+        action.setOldSizeGb(disk.sizeInGB());
+
         azure.disks().deleteByResourceGroup(resourceGroup, diskName);
 
         action.setStatus("SUCCESS");
         action.setCompletedAt(Instant.now());
         ebsVolumeActionRepository.save(action);
-        redisCacheService.evict(CACHE_KEY_DISKS + account.getId());
+        evictDiskCaches(account, subscriptionId);
         return Map.of("success", true, "message", "Disk " + diskName + " deleted");
+    }
+
+    /**
+     * Clears every cache that can still report a mutated disk.
+     *
+     * <p>Only {@code azure-disks-{accountId}} was evicted previously, so the waste report
+     * caches ({@code azure:waste:{sub}} in Redis and {@code AZURE_WASTE::{sub}} in
+     * PostgreSQL) kept listing a disk that had already been deleted.
+     */
+    private void evictDiskCaches(CloudAccount account, String subscriptionId) {
+        redisCacheService.evict(CACHE_KEY_DISKS + account.getId());
+        if (subscriptionId != null && !subscriptionId.isBlank()) {
+            redisCacheService.evict("azure:waste:" + subscriptionId);
+            redisCacheService.evict("azure:rightsizing:" + subscriptionId);
+            try {
+                cachedDataRepository.deleteById("AZURE_WASTE::" + subscriptionId);
+            } catch (Exception e) {
+                logger.debug("[azure-disk] Could not clear waste DB snapshot for {}: {}",
+                        subscriptionId, e.getMessage());
+            }
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private CloudAccount resolveAccount(String accountId) {
-        return cloudAccountRepository.findById(Long.parseLong(accountId))
+    /**
+     * Resolves a cloud account by primary key and verifies it belongs to the calling
+     * tenant.
+     *
+     * <p>{@code accountId} arrives from a request path, so resolving by primary key alone
+     * would let any authenticated user address another tenant's subscription by
+     * enumerating ids. Every caller must supply the authenticated principal's client id.
+     *
+     * @param accountId      cloud account primary key, as supplied by the caller
+     * @param callerClientId client id of the authenticated principal
+     * @throws SecurityException        if the account belongs to a different tenant
+     * @throws IllegalArgumentException if the id is malformed or unknown
+     */
+    private CloudAccount resolveAccount(String accountId, Long callerClientId) {
+        if (callerClientId == null) {
+            throw new SecurityException("Unauthenticated request: no client context available");
+        }
+
+        long parsedId;
+        try {
+            parsedId = Long.parseLong(accountId);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid account id: " + accountId);
+        }
+
+        CloudAccount account = cloudAccountRepository.findById(parsedId)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
+
+        if (account.getClient() == null || !callerClientId.equals(account.getClient().getId())) {
+            // Deliberately vague message: do not confirm the account exists to a caller
+            // from another tenant.
+            logger.warn("[azure-disk] Tenant mismatch: client {} attempted to access account {}",
+                    callerClientId, accountId);
+            throw new SecurityException("Account not found: " + accountId);
+        }
+        return account;
     }
 }

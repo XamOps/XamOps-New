@@ -260,12 +260,29 @@ public class AzureFinOpsService {
         report.setWasteItems(wasteItems);
 
         // --- STEP 6: Calculate Total Potential Savings ---
-        double totalPotentialSavings = rightsizingItems.stream()
-                .mapToDouble(AzureFinOpsReportDto.RightsizingItem::getMonthlySavings).sum()
-            + wasteItems.stream()
-                .mapToDouble(AzureFinOpsReportDto.WasteItem::getMonthlySavings).sum();
+        // Reconcile overlaps before summing. An under-used VM is reported both as an
+        // "Idle Running VM" in the waste list (full compute cost) and as a downsize
+        // candidate in the rightsizing list (a delta); adding both double-counted it.
+        // Deleting and resizing are mutually exclusive, so the full-cost waste entry wins.
+        java.util.Set<String> wasteResourceNames = wasteItems.stream()
+                .map(AzureFinOpsReportDto.WasteItem::getResourceName)
+                .filter(n -> n != null && !n.isBlank())
+                .map(String::toLowerCase)
+                .collect(java.util.stream.Collectors.toSet());
+
+        double wasteTotal = wasteItems.stream()
+                .mapToDouble(AzureFinOpsReportDto.WasteItem::getMonthlySavings)
+                .sum();
+        double rightsizingTotal = rightsizingItems.stream()
+                .filter(r -> r.getResourceName() == null
+                        || !wasteResourceNames.contains(r.getResourceName().toLowerCase()))
+                .mapToDouble(AzureFinOpsReportDto.RightsizingItem::getMonthlySavings)
+                .sum();
+
+        double totalPotentialSavings = wasteTotal + rightsizingTotal;
         report.setTotalPotentialSavings(totalPotentialSavings);
-        logger.info("Total potential savings for {}: ${}", subscriptionId, totalPotentialSavings);
+        logger.info("Total potential savings for {}: ${} (waste ${} + rightsizing ${} after overlap removal)",
+                subscriptionId, totalPotentialSavings, wasteTotal, rightsizingTotal);
 
         // --- STEP 7: Get Budgets ---
         try {

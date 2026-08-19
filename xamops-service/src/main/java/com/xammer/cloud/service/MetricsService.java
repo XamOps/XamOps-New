@@ -38,6 +38,13 @@ public class MetricsService {
     private final AwsClientProvider awsClientProvider;
     private final CloudListService cloudListService;
 
+    /**
+     * Resolved regions keyed by {@code accountId|serviceType|resourceId}. An empty value
+     * caches a negative result so a deleted resource is not re-scanned across all regions.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String, String> resourceRegionCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     @Autowired
     public MetricsService(
             CloudAccountRepository cloudAccountRepository,
@@ -53,7 +60,21 @@ public class MetricsService {
                 .orElseThrow(() -> new RuntimeException("Account not found in database: " + accountId));
     }
 
-    public Optional<Double> getMaxCpuUtilization(String accountId, String instanceId, String region, int lookbackDays) {
+    /**
+     * Peak CPU utilization over the lookback window, with the number of daily datapoints
+     * the figure is based on.
+     *
+     * <p>The datapoint count matters: {@code Maximum} over a one-day period returns a
+     * value from a single datapoint just as readily as from fourteen, so a caller that
+     * treats the result as "peak over 14 days" would downsize an instance launched an hour
+     * ago. Callers must check {@link CpuUtilizationSample#hasSufficientData(int)} before
+     * acting.
+     *
+     * @param lookbackDays window length in days
+     * @return the sample, or empty when the metric could not be read at all
+     */
+    public Optional<CpuUtilizationSample> getMaxCpuUtilizationSample(
+            String accountId, String instanceId, String region, int lookbackDays) {
         try {
             CloudAccount account = getAccount(accountId);
             CloudWatchClient cwClient = awsClientProvider.getCloudWatchClient(account, region);
@@ -84,7 +105,11 @@ public class MetricsService {
 
             GetMetricDataResponse response = cwClient.getMetricData(request);
             if (!response.metricDataResults().isEmpty() && !response.metricDataResults().get(0).values().isEmpty()) {
-                return response.metricDataResults().get(0).values().stream().max(Double::compare);
+                List<Double> values = response.metricDataResults().get(0).values();
+                Optional<Double> max = values.stream().max(Double::compare);
+                if (max.isPresent()) {
+                    return Optional.of(new CpuUtilizationSample(max.get(), values.size(), lookbackDays));
+                }
             }
         } catch (Exception e) {
             logger.error("Failed to get max CPU utilization for instance {}", instanceId, e);
@@ -92,9 +117,55 @@ public class MetricsService {
         return Optional.empty();
     }
 
+    /**
+     * Peak CPU utilization over the lookback window.
+     *
+     * @deprecated this loses the datapoint count, so callers cannot tell a 14-day peak from
+     *             a one-hour peak. Use
+     *             {@link #getMaxCpuUtilizationSample(String, String, String, int)}.
+     */
+    @Deprecated
+    public Optional<Double> getMaxCpuUtilization(String accountId, String instanceId, String region, int lookbackDays) {
+        return getMaxCpuUtilizationSample(accountId, instanceId, region, lookbackDays)
+                .map(CpuUtilizationSample::maxCpuPercent);
+    }
 
+    /**
+     * A CPU utilization reading together with its observation coverage.
+     *
+     * @param maxCpuPercent highest observed CPU percentage in the window
+     * @param dataPoints    number of daily datapoints returned
+     * @param lookbackDays  window length requested
+     */
+    public record CpuUtilizationSample(double maxCpuPercent, int dataPoints, int lookbackDays) {
+
+        /**
+         * True when enough of the window was observed for the peak to be meaningful.
+         *
+         * @param minimumDays minimum number of daily datapoints required
+         */
+        public boolean hasSufficientData(int minimumDays) {
+            return dataPoints >= minimumDays;
+        }
+
+        /** Fraction of the requested window actually covered by data, 0.0 to 1.0. */
+        public double coverage() {
+            return lookbackDays <= 0 ? 0.0 : Math.min(1.0, (double) dataPoints / lookbackDays);
+        }
+    }
+
+
+    /**
+     * Note on caching: {@code forceRefresh} is honoured via {@code condition}, and the
+     * previous {@code unless = "#result.get().isEmpty()"} has been removed.
+     *
+     * <p>That expression called blocking {@code get()} on the returned
+     * {@link CompletableFuture} from the cache interceptor thread, and because
+     * {@code forceRefresh} was absent from the key, passing {@code true} still returned the
+     * cached future — making the parameter a no-op.
+     */
     @Async("awsTaskExecutor")
-    @Cacheable(value = "metrics-ec2", key = "{#accountId, #instanceId}", unless = "#result.get().isEmpty()")
+    @Cacheable(value = "metrics-ec2", key = "{#accountId, #instanceId}", condition = "!#forceRefresh")
     public CompletableFuture<Map<String, List<MetricDto>>> getEc2InstanceMetrics(String accountId, String instanceId, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
@@ -123,7 +194,7 @@ public class MetricsService {
     }
 
     @Async("awsTaskExecutor")
-    @Cacheable(value = "metrics-rds", key = "{#accountId, #instanceId}", unless = "#result.get().isEmpty()")
+    @Cacheable(value = "metrics-rds", key = "{#accountId, #instanceId}", condition = "!#forceRefresh")
     public CompletableFuture<Map<String, List<MetricDto>>> getRdsInstanceMetrics(String accountId, String instanceId, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
@@ -160,7 +231,7 @@ public class MetricsService {
     }
 
     @Async("awsTaskExecutor")
-    @Cacheable(value = "metrics-s3", key = "{#accountId, #bucketName}", unless = "#result.get().isEmpty()")
+    @Cacheable(value = "metrics-s3", key = "{#accountId, #bucketName}", condition = "!#forceRefresh")
     public CompletableFuture<Map<String, List<MetricDto>>> getS3BucketMetrics(String accountId, String bucketName, String region, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
@@ -184,7 +255,7 @@ public class MetricsService {
     }
 
     @Async("awsTaskExecutor")
-    @Cacheable(value = "metrics-lambda", key = "{#accountId, #functionName}", unless = "#result.get().isEmpty()")
+    @Cacheable(value = "metrics-lambda", key = "{#accountId, #functionName}", condition = "!#forceRefresh")
     public CompletableFuture<Map<String, List<MetricDto>>> getLambdaFunctionMetrics(String accountId, String functionName, String region, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             CloudAccount account = getAccount(accountId);
@@ -215,7 +286,28 @@ public class MetricsService {
         });
     }
 
+    /**
+     * Resolves the region a resource lives in, memoized per account and resource.
+     *
+     * <p>The scan below issues a {@code DescribeInstances} against every opted-in region —
+     * roughly 30 calls, each with its own client — for a single instance. It was called on
+     * every metrics request, and again per instance from callers that iterate. Caching the
+     * result makes the scan a once-per-resource cost instead of a per-request one.
+     */
     private String findInstanceRegion(CloudAccount account, String instanceId) {
+        String cacheKey = account.getAwsAccountId() + "|EC2|" + instanceId;
+        String cachedRegion = resourceRegionCache.get(cacheKey);
+        if (cachedRegion != null) {
+            return cachedRegion.isEmpty() ? null : cachedRegion;
+        }
+        String resolved = locateInstanceRegion(account, instanceId);
+        // Cache negative results too, so a deleted instance does not re-scan every region.
+        resourceRegionCache.put(cacheKey, resolved == null ? "" : resolved);
+        return resolved;
+    }
+
+    /** Performs the region scan. See {@link #findInstanceRegion} for caching. */
+    private String locateInstanceRegion(CloudAccount account, String instanceId) {
         logger.debug("Attempting to find region for instance {}", instanceId);
         Ec2Client baseEc2Client = awsClientProvider.getEc2Client(account, "us-east-1");
         List<Region> allPossibleRegions = baseEc2Client.describeRegions().regions();
@@ -238,7 +330,20 @@ public class MetricsService {
         return null;
     }
 
+    /** Memoized equivalent of {@link #findInstanceRegion} for non-EC2 resources. */
     private String findResourceRegion(CloudAccount account, String serviceType, String resourceId) {
+        String cacheKey = account.getAwsAccountId() + "|" + serviceType + "|" + resourceId;
+        String cachedRegion = resourceRegionCache.get(cacheKey);
+        if (cachedRegion != null) {
+            return cachedRegion.isEmpty() ? null : cachedRegion;
+        }
+        String resolved = locateResourceRegion(account, serviceType, resourceId);
+        resourceRegionCache.put(cacheKey, resolved == null ? "" : resolved);
+        return resolved;
+    }
+
+    /** Performs the region scan. See {@link #findResourceRegion} for caching. */
+    private String locateResourceRegion(CloudAccount account, String serviceType, String resourceId) {
         logger.debug("Attempting to find region for {} resource {}", serviceType, resourceId);
         List<DashboardData.RegionStatus> activeRegions = cloudListService.getRegionStatusForAccount(account, false).join();
 

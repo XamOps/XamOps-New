@@ -20,7 +20,6 @@ import software.amazon.awssdk.services.rds.model.DBInstance;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -41,6 +40,40 @@ public class PricingService {
 
     @Value("${pricing.ebs.fallback-price:0.10}")
     private double ebsFallbackPrice;
+
+    /** AWS bills on a 730-hour month (365 * 24 / 12), not 720. */
+    private static final double HOURS_PER_MONTH = 730.0;
+
+    /**
+     * Last-resort monthly figure when the RDS catalog lookup fails entirely. Kept as a
+     * named constant so it is greppable, and always accompanied by a warning log so a
+     * systematic lookup failure is visible rather than silently uniform.
+     */
+    private static final double RDS_FALLBACK_MONTHLY_PRICE = 20.0;
+
+    /**
+     * Standard public IPv4 address rate, $0.005/hour. Since February 2024 AWS bills this for
+     * every public IPv4 address, whether associated with a running resource or not.
+     */
+    private static final double DEFAULT_PUBLIC_IPV4_HOURLY = 0.005;
+
+    /**
+     * Sentinel returned when a price genuinely could not be determined.
+     *
+     * <p>It is {@code 0.0} for backward compatibility, but callers must not treat it as
+     * "this resource is free" — use {@link #isPriceAvailable(double)} and exclude the
+     * resource from savings totals instead, so a lookup failure cannot silently understate
+     * a customer's waste.
+     */
+    public static final double PRICE_UNAVAILABLE = 0.0;
+
+    /**
+     * Returns true when a price returned by this service represents a real rate rather
+     * than a failed lookup.
+     */
+    public static boolean isPriceAvailable(double price) {
+        return price > PRICE_UNAVAILABLE;
+    }
 
     public PricingService(PricingClient pricingClient, AwsClientProvider awsClientProvider,
             CostMockService costMockService) {
@@ -92,10 +125,15 @@ public class PricingService {
         Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
         Filter volumeApiNameFilter = Filter.builder().field("volumeApiName").value(volumeType).type("TERM_MATCH")
                 .build();
+        // productFamily is essential: without it, volumeApiName=gp3 also matches the
+        // provisioned-IOPS SKU ($/IOPS-mo) and the throughput SKU ($/MBps-mo), and
+        // priceList ordering is not contractual — so we could return either as GB-month.
+        Filter productFamilyFilter = Filter.builder().field("productFamily").value("Storage").type("TERM_MATCH")
+                .build();
 
         GetProductsRequest request = GetProductsRequest.builder()
                 .serviceCode("AmazonEC2")
-                .filters(regionFilter, volumeApiNameFilter)
+                .filters(regionFilter, volumeApiNameFilter, productFamilyFilter)
                 .build();
 
         try {
@@ -156,38 +194,33 @@ public class PricingService {
             GetProductsResponse response = pricingClient.getProducts(request);
             List<String> priceList = response.priceList();
 
-            // Graviton/ARM instances occasionally have no preInstalledSw/capacitystatus entry —
-            // retry with essential filters only before giving up.
+            // Previously this retried with capacitystatus and preInstalledSw dropped, which
+            // admits UnusedCapacityReservation SKUs and SQL-licensed SKUs — both priced far
+            // above on-demand Linux. Those two filters are what make the result correct, so
+            // they are never relaxed. Instead we scan all returned SKUs and pick the cheapest
+            // valid on-demand rate, which is deterministic regardless of priceList ordering.
             if (priceList.isEmpty()) {
-                logger.warn("No price found for {} in {} with strict filters, retrying with relaxed filters", instanceType, region);
-                priceList = pricingClient.getProducts(GetProductsRequest.builder()
-                        .serviceCode("AmazonEC2")
-                        .filters(regionFilter, instanceTypeFilter, tenancyFilter, osFilter)
-                        .build()).priceList();
+                logger.warn("No on-demand price found for EC2 instance type {} in region {} "
+                                + "(tenancy=Shared, os=Linux, capacitystatus=Used, preInstalledSw=NA)",
+                        instanceType, region);
+                return PRICE_UNAVAILABLE;
             }
 
-            if (priceList.isEmpty()) {
-                logger.warn("No price list found for EC2 instance type {} in region {}", instanceType, region);
-                return 0.0;
-            }
-
-            JsonNode priceListNode = objectMapper.readTree(priceList.get(0));
-            JsonNode onDemandTerms = priceListNode.path("terms").path("OnDemand");
-
-            Iterator<JsonNode> elements = onDemandTerms.elements();
-            if (elements.hasNext()) {
-                JsonNode priceDimensions = elements.next().path("priceDimensions");
-                Iterator<JsonNode> dimensions = priceDimensions.elements();
-                if (dimensions.hasNext()) {
-                    JsonNode pricePerUnit = dimensions.next().path("pricePerUnit").path("USD");
-                    double hourlyPrice = pricePerUnit.asDouble(0.0);
-                    return hourlyPrice * 24 * 30;
+            double cheapest = Double.MAX_VALUE;
+            for (String priceJson : priceList) {
+                double hourly = extractOnDemandPrice(objectMapper.readTree(priceJson));
+                if (hourly > 0 && hourly < cheapest) {
+                    cheapest = hourly;
                 }
             }
+            if (cheapest < Double.MAX_VALUE) {
+                return cheapest * HOURS_PER_MONTH;
+            }
+            logger.warn("EC2 price list for {} in {} contained no positive on-demand rate", instanceType, region);
         } catch (Exception e) {
             logger.error("Failed to fetch or parse price for EC2 instance type {} in region {}", instanceType, region, e);
         }
-        return 0.0;
+        return PRICE_UNAVAILABLE;
     }
 
     @Cacheable(value = "elasticIpPrice", key = "#region")
@@ -201,35 +234,58 @@ public class PricingService {
         logger.info("Fetching live Elastic IP price for region: {}", region);
 
         // *** CHANGED: Using more specific filters for Elastic IPs ***
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+        // regionCode rather than the human-readable location: the 16-entry map this
+        // previously used guaranteed a miss for any region outside it, which meant every
+        // lookup in an unmapped region silently returned a hardcoded fallback.
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH")
                 .build();
         Filter productFamilyFilter = Filter.builder().field("productFamily").value("IP Address").type("TERM_MATCH")
                 .build();
-        // This targets unattached (idle) public IPv4 addresses, which is what AWS
-        // charges for.
-        Filter usageTypeFilter = Filter.builder().field("usagetype").value(region + "-UnusedAddr").type("TERM_MATCH")
-                .build();
 
+        // The previous third filter was usagetype = "<region>-UnusedAddr", which can never
+        // match: AWS usage types use short prefixes (USE1-, APS1-) and carry no prefix at
+        // all in us-east-1. Every call therefore fell through to the hardcoded fallback.
+        //
+        // Since February 2024 AWS charges for ALL public IPv4 addresses, attached or not, so
+        // the relevant meter is the general IPv4 address charge rather than an idle-only one.
+        // Scanning the returned SKUs by usagetype substring is prefix-independent.
         GetProductsRequest request = GetProductsRequest.builder()
                 .serviceCode("AmazonEC2")
-                // *** CHANGED: Using the new, more reliable filters ***
-                .filters(regionFilter, productFamilyFilter, usageTypeFilter)
+                .filters(regionFilter, productFamilyFilter)
                 .build();
         try {
             GetProductsResponse response = pricingClient.getProducts(request);
             if (response.priceList().isEmpty()) {
-                logger.warn("No price list found for Elastic IP in region {}", region);
-                return 0.005 * 720; // Fallback to a common hourly price ($0.005) * 720 hours
+                logger.warn("No IP Address price list found for region {}; using the standard IPv4 rate", region);
+                return DEFAULT_PUBLIC_IPV4_HOURLY * HOURS_PER_MONTH;
             }
-            JsonNode priceList = objectMapper.readTree(response.priceList().get(0));
-            JsonNode onDemand = priceList.path("terms").path("OnDemand");
-            JsonNode priceDimensions = onDemand.elements().next().path("priceDimensions");
-            JsonNode pricePerUnit = priceDimensions.elements().next().path("pricePerUnit").path("USD");
-            double hourlyPrice = pricePerUnit.asDouble(0.005);
-            return hourlyPrice * 24 * 30; // Calculate monthly cost
+
+            // Prefer an explicit in-use IPv4 meter, then any address meter.
+            Double idleRate = null;
+            Double anyRate = null;
+            for (String priceJson : response.priceList()) {
+                JsonNode node = objectMapper.readTree(priceJson);
+                String usageType = node.path("product").path("attributes").path("usagetype").asText("");
+                double price = extractOnDemandPrice(node);
+                if (price <= 0) {
+                    continue;
+                }
+                if (usageType.contains("PublicIPv4:InUseAddress") || usageType.contains("InUseAddress")) {
+                    idleRate = idleRate == null ? price : Math.min(idleRate, price);
+                } else if (usageType.contains("Addr")) {
+                    anyRate = anyRate == null ? price : Math.min(anyRate, price);
+                }
+            }
+
+            Double resolved = idleRate != null ? idleRate : anyRate;
+            if (resolved != null) {
+                return resolved * HOURS_PER_MONTH;
+            }
+            logger.warn("No usable IPv4 address rate found for region {}; using the standard rate", region);
+            return DEFAULT_PUBLIC_IPV4_HOURLY * HOURS_PER_MONTH;
         } catch (Exception e) {
             logger.error("Failed to fetch price for Elastic IP in region {}", region, e);
-            return 0.005 * 720; // Fallback
+            return DEFAULT_PUBLIC_IPV4_HOURLY * HOURS_PER_MONTH;
         }
     }
 
@@ -242,34 +298,102 @@ public class PricingService {
         }
 
         logger.info("Fetching live RDS price for region: {}, type: {}", region, dbInstance.dbInstanceClass());
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
-                .build();
+        // regionCode works for every region, including ones absent from the location map.
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
         Filter instanceClassFilter = Filter.builder().field("instanceType").value(dbInstance.dbInstanceClass())
                 .type("TERM_MATCH").build();
-        Filter engineFilter = Filter.builder().field("databaseEngine").value(dbInstance.engine()).type("TERM_MATCH")
-                .build();
+        // The RDS API reports engines as "postgres"/"mysql"; the Pricing API expects the
+        // display form "PostgreSQL"/"MySQL". Without this mapping no SKU ever matched and
+        // every instance fell through to the flat fallback below.
+        Filter engineFilter = Filter.builder().field("databaseEngine")
+                .value(toPricingDatabaseEngine(dbInstance.engine())).type("TERM_MATCH").build();
+        // Single-AZ vs Multi-AZ is roughly a 2x difference, so it must be pinned.
+        Filter deploymentFilter = Filter.builder().field("deploymentOption")
+                .value(Boolean.TRUE.equals(dbInstance.multiAZ()) ? "Multi-AZ" : "Single-AZ")
+                .type("TERM_MATCH").build();
 
         GetProductsRequest request = GetProductsRequest.builder()
                 .serviceCode("AmazonRDS")
-                .filters(regionFilter, instanceClassFilter, engineFilter)
+                .filters(regionFilter, instanceClassFilter, engineFilter, deploymentFilter)
                 .build();
         try {
             GetProductsResponse response = pricingClient.getProducts(request);
-            if (response.priceList().isEmpty()) {
-                logger.warn("No price list found for RDS instance type {} in region {}", dbInstance.dbInstanceClass(),
-                        region);
-                return 20.0; // Fallback
+            List<String> priceList = response.priceList();
+
+            // Retry without deploymentOption: some engines (e.g. Aurora Serverless) do not
+            // publish that dimension.
+            if (priceList.isEmpty()) {
+                priceList = pricingClient.getProducts(GetProductsRequest.builder()
+                        .serviceCode("AmazonRDS")
+                        .filters(regionFilter, instanceClassFilter, engineFilter)
+                        .build()).priceList();
             }
-            JsonNode priceList = objectMapper.readTree(response.priceList().get(0));
-            JsonNode onDemand = priceList.path("terms").path("OnDemand");
-            JsonNode priceDimensions = onDemand.elements().next().path("priceDimensions");
-            JsonNode pricePerUnit = priceDimensions.elements().next().path("pricePerUnit").path("USD");
-            double hourlyPrice = pricePerUnit.asDouble(0.02);
-            return hourlyPrice * 24 * 30;
+
+            if (priceList.isEmpty()) {
+                logger.warn("No price list found for RDS instance type {} engine {} in region {}. "
+                                + "Falling back to a flat estimate; this figure is not authoritative.",
+                        dbInstance.dbInstanceClass(), dbInstance.engine(), region);
+                return RDS_FALLBACK_MONTHLY_PRICE;
+            }
+            JsonNode priceListNode = objectMapper.readTree(priceList.get(0));
+            double hourlyPrice = extractOnDemandPrice(priceListNode);
+            if (hourlyPrice <= 0) {
+                logger.warn("RDS price lookup returned a non-positive rate for {} in {}; using fallback",
+                        dbInstance.dbInstanceClass(), region);
+                return RDS_FALLBACK_MONTHLY_PRICE;
+            }
+            return hourlyPrice * HOURS_PER_MONTH;
         } catch (Exception e) {
             logger.error("Failed to fetch price for RDS instance {} in region {}", dbInstance.dbInstanceIdentifier(),
                     region, e);
-            return 20.0; // Fallback
+            return RDS_FALLBACK_MONTHLY_PRICE;
+        }
+    }
+
+    /**
+     * Translates an RDS API engine identifier into the {@code databaseEngine} value used
+     * by the AWS Pricing API.
+     *
+     * <p>The two vocabularies differ: {@code DBInstance.engine()} returns values like
+     * {@code postgres} and {@code aurora-postgresql}, while the price catalog uses
+     * {@code PostgreSQL} and {@code Aurora PostgreSQL}. An unmapped engine is returned
+     * unchanged so a newly launched engine degrades to the fallback rather than throwing.
+     */
+    private String toPricingDatabaseEngine(String rdsEngine) {
+        if (rdsEngine == null || rdsEngine.isBlank()) {
+            return "MySQL";
+        }
+        switch (rdsEngine.toLowerCase()) {
+            case "postgres":
+            case "postgresql":
+                return "PostgreSQL";
+            case "mysql":
+                return "MySQL";
+            case "mariadb":
+                return "MariaDB";
+            case "aurora":
+            case "aurora-mysql":
+                return "Aurora MySQL";
+            case "aurora-postgresql":
+                return "Aurora PostgreSQL";
+            case "oracle-se2":
+            case "oracle-se2-cdb":
+            case "oracle-se":
+            case "oracle-se1":
+            case "oracle-ee":
+            case "oracle-ee-cdb":
+                return "Oracle";
+            case "sqlserver-ex":
+            case "sqlserver-web":
+            case "sqlserver-se":
+            case "sqlserver-ee":
+                return "SQL Server";
+            case "db2-se":
+            case "db2-ae":
+                return "Db2";
+            default:
+                logger.warn("Unmapped RDS engine '{}' for pricing lookup; passing through unchanged", rdsEngine);
+                return rdsEngine;
         }
     }
 
@@ -280,7 +404,10 @@ public class PricingService {
             return fallback;
         }
         logger.info("Fetching live NAT Gateway price for region: {}", region);
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+        // regionCode rather than the human-readable location: the 16-entry map this
+        // previously used guaranteed a miss for any region outside it, which meant every
+        // lookup in an unmapped region silently returned a hardcoded fallback.
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH")
                 .build();
         Filter groupFilter = Filter.builder().field("group").value("NAT Gateway").type("TERM_MATCH").build();
 
@@ -314,7 +441,10 @@ public class PricingService {
             return fallback;
         }
         logger.info("Fetching live ELB price for region: {}, type: {}", region, lbType);
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+        // regionCode rather than the human-readable location: the 16-entry map this
+        // previously used guaranteed a miss for any region outside it, which meant every
+        // lookup in an unmapped region silently returned a hardcoded fallback.
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH")
                 .build();
         Filter usageTypeFilter = Filter.builder().field("usagetype").value("LoadBalancerUsage").type("TERM_MATCH")
                 .build();
@@ -407,7 +537,10 @@ public class PricingService {
             return fallback;
         }
         logger.info("Fetching live RDS snapshot price for region: {}, engine: {}", region, engine);
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+        // regionCode rather than the human-readable location: the 16-entry map this
+        // previously used guaranteed a miss for any region outside it, which meant every
+        // lookup in an unmapped region silently returned a hardcoded fallback.
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH")
                 .build();
         Filter productFamilyFilter = Filter.builder().field("productFamily").value("Storage Snapshot")
                 .type("TERM_MATCH").build();
@@ -447,7 +580,10 @@ public class PricingService {
         }
         logger.info("Fetching live S3 {} price for region: {}", storageClass, region);
         String volumeType = "Standard-IA".equals(storageClass) ? "Standard - Infrequent Access" : "Standard";
-        Filter regionFilter = Filter.builder().field("location").value(getRegionDescription(region)).type("TERM_MATCH")
+        // regionCode rather than the human-readable location: the 16-entry map this
+        // previously used guaranteed a miss for any region outside it, which meant every
+        // lookup in an unmapped region silently returned a hardcoded fallback.
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH")
                 .build();
         Filter volumeTypeFilter = Filter.builder().field("volumeType").value(volumeType).type("TERM_MATCH").build();
         Filter usageTypeFilter = Filter.builder().field("usagetype").value("TimedStorage-ByteHrs").type("TERM_MATCH")

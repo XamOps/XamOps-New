@@ -31,6 +31,8 @@ import com.xammer.cloud.dto.gcp.GcpWasteReport;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.google.cloud.monitoring.v3.MetricServiceClient;
 import com.google.cloud.container.v1.ClusterManagerClient;
+import com.xammer.cloud.service.CurrencyConversionService;
+import com.xammer.cloud.service.SnapshotFreshnessService;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
@@ -47,8 +49,10 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -61,13 +65,50 @@ import java.util.stream.StreamSupport;
 public class GcpOptimizationService {
 
     private final GcpClientProvider gcpClientProvider;
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+
+    /**
+     * Bounded pool for detector fan-out.
+     *
+     * <p>This was {@code Executors.newCachedThreadPool()} — unbounded and never shut down.
+     * A single waste report fans out roughly {@code 4 x locations + 27} tasks, so a handful
+     * of concurrent requests could create hundreds of threads with no shared ceiling. A
+     * fixed pool with a bounded queue and caller-runs rejection applies backpressure
+     * instead, and the pool is shut down with the bean.
+     */
+    private final ExecutorService executor = new ThreadPoolExecutor(
+            GCP_DETECTOR_POOL_CORE_SIZE,
+            GCP_DETECTOR_POOL_MAX_SIZE,
+            60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(GCP_DETECTOR_POOL_QUEUE_CAPACITY),
+            runnable -> {
+                Thread thread = new Thread(runnable);
+                thread.setName("gcp-optimization-" + thread.getId());
+                thread.setDaemon(true);
+                return thread;
+            },
+            // Run on the calling thread rather than dropping work when saturated.
+            new ThreadPoolExecutor.CallerRunsPolicy());
+
+    /**
+     * Memoized Cloud SQL catalog SKUs, keyed by {@code resourceType|region}.
+     * An empty Optional caches a known miss so a failing lookup is not retried per call.
+     */
+    private final Map<String, Optional<Sku>> cloudSqlSkuCache = new ConcurrentHashMap<>();
+
+    /**
+     * Memoized BigQuery billing-export table names, keyed by project.
+     * Resolving one previously enumerated every dataset and table in the project on every
+     * call, once per Cloud SQL instance.
+     */
+    private final Map<String, Optional<String>> billingTableNameCache = new ConcurrentHashMap<>();
     private final GcpDataService gcpDataService;
     private final CloudAccountService cloudAccountService;
     private final GcpMetricsService gcpMetricsService;
     private final RedisCacheService redisCacheService;
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
+    private final CurrencyConversionService currencyConversionService;
+    private final SnapshotFreshnessService snapshotFreshnessService;
 
     // Utilization thresholds for validation (similar to AWS approach)
     private static final double HIGH_CPU_THRESHOLD = 80.0; // Recommend upgrade if CPU > 80% (Increased from 50.0)
@@ -127,8 +168,82 @@ public class GcpOptimizationService {
     private static final double EST_IMAGE_STORAGE_COST_USD_PER_GB = 0.05; // Configurable
     private static final double EST_BACKUP_COST_USD = 0.01; // Nominal; configurable
     private static final double EST_PD_COST_USD_PER_GB = 0.10; // Will query catalog below
-    private static final double USD_TO_INR_RATE = 83.0; // Define conversion rate
-    private static final double EST_FORWARDING_RULE_MONTHLY_INR = 1494.0; // ~$18/month * INR rate per idle LB forwarding rule
+    /**
+     * Estimated monthly cost of an idle load-balancer forwarding rule, in USD.
+     * GCP charges roughly $0.025/hour for the first five forwarding rules.
+     */
+    private static final double EST_FORWARDING_RULE_MONTHLY_USD = 18.0;
+
+    /** Cloud DNS public managed zone: $0.20/zone/month for the first 25 zones. */
+    private static final double EST_DNS_ZONE_MONTHLY_USD = 0.20;
+
+    /** Static external IP reserved but not in use: $0.010/hour. */
+    private static final double EST_UNUSED_STATIC_IP_MONTHLY_USD = 0.010 * HOURS_PER_MONTH;
+
+    /** Compute Engine snapshot storage, multi-regional: $0.026/GB/month. */
+    private static final double EST_SNAPSHOT_COST_USD_PER_GB = 0.026;
+
+    /**
+     * Returned by the Cloud SQL price helpers when a rate could not be determined.
+     * Callers must treat this as "unknown", not as "free".
+     */
+    private static final double PRICE_UNKNOWN = 0.0;
+
+    /** TTL for the derived savings/optimization summaries, in minutes. */
+    private static final int SUMMARY_CACHE_TTL_MINUTES = 30;
+
+    /**
+     * Sustained use discount applied to a Compute Engine instance running a full month.
+     *
+     * <p>GCE applies SUD automatically, reaching roughly 20-30% at full-month usage
+     * depending on machine family. 20% is used as the conservative end so savings are not
+     * understated for partially-used instances.
+     */
+    private static final double SUSTAINED_USE_DISCOUNT_RATE = 0.20;
+
+    // Bounds for the detector fan-out pool. Sized for I/O-bound work: detectors spend
+    // nearly all their time waiting on GCP APIs rather than on CPU.
+    private static final int GCP_DETECTOR_POOL_CORE_SIZE = 16;
+    private static final int GCP_DETECTOR_POOL_MAX_SIZE = 64;
+    private static final int GCP_DETECTOR_POOL_QUEUE_CAPACITY = 512;
+
+    /** Rough Cloud Logging retention overage per extra day of retention, in USD. */
+    private static final double EST_LOG_RETENTION_USD_PER_EXTRA_DAY = 0.01;
+
+    /**
+     * Minimum number of usable Cloud SQL backups always retained, regardless of age.
+     * Prevents recommending deletion of an instance's only restore point.
+     */
+    private static final int MIN_RETAINED_SQL_BACKUPS = 2;
+
+    /**
+     * Minimum number of snapshots retained per source disk, regardless of age, so the last
+     * remaining snapshot of a disk is never proposed for deletion.
+     */
+    private static final int MIN_RETAINED_DISK_SNAPSHOTS = 1;
+
+    /**
+     * Grace period before an unattached persistent disk or a reserved-but-unused IP is
+     * reported as waste. A disk detached during maintenance, or an address reserved for a
+     * pending deployment, should not be flagged immediately.
+     */
+    private static final int UNUSED_RESOURCE_MIN_AGE_DAYS = 7;
+
+    /**
+     * GKE cluster management fee: $0.10/hour per cluster beyond the free tier.
+     * An idle cluster with zero nodes still incurs this, so reporting it as free
+     * understated one of the more common sources of GCP waste.
+     */
+    private static final double EST_GKE_CLUSTER_MONTHLY_USD = 0.10 * HOURS_PER_MONTH;
+
+    /** Cloud NAT gateway uptime: ~$0.044/hour per gateway, excluding data processing. */
+    private static final double EST_CLOUD_NAT_MONTHLY_USD = 0.044 * HOURS_PER_MONTH;
+
+    /**
+     * Monthly USD savings at or above which a recommendation is surfaced as a critical
+     * alert. Keeps the alert count meaningful instead of equal to the recommendation count.
+     */
+    private static final double CRITICAL_ALERT_SAVINGS_THRESHOLD_USD = 100.0;
 
     // Regex for custom tier: db-custom-<vCPU>-<RAM_MB>
     private static final Pattern CUSTOM_TIER_PATTERN = Pattern.compile("db-custom-(\\d+)-(\\d+)");
@@ -140,7 +255,9 @@ public class GcpOptimizationService {
             GcpMetricsService gcpMetricsService,
             RedisCacheService redisCacheService,
             CachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            CurrencyConversionService currencyConversionService,
+            SnapshotFreshnessService snapshotFreshnessService) {
         this.gcpClientProvider = gcpClientProvider;
         this.gcpDataService = gcpDataService;
         this.cloudAccountService = cloudAccountService;
@@ -148,6 +265,25 @@ public class GcpOptimizationService {
         this.redisCacheService = redisCacheService;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.currencyConversionService = currencyConversionService;
+        this.snapshotFreshnessService = snapshotFreshnessService;
+    }
+
+    /**
+     * Shuts the detector pool down with the bean so it does not outlive the context.
+     * The previous cached pool was never shut down.
+     */
+    @javax.annotation.PreDestroy
+    void shutdownExecutor() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(20, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void saveToDb(String dbKey, Object data) {
@@ -178,7 +314,8 @@ public class GcpOptimizationService {
                 return cached.get();
             }
             try {
-                Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                Optional<CachedData> dbSnap = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(dbKey), dbKey);
                 if (dbSnap.isPresent()) {
                     List<GcpCommittedUseDiscountDto> dbResult = objectMapper.readValue(
                             dbSnap.get().getJsonData(), new TypeReference<>() {});
@@ -249,13 +386,22 @@ public class GcpOptimizationService {
                     if (commitment.getName().equals(cudId) || commitment.getName().endsWith("/" + cudId)) {
                         dto.setCudName(commitment.getName());
                         dto.setAnalysisPeriod(commitment.getPlan());
-                        // ACTIVE commitments are considered fully utilized (GCP doesn't expose slot-level usage without BigQuery)
-                        String status = commitment.getStatus();
-                        dto.setUtilizationPercentage("ACTIVE".equalsIgnoreCase(status) ? 100.0 : 0.0);
-                        // Realized savings: monthly commitment amount × estimated 30% CUD discount vs on-demand
-                        double amount = commitment.getResourcesCount() > 0
-                                ? (double) commitment.getResources(0).getAmount() : 0.0;
-                        dto.setRealizedSavings(amount * 0.30 / 12.0);
+
+                        // Utilization and realized savings both require per-hour commitment
+                        // consumption, which GCP only exposes through the BigQuery billing
+                        // export — not through the Compute commitments API used here.
+                        //
+                        // This previously reported 100% for any ACTIVE commitment (so a 90%
+                        // underutilized commitment looked perfect), and derived "realized
+                        // savings" by multiplying resources(0).getAmount() — a vCPU count or
+                        // memory quantity, not money — by 0.30/12. Both figures are left
+                        // unset rather than fabricated; the DTO exposes the reason so the UI
+                        // can show "requires billing export" instead of a wrong number.
+                        dto.setUtilizationPercentage(null);
+                        dto.setRealizedSavings(null);
+                        dto.setDataUnavailableReason(
+                                "Commitment utilization requires the BigQuery billing export, which is not configured.");
+
                         redisCacheService.put(cacheKey, dto, 60);
                         return dto;
                     }
@@ -280,7 +426,8 @@ public class GcpOptimizationService {
             Optional<Map<String, Object>> cached = redisCacheService.get(cacheKey, new TypeReference<>() {});
             if (cached.isPresent()) return cached.get();
             try {
-                Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                Optional<CachedData> dbSnap = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(dbKey), dbKey);
                 if (dbSnap.isPresent()) {
                     Map<String, Object> dbResult = objectMapper.readValue(dbSnap.get().getJsonData(), new TypeReference<>() {});
                     redisCacheService.put(cacheKey, dbResult, 60);
@@ -329,7 +476,8 @@ public class GcpOptimizationService {
 
             // 2. Try DB snapshot
             try {
-                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                Optional<CachedData> dbSnapshot = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(dbKey), dbKey);
                 if (dbSnapshot.isPresent()) {
                     List<GcpOptimizationRecommendation> dbResult = objectMapper.readValue(
                             dbSnapshot.get().getJsonData(), new TypeReference<>() {});
@@ -424,6 +572,11 @@ public class GcpOptimizationService {
         List<GcpOptimizationRecommendation> validatedRecommendations = filterAndValidateRecommendations(
                 gcpProjectId, uniqueRecommendations, instanceNameToId);
 
+        // Adjust for discounts the customer already receives. The Recommender API quotes
+        // savings against on-demand list price, so without this the figures are an
+        // unqualified overstatement for any long-running or committed resource.
+        applyDiscountAdjustments(gcpProjectId, validatedRecommendations);
+
         log.info("✅ Total validated rightsizing recommendations found: {}", validatedRecommendations.size());
         redisCacheService.put("gcp:rightsizing-recommendations:" + gcpProjectId, validatedRecommendations, 60);
         saveToDb("GCP_RIGHTSIZING::" + gcpProjectId, validatedRecommendations);
@@ -464,6 +617,28 @@ public class GcpOptimizationService {
      * @return Optional<Sku> matching SKU
      */
     private Optional<Sku> findCloudSqlSku(String gcpProjectId, String resourceType, String region) {
+        // Memoized: the underlying call enumerates the entire Cloud SQL SKU catalog and
+        // filters client-side. calculateCloudSqlPrice invokes it twice (CPU + RAM), and the
+        // historical-cost enhancement calls calculateCloudSqlPrice twice per recommendation,
+        // giving four full catalog enumerations per recommendation with no reuse. On an
+        // account with a handful of Cloud SQL instances that alone exhausted the
+        // controller's 50-second budget, which surfaced to users as an empty result.
+        //
+        // Catalog prices change infrequently, so a process-lifetime cache keyed by
+        // resource type and region is safe and collapses N enumerations into one.
+        String cacheKey = resourceType + "|" + region;
+        Optional<Sku> memoized = cloudSqlSkuCache.get(cacheKey);
+        if (memoized != null) {
+            log.debug("Cloud SQL SKU cache hit for {} in {}", resourceType, region);
+            return memoized;
+        }
+        Optional<Sku> resolved = findCloudSqlSkuUncached(gcpProjectId, resourceType, region);
+        cloudSqlSkuCache.put(cacheKey, resolved);
+        return resolved;
+    }
+
+    /** Performs the actual catalog lookup. See {@link #findCloudSqlSku} for caching. */
+    private Optional<Sku> findCloudSqlSkuUncached(String gcpProjectId, String resourceType, String region) {
         String locationName = REGION_TO_LOCATION.get(region);
         if (locationName == null) {
             log.warn("Unknown region: {}. Cannot map to location name for SKU filter.", region);
@@ -615,7 +790,8 @@ public class GcpOptimizationService {
             return 0.0;
         }
 
-        log.info("Parsed tier '{}': {} vCPUs, {:.2f} GB RAM in region '{}'", tier, vcpus, ramGb, region);
+        log.info("Parsed tier '{}': {} vCPUs, {} GB RAM in region '{}'",
+                tier, vcpus, String.format("%.2f", ramGb), region);
 
         // Find SKUs using Billing Catalog API
         Optional<Sku> cpuSku = findCloudSqlSku(gcpProjectId, "CPU", region);
@@ -625,9 +801,14 @@ public class GcpOptimizationService {
             log.warn(
                     "Could not find CPU or RAM SKUs via Billing Catalog for region: {}. Falling back to hardcoded estimate.",
                     region);
-            // Fallback to approximate hardcoded estimate (USD)
-            double fallbackHourly = (vcpus * 0.059) + (ramGb * 0.01); // Based on old us-central1 rates
-            return fallbackHourly * HOURS_PER_MONTH;
+            // No catalog price available. Returning a hardcoded 2019-era us-central1 estimate
+            // here silently applied those rates to every region whenever SKU description
+            // matching drifted, which it does easily: the match is built from an English
+            // description and a static region→city map. Returning 0.0 lets the caller treat
+            // the price as unknown instead of presenting a stale figure as authoritative.
+            log.warn("Cloud SQL price unavailable for tier {} in region {} — treating as unknown "
+                    + "rather than substituting a stale hardcoded rate.", tier, region);
+            return PRICE_UNKNOWN;
         }
 
         // Get prices (hourly for CPU, monthly for RAM) from SKUs
@@ -639,8 +820,9 @@ public class GcpOptimizationService {
         double ramMonthly = ramPricePerGiBMonth * ramGb;
 
         double totalMonthlyUsd = cpuMonthly + ramMonthly;
-        log.info("Cloud SQL Monthly Estimate from Catalog ({}): CPU ${:.2f} + RAM ${:.2f} = ${:.2f}", tier, cpuMonthly,
-                ramMonthly, totalMonthlyUsd);
+        log.info("Cloud SQL monthly estimate from catalog ({}): CPU ${} + RAM ${} = ${}",
+                tier, String.format("%.2f", cpuMonthly), String.format("%.2f", ramMonthly),
+                String.format("%.2f", totalMonthlyUsd));
 
         return totalMonthlyUsd; // Return USD
     }
@@ -694,72 +876,6 @@ public class GcpOptimizationService {
         return String.format("%s (%s, ₹%.2f/mo)", displayTier, specs, monthlyPriceInr);
     }
 
-    /**
-     * Infer recommended tier based on recommendation type
-     */
-    private String inferRecommendedTier(String currentTier, String recommendationType) {
-        // This logic remains the same, it just suggests a tier name
-        if ("PERFORMANCE_IMPROVEMENT".equals(recommendationType)) {
-            // Underprovisioned - needs upgrade
-            if ("db-f1-micro".equals(currentTier)) {
-                return "db-custom-1-3840"; // Standard upgrade path
-            } else if ("db-g1-small".equals(currentTier)) {
-                return "db-custom-2-7680";
-            } else if (currentTier.startsWith("db-custom-")) {
-                Matcher matcher = CUSTOM_TIER_PATTERN.matcher(currentTier);
-                if (matcher.matches()) {
-                    int currentVcpu = Integer.parseInt(matcher.group(1));
-                    int currentMemMb = Integer.parseInt(matcher.group(2));
-                    // Simple doubling as an example, adjust logic as needed
-                    return String.format("db-custom-%d-%d", currentVcpu * 2, currentMemMb * 2);
-                }
-            } else if (currentTier.startsWith("db-n1-standard-")) {
-                Pattern standardPattern = Pattern.compile("db-n1-standard-(\\d+)");
-                Matcher matcher = standardPattern.matcher(currentTier);
-                if (matcher.matches()) {
-                    int currentVcpu = Integer.parseInt(matcher.group(1));
-                    int nextVcpu = currentVcpu * 2; // Simple doubling
-                    // Find the next standard tier or suggest custom
-                    if (Arrays.asList(1, 2, 4, 8, 16, 32, 64).contains(nextVcpu)) {
-                        return String.format("db-n1-standard-%d", nextVcpu);
-                    } else {
-                        // Suggest custom if next standard doesn't exist or is too large
-                        return String.format("db-custom-%d-%d", nextVcpu, (int) (nextVcpu * 3.75 * 1024));
-                    }
-                }
-            }
-        } else if ("COST_SAVINGS".equals(recommendationType)) {
-            // Overprovisioned - can downgrade
-            if (currentTier.startsWith("db-custom-")) {
-                Matcher matcher = CUSTOM_TIER_PATTERN.matcher(currentTier);
-                if (matcher.matches()) {
-                    int currentVcpu = Integer.parseInt(matcher.group(1));
-                    int currentMemMb = Integer.parseInt(matcher.group(2));
-                    int newVcpu = Math.max(1, currentVcpu / 2); // Halve, minimum 1
-                    int newMemMb = Math.max(3840, currentMemMb / 2); // Halve, minimum standard custom memory
-                    return String.format("db-custom-%d-%d", newVcpu, newMemMb);
-                }
-            } else if (currentTier.startsWith("db-n1-standard-")) {
-                Pattern standardPattern = Pattern.compile("db-n1-standard-(\\d+)");
-                Matcher matcher = standardPattern.matcher(currentTier);
-                if (matcher.matches()) {
-                    int currentVcpu = Integer.parseInt(matcher.group(1));
-                    int prevVcpu = Math.max(1, currentVcpu / 2); // Halve, minimum 1
-                    // Suggest smaller standard or custom/small shared
-                    if (prevVcpu == 1 && currentVcpu > 1)
-                        return "db-n1-standard-1";
-                    if (currentVcpu == 1)
-                        return "db-g1-small"; // Example downgrade path
-                    // Add more logic for other standard tiers
-                    return String.format("db-n1-standard-%d", prevVcpu); // If prev standard exists
-                }
-            }
-        }
-
-        log.warn("Could not infer recommended tier for current tier '{}' and type '{}'", currentTier,
-                recommendationType);
-        return "Unknown"; // Fallback
-    }
 
     /** Legacy single-return used internally (e.g. getSavingsSummary). */
     public List<GcpWasteItem> getWasteReport(String gcpProjectId) {
@@ -784,7 +900,8 @@ public class GcpOptimizationService {
                 return cached.get();
             }
             try {
-                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                Optional<CachedData> dbSnapshot = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(dbKey), dbKey);
                 if (dbSnapshot.isPresent()) {
                     com.xammer.cloud.dto.gcp.GcpWasteReport dbResult = objectMapper.readValue(
                             dbSnapshot.get().getJsonData(),
@@ -944,21 +1061,26 @@ public class GcpOptimizationService {
         return report;
     }
 
-    //
-    // -------------------- ⬇️ FIX 1: CACHE ANNOTATION REMOVED ⬇️
-    // --------------------
-    //
-    // @Cacheable(value = "gcpSavingsSummary", key = "'gcp:savings-summary:' +
-    // #gcpProjectId")
+    /**
+     * Potential savings summary for a project.
+     *
+     * <p>Cached in Redis rather than with Spring's {@code @Cacheable}, matching the pattern
+     * used elsewhere in this class. The annotation was previously removed outright, leaving
+     * the reconciliation below to run on every dashboard load.
+     */
     public DashboardData.SavingsSummary getSavingsSummary(String gcpProjectId) {
+        String summaryCacheKey = "gcp:savings-summary:" + gcpProjectId;
+        Optional<DashboardData.SavingsSummary> cachedSummary =
+                redisCacheService.get(summaryCacheKey, DashboardData.SavingsSummary.class);
+        if (cachedSummary.isPresent()) {
+            return cachedSummary.get();
+        }
+
         List<GcpWasteItem> waste = getWasteReport(gcpProjectId);
         List<GcpOptimizationRecommendation> rightsizing = getRightsizingRecommendations(gcpProjectId);
 
-        double wasteSavings = waste.stream().mapToDouble(GcpWasteItem::getMonthlySavings).sum();
-        double rightsizingSavings = rightsizing.stream()
-                .filter(r -> r.getMonthlySavings() >= 0) // Only count actual savings
-                .mapToDouble(GcpOptimizationRecommendation::getMonthlySavings)
-                .sum();
+        double wasteSavings = sumWasteSavings(waste);
+        double rightsizingSavings = sumRightsizingSavings(rightsizing, waste);
 
         List<DashboardData.SavingsSuggestion> suggestions = new ArrayList<>();
         if (rightsizingSavings > 0)
@@ -966,31 +1088,97 @@ public class GcpOptimizationService {
         if (wasteSavings > 0)
             suggestions.add(new DashboardData.SavingsSuggestion("Waste Elimination", wasteSavings));
 
-        // Return values in INR
-        // Use the three-argument constructor: (realized, potential, suggestions)
-        // These are potential savings from recommendations, so realized = 0
-        return new DashboardData.SavingsSummary(0, wasteSavings + rightsizingSavings, suggestions);
+        // Amounts are USD (GcpWasteItem.BASE_CURRENCY). realized = 0 because these are
+        // potential savings from recommendations that have not been applied.
+        DashboardData.SavingsSummary summary =
+                new DashboardData.SavingsSummary(0, wasteSavings + rightsizingSavings, suggestions);
+        redisCacheService.put(summaryCacheKey, summary, SUMMARY_CACHE_TTL_MINUTES);
+        return summary;
     }
 
-    //
-    // -------------------- ⬇️ FIX 2: CACHE ANNOTATION REMOVED ⬇️
-    // --------------------
-    //
-    // @Cacheable(value = "gcpOptimizationSummary", key =
-    // "'gcp:optimization-summary:' + #gcpProjectId")
+    /**
+     * Sums waste savings, skipping items whose cost could not be determined so an
+     * unpriced finding is never counted as zero-cost.
+     */
+    private double sumWasteSavings(List<GcpWasteItem> waste) {
+        return waste.stream()
+                .filter(w -> !w.isSavingsUnknown())
+                .mapToDouble(GcpWasteItem::getMonthlySavings)
+                .sum();
+    }
+
+    /**
+     * Sums rightsizing savings while excluding resources already counted in the waste
+     * list.
+     *
+     * <p>Without this, a single under-used VM contributes twice: the idle-resource
+     * recommender books its full cost as waste, and the machine-type recommender books a
+     * downsize delta for the same VM. Deleting a resource and resizing it are mutually
+     * exclusive, so the waste figure (the larger, full-cost one) wins and the rightsizing
+     * delta is dropped.
+     */
+    private double sumRightsizingSavings(List<GcpOptimizationRecommendation> rightsizing,
+                                          List<GcpWasteItem> waste) {
+        Set<String> wasteResourceKeys = new HashSet<>();
+        for (GcpWasteItem item : waste) {
+            for (String candidate : new String[] { item.getResourceId(), item.getResourceName() }) {
+                if (candidate != null && !candidate.isBlank()) {
+                    wasteResourceKeys.add(shortResourceKey(candidate));
+                }
+            }
+        }
+
+        double total = 0.0;
+        for (GcpOptimizationRecommendation rec : rightsizing) {
+            if (rec.getMonthlySavings() < 0) {
+                continue; // performance recommendations increase cost
+            }
+            String key = rec.getResourceName() == null ? null : shortResourceKey(rec.getResourceName());
+            if (key != null && wasteResourceKeys.contains(key)) {
+                log.debug("Excluding rightsizing savings for {} — already counted as waste", rec.getResourceName());
+                continue;
+            }
+            total += rec.getMonthlySavings();
+        }
+        return total;
+    }
+
+    /** Normalises a resource identifier to its trailing segment for overlap comparison. */
+    private String shortResourceKey(String resource) {
+        String trimmed = resource.trim();
+        int slash = trimmed.lastIndexOf('/');
+        return (slash >= 0 && slash < trimmed.length() - 1 ? trimmed.substring(slash + 1) : trimmed)
+                .toLowerCase();
+    }
+
+    /**
+     * Optimization summary for a project. Cached like {@link #getSavingsSummary}.
+     */
     public DashboardData.OptimizationSummary getOptimizationSummary(String gcpProjectId) {
+        String summaryCacheKey = "gcp:optimization-summary:" + gcpProjectId;
+        Optional<DashboardData.OptimizationSummary> cachedSummary =
+                redisCacheService.get(summaryCacheKey, DashboardData.OptimizationSummary.class);
+        if (cachedSummary.isPresent()) {
+            return cachedSummary.get();
+        }
+
         List<GcpWasteItem> waste = getWasteReport(gcpProjectId);
         List<GcpOptimizationRecommendation> rightsizing = getRightsizingRecommendations(gcpProjectId);
 
-        double totalSavings = waste.stream().mapToDouble(GcpWasteItem::getMonthlySavings).sum()
-                + rightsizing.stream()
-                        .filter(r -> r.getMonthlySavings() >= 0) // Only count actual savings
-                        .mapToDouble(GcpOptimizationRecommendation::getMonthlySavings)
-                        .sum();
-        long criticalAlerts = rightsizing.size(); // Count all recommendations as alerts
+        // Same overlap reconciliation as getSavingsSummary, so the two tiles agree.
+        double totalSavings = sumWasteSavings(waste) + sumRightsizingSavings(rightsizing, waste);
 
-        // Return savings in INR
-        return new DashboardData.OptimizationSummary(totalSavings, criticalAlerts);
+        // Only high-impact findings count as alerts. Previously every recommendation was
+        // counted, so a project with 40 routine downsize suggestions reported 40 critical
+        // alerts.
+        long criticalAlerts = rightsizing.stream()
+                .filter(r -> r.getMonthlySavings() >= CRITICAL_ALERT_SAVINGS_THRESHOLD_USD)
+                .count();
+
+        DashboardData.OptimizationSummary summary =
+                new DashboardData.OptimizationSummary(totalSavings, criticalAlerts);
+        redisCacheService.put(summaryCacheKey, summary, SUMMARY_CACHE_TTL_MINUTES);
+        return summary;
     }
 
     public CompletableFuture<List<GcpOptimizationRecommendation>> getCudRecommendations(String gcpProjectId) {
@@ -1065,7 +1253,8 @@ public class GcpOptimizationService {
                 return cached.get();
             }
             try {
-                Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                Optional<CachedData> dbSnap = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(dbKey), dbKey);
                 if (dbSnap.isPresent()) {
                     List<GcpOptimizationRecommendation> dbResult = objectMapper.readValue(
                             dbSnap.get().getJsonData(), new TypeReference<>() {});
@@ -1100,14 +1289,19 @@ public class GcpOptimizationService {
 
     /**
      * Gap 5: Historical CUD data — up to 6 monthly snapshots from DB.
-     * Immutable-window: if a snapshot for this calendar month already exists, return it without re-fetching.
+     *
+     * <p>Closed months are immutable and read straight from their per-month snapshot. The
+     * rollup for the <em>current</em> month is freshness-gated, because that month is still
+     * accumulating: it was previously frozen at whatever value it held the first time the
+     * endpoint was called.
      */
     public List<Map<String, Object>> getHistoricalCudData(String gcpProjectId, boolean forceRefresh) {
         String thisMonthKey = "GCP_CUD_HISTORICAL::" + gcpProjectId + "::" + YearMonth.now();
 
         if (!forceRefresh) {
             try {
-                Optional<CachedData> existing = cachedDataRepository.findById(thisMonthKey);
+                Optional<CachedData> existing = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(thisMonthKey), thisMonthKey);
                 if (existing.isPresent()) {
                     List<Map<String, Object>> cached = objectMapper.readValue(
                             existing.get().getJsonData(), new TypeReference<>() {});
@@ -1124,6 +1318,8 @@ public class GcpOptimizationService {
             YearMonth month = YearMonth.now().minusMonths(i);
             String snapshotKey = "GCP_CUD_SNAPSHOT::" + gcpProjectId + "::" + month;
             try {
+                // No freshness gate here: these are per-calendar-month snapshots of closed
+                // months, which genuinely do not change once written.
                 Optional<CachedData> snap = cachedDataRepository.findById(snapshotKey);
                 if (snap.isPresent()) {
                     List<GcpOptimizationRecommendation> recs = objectMapper.readValue(
@@ -1203,7 +1399,8 @@ public class GcpOptimizationService {
 
         if (!forceRefresh) {
             try {
-                Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKey);
+                Optional<CachedData> dbSnap = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(dbKey), dbKey);
                 if (dbSnap.isPresent()) {
                     GcpReservationPageDto page = objectMapper.readValue(dbSnap.get().getJsonData(), GcpReservationPageDto.class);
                     log.info("[GcpReservation] Returning DB-cached page bundle for project={}", gcpProjectId);
@@ -1248,26 +1445,6 @@ public class GcpOptimizationService {
         return page;
     }
 
-    private String getProjectNumber(String gcpProjectId) {
-        try {
-            Optional<ProjectsClient> clientOpt = gcpClientProvider.getProjectsClient(gcpProjectId);
-            if (clientOpt.isPresent()) {
-                try (ProjectsClient client = clientOpt.get()) {
-                    Project project = client.getProject("projects/" + gcpProjectId);
-                    // Project name format is "projects/{project_number}"
-                    String projectName = project.getName();
-                    if (projectName.contains("/")) {
-                        return projectName.split("/")[1];
-                    }
-                    // Fallback, though typically the format includes the slash
-                    return projectName;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Could not get project number for {}: {}", gcpProjectId, e.getMessage());
-        }
-        return null;
-    }
 
     private <T> CompletableFuture<List<T>> getRecommendationsForRecommender(
             String identifier,
@@ -1373,24 +1550,24 @@ public class GcpOptimizationService {
             try {
                 List<GcpWasteItem> wasteItems = new ArrayList<>();
                 SQLAdmin sqlAdmin = clientOpt.get();
-                InstancesListResponse instances = sqlAdmin.instances().list(gcpProjectId).execute();
+                // Paginated: nextPageToken was previously ignored, so projects with more
+                // Cloud SQL instances than one page silently lost the remainder — which
+                // surfaced as fewer waste items rather than as an error.
+                List<DatabaseInstance> allInstances = listAllCloudSqlInstances(sqlAdmin, gcpProjectId);
 
-                if (instances.getItems() == null || instances.getItems().isEmpty()) {
+                if (allInstances.isEmpty()) {
                     log.info("No Cloud SQL instances found for project {}.", gcpProjectId);
                     return List.of();
                 }
 
-                for (DatabaseInstance instance : instances.getItems()) {
+                for (DatabaseInstance instance : allInstances) {
                     String instanceName = instance.getName();
                     try {
-                        List<BackupRun> backups = sqlAdmin.backupRuns()
-                                .list(gcpProjectId, instanceName)
-                                .execute()
-                                .getItems();
+                        List<BackupRun> backups = listAllBackupRuns(sqlAdmin, gcpProjectId, instanceName);
                         Instant ninetyDaysAgo = Instant.now().minus(90, ChronoUnit.DAYS);
 
-                        if (backups != null) {
-                            backups.stream()
+                        if (backups != null && !backups.isEmpty()) {
+                            List<BackupRun> agedBackups = backups.stream()
                                     .filter(backup -> {
                                         try {
                                             if (backup.getWindowStartTime() == null)
@@ -1403,14 +1580,44 @@ public class GcpOptimizationService {
                                             return false;
                                         }
                                     })
-                                    .map(backup -> new GcpWasteItem(
-                                            backup.getId().toString(),
-                                            instanceName + "/backup-" + backup.getId(),
-                                            "Old Cloud SQL Backup (>90 days)",
-                                            instance.getRegion(),
-                                            EST_BACKUP_COST_USD,
-                                            "Backup is older than 90 days"))
-                                    .forEach(wasteItems::add);
+                                    // Never propose deleting a failed/pending run as if it were a
+                                    // usable restore point.
+                                    .filter(backup -> backup.getStatus() == null
+                                            || "SUCCESSFUL".equalsIgnoreCase(backup.getStatus()))
+                                    // Newest first, so the retention guard below keeps the most
+                                    // recent restore points.
+                                    .sorted(Comparator.comparing(
+                                            (BackupRun b) -> safeParseInstant(b.getWindowStartTime()),
+                                            Comparator.nullsLast(Comparator.reverseOrder())))
+                                    .collect(Collectors.toList());
+
+                            long usableBackups = backups.stream()
+                                    .filter(b -> b.getStatus() == null || "SUCCESSFUL".equalsIgnoreCase(b.getStatus()))
+                                    .count();
+
+                            // Always retain a minimum number of restore points. Without this the
+                            // detector flagged every backup older than 90 days, including the only
+                            // backup an instance had — recommending deletion of the sole recovery
+                            // point for a database.
+                            long deletable = Math.max(0, usableBackups - MIN_RETAINED_SQL_BACKUPS);
+                            if (deletable == 0) {
+                                log.debug("Instance {} has only {} usable backup(s); retaining all "
+                                        + "(minimum {} kept)", instanceName, usableBackups, MIN_RETAINED_SQL_BACKUPS);
+                            } else {
+                                // Skip the newest MIN_RETAINED_SQL_BACKUPS entries.
+                                agedBackups.stream()
+                                        .skip(Math.min(MIN_RETAINED_SQL_BACKUPS, agedBackups.size()))
+                                        .limit(deletable)
+                                        .map(backup -> new GcpWasteItem(
+                                                backup.getId().toString(),
+                                                instanceName + "/backup-" + backup.getId(),
+                                                "Old Cloud SQL Backup (>90 days)",
+                                                instance.getRegion(),
+                                                EST_BACKUP_COST_USD,
+                                                String.format("Backup is older than 90 days. %d newer restore "
+                                                        + "point(s) are retained.", MIN_RETAINED_SQL_BACKUPS)))
+                                        .forEach(wasteItems::add);
+                            }
                         }
                     } catch (Exception backupEx) {
                         log.error("Failed to list backups for Cloud SQL instance {}: {}", instanceName,
@@ -1440,6 +1647,10 @@ public class GcpOptimizationService {
                         false)
                         .flatMap(entry -> entry.getValue().getDisksList().stream())
                         .filter(disk -> disk.getUsersList().isEmpty())
+                        // A disk detached moments ago during maintenance or a migration is not
+                        // waste. Without this guard a disk unattached for one minute was
+                        // recommended for deletion.
+                        .filter(disk -> !isWithinGracePeriod(disk.getCreationTimestamp()))
                         .map(disk -> {
                             String zoneUrl = disk.getZone();
                             String zone = zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1);
@@ -1449,7 +1660,8 @@ public class GcpOptimizationService {
                                     "Unattached Persistent Disk",
                                     zone,
                                     calculateDiskCostUsd(disk.getSizeGb()),
-                                    "Disk has no users attached"
+                                    String.format("Disk has no users attached and has existed for more than %d days",
+                                            UNUSED_RESOURCE_MIN_AGE_DAYS)
                             );
                         })
                         .collect(Collectors.toList());
@@ -1517,20 +1729,56 @@ public class GcpOptimizationService {
             if (clientOpt.isEmpty()) return List.of();
             try (SnapshotsClient client = clientOpt.get()) {
                 Instant cutoff = Instant.now().minus(90, ChronoUnit.DAYS);
-                return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
-                        .filter(snap -> {
-                            try {
-                                return Instant.parse(snap.getCreationTimestamp()).isBefore(cutoff);
-                            } catch (Exception e) { return false; }
-                        })
-                        .map(snap -> new GcpWasteItem(
-                                snap.getName(),
-                                snap.getName(),
-                                "Old Compute Snapshot",
-                                "global",
-                                snap.getDiskSizeGb() * 0.026,
-                                "Snapshot is older than 90 days"))
-                        .collect(Collectors.toList());
+
+                // Group by source disk so a retention guard can be applied per disk. Without
+                // it the detector flagged every snapshot older than 90 days, including the last
+                // remaining snapshot of a disk — recommending deletion of the only restore
+                // point that disk had.
+                Map<String, List<com.google.cloud.compute.v1.Snapshot>> bySourceDisk = new HashMap<>();
+                for (var snap : client.list(gcpProjectId).iterateAll()) {
+                    String sourceDisk = snap.getSourceDisk() == null || snap.getSourceDisk().isBlank()
+                            ? "(unknown)"
+                            : snap.getSourceDisk();
+                    bySourceDisk.computeIfAbsent(sourceDisk, k -> new ArrayList<>()).add(snap);
+                }
+
+                List<GcpWasteItem> items = new ArrayList<>();
+                for (Map.Entry<String, List<com.google.cloud.compute.v1.Snapshot>> entry : bySourceDisk.entrySet()) {
+                    List<com.google.cloud.compute.v1.Snapshot> snapshots = entry.getValue();
+
+                    List<com.google.cloud.compute.v1.Snapshot> aged = snapshots.stream()
+                            .filter(snap -> {
+                                Instant created = safeParseInstant(snap.getCreationTimestamp());
+                                return created != null && created.isBefore(cutoff);
+                            })
+                            // Newest first, so the guard below keeps the most recent snapshots.
+                            .sorted(Comparator.comparing(
+                                    (com.google.cloud.compute.v1.Snapshot sn) ->
+                                            safeParseInstant(sn.getCreationTimestamp()),
+                                    Comparator.nullsLast(Comparator.reverseOrder())))
+                            .collect(Collectors.toList());
+
+                    long deletable = Math.max(0, snapshots.size() - MIN_RETAINED_DISK_SNAPSHOTS);
+                    if (deletable == 0) {
+                        log.debug("[GcpWaste] Retaining all {} snapshot(s) of {} (minimum {} kept)",
+                                snapshots.size(), entry.getKey(), MIN_RETAINED_DISK_SNAPSHOTS);
+                        continue;
+                    }
+
+                    aged.stream()
+                            .skip(Math.min(MIN_RETAINED_DISK_SNAPSHOTS, aged.size()))
+                            .limit(deletable)
+                            .map(snap -> new GcpWasteItem(
+                                    snap.getName(),
+                                    snap.getName(),
+                                    "Old Compute Snapshot",
+                                    "global",
+                                    snap.getDiskSizeGb() * EST_SNAPSHOT_COST_USD_PER_GB,
+                                    String.format("Snapshot is older than 90 days. %d newer snapshot(s) of the "
+                                            + "same disk are retained.", MIN_RETAINED_DISK_SNAPSHOTS)))
+                            .forEach(items::add);
+                }
+                return items;
             } catch (Exception e) {
                 log.warn("[GcpWaste] findOldComputeSnapshots failed for {}: {}", gcpProjectId, e.getMessage());
                 return List.of();
@@ -1548,13 +1796,16 @@ public class GcpOptimizationService {
                         client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
                         .flatMap(entry -> entry.getValue().getAddressesList().stream())
                         .filter(addr -> "RESERVED".equals(addr.getStatus()))
+                        // An address reserved seconds ago for a pending deployment is not waste.
+                        .filter(addr -> !isWithinGracePeriod(addr.getCreationTimestamp()))
                         .map(addr -> new GcpWasteItem(
                                 addr.getName(),
                                 addr.getAddress(),
                                 "Reserved Unused IP",
                                 addr.getRegion().contains("/") ? addr.getRegion().substring(addr.getRegion().lastIndexOf('/') + 1) : addr.getRegion(),
-                                7.30,
-                                "Static IP is RESERVED but not assigned to any resource"))
+                                EST_UNUSED_STATIC_IP_MONTHLY_USD,
+                                String.format("Static IP is RESERVED but not assigned to any resource, and has been "
+                                        + "reserved for more than %d days", UNUSED_RESOURCE_MIN_AGE_DAYS)))
                         .collect(Collectors.toList());
             } catch (Exception e) {
                 log.warn("[GcpWaste] findReservedUnusedIps failed for {}: {}", gcpProjectId, e.getMessage());
@@ -1692,11 +1943,12 @@ public class GcpOptimizationService {
 
         // Convert USD → INR so waste items are consistent with direct-SDK detectors
         // (which already use INR constants) and the rest of the GCP cost UI.
-        double monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE;
+        // Waste items are denominated in USD (GcpWasteItem.BASE_CURRENCY); conversion to a
+        // display currency happens once at the presentation boundary.
 
         String reason = rec.getDescription().isEmpty() ? wasteType + " identified by GCP Recommender" : rec.getDescription();
 
-        return new GcpWasteItem(resourceName, resourceName, wasteType, extractLocation(rec.getName()), monthlySavingsInr, reason);
+        return new GcpWasteItem(resourceName, resourceName, wasteType, extractLocation(rec.getName()), monthlySavingsUsd, reason);
     }
 
     private GcpOptimizationRecommendation mapToRightsizingDto(Recommendation rec) {
@@ -1733,25 +1985,21 @@ public class GcpOptimizationService {
             }
         }
 
-        // Convert to INR
-        double monthlySavingsInr = monthlySavingsUsd;
-        if ("USD".equalsIgnoreCase(currencyCode)) {
-            monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE;
-        } else if (!"INR".equalsIgnoreCase(currencyCode)) {
-            log.warn("Unsupported currency {} in rightsizing recommendation {}, assuming USD for conversion.",
-                    currencyCode, rec.getName());
-            monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE; // Fallback to USD conversion
-        }
+        // Recommendation amounts stay in USD internally (GcpOptimizationRecommendation
+        // documents monthlySavings as USD). The Recommender API normally reports USD; if a
+        // project is billed in another currency we convert back to USD so that every
+        // recommendation in the list shares one unit and can legitimately be summed.
+        double monthlySavingsBase = toUsd(monthlySavingsUsd, currencyCode, rec.getName());
 
         String location = extractLocation(rec.getName());
-        String recommendationType = monthlySavingsInr >= 0 ? "COST_SAVINGS" : "PERFORMANCE_IMPROVEMENT";
+        String recommendationType = resolveRecommendationType(rec.getName(), monthlySavingsBase);
         String description = rec.getDescription();
 
         return new GcpOptimizationRecommendation(
                 resourceName,
                 currentMachineType,
                 recommendedMachineType,
-                monthlySavingsInr, // Use INR value
+                monthlySavingsBase,
                 "Compute Engine", // Assuming this mapper is for Compute Engine
                 location,
                 rec.getName(),
@@ -1816,15 +2064,11 @@ public class GcpOptimizationService {
             // If costImpactUsd is 0, monthlySavingsUsd remains 0.0
         }
 
-        // Convert to INR
-        double monthlySavingsInr = monthlySavingsUsd;
-        if ("USD".equalsIgnoreCase(currencyCode)) {
-            monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE;
-        } else if (!"INR".equalsIgnoreCase(currencyCode)) {
-            log.warn("Unsupported currency {} in SQL rightsizing recommendation {}, assuming USD for conversion.",
-                    currencyCode, rec.getName());
-            monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE; // Fallback to USD conversion
-        }
+        // Recommendation amounts stay in USD internally (GcpOptimizationRecommendation
+        // documents monthlySavings as USD). The Recommender API normally reports USD; if a
+        // project is billed in another currency we convert back to USD so that every
+        // recommendation in the list shares one unit and can legitimately be summed.
+        double monthlySavingsBase = toUsd(monthlySavingsUsd, currencyCode, rec.getName());
 
         String location = extractLocation(rec.getName());
 
@@ -1832,7 +2076,7 @@ public class GcpOptimizationService {
                 resourceName,
                 currentTier, // Use tier name extracted from description initially
                 recommendedTier,
-                monthlySavingsInr, // Store INR value
+                monthlySavingsBase,
                 "Cloud SQL",
                 location,
                 rec.getName(),
@@ -2059,20 +2303,14 @@ public class GcpOptimizationService {
             log.warn("CUD recommendation {} has no cost projection.", rec.getName());
         }
 
-        // Convert to INR
-        double monthlySavingsInr = monthlySavingsUsd;
-        if ("USD".equalsIgnoreCase(currencyCode)) {
-            monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE;
-            log.info("💱 Converted CUD savings from USD to INR: ${} → ₹{}", String.format("%.2f", monthlySavingsUsd),
-                    String.format("%.2f", monthlySavingsInr));
-        } else if (!"INR".equalsIgnoreCase(currencyCode)) {
-            log.warn("Unsupported currency {} in CUD recommendation {}, assuming USD for conversion.", currencyCode,
-                    rec.getName());
-            monthlySavingsInr = monthlySavingsUsd * USD_TO_INR_RATE; // Fallback to USD conversion
-        }
+        // Recommendation amounts stay in USD internally (GcpOptimizationRecommendation
+        // documents monthlySavings as USD). The Recommender API normally reports USD; if a
+        // project is billed in another currency we convert back to USD so that every
+        // recommendation in the list shares one unit and can legitimately be summed.
+        double monthlySavingsBase = toUsd(monthlySavingsUsd, currencyCode, rec.getName());
 
-        log.info("💰 Final CUD savings: ₹{} (Original Currency: {})", String.format("%.2f", monthlySavingsInr),
-                currencyCode);
+        log.info("Final CUD savings: ${} (original currency: {})",
+                String.format("%.2f", monthlySavingsBase), currencyCode);
 
         // Extract commitment details from description
         String commitmentType = "Unknown Commitment"; // Default
@@ -2109,7 +2347,7 @@ public class GcpOptimizationService {
                 resourceName, // Use the generic name
                 commitmentType, // Current type/term being recommended
                 "Purchase Commitment", // Recommended action
-                monthlySavingsInr, // INR savings
+                monthlySavingsBase,
                 "Commitment", // Service category
                 location,
                 rec.getName(),
@@ -2118,26 +2356,7 @@ public class GcpOptimizationService {
         );
     }
 
-    /**
-     * Extracts commitment amount (e.g., "1 GB") if present in the description.
-     * 
-     * @deprecated More robust parsing integrated into mapToCudRecommendationDto.
-     */
-    @Deprecated
-    private String extractCommitmentAmountFromDescription(String description) {
-        // Kept for reference
-        return "N/A";
-    }
 
-    /**
-     * HELPER: Extract location from recommendation name.
-     * 
-     * @deprecated Replaced by the general `extractLocation` method.
-     */
-    @Deprecated
-    private String extractLocationFromRecommendationName(String recommendationName) {
-        return extractLocation(recommendationName);
-    }
 
     /**
      * Enriches a recommendation with actual utilization metrics from Cloud Monitoring.
@@ -2188,18 +2407,48 @@ public class GcpOptimizationService {
     }
 
     /**
-     * Applies GCE rightsizing: stop → modify machine type → start.
-     * Validates read-write access before proceeding.
-     * Runs synchronously in the calling thread — caller should wrap in @Async.
+     * Validates that a rightsizing apply is permitted, without performing it.
+     *
+     * <p>Callers that dispatch {@link #applyRightsizing} asynchronously must invoke this on
+     * the request thread first, so an authorization failure becomes a {@code 403} instead of
+     * a {@code 202} followed by a silently swallowed exception on an executor thread.
+     *
+     * @throws SecurityException        when the account lacks read-write access
+     * @throws IllegalArgumentException when the account or target machine type is invalid
      */
-    public void applyRightsizing(String gcpProjectId, String zone, String instanceName, String targetMachineType) {
+    public void verifyRightsizingAllowed(String gcpProjectId, String zone, String instanceName,
+                                          String targetMachineType) {
+        if (zone == null || zone.isBlank()) {
+            throw new IllegalArgumentException("zone is required");
+        }
+        if (instanceName == null || instanceName.isBlank()) {
+            throw new IllegalArgumentException("instanceName is required");
+        }
+        // GCE machine types are lowercase alphanumerics with dashes, e.g. e2-standard-4, or a
+        // custom form like e2-custom-4-8192. Validate before it reaches a URL path.
+        if (targetMachineType == null || !targetMachineType.matches("^[a-z0-9]+(-[a-z0-9]+)+$")) {
+            throw new IllegalArgumentException("Invalid target machine type: " + targetMachineType);
+        }
+
         CloudAccount account = cloudAccountService.findByGcpProjectId(gcpProjectId);
         if (account == null) {
             throw new IllegalArgumentException("Account not found for GCP project: " + gcpProjectId);
         }
         if (!"read-write".equals(account.getAccessType())) {
-            throw new SecurityException("Account " + gcpProjectId + " does not have read-write access. Rightsizing is not permitted.");
+            throw new SecurityException("Account " + gcpProjectId
+                    + " does not have read-write access. Rightsizing is not permitted.");
         }
+    }
+
+    /**
+     * Applies GCE rightsizing: stop → modify machine type → start.
+     * Validates read-write access before proceeding.
+     * Runs synchronously in the calling thread — caller should wrap in @Async.
+     */
+    public void applyRightsizing(String gcpProjectId, String zone, String instanceName, String targetMachineType) {
+        // Re-checked here as well as in verifyRightsizingAllowed, so this stays safe when
+        // invoked directly rather than through the controller.
+        verifyRightsizingAllowed(gcpProjectId, zone, instanceName, targetMachineType);
 
         log.info("[GcpRightsizing] Apply START — project={} zone={} instance={} target={}",
                 gcpProjectId, zone, instanceName, targetMachineType);
@@ -2276,29 +2525,47 @@ public class GcpOptimizationService {
         // but reject PERFORMANCE_IMPROVEMENT to avoid "illogical" expensive upgrades
         // without evidence.
         if (avgCpu == null && avgMemory == null) {
-            if ("PERFORMANCE_IMPROVEMENT".equals(recommendationType)) {
-                log.info(
-                        "Filtering out upgrade recommendation for {}: No utilization metrics available to justify high cost performance improvement",
-                        recommendation.getResourceName());
-                return false;
-            }
-            log.debug("No utilization metrics available for {}. Allowing recommendation (benefit of the doubt).",
-                    recommendation.getResourceName());
-            return true;
+            // Fail closed. This previously allowed every downsize through when monitoring was
+            // unavailable — precisely the case where an unjustified downsize causes an
+            // outage. A recommendation with no evidence behind it is not surfaced as
+            // actionable.
+            log.info("Filtering out {} recommendation for {}: no utilization metrics available to justify it",
+                    recommendationType, recommendation.getResourceName());
+            return false;
         }
 
         if ("COST_SAVINGS".equals(recommendationType)) {
+            // Peak guard. maxCpu/maxMemory were previously collected and then ignored, so the
+            // gate ran on averages alone: a resource averaging 10% but peaking at 95% passed
+            // as "underutilized" and the downsize would clip its peak.
+            if (maxCpu != null && maxCpu > HIGH_CPU_THRESHOLD) {
+                log.info("Filtering out downgrade recommendation for {}: peak CPU ({}%) exceeds "
+                                + "the safe ceiling ({}%) despite a low average",
+                        recommendation.getResourceName(), String.format("%.1f", maxCpu),
+                        String.format("%.1f", HIGH_CPU_THRESHOLD));
+                return false;
+            }
+            if (maxMemory != null && maxMemory > HIGH_MEMORY_THRESHOLD) {
+                log.info("Filtering out downgrade recommendation for {}: peak memory ({}%) exceeds "
+                                + "the safe ceiling ({}%) despite a low average",
+                        recommendation.getResourceName(), String.format("%.1f", maxMemory),
+                        String.format("%.1f", HIGH_MEMORY_THRESHOLD));
+                return false;
+            }
+
             // Downgrade recommendation - validate that resource is actually underutilized
             if (avgCpu != null && avgCpu > LOW_CPU_THRESHOLD) {
                 log.info(
-                        "Filtering out downgrade recommendation for {}: CPU utilization ({:.1f}%) is above threshold ({:.1f}%)",
-                        recommendation.getResourceName(), avgCpu, LOW_CPU_THRESHOLD);
+                        "Filtering out downgrade recommendation for {}: CPU utilization ({}%) is above threshold ({}%)",
+                        recommendation.getResourceName(), String.format("%.1f", avgCpu),
+                        String.format("%.1f", LOW_CPU_THRESHOLD));
                 return false;
             }
             if (avgMemory != null && avgMemory > LOW_MEMORY_THRESHOLD) {
                 log.info(
-                        "Filtering out downgrade recommendation for {}: Memory utilization ({:.1f}%) is above threshold ({:.1f}%)",
-                        recommendation.getResourceName(), avgMemory, LOW_MEMORY_THRESHOLD);
+                        "Filtering out downgrade recommendation for {}: memory utilization ({}%) is above threshold ({}%)",
+                        recommendation.getResourceName(), String.format("%.1f", avgMemory),
+                        String.format("%.1f", LOW_MEMORY_THRESHOLD));
                 return false;
             }
             // Valid downgrade recommendation
@@ -2311,10 +2578,10 @@ public class GcpOptimizationService {
 
             if (!cpuOverutilized && !memoryOverutilized) {
                 log.info(
-                        "Filtering out upgrade recommendation for {}: CPU ({:.1f}%) and Memory ({:.1f}%) are below thresholds",
+                        "Filtering out upgrade recommendation for {}: CPU ({}%) and memory ({}%) are below thresholds",
                         recommendation.getResourceName(),
-                        avgCpu != null ? avgCpu : 0.0,
-                        avgMemory != null ? avgMemory : 0.0);
+                        String.format("%.1f", avgCpu != null ? avgCpu : 0.0),
+                        String.format("%.1f", avgMemory != null ? avgMemory : 0.0));
                 return false;
             }
             // Valid upgrade recommendation
@@ -2355,12 +2622,97 @@ public class GcpOptimizationService {
     }
 
     /** Calculates estimated monthly disk cost in INR */
-    private double calculateDiskCost(long sizeGb) {
-        // Standard PD cost: $0.10 per GB/month (us-central1, estimate)
-        double costUsd = sizeGb * EST_PD_COST_USD_PER_GB;
-        return costUsd * USD_TO_INR_RATE;
+    /**
+     * Normalises a Recommender API cost impact to USD, the base currency for everything
+     * produced by this service.
+     *
+     * @param amount       amount as reported by the API
+     * @param currencyCode currency the API reported, may be null
+     * @param context      recommendation name, for logging an unsupported currency
+     * @return the amount expressed in USD
+     */
+    private double toUsd(double amount, String currencyCode, String context) {
+        if (currencyCode == null || currencyCode.isBlank() || "USD".equalsIgnoreCase(currencyCode)) {
+            return amount;
+        }
+        if ("INR".equalsIgnoreCase(currencyCode)) {
+            return currencyConversionService.inrToUsd(amount);
+        }
+        log.warn("Unsupported currency {} in recommendation {}; treating the amount as USD unconverted.",
+                currencyCode, context);
+        return amount;
     }
 
+    /**
+     * Determines recommendation intent from the recommender that produced it.
+     *
+     * <p>This used to be inferred from the sign of the savings figure, which
+     * misclassified any recommendation lacking a cost projection (savings 0.0) as
+     * {@code COST_SAVINGS} — and those then passed the downsize validation gate without
+     * any cost justification.
+     *
+     * @param recommendationName full recommender resource name
+     * @param monthlySavingsUsd  normalised savings, used only as a last resort
+     */
+    private String resolveRecommendationType(String recommendationName, double monthlySavingsUsd) {
+        String name = recommendationName == null ? "" : recommendationName.toLowerCase();
+        if (name.contains("performance")) {
+            return "PERFORMANCE_IMPROVEMENT";
+        }
+        if (name.contains("machinetyperecommender")
+                || name.contains("idleresourcerecommender")
+                || name.contains("overprovisioned")
+                || name.contains("costrecommender")) {
+            return "COST_SAVINGS";
+        }
+        if (monthlySavingsUsd > 0) {
+            return "COST_SAVINGS";
+        }
+        if (monthlySavingsUsd < 0) {
+            return "PERFORMANCE_IMPROVEMENT";
+        }
+        // No cost projection and no recognisable recommender: classify as neutral so it is
+        // not silently treated as a justified downsize.
+        return "OPTIMIZATION";
+    }
+
+    /**
+     * Parses an RFC-3339 timestamp, returning null rather than throwing.
+     */
+    private Instant safeParseInstant(String timestamp) {
+        if (timestamp == null || timestamp.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(timestamp);
+        } catch (Exception e) {
+            try {
+                return java.time.OffsetDateTime.parse(timestamp).toInstant();
+            } catch (Exception ignored) {
+                log.debug("Could not parse timestamp '{}'", timestamp);
+                return null;
+            }
+        }
+    }
+
+    /**
+     * True when a resource was created within the unused-resource grace period.
+     *
+     * <p>Used to avoid flagging a disk detached seconds ago during maintenance, or an IP
+     * reserved moments ago for a pending deployment.
+     *
+     * @param creationTimestamp RFC-3339 creation timestamp from the Compute API
+     */
+    private boolean isWithinGracePeriod(String creationTimestamp) {
+        Instant created = safeParseInstant(creationTimestamp);
+        if (created == null) {
+            // Unknown age: do not suppress, but the caller's own checks still apply.
+            return false;
+        }
+        return created.isAfter(Instant.now().minus(UNUSED_RESOURCE_MIN_AGE_DAYS, ChronoUnit.DAYS));
+    }
+
+    /** Estimated monthly persistent-disk cost in USD. */
     private double calculateDiskCostUsd(long sizeGb) {
         return sizeGb * EST_PD_COST_USD_PER_GB;
     }
@@ -2468,10 +2820,9 @@ public class GcpOptimizationService {
                     if ("COST_SAVINGS".equals(dto.getRecommendationType())) {
                         double calculatedSavingsUsd = currentPriceUsd - recommendedPriceUsd;
                         if (calculatedSavingsUsd > 0) {
-                            double calculatedSavingsInr = calculatedSavingsUsd * USD_TO_INR_RATE;
-                            dto.setMonthlySavings(calculatedSavingsInr);
-                            log.info("Populated 'monthlySavings' from price diff: ₹{} ({} -> {})",
-                                    String.format("%.2f", calculatedSavingsInr), actualCurrentTier, rawRecommendedTier);
+                            dto.setMonthlySavings(calculatedSavingsUsd);
+                            log.info("Populated 'monthlySavings' from price diff: ${} ({} -> {})",
+                                    String.format("%.2f", calculatedSavingsUsd), actualCurrentTier, rawRecommendedTier);
                         } else {
                             log.warn(
                                     "Fallback price difference for COST_SAVINGS is not positive (Current: ${}, Rec: ${}). Keeping savings as 0.",
@@ -2480,10 +2831,9 @@ public class GcpOptimizationService {
                     } else if ("PERFORMANCE_IMPROVEMENT".equals(dto.getRecommendationType())) {
                         double calculatedCostIncreaseUsd = recommendedPriceUsd - currentPriceUsd;
                         if (calculatedCostIncreaseUsd > 0) {
-                            double calculatedCostIncreaseInr = calculatedCostIncreaseUsd * USD_TO_INR_RATE;
-                            dto.setMonthlySavings(-calculatedCostIncreaseInr); // Store as negative INR
-                            log.info("Populated 'monthlySavings' (cost increase) from price diff: ₹{} ({} -> {})",
-                                    String.format("%.2f", -calculatedCostIncreaseInr), actualCurrentTier,
+                            dto.setMonthlySavings(-calculatedCostIncreaseUsd); // Negative: this raises cost
+                            log.info("Populated 'monthlySavings' (cost increase) from price diff: ${} ({} -> {})",
+                                    String.format("%.2f", -calculatedCostIncreaseUsd), actualCurrentTier,
                                     rawRecommendedTier);
                         } else {
                             log.warn(
@@ -2492,18 +2842,15 @@ public class GcpOptimizationService {
                         }
                     }
                 } else if (dto.getMonthlySavings() != 0.0) {
-                    log.info("Using monthly savings/cost value derived from Recommender API for '{}': ₹{}",
+                    log.info("Using monthly savings/cost value derived from Recommender API for '{}': ${}",
                             instanceName, String.format("%.2f", dto.getMonthlySavings()));
                 }
 
-                // Build readable descriptions using calculated INR prices
-                double currentPriceInr = currentPriceUsd * USD_TO_INR_RATE;
-                double recommendedPriceInr = recommendedPriceUsd * USD_TO_INR_RATE;
-                dto.setCurrentMachineType(buildReadableTierDescription(actualCurrentTier, currentPriceInr)); // Pass INR
-                dto.setRecommendedMachineType(buildReadableTierDescription(rawRecommendedTier, recommendedPriceInr)); // Pass
-                                                                                                                      // INR
+                // Descriptions carry USD prices, matching the DTO's documented unit.
+                dto.setCurrentMachineType(buildReadableTierDescription(actualCurrentTier, currentPriceUsd));
+                dto.setRecommendedMachineType(buildReadableTierDescription(rawRecommendedTier, recommendedPriceUsd));
 
-                log.info("✅ Enhanced recommendation for '{}': Savings/Cost: ₹{}/mo, Last 30d Cost: ₹{}/mo",
+                log.info("Enhanced recommendation for '{}': savings/cost ${}/mo, last 30d cost ${}/mo",
                         instanceName,
                         String.format("%.2f", dto.getMonthlySavings()),
                         dto.getLast30DayCost() != null ? String.format("%.2f", dto.getLast30DayCost()) : "N/A");
@@ -2565,35 +2912,36 @@ public class GcpOptimizationService {
             // Use the label key for Cloud SQL instance name
             String sqlInstanceLabelKey = "cloudsql.googleapis.com/instance_name";
 
-            String query = String.format(
-                    "SELECT SUM(cost) as total_cost, currency " + // Select currency as well
-                            "FROM `%s` " +
-                            "WHERE DATE(_PARTITIONTIME) >= '%s' " + // Use _PARTITIONTIME if table is partitioned
-                            // "WHERE DATE(usage_start_time) >= '%s' " + // Use usage_start_time if not
-                            // partitioned
-                            "  AND DATE(_PARTITIONTIME) < '%s' " +
-                            // " AND DATE(usage_start_time) <= '%s' " +
-                            "  AND service.description = 'Cloud SQL' " +
-                            "  AND project.id = '%s' " +
-                            // Query 'labels' array (UNNEST)
-                            "  AND EXISTS (SELECT 1 FROM UNNEST(labels) AS l WHERE l.key = '%s' AND l.value = '%s') " +
-                            "  AND cost > 0 " +
-                            "GROUP BY currency", // Group by currency
-                    tableNameOpt.get(),
-                    startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                    today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE), // Partition date is exclusive upper
-                                                                                // bound
-                    // today.format(DateTimeFormatter.ISO_LOCAL_DATE), // Use for usage_start_time
-                    gcpProjectId,
-                    sqlInstanceLabelKey,
-                    instanceName);
+            log.info("Querying 30-day cost for Cloud SQL instance: {}", instanceName);
 
-            log.info("📊 Querying 30-day cost for Cloud SQL instance: {}", instanceName);
-            log.debug("BigQuery SQL: {}", query);
+            // Try the partitioned form first, then fall back to usage_start_time.
+            //
+            // Only partitioned billing-export tables expose _PARTITIONTIME. On a
+            // non-partitioned table (or a newer detailed export) that query throws, which
+            // previously propagated as -1.0 and rendered as a blank actual-cost column with
+            // no indication that billing export was misconfigured. Both forms are valid
+            // against their respective table layouts, so try each before giving up.
+            TableResult results = null;
+            BigQueryException lastError = null;
+            for (String dateColumn : List.of("_PARTITIONTIME", "usage_start_time")) {
+                String query = buildCloudSqlCostQuery(tableNameOpt.get(), dateColumn, startDate, today,
+                        gcpProjectId, sqlInstanceLabelKey, instanceName);
+                log.debug("BigQuery SQL ({}): {}", dateColumn, query);
+                try {
+                    results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+                    break;
+                } catch (BigQueryException e) {
+                    lastError = e;
+                    log.debug("Cloud SQL cost query using {} failed for {}: {}",
+                            dateColumn, instanceName, e.getMessage());
+                }
+            }
+            if (results == null) {
+                throw lastError != null ? lastError
+                        : new IllegalStateException("Cloud SQL cost query produced no result");
+            }
 
-            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
-
-            double totalCostInr = 0.0;
+            double totalCostUsd = 0.0;
             boolean dataFound = false;
 
             if (results.getTotalRows() == 0) {
@@ -2611,26 +2959,15 @@ public class GcpOptimizationService {
                     double costValue = costField.getDoubleValue();
                     String currency = currencyField.getStringValue();
 
-                    if ("USD".equalsIgnoreCase(currency)) {
-                        totalCostInr += costValue * USD_TO_INR_RATE;
-                        log.info("  Cost contribution (USD converted to INR): ${} -> ₹{}",
-                                String.format("%.2f", costValue), String.format("%.2f", costValue * USD_TO_INR_RATE));
-                    } else if ("INR".equalsIgnoreCase(currency)) {
-                        totalCostInr += costValue;
-                        log.info("  Cost contribution (INR): ₹{}", String.format("%.2f", costValue));
-                    } else {
-                        log.warn(
-                                "  Unsupported currency '{}' found in billing data for instance {}. Cost: {}. Treating as USD for conversion.",
-                                currency, instanceName, costValue);
-                        totalCostInr += costValue * USD_TO_INR_RATE; // Fallback: Assume USD if unknown
-                    }
+                    // Billing export rows are normalised to USD, the base unit for this service.
+                    totalCostUsd += toUsd(costValue, currency, instanceName);
                 }
             }
 
             if (dataFound) {
-                log.info("✅ Total Cloud SQL 30-day cost for '{}': ₹{}",
-                        instanceName, String.format("%.2f", totalCostInr));
-                return totalCostInr;
+                log.info("Total Cloud SQL 30-day cost for '{}': ${}",
+                        instanceName, String.format("%.2f", totalCostUsd));
+                return totalCostUsd;
             } else {
                 // Should be caught by getTotalRows == 0, but as safety
                 log.warn("⚠️ No cost rows processed for instance '{}', returning 0.0 cost.", instanceName);
@@ -2651,9 +2988,204 @@ public class GcpOptimizationService {
         }
     }
 
-    /** Helper to find the BigQuery billing export table name */
+    /**
+     * Adjusts recommendation savings for discounts already applied to the project.
+     *
+     * <p>The Recommender API quotes savings against on-demand list price. Two GCP discount
+     * mechanisms make that an overstatement:
+     *
+     * <ul>
+     *   <li><b>Sustained use discounts</b> apply automatically to Compute Engine and reach
+     *       roughly 20-30% for an instance that runs a full month. A downsize therefore
+     *       saves proportionally less than list price implies.</li>
+     *   <li><b>Committed use discounts</b> are prepaid. Downsizing a resource covered by a
+     *       resource-based commitment yields no billing change at all until the commitment
+     *       expires — the committed spend is owed regardless.</li>
+     * </ul>
+     *
+     * <p>{@code getCommittedUseDiscountsSync} already inventories commitments but its output
+     * was never consulted by the recommender, so commitment-covered resources were quoted
+     * full savings. Adjusted amounts carry an explanation so the figure is auditable.
+     */
+    private void applyDiscountAdjustments(String gcpProjectId,
+                                           List<GcpOptimizationRecommendation> recommendations) {
+        if (recommendations.isEmpty()) {
+            return;
+        }
+
+        // Regions with an active resource-based commitment. A downsize there is not
+        // immediately realizable.
+        Set<String> committedRegions = new HashSet<>();
+        try {
+            for (GcpCommittedUseDiscountDto cud : getCommittedUseDiscountsSync(gcpProjectId)) {
+                if (cud.getRegion() != null && !cud.getRegion().isBlank()
+                        && "ACTIVE".equalsIgnoreCase(cud.getStatus())) {
+                    committedRegions.add(cud.getRegion().toLowerCase());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[GcpRightsizing] Could not load commitments for {}; savings will not be "
+                    + "commitment-adjusted: {}", gcpProjectId, e.getMessage());
+        }
+
+        for (GcpOptimizationRecommendation rec : recommendations) {
+            if (rec.getMonthlySavings() <= 0) {
+                continue;
+            }
+
+            String location = rec.getLocation() == null ? "" : rec.getLocation().toLowerCase();
+            String region = location.matches("^[a-z]+-[a-z]+\\d-[a-z]$")
+                    ? location.substring(0, location.lastIndexOf('-'))
+                    : location;
+
+            if (committedRegions.contains(region)) {
+                // Committed spend is owed whether or not the resource is downsized.
+                rec.setListPriceMonthlySavings(rec.getMonthlySavings());
+                rec.setMonthlySavings(0.0);
+                rec.setSavingsQualifier(String.format(
+                        "Region %s has an active committed use discount. Downsizing will not reduce the bill "
+                                + "until the commitment expires, because committed spend is prepaid.", region));
+                continue;
+            }
+
+            if ("Compute Engine".equals(rec.getService())) {
+                double listPriceSavings = rec.getMonthlySavings();
+                double adjusted = listPriceSavings * (1.0 - SUSTAINED_USE_DISCOUNT_RATE);
+                rec.setListPriceMonthlySavings(listPriceSavings);
+                rec.setMonthlySavings(Math.round(adjusted * 100.0) / 100.0);
+                rec.setSavingsQualifier(String.format(
+                        "Adjusted down by %.0f%% for the sustained use discount that already applies to a "
+                                + "full-month Compute Engine instance. List-price saving would be $%.2f.",
+                        SUSTAINED_USE_DISCOUNT_RATE * 100, listPriceSavings));
+            }
+        }
+    }
+
+    /**
+     * Maximum pages followed by the Google-API-client pagination helpers below, as a guard
+     * against an unbounded loop if a token were ever echoed back unchanged.
+     */
+    private static final int MAX_REST_PAGES = 50;
+
+    /** Lists every Cloud SQL instance in a project, following {@code nextPageToken}. */
+    private List<DatabaseInstance> listAllCloudSqlInstances(SQLAdmin sqlAdmin, String gcpProjectId)
+            throws java.io.IOException {
+        List<DatabaseInstance> all = new ArrayList<>();
+        String pageToken = null;
+        int pages = 0;
+        do {
+            InstancesListResponse response = sqlAdmin.instances().list(gcpProjectId)
+                    .setPageToken(pageToken)
+                    .execute();
+            if (response.getItems() != null) {
+                all.addAll(response.getItems());
+            }
+            pageToken = response.getNextPageToken();
+        } while (pageToken != null && !pageToken.isBlank() && ++pages < MAX_REST_PAGES);
+        return all;
+    }
+
+    /** Lists every backup run for an instance, following {@code nextPageToken}. */
+    private List<BackupRun> listAllBackupRuns(SQLAdmin sqlAdmin, String gcpProjectId, String instanceName)
+            throws java.io.IOException {
+        List<BackupRun> all = new ArrayList<>();
+        String pageToken = null;
+        int pages = 0;
+        do {
+            var response = sqlAdmin.backupRuns().list(gcpProjectId, instanceName)
+                    .setPageToken(pageToken)
+                    .execute();
+            if (response.getItems() != null) {
+                all.addAll(response.getItems());
+            }
+            pageToken = response.getNextPageToken();
+        } while (pageToken != null && !pageToken.isBlank() && ++pages < MAX_REST_PAGES);
+        return all;
+    }
+
+    /** Lists every Cloud DNS managed zone, following {@code nextPageToken}. */
+    private List<com.google.api.services.dns.model.ManagedZone> listAllDnsZones(
+            com.google.api.services.dns.Dns dns, String gcpProjectId) throws java.io.IOException {
+        List<com.google.api.services.dns.model.ManagedZone> all = new ArrayList<>();
+        String pageToken = null;
+        int pages = 0;
+        do {
+            var response = dns.managedZones().list(gcpProjectId).setPageToken(pageToken).execute();
+            if (response.getManagedZones() != null) {
+                all.addAll(response.getManagedZones());
+            }
+            pageToken = response.getNextPageToken();
+        } while (pageToken != null && !pageToken.isBlank() && ++pages < MAX_REST_PAGES);
+        return all;
+    }
+
+    /** Lists every record set in a zone, following {@code nextPageToken}. */
+    private List<com.google.api.services.dns.model.ResourceRecordSet> listAllDnsRecords(
+            com.google.api.services.dns.Dns dns, String gcpProjectId, String zoneName)
+            throws java.io.IOException {
+        List<com.google.api.services.dns.model.ResourceRecordSet> all = new ArrayList<>();
+        String pageToken = null;
+        int pages = 0;
+        do {
+            var response = dns.resourceRecordSets().list(gcpProjectId, zoneName)
+                    .setPageToken(pageToken)
+                    .execute();
+            if (response.getRrsets() != null) {
+                all.addAll(response.getRrsets());
+            }
+            pageToken = response.getNextPageToken();
+        } while (pageToken != null && !pageToken.isBlank() && ++pages < MAX_REST_PAGES);
+        return all;
+    }
+
+    /**
+     * Builds the 30-day Cloud SQL cost query against a billing-export table.
+     *
+     * @param dateColumn either {@code _PARTITIONTIME} (partitioned tables) or
+     *                   {@code usage_start_time} (non-partitioned / detailed exports)
+     */
+    private String buildCloudSqlCostQuery(String tableName, String dateColumn, LocalDate startDate,
+                                           LocalDate today, String gcpProjectId,
+                                           String sqlInstanceLabelKey, String instanceName) {
+        return String.format(
+                "SELECT SUM(cost) as total_cost, currency "
+                        + "FROM `%s` "
+                        + "WHERE DATE(%s) >= '%s' "
+                        + "  AND DATE(%s) < '%s' "
+                        + "  AND service.description = 'Cloud SQL' "
+                        + "  AND project.id = '%s' "
+                        + "  AND EXISTS (SELECT 1 FROM UNNEST(labels) AS l WHERE l.key = '%s' AND l.value = '%s') "
+                        + "  AND cost > 0 "
+                        + "GROUP BY currency",
+                tableName,
+                dateColumn, startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                // Upper bound is exclusive, so add a day to include today.
+                dateColumn, today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE),
+                gcpProjectId,
+                sqlInstanceLabelKey,
+                instanceName);
+    }
+
+    /**
+     * Finds the BigQuery billing-export table name for a project.
+     *
+     * <p>Memoized per project: the discovery below enumerates every dataset and every table
+     * in the project, and it was previously invoked once per Cloud SQL instance on every
+     * request. An empty Optional is cached too, so a project without billing export does
+     * not re-scan its whole BigQuery inventory on each call.
+     */
     private Optional<String> getBillingTableName(BigQuery bigquery, String gcpProjectId) {
-        // Basic Caching could be added here
+        Optional<String> memoized = billingTableNameCache.get(gcpProjectId);
+        if (memoized != null) {
+            return memoized;
+        }
+        Optional<String> resolved = discoverBillingTableName(bigquery, gcpProjectId);
+        billingTableNameCache.put(gcpProjectId, resolved);
+        return resolved;
+    }
+
+    /** Performs the dataset/table scan. See {@link #getBillingTableName} for caching. */
+    private Optional<String> discoverBillingTableName(BigQuery bigquery, String gcpProjectId) {
         try {
             // Prefer searching in the specific project first
             for (Dataset dataset : bigquery.listDatasets(gcpProjectId).iterateAll()) {
@@ -2867,7 +3399,7 @@ public class GcpOptimizationService {
                             .sum();
                     if (totalNodes == 0) {
                         items.add(new GcpWasteItem(cluster.getName(), cluster.getName(),
-                                "Idle GKE Cluster", cluster.getLocation(), 0.0,
+                                "Idle GKE Cluster", cluster.getLocation(), EST_GKE_CLUSTER_MONTHLY_USD,
                                 "Cluster has 0 nodes across all node pools"));
                     }
                 }
@@ -2892,8 +3424,8 @@ public class GcpOptimizationService {
                     try {
                         boolean hasTables = bq.listTables(dataset.getDatasetId()).iterateAll().iterator().hasNext();
                         if (!hasTables) {
-                            items.add(new GcpWasteItem(datasetId, datasetId,
-                                    "Empty BigQuery Dataset", "global", 0.0,
+                            items.add(GcpWasteItem.withUnknownSavings(datasetId, datasetId,
+                                    "Empty BigQuery Dataset", "global",
                                     "Dataset has no tables"));
                         }
                     } catch (Exception e) {
@@ -2922,8 +3454,8 @@ public class GcpOptimizationService {
                                         com.google.cloud.storage.Storage.BucketField.LIFECYCLE));
                         if (fullBucket != null
                                 && (fullBucket.getLifecycleRules() == null || fullBucket.getLifecycleRules().isEmpty())) {
-                            items.add(new GcpWasteItem(bucket.getName(), bucket.getName(),
-                                    "GCS Bucket (No Lifecycle Policy)", "global", 0.0,
+                            items.add(GcpWasteItem.withUnknownSavings(bucket.getName(), bucket.getName(),
+                                    "GCS Bucket (No Lifecycle Policy)", "global",
                                     "Bucket has no lifecycle rules — data may accumulate in STANDARD storage indefinitely"));
                         }
                     } catch (Exception e) {
@@ -2955,8 +3487,8 @@ public class GcpOptimizationService {
                             Instant updated = Instant.ofEpochSecond(updateTime.getSeconds(), updateTime.getNanos());
                             if (updated.isBefore(cutoff)) {
                                 String repoName = repo.getName().substring(repo.getName().lastIndexOf('/') + 1);
-                                items.add(new GcpWasteItem(repo.getName(), repoName,
-                                        "Stale Artifact Registry Repo", location, 0.0,
+                                items.add(GcpWasteItem.withUnknownSavings(repo.getName(), repoName,
+                                        "Stale Artifact Registry Repo", location,
                                         "Repository not updated in 60+ days"));
                             }
                         }
@@ -3014,19 +3546,18 @@ public class GcpOptimizationService {
             List<GcpWasteItem> items = new ArrayList<>();
             try {
                 com.google.api.services.dns.Dns dns = clientOpt.get();
-                List<com.google.api.services.dns.model.ManagedZone> zones =
-                        dns.managedZones().list(gcpProjectId).execute().getManagedZones();
-                if (zones == null) return List.of();
+                List<com.google.api.services.dns.model.ManagedZone> zones = listAllDnsZones(dns, gcpProjectId);
+                if (zones.isEmpty()) return List.of();
                 for (com.google.api.services.dns.model.ManagedZone zone : zones) {
                     List<com.google.api.services.dns.model.ResourceRecordSet> records =
-                            dns.resourceRecordSets().list(gcpProjectId, zone.getName()).execute().getRrsets();
+                            listAllDnsRecords(dns, gcpProjectId, zone.getName());
                     boolean onlyDefaults = records == null || records.stream()
                             .allMatch(r -> "NS".equals(r.getType()) || "SOA".equals(r.getType()));
                     if (onlyDefaults) {
                         items.add(new GcpWasteItem(
                                 zone.getName(), zone.getDnsName(),
                                 "Empty Cloud DNS Zone", "global",
-                                0.20 * USD_TO_INR_RATE,
+                                EST_DNS_ZONE_MONTHLY_USD,
                                 "Zone contains only default NS/SOA records"));
                     }
                 }
@@ -3051,17 +3582,29 @@ public class GcpOptimizationService {
                         if (zoneUrl == null || zoneUrl.isEmpty()) continue;
                         String zone = zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1);
                         try {
-                            double readOps = gcpMetricsService
-                                    .getDiskReadIops(gcpProjectId, disk.getName(), zone, LOOKBACK_DAYS * 24, 3600)
-                                    .stream().mapToDouble(com.xammer.cloud.dto.gcp.GcpMetricDto::getValue).sum();
-                            double writeOps = gcpMetricsService
-                                    .getDiskWriteIops(gcpProjectId, disk.getName(), zone, LOOKBACK_DAYS * 24, 3600)
-                                    .stream().mapToDouble(com.xammer.cloud.dto.gcp.GcpMetricDto::getValue).sum();
+                            List<com.xammer.cloud.dto.gcp.GcpMetricDto> readSeries = gcpMetricsService
+                                    .getDiskReadIops(gcpProjectId, disk.getName(), zone, LOOKBACK_DAYS * 24, 3600);
+                            List<com.xammer.cloud.dto.gcp.GcpMetricDto> writeSeries = gcpMetricsService
+                                    .getDiskWriteIops(gcpProjectId, disk.getName(), zone, LOOKBACK_DAYS * 24, 3600);
+
+                            // Summing an empty series yields exactly 0.0, so a Cloud Monitoring
+                            // failure was indistinguishable from a genuinely idle disk — and the
+                            // disk was then reported as deletable. Require actual datapoints.
+                            if (readSeries.isEmpty() && writeSeries.isEmpty()) {
+                                log.debug("[GcpWaste] No I/O datapoints for disk {}; cannot conclude it is idle",
+                                        disk.getName());
+                                continue;
+                            }
+
+                            double readOps = readSeries.stream()
+                                    .mapToDouble(com.xammer.cloud.dto.gcp.GcpMetricDto::getValue).sum();
+                            double writeOps = writeSeries.stream()
+                                    .mapToDouble(com.xammer.cloud.dto.gcp.GcpMetricDto::getValue).sum();
                             if (readOps == 0.0 && writeOps == 0.0) {
                                 items.add(new GcpWasteItem(
                                         disk.getName(), disk.getName(),
                                         "Idle Attached Disk", zone,
-                                        calculateDiskCost(disk.getSizeGb()),
+                                        calculateDiskCostUsd(disk.getSizeGb()),
                                         "Disk has had zero read/write I/O over the last " + LOOKBACK_DAYS + " days"));
                             }
                         } catch (Exception e) {
@@ -3119,7 +3662,7 @@ public class GcpOptimizationService {
                             if (!hasTraffic) {
                                 items.add(new GcpWasteItem(
                                         router.getName() + "/" + nat.getName(), nat.getName(),
-                                        "Idle Cloud NAT Gateway", region, 0.0,
+                                        "Idle Cloud NAT Gateway", region, EST_CLOUD_NAT_MONTHLY_USD,
                                         "No NAT traffic (sent/received bytes) in the last " + LOOKBACK_DAYS + " days"));
                             }
                         }
@@ -3169,9 +3712,9 @@ public class GcpOptimizationService {
                             .build();
                     boolean hasActivity = metricsClient.listTimeSeries(req).iterateAll().iterator().hasNext();
                     if (!hasActivity) {
-                        items.add(new GcpWasteItem(
+                        items.add(GcpWasteItem.withUnknownSavings(
                                 subName, shortName,
-                                "Idle Pub/Sub Subscription", "global", 0.0,
+                                "Idle Pub/Sub Subscription", "global",
                                 "No pull/push activity in the last 30 days"));
                     }
                 }
@@ -3251,10 +3794,10 @@ public class GcpOptimizationService {
                     String bucketId = parts[parts.length - 1];
                     String location = parts.length > 3 ? parts[3] : "global";
                     double extraDays = bucket.getRetentionDays() - 30;
-                    double estimatedInr = extraDays * 0.01 * USD_TO_INR_RATE;
+                    double estimatedUsd = extraDays * EST_LOG_RETENTION_USD_PER_EXTRA_DAY;
                     items.add(new GcpWasteItem(
                             name, bucketId,
-                            "Cloud Logging Excessive Retention", location, estimatedInr,
+                            "Cloud Logging Excessive Retention", location, estimatedUsd,
                             "Retention is " + bucket.getRetentionDays() + " days (default 30) — "
                                     + (int) extraDays + " extra days of log storage cost"));
                 }
@@ -3303,7 +3846,7 @@ public class GcpOptimizationService {
                                     : regionUrl.substring(regionUrl.lastIndexOf('/') + 1);
                             items.add(new GcpWasteItem(
                                     rule.getName(), rule.getName(),
-                                    "Idle Load Balancer", location, EST_FORWARDING_RULE_MONTHLY_INR,
+                                    "Idle Load Balancer", location, EST_FORWARDING_RULE_MONTHLY_USD,
                                     "No requests to this " + scheme + " load balancer in the last " + LOOKBACK_DAYS + " days"));
                         }
                     }

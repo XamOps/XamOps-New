@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.EbsVolumeAction;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.util.RemoteCommandInputValidator;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,21 @@ public class EbsShrinkExecutorService {
 
         CloudAccount account = cloudAccountRepository.findById(accountId).orElse(null);
         if (account == null) return;
+
+        // Re-validate at the executor boundary: every value below is interpolated into a
+        // root shell command via SSM, and this bean is reachable from more than one caller.
+        try {
+            volumeId = RemoteCommandInputValidator.requireValidVolumeId(volumeId);
+            region = RemoteCommandInputValidator.requireValidRegion(region);
+            instanceId = RemoteCommandInputValidator.requireValidInstanceId(instanceId);
+            mountPoint = RemoteCommandInputValidator.requireSafeMountPoint(mountPoint);
+        } catch (IllegalArgumentException e) {
+            logger.error("[Shrink] Rejected unsafe input for action {}: {}", actionId, e.getMessage());
+            updateActionStatus(action, "FAILED", "Rejected unsafe input: " + e.getMessage());
+            action.setCompletedAt(Instant.now());
+            ebsVolumeActionRepository.save(action);
+            return;
+        }
 
         try {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);

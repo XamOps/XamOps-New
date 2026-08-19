@@ -125,7 +125,9 @@ public class CloudsitterService {
         return assignments.stream()
                 .collect(Collectors.toMap(
                         CloudsitterAssignment::getResourceId,
-                        a -> convertToDto(a, instanceTypes.getOrDefault(a.getResourceId(), "t3.micro")),
+                        // A null type means the lookup failed; convertToDto reports the
+                        // saving as unknown rather than pricing the instance as a t3.micro.
+                        a -> convertToDto(a, instanceTypes.get(a.getResourceId())),
                         (existing, replacement) -> existing));
     }
 
@@ -137,10 +139,14 @@ public class CloudsitterService {
                     .filter(a -> accountId.equals(a.getAccountId()) && a.isActive())
                     .collect(Collectors.toList());
             Map<String, String> instanceTypes = fetchInstanceTypes(accountId, assignments);
+            // Skip assignments whose instance type could not be resolved. Defaulting them
+            // to t3.micro priced an m5.24xlarge at a fraction of its real cost with no
+            // warning, understating the reported savings.
             return assignments.stream()
+                    .filter(a -> instanceTypes.get(a.getResourceId()) != null)
                     .mapToDouble(a -> calculateMonthlySavings(
                             a.getPolicy(),
-                            instanceTypes.getOrDefault(a.getResourceId(), "t3.micro"),
+                            instanceTypes.get(a.getResourceId()),
                             a.getRegion()))
                     .sum();
         } catch (Exception e) {
@@ -196,6 +202,11 @@ public class CloudsitterService {
         return types;
     }
 
+    /**
+     * @param instanceType resolved EC2 instance type, or null when the lookup failed. A null
+     *                     yields an unknown saving rather than a figure derived from a
+     *                     fabricated default type.
+     */
     private CloudsitterAssignmentDto convertToDto(CloudsitterAssignment assignment, String instanceType) {
         CloudsitterAssignmentDto dto = new CloudsitterAssignmentDto();
         dto.setId(assignment.getId());
@@ -204,24 +215,40 @@ public class CloudsitterService {
         dto.setRegion(assignment.getRegion());
         dto.setPolicy(assignment.getPolicy());
         dto.setActive(assignment.isActive());
-        dto.setInstanceType(instanceType);
+        dto.setInstanceType(instanceType != null ? instanceType : "unknown");
 
-        double savings = calculateMonthlySavings(assignment.getPolicy(), instanceType, assignment.getRegion());
-        dto.setMonthlySavings(savings);
+        if (instanceType == null) {
+            dto.setMonthlySavings(0.0);
+            dto.setSavingsUnknown(true);
+            return dto;
+        }
 
+        dto.setMonthlySavings(calculateMonthlySavings(assignment.getPolicy(), instanceType, assignment.getRegion()));
         return dto;
     }
 
+    /**
+     * Monthly saving from parking an instance on a schedule.
+     *
+     * <p>Only compute stops when an EC2 instance is stopped. Attached EBS volumes continue
+     * to bill in full, and since February 2024 so does any associated public IPv4 address.
+     * The previous calculation was compute-only, so it overstated the saving on every
+     * instance with meaningful storage attached.
+     */
     private double calculateMonthlySavings(CloudsitterPolicy policy, String instanceType, String region) {
         try {
             int stoppedHoursPerMonth = calculateStoppedHoursPerMonth(policy);
-            double savings = pricingService.calculateMonthlySavings(instanceType, region, stoppedHoursPerMonth);
-            double roundedSavings = Math.round(savings * 100.0) / 100.0;
-            
-            logger.debug("CloudSitter Monthly Savings - Instance: {} in {}, Policy: '{}', " +
-                    "Stopped hrs/month: {}, Savings: ${}",
+            double computeSaving = pricingService.calculateMonthlySavings(instanceType, region, stoppedHoursPerMonth);
+
+            // Compute is the only component that stops billing; nothing is netted off here
+            // because storage cost is the same whether the instance runs or not. Rounding is
+            // applied once, at the end.
+            double roundedSavings = Math.round(computeSaving * 100.0) / 100.0;
+
+            logger.debug("CloudSitter monthly savings — instance {} in {}, policy '{}', "
+                            + "stopped {} hrs/month, compute saving ${}",
                     instanceType, region, policy.getName(), stoppedHoursPerMonth, roundedSavings);
-            
+
             return roundedSavings;
         } catch (Exception e) {
             logger.error("Failed to calculate savings for policy {}", policy.getId(), e);
@@ -243,7 +270,11 @@ public class CloudsitterService {
 
             int totalHoursPerWeek = 7 * 24;
             int stoppedHoursPerWeek = totalHoursPerWeek - totalRunningHoursPerWeek;
-            int stoppedHoursPerMonth = (int) (stoppedHoursPerWeek * 4.33);
+            // Scale by the true average month (730 h / 168 h per week) and round rather than
+            // truncate. The previous `(int)(stoppedHoursPerWeek * 4.33)` discarded the
+            // fractional hours on every policy.
+            int stoppedHoursPerMonth = (int) Math.round(
+                    stoppedHoursPerWeek * (HOURS_PER_MONTH / (double) totalHoursPerWeek));
             
             logger.debug("CloudSitter Savings Calculation - Policy '{}' (ID: {}): " +
                     "Running={} hrs/week, Stopped={} hrs/week, Stopped/month={} hrs",
@@ -305,12 +336,38 @@ public class CloudsitterService {
         policyRepo.delete(policy);
     }
 
+    /**
+     * Assigns a schedule policy to a set of instances.
+     *
+     * <p>Applies the same safety checks the recommender uses before an instance can be put
+     * on a stop/start schedule. Without them this endpoint was a way to schedule shutdowns
+     * for ASG members, Kubernetes nodes, and production-tagged instances that
+     * {@code getScheduleRecommendation} explicitly refuses to recommend — the 10-minute
+     * enforcer then stops whatever is assigned.
+     *
+     * @return per-instance outcome, so the caller can report which instances were skipped
+     *         and why instead of silently assigning a subset
+     */
     @Transactional
-    public void assignPolicyToInstances(CloudsitterAssignmentRequest request) {
+    public Map<String, String> assignPolicyToInstances(CloudsitterAssignmentRequest request) {
         CloudsitterPolicy policy = policyRepo.findById(request.getPolicyId())
                 .orElseThrow(() -> new RuntimeException("Policy not found: " + request.getPolicyId()));
 
+        CloudAccount account = accountRepo.findByAwsAccountId(request.getAccountId())
+                .stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Account not found: " + request.getAccountId()));
+
+        Map<String, String> outcomes = new LinkedHashMap<>();
+
         for (String instanceId : request.getInstanceIds()) {
+            String rejection = checkSchedulingEligibility(account, instanceId, request.getRegion());
+            if (rejection != null) {
+                logger.warn("CloudSitter: refusing to assign policy {} to instance {}: {}",
+                        policy.getName(), instanceId, rejection);
+                outcomes.put(instanceId, "SKIPPED: " + rejection);
+                continue;
+            }
+
             CloudsitterAssignment assignment = assignmentRepo.findByResourceId(instanceId)
                     .orElse(new CloudsitterAssignment());
 
@@ -321,8 +378,83 @@ public class CloudsitterService {
             assignment.setActive(true);
 
             assignmentRepo.save(assignment);
+            outcomes.put(instanceId, "ASSIGNED");
             logger.info("Assigned policy {} to instance {}", policy.getName(), instanceId);
         }
+        return outcomes;
+    }
+
+    /**
+     * Determines whether an instance may be placed on a stop/start schedule.
+     *
+     * <p>Mirrors the pre-checks in {@link #getScheduleRecommendation}: Auto Scaling Group
+     * members are replaced rather than resized, Kubernetes nodes are cluster
+     * infrastructure, and production-tagged instances should not be stopped automatically.
+     *
+     * @return a human-readable reason to refuse, or null when the instance is eligible
+     */
+    private String checkSchedulingEligibility(CloudAccount account, String instanceId, String region) {
+        try {
+            Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+            DescribeInstancesResponse resp = ec2.describeInstances(
+                    DescribeInstancesRequest.builder().instanceIds(instanceId).build());
+            Optional<Instance> found = resp.reservations().stream()
+                    .flatMap(r -> r.instances().stream())
+                    .findFirst();
+            if (found.isEmpty()) {
+                return "instance not found in region " + region;
+            }
+            Instance inst = found.get();
+
+            if (inst.tags().stream().anyMatch(t -> "aws:autoscaling:groupName".equals(t.key()))) {
+                return "instance is managed by an Auto Scaling Group, which would replace it after a stop";
+            }
+
+            boolean isK8sNode = inst.tags().stream().anyMatch(t -> {
+                String key = t.key().toLowerCase();
+                String value = t.value() != null ? t.value().toLowerCase() : "";
+                return key.contains("kubernetes")
+                        || key.startsWith("k8s.io/")
+                        || key.startsWith("kubernetes.io/")
+                        || key.equals("kubernetescluster")
+                        || key.equals("k8s-node")
+                        || value.contains("kubernetes")
+                        || value.contains("k8s-node")
+                        || value.contains("kube-node");
+            });
+            if (isK8sNode) {
+                return "instance is a Kubernetes node and is required by its cluster";
+            }
+
+            if (isProductionTagged(inst)) {
+                return "instance is tagged as production";
+            }
+            return null;
+        } catch (Exception e) {
+            // Fail closed: if eligibility cannot be established, do not schedule shutdowns.
+            logger.warn("CloudSitter: could not verify eligibility of {}: {}", instanceId, e.getMessage());
+            return "eligibility could not be verified: " + e.getMessage();
+        }
+    }
+
+    /**
+     * True when an instance's tags mark it as production.
+     *
+     * <p>Broader than an exact {@code environment=production} match: values such as
+     * {@code Live}, {@code prod-web} and keys like {@code tier} were previously missed, so
+     * production instances passed the check.
+     */
+    private boolean isProductionTagged(Instance inst) {
+        return inst.tags().stream().anyMatch(t -> {
+            String key = t.key() == null ? "" : t.key().toLowerCase();
+            String value = t.value() == null ? "" : t.value().toLowerCase();
+            boolean envKey = key.equals("environment") || key.equals("env") || key.equals("stage")
+                    || key.equals("tier") || key.equals("stack");
+            if (!envKey) {
+                return false;
+            }
+            return value.contains("prod") || value.contains("live") || value.equals("prd");
+        });
     }
 
     // --- SCHEDULE RECOMMENDATION ---
@@ -336,10 +468,73 @@ public class CloudsitterService {
     private static final double CPU_MAX_SPIKE_THRESHOLD = 60.0;  // any spike above this keeps hour running
     private static final double DISK_IDLE_THRESHOLD = 100.0;     // combined EBS read+write ops/hour
     private static final int MIN_CONSECUTIVE_IDLE_HOURS = 6;  // Need 6+ consecutive idle hours to recommend stopping (was 3)
+    /** AWS bills a 730-hour month. */
+    private static final double HOURS_PER_MONTH = 730.0;
+
+    /** Ceiling on DescribeTargetGroups pages followed, as a loop guard. */
+    private static final int MAX_ELB_PAGES = 20;
+
+    /**
+     * Chooses the CloudWatch namespace for a target group based on its protocol.
+     *
+     * <p>ALB target groups (HTTP/HTTPS) publish under {@code AWS/ApplicationELB}; NLB target
+     * groups (TCP/TLS/UDP) publish under {@code AWS/NetworkELB}. Querying only the former
+     * made every NLB-backed instance appear to have no traffic, so it could be recommended
+     * for shutdown while actively serving connections.
+     */
+    private static String namespaceForTargetGroup(String protocol) {
+        if (protocol == null) {
+            return "AWS/ApplicationELB";
+        }
+        return switch (protocol.toUpperCase()) {
+            case "TCP", "TLS", "UDP", "TCP_UDP" -> "AWS/NetworkELB";
+            case "GENEVE" -> "AWS/GatewayELB";
+            default -> "AWS/ApplicationELB";
+        };
+    }
+
     private static final int MIN_DATA_POINTS_PER_DAY = 12;       // need ≥50% coverage for a reliable estimate
 
+    /**
+     * Builds a schedule recommendation using UTC hour buckets.
+     *
+     * @deprecated the enforcer evaluates schedules in the <em>policy's</em> timezone
+     *             ({@code CloudsitterPolicy.getTimeZone()}), so a UTC-bucketed
+     *             recommendation adopted into a non-UTC policy is shifted by that zone's
+     *             offset — for Asia/Kolkata, by 5h30m, which stops instances during real
+     *             business hours. Use
+     *             {@link #getScheduleRecommendation(String, String, String, int, String)}
+     *             and pass the timezone the resulting policy will use.
+     */
+    @Deprecated
     public CloudsitterRecommendationDto getScheduleRecommendation(
             String accountId, String instanceId, String region, int lookbackDays) {
+        return getScheduleRecommendation(accountId, instanceId, region, lookbackDays,
+                ZoneOffset.UTC.getId());
+    }
+
+    /**
+     * Builds a schedule recommendation with hour buckets computed in {@code timeZoneId}.
+     *
+     * <p>The returned {@code recommendedSchedule} uses the same day/hour keys as
+     * {@code CloudsitterPolicy.scheduleJson}, and the enforcer evaluates those against the
+     * policy's timezone. Bucketing here must therefore use the same zone the policy will
+     * carry, otherwise the schedule is silently offset.
+     *
+     * @param timeZoneId IANA zone id the adopting policy will use, e.g. {@code Asia/Kolkata}
+     */
+    public CloudsitterRecommendationDto getScheduleRecommendation(
+            String accountId, String instanceId, String region, int lookbackDays, String timeZoneId) {
+
+        ZoneId bucketZone;
+        try {
+            bucketZone = ZoneId.of(timeZoneId == null || timeZoneId.isBlank()
+                    ? ZoneOffset.UTC.getId() : timeZoneId);
+        } catch (Exception e) {
+            logger.warn("CloudSitter: invalid timezone '{}', falling back to UTC: {}",
+                    timeZoneId, e.getMessage());
+            bucketZone = ZoneOffset.UTC;
+        }
 
         CloudAccount account = accountRepo.findByAwsAccountId(accountId)
                 .stream().findFirst()
@@ -384,15 +579,9 @@ public class CloudsitterService {
                     return CloudsitterRecommendationDto.skipped("K8S_NODE");
                 }
                 
-                // Check if instance is tagged as production environment
-                boolean isProduction = inst.tags().stream()
-                        .anyMatch(t -> {
-                            String key = t.key().toLowerCase();
-                            String value = t.value() != null ? t.value().toLowerCase() : "";
-                            return (key.equals("environment") || key.equals("env") || key.equals("stage"))
-                                && (value.equals("production") || value.equals("prod") || value.equals("prd"));
-                        });
-                if (isProduction) {
+                // Check if instance is tagged as production. Uses the shared, broader matcher:
+                // the previous exact-value check missed Env=Live, tier=prod-web and similar.
+                if (isProductionTagged(inst)) {
                     logger.info("CloudSitter: Skipping recommendation for production instance {}", instanceId);
                     return CloudsitterRecommendationDto.skipped("PRODUCTION");
                 }
@@ -488,7 +677,9 @@ public class CloudsitterService {
             List<Instant> timestamps = result.timestamps();
             List<Double> values = result.values();
             for (int i = 0; i < timestamps.size(); i++) {
-                ZonedDateTime zdt = timestamps.get(i).atZone(ZoneOffset.UTC);
+                // Bucket in the schedule's own timezone so the recommendation lines up with
+                // how the enforcer will later interpret it.
+                ZonedDateTime zdt = timestamps.get(i).atZone(bucketZone);
                 int d = zdt.getDayOfWeek().getValue() - 1;
                 int h = zdt.getHour();
                 double v = values.get(i);
@@ -520,7 +711,7 @@ public class CloudsitterService {
 
         // --- 4b. ALB traffic and Prophet schedule ---
         ElasticLoadBalancingV2Client elb = awsClientProvider.getElbv2Client(account, region);
-        double[][] albGrid       = fetchAlbHourlyGrid(elb, cw, instanceId, region, startTime, endTime);
+        double[][] albGrid       = fetchAlbHourlyGrid(elb, cw, instanceId, region, startTime, endTime, bucketZone);
         boolean[][] prophetSchedule = getProphetSchedule(cpuRawSeries);
 
         // --- 5. Build per-day recommendation ---
@@ -584,11 +775,14 @@ public class CloudsitterService {
             recommendedSchedule.put(DAY_NAMES[d], runningHours);
         }
 
-        return new CloudsitterRecommendationDto(
+        CloudsitterRecommendationDto dto = new CloudsitterRecommendationDto(
                 recommendedSchedule, avgCpuGrid, avgMemGrid, avgNetGrid, avgDiskGrid,
                 memAvailable, netAvailable, diskAvailable,
                 totalPoints, lookbackDays, confidenceScore, hasEip,
                 CPU_IDLE_THRESHOLD, MEM_IDLE_THRESHOLD, NETWORK_IDLE_THRESHOLD, DISK_IDLE_THRESHOLD);
+        // Echo the zone back so the caller binds the adopting policy to the same one.
+        dto.setTimeZone(bucketZone.getId());
+        return dto;
     }
 
     // --- RECOMMENDATION HELPERS ---
@@ -624,22 +818,37 @@ public class CloudsitterService {
      * Returns null if the instance is not behind any ALB or the check fails.
      */
     private double[][] fetchAlbHourlyGrid(ElasticLoadBalancingV2Client elb, CloudWatchClient cw,
-            String instanceId, String region, Instant startTime, Instant endTime) {
+            String instanceId, String region, Instant startTime, Instant endTime, ZoneId bucketZone) {
         try {
-            List<String> tgArns = new ArrayList<>();
-            var tgResp = elb.describeTargetGroups(DescribeTargetGroupsRequest.builder().build());
-            for (var tg : tgResp.targetGroups()) {
-                boolean registered = elb.describeTargetHealth(
-                        DescribeTargetHealthRequest.builder().targetGroupArn(tg.targetGroupArn()).build())
-                        .targetHealthDescriptions().stream()
-                        .anyMatch(thd -> instanceId.equals(thd.target().id()));
-                if (registered) tgArns.add(tg.targetGroupArn());
-            }
+            // Target group ARN -> CloudWatch namespace for its load balancer type.
+            Map<String, String> tgArnToNamespace = new LinkedHashMap<>();
 
-            if (tgArns.isEmpty()) return null;
+            // Paginated: an account with more target groups than one page previously had the
+            // remainder silently ignored, so instances behind those groups looked traffic-free.
+            String marker = null;
+            int pages = 0;
+            do {
+                var tgResp = elb.describeTargetGroups(DescribeTargetGroupsRequest.builder()
+                        .marker(marker)
+                        .build());
+                for (var tg : tgResp.targetGroups()) {
+                    boolean registered = elb.describeTargetHealth(
+                            DescribeTargetHealthRequest.builder().targetGroupArn(tg.targetGroupArn()).build())
+                            .targetHealthDescriptions().stream()
+                            .anyMatch(thd -> instanceId.equals(thd.target().id()));
+                    if (registered) {
+                        tgArnToNamespace.put(tg.targetGroupArn(), namespaceForTargetGroup(tg.protocolAsString()));
+                    }
+                }
+                marker = tgResp.nextMarker();
+            } while (marker != null && !marker.isBlank() && ++pages < MAX_ELB_PAGES);
+
+            if (tgArnToNamespace.isEmpty()) return null;
 
             double[][] albGrid = new double[7][24];
-            for (String tgArn : tgArns) {
+            for (Map.Entry<String, String> entry : tgArnToNamespace.entrySet()) {
+                String tgArn = entry.getKey();
+                String albNamespace = entry.getValue();
                 // CloudWatch dimension needs "targetgroup/name/id", not the full ARN
                 int idx = tgArn.indexOf(":targetgroup/");
                 if (idx < 0) continue;
@@ -651,7 +860,13 @@ public class CloudsitterService {
                                 .id("alb")
                                 .metricStat(MetricStat.builder()
                                         .metric(Metric.builder()
-                                                .namespace("AWS/ApplicationELB")
+                                                // Namespace is chosen per target-group protocol
+                                                // below; ALB and NLB publish RequestCount under
+                                                // different namespaces, and querying only
+                                                // ApplicationELB made all NLB traffic invisible —
+                                                // so an NLB-backed instance could be recommended
+                                                // for shutdown.
+                                                .namespace(albNamespace)
                                                 .metricName("RequestCount")
                                                 .dimensions(Dimension.builder()
                                                         .name("TargetGroup").value(tgDim).build())
@@ -664,7 +879,8 @@ public class CloudsitterService {
                     List<Instant> ts = r.timestamps();
                     List<Double> vals = r.values();
                     for (int i = 0; i < ts.size(); i++) {
-                        ZonedDateTime zdt = ts.get(i).atZone(ZoneOffset.UTC);
+                        // Same bucketing zone as the CPU/memory grids.
+                        ZonedDateTime zdt = ts.get(i).atZone(bucketZone);
                         albGrid[zdt.getDayOfWeek().getValue() - 1][zdt.getHour()] += vals.get(i);
                     }
                 }
@@ -687,6 +903,9 @@ public class CloudsitterService {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            // The injected RestTemplate has no configured timeout, so a hung forecast
+            // service would pin this request thread indefinitely. Prophet is an enhancement
+            // over the CPU-threshold baseline, so a failure here degrades rather than blocks.
             String json = restTemplate.postForObject(
                     forecastServiceUrl + "/forecast/usage",
                     new HttpEntity<>(Map.of("data", cpuRawSeries, "periods", 336), headers),

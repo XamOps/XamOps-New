@@ -9,6 +9,7 @@ import com.xammer.cloud.dto.azure.AzureRightsizingRecommendation;
 import com.xammer.cloud.dto.azure.AzureRightsizingResponse;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.SnapshotFreshnessService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -51,55 +54,82 @@ public class AzureRightsizingService {
     // this over 14 days is over-provisioned and a downsize candidate.
     private static final double METRIC_CPU_THRESHOLD = 40.0;
 
-    // Next-smaller SKU within the same family (one tier down ≈ half the vCPUs/cost).
-    private static final Map<String, String> VM_DOWNSIZE = Map.ofEntries(
-            Map.entry("Standard_B1ms", "Standard_B1s"),
-            Map.entry("Standard_B2s",  "Standard_B1s"),
-            Map.entry("Standard_B2ms", "Standard_B1ms"),
-            Map.entry("Standard_B4ms", "Standard_B2ms"),
-            Map.entry("Standard_B8ms", "Standard_B4ms"),
-            Map.entry("Standard_D4s_v5",  "Standard_D2s_v5"),
-            Map.entry("Standard_D8s_v5",  "Standard_D4s_v5"),
-            Map.entry("Standard_D16s_v5", "Standard_D8s_v5"),
-            Map.entry("Standard_E4s_v5",  "Standard_E2s_v5"),
-            Map.entry("Standard_E8s_v5",  "Standard_E4s_v5"),
-            Map.entry("Standard_E16s_v5", "Standard_E8s_v5"),
-            Map.entry("Standard_F4s_v2",  "Standard_F2s_v2"),
-            Map.entry("Standard_F8s_v2",  "Standard_F4s_v2"),
-            Map.entry("Standard_F16s_v2", "Standard_F8s_v2"));
+    /** Lookback window for the CPU signal, in days. */
+    private static final int LOOKBACK_DAYS = 14;
 
-    // Approximate on-demand monthly cost in INR (estimates for savings calc).
-    private static final Map<String, Double> VM_MONTHLY_INR = Map.ofEntries(
-            Map.entry("Standard_B1s", 1100.0),
-            Map.entry("Standard_B1ms", 2200.0),
-            Map.entry("Standard_B2s", 4400.0),
-            Map.entry("Standard_B2ms", 8800.0),
-            Map.entry("Standard_B4ms", 17600.0),
-            Map.entry("Standard_B8ms", 35200.0),
-            Map.entry("Standard_D2s_v5", 8000.0),
-            Map.entry("Standard_D4s_v5", 16000.0),
-            Map.entry("Standard_D8s_v5", 32000.0),
-            Map.entry("Standard_D16s_v5", 64000.0),
-            Map.entry("Standard_E2s_v5", 10500.0),
-            Map.entry("Standard_E4s_v5", 21000.0),
-            Map.entry("Standard_E8s_v5", 42000.0),
-            Map.entry("Standard_E16s_v5", 84000.0),
-            Map.entry("Standard_F2s_v2", 7000.0),
-            Map.entry("Standard_F4s_v2", 14000.0),
-            Map.entry("Standard_F8s_v2", 28000.0),
-            Map.entry("Standard_F16s_v2", 56000.0));
+    /** Minimum daily datapoints required before a resize is recommended. */
+    private static final int MIN_METRIC_DAYS = 7;
+
+    /** Currency for all amounts produced by this service. */
+    private static final String BASE_CURRENCY = "USD";
+
+    /**
+     * Derives the next-smaller SKU in the same family by halving the size suffix.
+     *
+     * <p>Replaces a 15-entry hardcoded map that covered only B/D/E/F v5 and v2 sizes: no
+     * v3/v4/v6, no AMD ({@code Dasv5}, {@code Easv5}), no memory- or GPU-optimised
+     * families. Anything unlisted produced a "Smaller SKU" placeholder with zero savings.
+     *
+     * <p>Azure size names follow {@code Standard_<family><vCPUs><modifiers>[_<version>]},
+     * so the step down is a numeric halving with everything else preserved. That keeps the
+     * family, the storage/AMD modifiers and the version intact.
+     *
+     * @param size current size, e.g. {@code Standard_D8as_v5}
+     * @return the next smaller size, or empty when there is no smaller step
+     */
+    static Optional<String> nextSmallerSku(String size) {
+        if (size == null || !size.startsWith("Standard_")) {
+            return Optional.empty();
+        }
+        Matcher m = VM_SIZE_PATTERN.matcher(size);
+        if (!m.matches()) {
+            return Optional.empty();
+        }
+        String family = m.group(1);
+        int vcpus = Integer.parseInt(m.group(2));
+        String modifiers = m.group(3) == null ? "" : m.group(3);
+        String version = m.group(4) == null ? "" : m.group(4);
+
+        // Azure sizes step in powers of two; 1 vCPU is the floor.
+        if (vcpus <= 1) {
+            return Optional.empty();
+        }
+        int smaller = vcpus / 2;
+        return Optional.of("Standard_" + family + smaller + modifiers + version);
+    }
+
+    /**
+     * Matches an Azure VM size: family letters, vCPU count, optional modifier letters
+     * ({@code s}, {@code a}, {@code m}, {@code d}...), optional {@code _v<n>} version.
+     */
+    private static final Pattern VM_SIZE_PATTERN =
+            Pattern.compile("^Standard_([A-Za-z]+?)(\\d+)([a-z]*)(_v\\d+)?$");
+
+    // VM prices come from AzureRetailPricingService (the Azure Retail Prices API), not a
+    // hardcoded table. The previous VM_MONTHLY_INR map had no region dimension, covered
+    // only 18 sizes, and drifted from real list prices with no way to refresh it.
 
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private final SnapshotFreshnessService snapshotFreshnessService;
+    private final AzureRetailPricingService retailPricingService;
+    private final AzureArmClient armClient;
+
     public AzureRightsizingService(AzureClientProvider clientProvider,
                                    RedisCacheService redisCache,
-                                   CachedDataRepository cachedDataRepository) {
+                                   CachedDataRepository cachedDataRepository,
+                                   SnapshotFreshnessService snapshotFreshnessService,
+                                   AzureRetailPricingService retailPricingService,
+                                   AzureArmClient armClient) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
+        this.snapshotFreshnessService = snapshotFreshnessService;
+        this.retailPricingService = retailPricingService;
+        this.armClient = armClient;
     }
 
     /**
@@ -126,7 +156,8 @@ public class AzureRightsizingService {
 
             // 2. Try DB snapshot
             try {
-                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                Optional<CachedData> dbSnapshot = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(dbKey), dbKey);
                 if (dbSnapshot.isPresent()) {
                     AzureRightsizingResponse response = objectMapper.readValue(
                             dbSnapshot.get().getJsonData(), AzureRightsizingResponse.class);
@@ -180,29 +211,25 @@ public class AzureRightsizingService {
                     + "/providers/Microsoft.Advisor/recommendations"
                     + "?api-version=2023-01-01&$filter=Category%20eq%20'Cost'";
 
-            HttpClient httpClient = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(uri))
-                    .header("Authorization", "Bearer " + bearerToken)
-                    .header("Content-Type", "application/json")
-                    .GET()
-                    .build();
-
-            HttpResponse<String> httpResponse = httpClient.send(request,
-                    HttpResponse.BodyHandlers.ofString());
-
-            log.info("Azure Advisor API status: {} for {}", httpResponse.statusCode(), subscriptionId);
-
-            if (httpResponse.statusCode() == 403) {
-                log.warn("SP may lack access to Azure Advisor for subscription {}. " +
-                        "Falling back to metric-based detection only.", subscriptionId);
-                advisorPermissionError = true;
-            } else if (httpResponse.statusCode() == 200) {
-                recommendations.addAll(parseRecommendations(httpResponse.body()));
+            // Uses the shared client: one pooled HttpClient with connect and request
+            // timeouts, rather than a fresh untimed client per call.
+            Optional<String> body = armClient.get(uri, bearerToken);
+            if (body.isPresent()) {
+                recommendations.addAll(parseRecommendations(body.get()));
             } else {
-                log.warn("Azure Advisor API returned {} for {}: {}",
-                        httpResponse.statusCode(), subscriptionId,
-                        httpResponse.body().substring(0, Math.min(200, httpResponse.body().length())));
+                log.info("Azure Advisor returned no recommendations for {}", subscriptionId);
+            }
+        } catch (AzureArmClient.AzureArmException e) {
+            // A 401/403 here means the service principal cannot read Advisor. That is a
+            // distinct, reportable state rather than "no recommendations".
+            String message = e.getMessage() == null ? "" : e.getMessage();
+            if (message.contains("HTTP 401") || message.contains("HTTP 403") || message.contains("denied access")) {
+                log.warn("Service principal lacks access to Azure Advisor for subscription {}. "
+                        + "Falling back to metric-based detection only.", subscriptionId);
+                advisorPermissionError = true;
+            } else {
+                log.error("Failed to fetch Azure Advisor recommendations for {}: {}",
+                        subscriptionId, message);
             }
         } catch (Exception e) {
             log.error("Failed to fetch Azure Advisor recommendations for {}: {}", subscriptionId, e.getMessage(), e);
@@ -254,8 +281,25 @@ public class AzureRightsizingService {
 
                 double[] cpu = queryVmCpu(id, token);
                 if (cpu == null) continue; // no data (likely deallocated) — skip
+                double avgCpu = cpu[0];
                 double maxCpu = cpu[1];
+                int dataPoints = (int) cpu[2];
                 if (maxCpu >= METRIC_CPU_THRESHOLD) continue; // sufficiently utilized
+
+                // Require real observation coverage. queryVmCpu returns as soon as it sees a
+                // single non-null datapoint, so without this a VM created yesterday would be
+                // downsized on one day of data.
+                if (dataPoints < MIN_METRIC_DAYS) {
+                    log.debug("Skipping VM {}: only {} of {} days of CPU data", id, dataPoints, LOOKBACK_DAYS);
+                    continue;
+                }
+
+                // B-series VMs bank CPU credits, so a low average is expected behaviour rather
+                // than over-provisioning. Downsizing one can exhaust its credit balance.
+                if (size.startsWith("Standard_B")) {
+                    log.debug("Skipping burstable VM {} ({}): low CPU is expected for B-series", id, size);
+                    continue;
+                }
 
                 AzureRightsizingRecommendation rec = new AzureRightsizingRecommendation();
                 rec.setRecommendationId("xamops-metric-" + vm.path("name").asText(""));
@@ -266,25 +310,49 @@ public class AzureRightsizingService {
                 rec.setImpact(maxCpu < 10 ? "High" : "Medium");
                 rec.setLocation(vm.path("location").asText(""));
                 rec.setCurrentSku(size);
-                rec.setCurrency("INR");
-                rec.setMaxCpuP95(String.format("%.1f%%", maxCpu));
+                rec.setCurrency(BASE_CURRENCY);
+                // This is the true Maximum from Azure Monitor, not a p95. Report both fields
+                // honestly rather than storing a maximum in a field labelled p95.
+                rec.setMaxCpuObserved(String.format("%.1f%%", maxCpu));
+                rec.setAvgCpuObserved(String.format("%.1f%%", avgCpu));
                 rec.setProblem(String.format(
-                        "VM peaked at only %.1f%% CPU over 14 days — over-provisioned", maxCpu));
+                        "VM peaked at only %.1f%% CPU (avg %.1f%%) over %d days of data — over-provisioned",
+                        maxCpu, avgCpu, dataPoints));
 
-                String target = VM_DOWNSIZE.get(size);
-                if (target != null) {
-                    rec.setTargetSku(target);
-                    double cur = VM_MONTHLY_INR.getOrDefault(size, 0.0);
-                    double tgt = VM_MONTHLY_INR.getOrDefault(target, 0.0);
-                    double savings = (cur > 0 && tgt > 0) ? cur - tgt : 0.0;
-                    rec.setMonthlySavings(Math.max(0, Math.round(savings * 100.0) / 100.0));
-                    rec.setAnnualSavings(rec.getMonthlySavings() * 12);
-                    rec.setSolution("Downsize from " + size + " to " + target
-                            + " to cut compute cost while retaining headroom (estimated savings)");
-                } else {
-                    rec.setTargetSku("Smaller SKU");
+                String target = nextSmallerSku(size).orElse(null);
+                String location = vm.path("location").asText("");
+                if (target == null) {
+                    // Without a known target we cannot quantify a saving. Emit the finding but
+                    // do not attach a fabricated zero that pads the recommendation count.
+                    rec.setTargetSku("Smaller SKU in the same family");
                     rec.setMonthlySavings(0.0);
+                    rec.setSavingsUnknown(true);
                     rec.setSolution("Consider downsizing " + size + " to a smaller SKU in the same family");
+                    recs.add(rec);
+                    existingIds.add(id.toLowerCase());
+                    continue;
+                }
+
+                rec.setTargetSku(target);
+                Optional<Double> currentPrice = retailPricingService.getVmMonthlyPriceUsd(size, location);
+                Optional<Double> targetPrice = retailPricingService.getVmMonthlyPriceUsd(target, location);
+
+                if (currentPrice.isPresent() && targetPrice.isPresent()) {
+                    double savings = Math.max(0.0, currentPrice.get() - targetPrice.get());
+                    rec.setMonthlySavings(Math.round(savings * 100.0) / 100.0);
+                    rec.setAnnualSavings(rec.getMonthlySavings() * 12);
+                    rec.setSolution(String.format(
+                            "Downsize from %s to %s to cut compute cost while retaining headroom. "
+                                    + "Based on list prices; excludes any Reserved Instance or Savings Plan "
+                                    + "discount already applied.", size, target));
+                } else {
+                    // Price lookup failed: report the finding without inventing a number.
+                    rec.setMonthlySavings(0.0);
+                    rec.setSavingsUnknown(true);
+                    rec.setSolution(String.format(
+                            "Downsize from %s to %s. Savings could not be calculated — "
+                                    + "the Azure Retail Prices lookup did not return a rate for this size and region.",
+                            size, target));
                 }
                 recs.add(rec);
                 existingIds.add(id.toLowerCase());
@@ -294,7 +362,10 @@ public class AzureRightsizingService {
         }
     }
 
-    /** Returns {avgCpu, maxCpu} over the last 14 days, or null if no data. */
+    /**
+      * Returns {@code {avgCpu, maxCpu, dataPointCount}} over the lookback window, or null if
+      * no data. The count lets callers reject readings based on too few observations.
+      */
     private double[] queryVmCpu(String resourceId, String token) {
         try {
             String url = ARM_BASE + resourceId
@@ -334,57 +405,28 @@ public class AzureRightsizingService {
                 }
             }
             if (!any) return null;
-            return new double[]{avgCount > 0 ? avgSum / avgCount : 0.0, max};
+            // Third element is the datapoint count, so callers can require real coverage
+            // before acting on the peak.
+            return new double[]{avgCount > 0 ? avgSum / avgCount : 0.0, max, avgCount};
         } catch (Exception e) {
             log.debug("VM CPU metric query failed for {}: {}", resourceId, e.getMessage());
             return null;
         }
     }
 
-    /** Authenticated GET against ARM REST. Returns body on 2xx, else null. */
+    /**
+     * Authenticated ARM GET, delegating to the shared {@link AzureArmClient}.
+     *
+     * <p>The previous local implementation created a new {@link java.net.http.HttpClient}
+     * per call with no timeouts, and mapped 403/429/5xx to a silent null at debug level.
+     */
     private String armGet(String url, String token) {
-        try {
-            HttpClient httpClient = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Authorization", "Bearer " + token)
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                return response.body();
-            }
-            log.debug("ARM GET {} returned HTTP {}", url, response.statusCode());
-            return null;
-        } catch (Exception e) {
-            log.debug("ARM GET error for {}: {}", url, e.getMessage());
-            return null;
-        }
+        return armClient.getQuietly(url, token).orElse(null);
     }
 
-    /** Lists all entries in the ARM "value" array, following nextLink pagination. */
+    /** Lists every ARM {@code value} entry, following {@code nextLink} to the end. */
     private List<JsonNode> armList(String url, String token) {
-        List<JsonNode> out = new ArrayList<>();
-        String next = url;
-        int pages = 0;
-        while (next != null && !next.isBlank() && pages < 20) {
-            String body = armGet(next, token);
-            if (body == null) break;
-            try {
-                JsonNode root = objectMapper.readTree(body);
-                JsonNode value = root.path("value");
-                if (value.isArray()) {
-                    for (JsonNode n : value) out.add(n);
-                }
-                next = root.path("nextLink").asText(null);
-            } catch (Exception e) {
-                log.debug("armList parse error for {}: {}", url, e.getMessage());
-                break;
-            }
-            pages++;
-        }
-        return out;
+        return armClient.list(url, token);
     }
 
     private List<AzureRightsizingRecommendation> parseRecommendations(String json) throws Exception {
@@ -522,12 +564,15 @@ public class AzureRightsizingService {
                 }
                 rec.setTargetSku(targetSku);
 
+                // Advisor reports savings in the billing currency. Defaulting a missing value
+                // to INR previously relabelled USD amounts, which were then sorted and summed
+                // against genuinely-INR metric-based rows.
                 rec.setMonthlySavings(parseDouble(extProps.path("savingsAmount").asText(null)));
                 rec.setAnnualSavings(parseDouble(extProps.path("annualSavingsAmount").asText(null)));
-                rec.setCurrency(extProps.path("savingsCurrency").asText("INR"));
-                rec.setMaxCpuP95(extProps.path("maxCpuP95").asText(
+                rec.setCurrency(extProps.path("savingsCurrency").asText(BASE_CURRENCY));
+                rec.setMaxCpuObserved(extProps.path("maxCpuP95").asText(
                         extProps.path("avgCpuUtilization").asText("")));
-                rec.setMaxMemoryP95(extProps.path("maxMemoryP95").asText(""));
+                rec.setMaxMemoryObserved(extProps.path("maxMemoryP95").asText(""));
 
                 result.add(rec);
             } catch (Exception e) {

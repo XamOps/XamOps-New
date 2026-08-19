@@ -41,6 +41,19 @@ public class AgentInstallController {
         return serveScript("scripts/gcp_disk_agent_install.sh");
     }
 
+    /**
+     * GET /agentinstall/azure_disk_agent_install.sh
+     * Returns the Azure disk agent bash installer. No authentication required.
+     *
+     * <p>The script existed on the classpath but was never served, so there was no way for a
+     * customer to install the Azure disk agent — one half of why Azure disk utilization was
+     * permanently unavailable.
+     */
+    @GetMapping(value = "/agentinstall/azure_disk_agent_install.sh", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> getAzureDiskAgentInstallScript() {
+        return serveScript("scripts/azure_disk_agent_install.sh");
+    }
+
     private ResponseEntity<String> serveScript(String classpathResource) {
         try {
             ClassPathResource resource = new ClassPathResource(classpathResource);

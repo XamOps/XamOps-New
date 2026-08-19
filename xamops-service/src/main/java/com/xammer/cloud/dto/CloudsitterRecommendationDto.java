@@ -48,6 +48,16 @@ public class CloudsitterRecommendationDto {
      */
     private String skipReason;
 
+    /**
+     * IANA timezone the {@link #recommendedSchedule} hour buckets were computed in.
+     *
+     * <p>A policy adopting this schedule must use the same zone, because the enforcer
+     * evaluates {@code scheduleJson} against {@code CloudsitterPolicy.getTimeZone()}.
+     * Adopting a UTC-bucketed schedule into an {@code Asia/Kolkata} policy shifts it by
+     * 5h30m and stops instances during business hours.
+     */
+    private String timeZone;
+
     public CloudsitterRecommendationDto() {}
 
     public CloudsitterRecommendationDto(
@@ -145,4 +155,7 @@ public class CloudsitterRecommendationDto {
 
     /** @deprecated use getCpuIdleThreshold() */
     public double getIdleThreshold() { return cpuIdleThreshold; }
+
+    public String getTimeZone() { return timeZone; }
+    public void setTimeZone(String timeZone) { this.timeZone = timeZone; }
 }
