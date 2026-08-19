@@ -365,7 +365,15 @@ export interface SbomComponent {
 export interface ComplianceFramework {
   framework: string;
   failCount: number;
-  passCount: number;
+  /**
+   * Null means "not counted", not "nothing passes".
+   *
+   * The sync stopped storing PASS findings: they were 501k rows, the same check repeated once
+   * per framework across 55 enabled frameworks, all to recompute a percentage Upwind publishes
+   * itself as `score`. Prefer `score`; the framework drawer still shows real per-control
+   * pass/fail, fetched live per framework.
+   */
+  passCount: number | null;
   /** Upwind's framework id. Absent for frameworks that only appear in posture findings. */
   frameworkId?: string | null;
   /** Enriched from Upwind's configuration-frameworks endpoint. */

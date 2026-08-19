@@ -65,11 +65,13 @@ const FrameworkDrawer: React.FC<Props> = ({
     return () => { cancelled = true; };
   }, [loadControls, f.frameworkId]);
 
-  const total = f.failCount + f.passCount;
-  const passPct = total === 0 ? 0 : Math.round((f.passCount / total) * 100);
-  const score = f.score ?? passPct;
-  const tone = score >= 80 ? 'text-emerald-600' : score >= 50 ? 'text-yellow-600' : 'text-red-600';
-  const bar = score >= 80 ? 'bg-emerald-500' : score >= 50 ? 'bg-yellow-400' : 'bg-red-500';
+  // Upwind's score, with no locally computed fallback — PASS findings are no longer stored,
+  // and a 0% stand-in for "Upwind never scored this" reads as total failure.
+  const score = f.score ?? null;
+  const tone = score === null ? 'text-gray-400'
+    : score >= 80 ? 'text-emerald-600' : score >= 50 ? 'text-yellow-600' : 'text-red-600';
+  const bar = score === null ? 'bg-gray-200'
+    : score >= 80 ? 'bg-emerald-500' : score >= 50 ? 'bg-yellow-400' : 'bg-red-500';
 
   const title = (
     <span className="flex items-center gap-2.5">
@@ -107,18 +109,23 @@ const FrameworkDrawer: React.FC<Props> = ({
                 <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
                   Compliance score
                 </p>
-                <p className={`text-3xl font-extrabold leading-none ${tone}`}>{score}%</p>
+                <p className={`text-3xl font-extrabold leading-none ${tone}`}>
+                  {score === null ? 'Not scored' : `${score}%`}
+                </p>
               </div>
               <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div className={`h-full ${bar}`} style={{ width: `${score}%` }} />
+                <div className={`h-full ${bar}`} style={{ width: `${score ?? 0}%` }} />
               </div>
               <p className="mt-2 text-[11px] text-gray-500">
-                {/* Both counts are real since we started walking status=PASS as well as FAIL. */}
-                {total > 0
-                  ? `${f.failCount.toLocaleString()} failing · ${f.passCount.toLocaleString()} passing controls in this account.`
+                {/* Failing counts are local and tenant-scoped; the score is Upwind's and
+                    org-wide (cloud-account-id is ignored on that route). Per-control pass/fail
+                    below is fetched live per framework, so the drill-down still has both
+                    sides even though PASS findings are no longer synced. */}
+                {f.failCount > 0
+                  ? `${f.failCount.toLocaleString()} failing controls in this account. Score is Upwind's, across the whole organization.`
                   // Upwind's own reason where it gives one, rather than implying we evaluated
                   // this framework and found nothing.
-                  : STATE_REASON[f.state ?? ''] ?? 'No evaluated controls in this account.'}
+                  : STATE_REASON[f.state ?? ''] ?? 'No failing controls in this account.'}
               </p>
             </PanelBlock>
 

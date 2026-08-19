@@ -35,8 +35,12 @@ public class UpwindSyncService {
      * reconciliation correctly refuses to run, and the table keeps a partial set for ever —
      * which is why prod held 5,657 CVEs against Upwind's 8,502.
      *
-     * Posture is the other grower, now that PASS findings are fetched alongside FAIL:
-     * ~29.4k FAIL for Onfinance measured the same day, doubled by PASS.
+     * Posture used to be the other grower and came within ~100 pages of this cap, because the
+     * walk included PASS: 501,000+ findings over 500+ pages, against 63,465 FAIL over 64.
+     * Crossing the cap would not have been a soft landing — a truncated walk skips
+     * reconciliation entirely, including the {@link #staleGrace} age fallback, so nothing would
+     * ever be archived again. {@link #POSTURE_STATUSES} explains why PASS was dropped instead of
+     * raising the cap, which would only have deferred it.
      *
      * Only as many pages as there is data are ever requested, so a high cap costs nothing on
      * small tenants; it just has to stay above real volume with room to grow.
@@ -116,16 +120,19 @@ public class UpwindSyncService {
             // Error, escaped this catch block and killed posture, inventory and endpoints with it.
             UpwindApiClient.StreamResult res = apiClient.streamVulnerabilityFindings(
                     FULL_SYNC_MAX_PAGES, item -> upsertVulnerability(item, Instant.now()));
-            // Reconcile only on a COMPLETE fetch: a truncated page walk would archive
-            // every finding we simply never re-read. And only while we still hold the lease.
-            if (res.count() > 0 && !res.truncated()
+            // Reconcile only on a COMPLETE fetch: a page walk that stopped early — at the cap
+            // or on a failed page — would archive every finding we simply never re-read. And
+            // only while we still hold the lease.
+            if (res.count() > 0 && !res.incomplete()
                     && mayReconcile(canReconcile, "vulnerabilities")) {
                 archiveWithGuard("VULNERABILITIES", res.count(), vulnRepo.countOpen(), runStart,
                         vulnRepo::markResolvedNotSyncedSince);
             }
             log.info("[Upwind] Vulnerability sync upserted {} findings (complete={})",
-                    res.count(), !res.truncated());
-            if (res.truncated()) {
+                    res.count(), !res.incomplete());
+            if (res.failure() != null) {
+                recordPartial("VULNERABILITIES", res.count(), List.of(res.failure()));
+            } else if (res.truncated()) {
                 recordTruncated("VULNERABILITIES", res.count(), FULL_SYNC_MAX_PAGES);
             } else {
                 recordSuccess("VULNERABILITIES");
@@ -134,9 +141,18 @@ public class UpwindSyncService {
             log.error("[Upwind] Vulnerability sync failed: {}", e.getMessage());
             recordError("VULNERABILITIES", e);
         }
-        syncPosture(canReconcile);
+        // Posture runs LAST, after the two cheap domains.
+        //
+        // It used to sit ahead of them, and at current volume that starved them: measured
+        // 2026-08-18, the posture walk alone is 63,465 FAIL plus 371,000+ PASS findings —
+        // hours of paging — so a run that reached vulnerabilities at 11:03 still had not
+        // reached inventory or API endpoints two hours later, leaving both reading six hours
+        // stale on the Data Freshness panel while posture ground on. Inventory and endpoints
+        // are minutes of work; making them wait behind the longest walk in the sync bought
+        // nothing.
         syncInventory(canReconcile);
         syncApiEndpoints(canReconcile);
+        syncPosture(canReconcile);
     }
 
     /**
@@ -248,17 +264,43 @@ public class UpwindSyncService {
     }
 
     /**
-     * Statuses fetched for configuration findings, in order.
+     * Statuses fetched for configuration findings.
      *
-     * FAIL alone was the old behaviour, and it was an accident: the endpoint DEFAULTS to
-     * FAIL when no status is supplied, so PASS findings were never fetched and every
-     * per-framework pass count in the Compliance tab was structurally zero. PASS volume is
-     * comparable to FAIL (both exceed a thousand rows on this org), so this roughly doubles
-     * the table and the sync duration — accepted, because pass/fail ratios are meaningless
-     * without it, and a check moving FAIL → PASS is now visible as PASS rather than being
-     * silently archived as RESOLVED.
+     * PASS was added here to give the Compliance tab real per-framework pass counts, since the
+     * endpoint defaults to FAIL and those counts were structurally zero. It has been removed
+     * again, because measuring what it actually costs against the live org on 2026-08-18 showed
+     * the trade was nothing like the one the original note assumed ("PASS volume is comparable
+     * to FAIL"):
+     *
+     *   FAIL   63,465 findings,  64 pages, completes in ~10 minutes
+     *   PASS  501,000+ findings, 500+ pages, had still not reached the end
+     *
+     * The volume is an artefact of the API's shape rather than real signal. Findings are
+     * denormalised per framework — one row per (framework x rule x resource) — and this org has
+     * 55 enabled frameworks, so the same check on the same resource is reported once per
+     * framework that references it. Sampling 3,000 consecutive PASS findings found only 330
+     * distinct (rule, resource) pairs: a 9.09x duplication factor, one pair repeated 61 times.
+     *
+     * Upwind offers no way to aggregate that server-side. Verified live: {@code group_by} and
+     * {@code aggregations} on the v2 findings search are accepted and ignored, the response
+     * metadata carries no total, {@code /configurations/findings/count} 404s, and the framework
+     * detail/controls/summary routes do not exist. What it DOES publish is
+     * {@code compliance_status.score} per framework on v1 {@code /configuration-frameworks} —
+     * its own compliance percentage, which {@link com.xammer.cloud.service.upwind.XamSecureService}
+     * already reads and the Compliance tab already prefers over our computed ratio. Half a
+     * million rows were being stored to recompute a number the vendor hands us for free.
+     *
+     * Two consequences, both accepted deliberately:
+     *   - Exact tenant-scoped pass COUNTS are gone from the frameworks grid. Upwind's score is
+     *     org-wide ({@code cloud-account-id} is ignored on that route, verified), and per-control
+     *     pass/fail in the framework drawer comes from the v2 per-framework search, which is
+     *     unaffected. Anything needing exact counts should walk one framework at a time with the
+     *     {@code framework-id} filter, which IS honoured, on demand rather than in this sync.
+     *   - A check moving FAIL -> PASS is archived as RESOLVED again instead of being stored as a
+     *     PASS row. RESOLVED is the correct reading of "no longer failing", and nothing in the UI
+     *     surfaced those PASS rows other than the count.
      */
-    static final List<String> POSTURE_STATUSES = List.of("FAIL", "PASS");
+    static final List<String> POSTURE_STATUSES = List.of("FAIL");
 
     /**
      * Full posture sync: one page walk per status, then a single reconciliation pass.
@@ -278,15 +320,19 @@ public class UpwindSyncService {
         try {
             int upserted = 0;
             boolean allComplete = true;
+            boolean capped = false;
+            List<String> failures = new java.util.ArrayList<>();
             for (String status : POSTURE_STATUSES) {
-                // Streamed for the same reason as vulnerabilities: ~29.4k FAIL for one account
-                // measured 2026-08-05, doubled by the PASS walk, and growing.
+                // Streamed for the same reason as vulnerabilities: 63,465 FAIL findings
+                // measured 2026-08-18, 64 pages of 1000, and growing.
                 UpwindApiClient.StreamResult res = apiClient.streamConfigurationFindings(
                         status, FULL_SYNC_MAX_PAGES, item -> upsertPosture(item, Instant.now()));
                 upserted += res.count();
-                allComplete &= !res.truncated();
+                allComplete &= !res.incomplete();
+                capped |= res.truncated();
+                if (res.failure() != null) failures.add(status + " " + res.failure());
                 log.info("[Upwind] Posture sync fetched {} {} findings (complete={})",
-                        res.count(), status, !res.truncated());
+                        res.count(), status, !res.incomplete());
             }
             if (upserted > 0 && allComplete && mayReconcile(canReconcile, "posture")) {
                 final int[] resolved = new int[1];
@@ -297,7 +343,8 @@ public class UpwindSyncService {
             log.info("[Upwind] Posture sync upserted {} findings across {} (complete={})",
                     upserted, POSTURE_STATUSES, allComplete);
             if (allComplete) recordSuccess("POSTURE");
-            else recordTruncated("POSTURE", upserted, FULL_SYNC_MAX_PAGES);
+            else if (!failures.isEmpty()) recordPartial("POSTURE", upserted, failures);
+            else if (capped) recordTruncated("POSTURE", upserted, FULL_SYNC_MAX_PAGES);
         } catch (Exception e) {
             log.error("[Upwind] Posture sync failed: {}", e.getMessage());
             recordError("POSTURE", e);
@@ -827,6 +874,29 @@ public class UpwindSyncService {
         s.setLastSuccessAt(Instant.now());
         s.setLastError("Incomplete: hit the " + maxPages + "-page cap after " + items
                 + " items, so archiving was skipped and this domain may be partial.");
+        s.setLastErrorAt(Instant.now());
+        syncStateRepo.save(s);
+    }
+
+    /**
+     * Records a walk that broke part-way but kept everything it had already read.
+     *
+     * This is distinct from {@link #recordError}: the rows are committed as the walk streams, so
+     * a failure on page 220 of 285 still refreshed most of the domain. Reporting it as an
+     * outright error made POSTURE read as "showing last data" when in fact it had just been
+     * largely re-synced, and buried the only useful part — which page, on which status, and
+     * why — because only {@code Exception.getMessage()} was stored.
+     */
+    private void recordPartial(String domain, int items, List<String> failures) {
+        UpwindSyncState s = syncStateRepo.findByDomain(domain).orElseGet(() -> {
+            UpwindSyncState n = new UpwindSyncState();
+            n.setDomain(domain);
+            return n;
+        });
+        s.setLastSuccessAt(Instant.now());
+        s.setLastError("Partial: " + items + " items synced, then " + String.join("; ", failures)
+                + ". Data is kept and archiving was skipped, so this domain may be stale in "
+                + "places until the next run.");
         s.setLastErrorAt(Instant.now());
         syncStateRepo.save(s);
     }
