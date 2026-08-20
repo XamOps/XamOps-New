@@ -120,6 +120,11 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                   const isPending   = account.status === 'PENDING';
                   const isGcp       = account.provider === 'GCP';
                   const hasBilling  = !!account.billingExportTable;
+                  // Older backends omit billingSource; cspManaged carries the same meaning
+                  // there, so fall back to it rather than mislabelling every GCP account.
+                  const billingSource = account.billingSource
+                    ?? (account.cspManaged ? 'XAMMER_CSP_DATASET' : 'OWN_EXPORT');
+                  const isXammerExport = billingSource === 'XAMMER_EXPORT';
 
                   return (
                     <tr
@@ -188,6 +193,14 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                           {isGcp && account.cspManaged && account.billingDataAvailable == null && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.04)] text-[10px] font-semibold text-[rgba(0,0,0,0.4)]">
                               Pending Sync
+                            </span>
+                          )}
+                          {isGcp && isXammerExport && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-blue-200 bg-blue-50 text-[10px] font-semibold text-blue-600"
+                              title="Billed by Xammer — costs read from a BigQuery billing export table"
+                            >
+                              Xammer Billed
                             </span>
                           )}
                           {isGcp && !account.cspManaged && !hasBilling && (

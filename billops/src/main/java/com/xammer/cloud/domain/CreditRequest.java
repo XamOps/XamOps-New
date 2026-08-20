@@ -44,6 +44,11 @@ public class CreditRequest {
     @Column(name = "status", nullable = false)
     private String status = "submitted";
 
+    /** Urgency chosen by the requester: low / medium / high. Null on rows created before the
+     *  column existed, which the UI renders as no priority rather than guessing one. */
+    @Column(name = "priority")
+    private String priority = "medium";
+
     /** JSON array of supporting documents: [{"key":..,"name":..,"type":..,"size":..}, ...] */
     @Column(name = "attachments_json", columnDefinition = "TEXT")
     private String attachmentsJson;
@@ -79,6 +84,9 @@ public class CreditRequest {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public String getPriority() { return priority; }
+    public void setPriority(String priority) { this.priority = priority; }
 
     public String getAttachmentsJson() { return attachmentsJson; }
     public void setAttachmentsJson(String attachmentsJson) { this.attachmentsJson = attachmentsJson; }

@@ -8,13 +8,23 @@ const inputCls = 'w-full px-3.5 py-2.5 text-[13px] border border-[rgba(0,0,0,0.1
 const labelCls = 'block text-[13px] font-medium text-[rgba(0,0,0,0.7)] mb-1.5';
 const hintCls = 'text-[11px] text-[rgba(0,0,0,0.4)] mt-1';
 
+/**
+ * Where XamOps reads this project's cost data from. Kept distinct from who pays the bill:
+ * a Xammer-billed project may still publish costs to an ordinary BigQuery export, and
+ * onboarding it as XAMMER_CSP_DATASET sends the backend to the reseller dataset, finds no
+ * rows for the project, and shows zero spend on every cost widget.
+ */
+type BillingSource = 'OWN_EXPORT' | 'XAMMER_CSP_DATASET' | 'XAMMER_EXPORT';
+
 const GCPForm: React.FC = () => {
   const [accountName, setAccountName] = useState('');
   const [projectId, setProjectId] = useState('');
   const [accessType, setAccessType] = useState<'read-only' | 'read-write'>('read-only');
   const [serviceAccountKey, setServiceAccountKey] = useState('');
   const [billingTable, setBillingTable] = useState('');
-  const [isCspManaged, setIsCspManaged] = useState(false);
+  const [billingSource, setBillingSource] = useState<BillingSource>('OWN_EXPORT');
+  const usesExportTable = billingSource !== 'XAMMER_CSP_DATASET';
+  const tableRequired = billingSource === 'XAMMER_EXPORT';
   const [isLoading, setIsLoading] = useState(false);
   const [commandText, setCommandText] = useState(`sh <(curl -s ${SCRIPT_URL}) YOUR_PROJECT_ID`);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -57,7 +67,12 @@ const GCPForm: React.FC = () => {
       return;
     }
 
-    if (!isCspManaged && billingTable.trim()) {
+    if (tableRequired && !billingTable.trim()) {
+      setError('A BigQuery billing export table is required when Xammer manages billing via an export table.');
+      return;
+    }
+
+    if (usesExportTable && billingTable.trim()) {
       const parts = billingTable.trim().split('.');
       if (parts.length !== 3 || parts.some(p => !p.trim())) {
         setError('BigQuery table must be in format: project.dataset.table');
@@ -75,9 +90,12 @@ const GCPForm: React.FC = () => {
           projectId: projectId.trim(),
           accessType,
           serviceAccountKey: serviceAccountKey.trim(),
-          cspManaged: isCspManaged,
+          billingSource,
+          // Still sent so an older backend keeps behaving correctly for the two states it
+          // understands; the server prefers billingSource when present.
+          cspManaged: billingSource === 'XAMMER_CSP_DATASET',
           // Reseller (CSP billing config) is resolved server-side from the tenant.
-          ...(!isCspManaged && billingTable.trim() && { billingExportTable: billingTable.trim() }),
+          ...(usesExportTable && billingTable.trim() && { billingExportTable: billingTable.trim() }),
         }),
       });
 
@@ -92,7 +110,7 @@ const GCPForm: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [accountName, projectId, accessType, serviceAccountKey, billingTable, isCspManaged]);
+  }, [accountName, projectId, accessType, serviceAccountKey, billingTable, billingSource, usesExportTable, tableRequired]);
 
   // ── Success screen ──
   if (success) {
@@ -335,47 +353,66 @@ const GCPForm: React.FC = () => {
           <p className={hintCls}>Paste the complete JSON output from the Cloud Shell script</p>
         </div>
 
-        {/* CSP Managed toggle */}
+        {/* Billing source */}
         <div>
-          <p className={labelCls}>Is your GCP billing managed by Xammer?</p>
+          <p className={labelCls}>How should XamOps read this project's cost data?</p>
           <div className="flex flex-col gap-2 mt-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="cspManaged"
-                checked={!isCspManaged}
-                onChange={() => setIsCspManaged(false)}
-                className="accent-[#4285F4]"
-              />
-              <span className="text-[13px] text-[rgba(0,0,0,0.7)]">No — I manage my own billing export</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="cspManaged"
-                checked={isCspManaged}
-                onChange={() => { setIsCspManaged(true); setBillingTable(''); }}
-                className="accent-[#4285F4]"
-              />
-              <span className="text-[13px] text-[rgba(0,0,0,0.7)]">Yes — my billing is managed by Xammer</span>
-            </label>
+            {([
+              {
+                value: 'OWN_EXPORT',
+                label: 'I manage my own billing export',
+                hint: 'Costs are read from your BigQuery billing export table.',
+              },
+              {
+                value: 'XAMMER_EXPORT',
+                label: 'Xammer manages billing — read from a billing export table',
+                hint: 'Xammer pays the bill, but costs are read from a BigQuery export table.',
+              },
+              {
+                value: 'XAMMER_CSP_DATASET',
+                label: 'Xammer manages billing — reseller billing dataset',
+                hint: 'Costs are pulled from the managed reseller dataset. No table needed.',
+              },
+            ] as const).map(opt => (
+              <label key={opt.value} className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="billingSource"
+                  checked={billingSource === opt.value}
+                  onChange={() => {
+                    setBillingSource(opt.value);
+                    if (opt.value === 'XAMMER_CSP_DATASET') setBillingTable('');
+                  }}
+                  className="accent-[#4285F4] mt-0.5"
+                />
+                <span>
+                  <span className="block text-[13px] text-[rgba(0,0,0,0.7)]">{opt.label}</span>
+                  <span className="block text-[11px] text-[rgba(0,0,0,0.4)]">{opt.hint}</span>
+                </span>
+              </label>
+            ))}
           </div>
 
-          {isCspManaged && (
+          {billingSource === 'XAMMER_CSP_DATASET' && (
             <div className="flex items-start gap-2 p-3 mt-3 bg-[#4285F4]/[0.04] border border-[#4285F4]/20 rounded-lg">
               <Icon icon="mdi:information-outline" width={16} className="text-[#4285F4] flex-shrink-0 mt-0.5" />
               <p className="text-[11px] text-[rgba(0,0,0,0.6)] leading-relaxed">
-                Your billing is handled by Xammer. Cost data is pulled automatically from the managed billing dataset — no further setup needed.
+                Cost data is pulled automatically from the managed billing dataset — no further setup needed.
+                Pick this only if your project is billed through Xammer's reseller account; if your costs come
+                from a BigQuery export, choose the option above instead or cost widgets will show zero.
               </p>
             </div>
           )}
         </div>
 
-        {/* BigQuery Billing Table — only when NOT CSP-managed */}
-        {!isCspManaged && (
+        {/* BigQuery Billing Table — required for XAMMER_EXPORT, optional for OWN_EXPORT */}
+        {usesExportTable && (
           <div>
             <label htmlFor="gcpBillingTable" className={labelCls}>
-              BigQuery Billing Export Table <span className="text-[11px] font-normal text-[rgba(0,0,0,0.35)]">(Optional)</span>
+              BigQuery Billing Export Table{' '}
+              <span className="text-[11px] font-normal text-[rgba(0,0,0,0.35)]">
+                {tableRequired ? '(Required)' : '(Optional)'}
+              </span>
             </label>
             <input
               id="gcpBillingTable"
@@ -383,9 +420,14 @@ const GCPForm: React.FC = () => {
               placeholder="project_id.billing_export.gcp_billing_export_v1_XXXXXX"
               value={billingTable}
               onChange={(e) => setBillingTable(e.target.value)}
+              required={tableRequired}
               className={`${inputCls} font-mono text-[12px]`}
             />
-            <p className={hintCls}>Format: project.dataset.table — May take up to 24h to appear. Add later from Account Manager.</p>
+            <p className={hintCls}>
+              {tableRequired
+                ? 'Format: project.dataset.table — required, since cost data is read from this table.'
+                : 'Format: project.dataset.table — May take up to 24h to appear. Add later from Account Manager.'}
+            </p>
           </div>
         )}
 

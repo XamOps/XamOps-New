@@ -1,0 +1,673 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps Inventory Events (nested stack). Included automatically by the XamOps
+  onboarding role templates, so the customer deploys nothing extra and does not
+  have to know or declare which regions they use.
+
+# =============================================================================
+# WHY A CUSTOM RESOURCE INSTEAD OF A STACKSET
+#
+# Resource change events reach EventBridge in the region where the API call
+# happened, so covering an account means creating rules in every enabled region.
+# CloudFormation has no "all enabled regions" primitive: a StackSet needs an
+# explicit region list, which would force whoever onboards the account to know
+# the customer's footprint in advance and to revisit it whenever the customer
+# opens a new region. In practice that means most accounts silently end up
+# single-region.
+#
+# So a small Lambda-backed custom resource calls DescribeRegions at deploy time
+# and creates the rules itself, in every region that is actually enabled. The
+# customer answers no questions, single- and multi-region accounts behave
+# identically, and a newly opened region is picked up on the next stack update.
+#
+# The trade is that those rules live outside CloudFormation's own state, so the
+# Delete path has to remove them explicitly — handled below, and deliberately
+# written to never block a stack deletion.
+# =============================================================================
+
+Parameters:
+  XamOpsAccountId:
+    Type: String
+    Description: XamOps AWS account ID
+
+  XamOpsSQSQueueUrl:
+    Type: String
+    Description: URL of the XamOps inventory event queue
+
+  XamOpsRegion:
+    Type: String
+    Default: 'ap-south-1'
+    Description: Region hosting the XamOps queue
+
+  IncludeSecurityFindings:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Also forward Security Hub, GuardDuty and Config findings (free)
+
+Resources:
+
+  # ===========================================================================
+  # Hub bus — every region forwards here, so the cross-account hop happens once
+  # ===========================================================================
+  InventoryHubBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: xamops-inventory-hub
+
+  InventoryHubBusPolicy:
+    Type: AWS::Events::EventBusPolicy
+    Properties:
+      EventBusName: !Ref InventoryHubBus
+      StatementId: AllowSameAccountRegionalForward
+      Statement:
+        Effect: Allow
+        Principal:
+          AWS: !Ref 'AWS::AccountId'
+        Action: 'events:PutEvents'
+        Resource: !GetAtt InventoryHubBus.Arn
+
+  # Role EventBridge assumes to forward from a regional default bus to the hub.
+  RegionalForwardRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'XamOpsInventoryForwardRole-${AWS::AccountId}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: XamOpsPutEventsToHub
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: !GetAtt InventoryHubBus.Arn
+
+  # ===========================================================================
+  # Forwarder Lambda — hub bus to the XamOps queue
+  # ===========================================================================
+  ForwarderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: XamOpsInventoryForwardToSqs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Scoped to the one XamOps queue, not a wildcard.
+              - Effect: Allow
+                Action: ['sqs:SendMessage', 'sqs:GetQueueUrl']
+                Resource: !Sub 'arn:aws:sqs:${XamOpsRegion}:${XamOpsAccountId}:xamops-inventory-events.fifo'
+
+  ForwarderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: xamops-inventory-event-forwarder
+      Description: Forwards resource change events to the XamOps inventory plane
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt ForwarderRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          XAMOPS_SQS_QUEUE_URL: !Ref XamOpsSQSQueueUrl
+          XAMOPS_REGION: !Ref XamOpsRegion
+          CUSTOMER_ACCOUNT_ID: !Ref 'AWS::AccountId'
+      Code:
+        ZipFile: |
+          """
+          Normalises an EventBridge event into one small envelope and queues it.
+
+          XamOps must not need to understand the detail shape of every AWS service.
+          Three families arrive here - CloudTrail API calls, native service state
+          changes, and tag changes - and each puts the resource identity somewhere
+          different. Collapsing them to {account, arns, action} here means adding a new
+          event source is a change to this file, not to the backend.
+          """
+          import json
+          import os
+          import re
+          import boto3
+
+          sqs = boto3.client('sqs', region_name=os.environ['XAMOPS_REGION'])
+          QUEUE_URL = os.environ['XAMOPS_SQS_QUEUE_URL']
+          ACCOUNT_ID = os.environ['CUSTOMER_ACCOUNT_ID']
+
+          CREATE_PREFIXES = ('Create', 'Run', 'Allocate', 'Provision', 'Import', 'Register')
+          DELETE_PREFIXES = ('Delete', 'Terminate', 'Release', 'Deprovision', 'Deregister')
+
+          # ------------------------------------------------------------------
+          # Services whose CloudTrail events name a resource instead of giving its ARN.
+          #
+          # Found the hard way: creating an S3 bucket produced a CreateBucket event whose
+          # requestParameters carried bucketName="demobucket2172" and no ARN anywhere, so
+          # ARN scraping found nothing, the event was forwarded with an empty arns list,
+          # and the bucket only surfaced ~90s later via the reconciler. The fast path
+          # silently did not apply to S3 at all.
+          #
+          # Each entry maps a CloudTrail eventSource to the requestParameters/
+          # responseElements field holding the identifier, plus an ARN template. Templates
+          # use {id}, {region} and {account}; a template with an empty region or account
+          # segment is intentional (S3 and IAM ARNs omit them).
+          #
+          # Keys are deliberately the field names AWS actually uses rather than a guess -
+          # an incorrect field name yields no ARN and silently falls back to polling, which
+          # is the failure this table exists to remove.
+          #
+          # Every template below was checked against ARNs already stored by the reconciler,
+          # because a built ARN that differs by one character from the one Resource
+          # Explorer reports creates a duplicate row rather than updating the real one.
+          # Two services failed that check and are deliberately absent: Secrets Manager
+          # appends a random six-character suffix (secret:my-name-X8whka) and CloudFormation
+          # appends a stack UUID, so neither is derivable from the name. Both return a
+          # complete ARN in responseElements, so the regex path already covers them.
+          #
+          # A wrong guess is recoverable but not free: it inserts a row no scan will ever
+          # confirm, which the reconciler's sweep tombstones on its next pass. That makes
+          # errors self-healing within a cycle rather than permanent, which is why guessing
+          # is acceptable here and would not be in the reconciler.
+          # ------------------------------------------------------------------
+          ARN_BUILDERS = {
+              's3.amazonaws.com': (
+                  ['bucketName'], 'arn:aws:s3:::{id}'),
+              'lambda.amazonaws.com': (
+                  ['functionName'], 'arn:aws:lambda:{region}:{account}:function:{id}'),
+              'dynamodb.amazonaws.com': (
+                  ['tableName'], 'arn:aws:dynamodb:{region}:{account}:table/{id}'),
+              'sqs.amazonaws.com': (
+                  ['queueName'], 'arn:aws:sqs:{region}:{account}:{id}'),
+              'rds.amazonaws.com': (
+                  ['dBInstanceIdentifier'], 'arn:aws:rds:{region}:{account}:db:{id}'),
+              'elasticache.amazonaws.com': (
+                  ['cacheClusterId'], 'arn:aws:elasticache:{region}:{account}:cluster:{id}'),
+              'eks.amazonaws.com': (
+                  ['name'], 'arn:aws:eks:{region}:{account}:cluster/{id}'),
+              'ecr.amazonaws.com': (
+                  ['repositoryName'], 'arn:aws:ecr:{region}:{account}:repository/{id}'),
+              'kinesis.amazonaws.com': (
+                  ['streamName'], 'arn:aws:kinesis:{region}:{account}:stream/{id}'),
+              'es.amazonaws.com': (
+                  ['domainName'], 'arn:aws:es:{region}:{account}:domain/{id}'),
+              'monitoring.amazonaws.com': (
+                  ['alarmName'], 'arn:aws:cloudwatch:{region}:{account}:alarm:{id}'),
+              'logs.amazonaws.com': (
+                  ['logGroupName'], 'arn:aws:logs:{region}:{account}:log-group:{id}'),
+              'states.amazonaws.com': (
+                  ['name'], 'arn:aws:states:{region}:{account}:stateMachine:{id}'),
+              'events.amazonaws.com': (
+                  ['name'], 'arn:aws:events:{region}:{account}:rule/{id}'),
+              # IAM is global: region segment is empty by design.
+              'iam.amazonaws.com': (
+                  ['roleName'], 'arn:aws:iam::{account}:role/{id}'),
+          }
+
+          # ------------------------------------------------------------------
+          # The only event names allowed to delete a resource we identified by name.
+          #
+          # classify() treats any event starting with "Delete" as a deletion, which is
+          # correct when the event handed us the resource's own ARN. It is dangerous once
+          # we start deriving ARNs from names, because DeleteBucketPolicy,
+          # DeleteBucketTagging and DeleteRolePolicy all carry the parent's name while
+          # removing only a sub-property. Deriving the ARN and honouring the "Delete"
+          # prefix would tombstone a live bucket or role and hide it from the customer
+          # until the next reconcile.
+          #
+          # So a built ARN may only carry DELETED when the event name is listed here.
+          # Everything else is demoted to CHANGED: wrong in the harmless direction, since
+          # the reconciler still removes genuinely absent resources.
+          # ------------------------------------------------------------------
+          BUILDER_DELETE_EVENTS = frozenset([
+              'DeleteBucket', 'DeleteFunction', 'DeleteTable', 'DeleteDBInstance',
+              'DeleteCacheCluster', 'DeleteCluster', 'DeleteRepository', 'DeleteStream',
+              'DeleteDomain', 'DeleteElasticsearchDomain', 'DeleteLogGroup',
+              'DeleteStateMachine', 'DeleteRule', 'DeleteRole',
+          ])
+
+          def classify(event_name, detail_type, detail):
+              if detail_type == 'Tag Change on Resource':
+                  return 'CHANGED'
+              # State is more trustworthy than the API name that caused it.
+              state = (detail.get('state') or '').lower()
+              if state in ('terminated', 'shutting-down', 'deleted'):
+                  return 'DELETED'
+              if state in ('running', 'available', 'active'):
+                  return 'CREATED'
+              if event_name:
+                  if event_name.startswith(DELETE_PREFIXES):
+                      return 'DELETED'
+                  if event_name.startswith(CREATE_PREFIXES):
+                      return 'CREATED'
+              return 'CHANGED'
+
+          def extract_arns(event, detail):
+              arns = [r for r in (event.get('resources') or [])
+                      if isinstance(r, str) and r.startswith('arn:')]
+              if arns:
+                  return arns
+              if detail.get('resource-arn'):
+                  return [detail['resource-arn']]
+              blob = json.dumps({'r': detail.get('responseElements'),
+                                 'q': detail.get('requestParameters')})
+              seen, out = set(), []
+              for a in re.findall(r'"(arn:aws[^"]{10,1024})"', blob):
+                  if a not in seen:
+                      seen.add(a)
+                      out.append(a)
+              return out[:25]
+
+          def build_arns(event, detail):
+              """
+              Last resort: assemble an ARN from a resource *name*.
+
+              Only reached when the event carried no ARN anywhere. Returns at most one ARN
+              because these events describe a single named resource; returning more would
+              mean the field lookup matched something it should not have.
+              """
+              spec = ARN_BUILDERS.get(detail.get('eventSource') or '')
+              if not spec:
+                  return []
+              fields, template = spec
+              params = detail.get('requestParameters') or {}
+              resp = detail.get('responseElements') or {}
+              for field in fields:
+                  for bag in (params, resp):
+                      if not isinstance(bag, dict):
+                          continue
+                      value = bag.get(field)
+                      if not isinstance(value, str) or not value.strip():
+                          continue
+                      value = value.strip()
+                      # Some services echo the ARN back in the name field. Preserve it
+                      # rather than nesting it inside a template.
+                      if value.startswith('arn:'):
+                          return [value]
+                      # Leading slashes are significant - a log group ARN really is
+                      # "log-group:/aws/lambda/x" - so the value is used verbatim.
+                      return [template.format(id=value,
+                                              region=event.get('region') or '',
+                                              account=ACCOUNT_ID)]
+              return []
+
+          def lambda_handler(event, context):
+              detail = event.get('detail') or {}
+              detail_type = event.get('detail-type', '')
+              event_name = detail.get('eventName') or ''
+              source = event.get('source', '')
+
+              # A create that returned AccessDenied changed nothing; forwarding it
+              # would invent a resource that does not exist.
+              if detail.get('errorCode') or detail.get('errorMessage'):
+                  print(f'Skipping failed call: {event_name} {detail.get("errorCode")}')
+                  return {'statusCode': 200}
+
+              action = classify(event_name, detail_type, detail)
+              arns = extract_arns(event, detail)
+              if not arns:
+                  arns = build_arns(event, detail)
+                  if arns and action == 'DELETED' and event_name not in BUILDER_DELETE_EVENTS:
+                      # See BUILDER_DELETE_EVENTS: this name identifies the parent, and the
+                      # event removed something inside it.
+                      action = 'CHANGED'
+
+              envelope = {
+                  'schemaVersion': 1,
+                  'eventId': event.get('id'),
+                  'account': ACCOUNT_ID,
+                  'region': event.get('region'),
+                  'time': event.get('time'),
+                  'source': source,
+                  'detailType': detail_type,
+                  'eventName': event_name,
+                  'action': action,
+                  'arns': arns,
+                  'detail': detail if source in (
+                      'aws.securityhub', 'aws.guardduty', 'aws.config') else None,
+              }
+              # Event id doubles as the dedup key, making EventBridge retries idempotent.
+              sqs.send_message(
+                  QueueUrl=QUEUE_URL,
+                  MessageBody=json.dumps(envelope),
+                  MessageGroupId=f'acct-{ACCOUNT_ID}',
+                  MessageDeduplicationId=(event.get('id') or f'{event_name}-{event.get("time")}')[:128],
+              )
+              return {'statusCode': 200}
+      Tags:
+        - Key: Service
+          Value: XamOpsInventory
+
+  # NOTE: the two Lambda log groups are deliberately NOT declared as
+  # AWS::Logs::LogGroup resources. See ensure_log_retention in RegionFanOutFunction
+  # for why, and where their retention is set instead.
+
+  HubForwardRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: xamops-inventory-hub-forward
+      Description: Forward hub-bus inventory events to the XamOps queue
+      EventBusName: !Ref InventoryHubBus
+      State: ENABLED
+      EventPattern:
+        account: [!Ref 'AWS::AccountId']
+      Targets:
+        - Arn: !GetAtt ForwarderFunction.Arn
+          Id: InventoryForwarderTarget
+
+  ForwarderPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ForwarderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt HubForwardRule.Arn
+
+  # ===========================================================================
+  # Multi-region rule fan-out
+  # ===========================================================================
+  RegionFanOutRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: XamOpsInventoryRegionFanOut
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Needed to discover which regions are actually enabled — the whole
+              # point of this resource.
+              - Effect: Allow
+                Action: 'ec2:DescribeRegions'
+                Resource: '*'
+              # Rule management, restricted by name so this cannot touch any
+              # EventBridge rule the customer created for their own purposes.
+              - Effect: Allow
+                Action:
+                  - 'events:PutRule'
+                  - 'events:DeleteRule'
+                  - 'events:PutTargets'
+                  - 'events:RemoveTargets'
+                  - 'events:DescribeRule'
+                  - 'events:ListTargetsByRule'
+                Resource: !Sub 'arn:aws:events:*:${AWS::AccountId}:rule/xamops-inventory-*'
+              # EventBridge assumes RegionalForwardRole to reach the hub bus, so the
+              # rule creator must be allowed to hand that role over.
+              - Effect: Allow
+                Action: 'iam:PassRole'
+                Resource: !GetAtt RegionalForwardRole.Arn
+              # Applies retention to this stack's two Lambda log groups. Scoped to
+              # those exact names so it cannot alter the customer's own log groups.
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:PutRetentionPolicy'
+                Resource:
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ForwarderFunction}:*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/xamops-inventory-region-fanout:*'
+
+  RegionFanOutFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: xamops-inventory-region-fanout
+      Description: Creates inventory event rules in every enabled region
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt RegionFanOutRole.Arn
+      # Generous: ~35 regions x 3 rules x 2 API calls, sequential, with retries.
+      Timeout: 600
+      MemorySize: 256
+      Environment:
+        Variables:
+          # Single source of truth for the names is the FunctionName properties above.
+          MANAGED_LOG_GROUPS: !Sub '/aws/lambda/${ForwarderFunction},/aws/lambda/xamops-inventory-region-fanout'
+          LOG_RETENTION_DAYS: '7'
+      Code:
+        ZipFile: |
+          """
+          Creates (and on stack delete, removes) the inventory event rules in every
+          enabled region.
+
+          Exists because CloudFormation cannot express "all enabled regions" and a
+          StackSet would require the operator to declare the customer's footprint up
+          front. Here the account tells us its own footprint.
+
+          Failure policy: a per-region failure is recorded and skipped, never fatal.
+          One opted-in region with an unusual restriction must not fail onboarding for
+          the whole account - the regions that did succeed still deliver events, and
+          the 60s Resource Explorer reconcile covers whatever is missing. Delete is
+          best-effort for the same reason, so a leftover rule can never wedge a stack
+          deletion.
+          """
+          import json
+          import os
+          import urllib.request
+
+          import boto3
+
+          LIFECYCLE_PREFIXES = ['Create', 'Run', 'Delete', 'Terminate', 'Allocate',
+                                'Release', 'Register', 'Deregister', 'Provision',
+                                'Deprovision', 'Import']
+
+          STATE_SOURCES = ['aws.ec2', 'aws.rds', 'aws.ecs', 'aws.eks', 'aws.autoscaling',
+                           'aws.elasticache', 'aws.lambda', 'aws.s3', 'aws.tag']
+
+          SECURITY_SOURCES = ['aws.securityhub', 'aws.guardduty', 'aws.config']
+
+
+          def rules(include_security):
+              defs = [
+                  ('xamops-inventory-lifecycle', {
+                      'detail-type': ['AWS API Call via CloudTrail'],
+                      # The allow-list is the cost control: without it every API call
+                      # in the account would invoke the forwarder.
+                      'detail': {'eventName': [{'prefix': p} for p in LIFECYCLE_PREFIXES]},
+                  }),
+                  ('xamops-inventory-state-change', {
+                      'source': STATE_SOURCES,
+                      # CloudTrail events also carry source=aws.ec2, so without this
+                      # they would match both rules and be forwarded twice.
+                      'detail-type': [{'anything-but': 'AWS API Call via CloudTrail'}],
+                  }),
+              ]
+              if include_security:
+                  defs.append(('xamops-inventory-security', {'source': SECURITY_SOURCES}))
+              return defs
+
+
+          def enabled_regions(ec2):
+              # AllRegions=False returns only regions this account can actually use,
+              # which is exactly the set that can deliver events.
+              resp = ec2.describe_regions(AllRegions=False)
+              return sorted(r['RegionName'] for r in resp['Regions'])
+
+
+          def apply_region(region, hub_arn, role_arn, include_security):
+              events = boto3.client('events', region_name=region)
+              for name, pattern in rules(include_security):
+                  events.put_rule(
+                      Name=name,
+                      Description='XamOps inventory events - forwards to hub bus',
+                      EventPattern=json.dumps(pattern),
+                      State='ENABLED',
+                  )
+                  events.put_targets(
+                      Rule=name,
+                      Targets=[{'Id': 'HubTarget', 'Arn': hub_arn, 'RoleArn': role_arn}],
+                  )
+
+
+          def remove_region(region, include_security):
+              events = boto3.client('events', region_name=region)
+              for name, _ in rules(include_security):
+                  try:
+                      # Targets must go before the rule, or DeleteRule refuses.
+                      events.remove_targets(Rule=name, Ids=['HubTarget'])
+                  except Exception:
+                      pass
+                  try:
+                      events.delete_rule(Name=name)
+                  except Exception:
+                      pass
+
+
+          def ensure_log_retention():
+              """
+              Caps retention on this stack's two Lambda log groups.
+
+              Deliberately done here instead of with AWS::Logs::LogGroup resources,
+              because a log group named after a Lambda cannot be safely owned by
+              CloudFormation. Both Lambdas run *during stack deletion* - this one gets a
+              Delete request, and the forwarder keeps receiving in-flight events - and
+              CloudWatch Logs delivery is asynchronous. So the final log lines arrive
+              after CloudFormation has deleted the log group, CloudWatch silently
+              re-creates it with no retention, and that orphan is left behind. The next
+              time the stack is created, CloudFormation tries to create a log group whose
+              fixed name is already taken and fails with AlreadyExists, taking the whole
+              nested stack - and therefore account onboarding - down with it. Observed
+              exactly that: delete the connection stack, reconnect, CREATE_FAILED on
+              /aws/lambda/xamops-inventory-region-fanout.
+
+              Doing it as an idempotent API call has no physical resource to collide
+              with, so delete-then-reconnect always works. Best-effort by design: losing
+              a retention setting is a housekeeping problem, while raising here would
+              fail onboarding for a reason the customer cannot act on.
+              """
+              names = [n for n in (os.environ.get('MANAGED_LOG_GROUPS') or '').split(',') if n]
+              if not names:
+                  return
+              days = int(os.environ.get('LOG_RETENTION_DAYS') or 7)
+              logs = boto3.client('logs')
+              for name in names:
+                  try:
+                      logs.create_log_group(logGroupName=name)
+                  except logs.exceptions.ResourceAlreadyExistsException:
+                      # Normal: either CloudWatch auto-created it on first invocation, or
+                      # it survived a previous stack.
+                      pass
+                  except Exception as e:
+                      print(f'Could not create log group {name}: {e}')
+                      continue
+                  try:
+                      logs.put_retention_policy(logGroupName=name, retentionInDays=days)
+                  except Exception as e:
+                      print(f'Could not set retention on {name}: {e}')
+
+
+          def respond(event, context, status, data=None, reason=None):
+              body = json.dumps({
+                  'Status': status,
+                  'Reason': reason or f'See CloudWatch log stream {context.log_stream_name}',
+                  'PhysicalResourceId': 'xamops-inventory-region-fanout',
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'Data': data or {},
+              }).encode('utf-8')
+              req = urllib.request.Request(event['ResponseURL'], data=body, method='PUT',
+                                           headers={'Content-Type': ''})
+              urllib.request.urlopen(req)
+
+
+          def handler(event, context):
+              print(f'Request: {event["RequestType"]}')
+              props = event.get('ResourceProperties') or {}
+              hub_arn = props.get('HubBusArn')
+              role_arn = props.get('ForwardRoleArn')
+              include_security = str(props.get('IncludeSecurityFindings', 'true')).lower() == 'true'
+
+              try:
+                  ec2 = boto3.client('ec2')
+                  try:
+                      regions = enabled_regions(ec2)
+                  except Exception as e:
+                      # Without DescribeRegions we cannot fan out, but the hub region
+                      # rules still matter, so fall back to just this one.
+                      print(f'DescribeRegions failed ({e}); falling back to current region only')
+                      regions = [context.invoked_function_arn.split(':')[3]]
+
+                  print(f'{len(regions)} enabled region(s): {regions}')
+
+                  if event['RequestType'] == 'Delete':
+                      for r in regions:
+                          remove_region(r, include_security)
+                      respond(event, context, 'SUCCESS', {'RegionsCleaned': str(len(regions))})
+                      return
+
+                  # Create and Update only. On Delete the groups are left to expire on
+                  # their own retention, which is what keeps the stack deletable.
+                  ensure_log_retention()
+
+                  ok, failed = [], {}
+                  for r in regions:
+                      try:
+                          apply_region(r, hub_arn, role_arn, include_security)
+                          ok.append(r)
+                      except Exception as e:
+                          # Recorded, not fatal. Partial coverage beats failed onboarding.
+                          failed[r] = str(e)[:200]
+                          print(f'Region {r} skipped: {e}')
+
+                  print(f'Configured {len(ok)} region(s); {len(failed)} skipped')
+                  respond(event, context, 'SUCCESS', {
+                      'RegionsConfigured': ','.join(ok)[:1000],
+                      'RegionCount': str(len(ok)),
+                      'RegionsSkipped': ','.join(failed.keys())[:500] or 'none',
+                  })
+
+              except Exception as e:
+                  print(f'Fan-out error: {e}')
+                  if event['RequestType'] == 'Delete':
+                      # Never let cleanup trouble block a stack deletion; leftover rules
+                      # are harmless once the hub bus is gone.
+                      respond(event, context, 'SUCCESS', reason=f'Delete tolerated error: {e}')
+                  else:
+                      respond(event, context, 'FAILED', reason=str(e)[:900])
+
+  # Runs after the hub bus, its policy and the forward role exist, otherwise the
+  # rules it creates would point at a target that rejects them.
+  RegionFanOut:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - InventoryHubBusPolicy
+      - HubForwardRule
+      - RegionalForwardRole
+    Properties:
+      ServiceToken: !GetAtt RegionFanOutFunction.Arn
+      HubBusArn: !GetAtt InventoryHubBus.Arn
+      ForwardRoleArn: !GetAtt RegionalForwardRole.Arn
+      IncludeSecurityFindings: !Ref IncludeSecurityFindings
+
+Outputs:
+  HubBusArn:
+    Description: ARN of the inventory hub event bus
+    Value: !GetAtt InventoryHubBus.Arn
+
+  RegionsConfigured:
+    Description: Regions where inventory event rules were created
+    Value: !GetAtt RegionFanOut.RegionsConfigured
+
+  RegionCount:
+    Description: Number of regions now forwarding inventory events
+    Value: !GetAtt RegionFanOut.RegionCount
+
+  RegionsSkipped:
+    Description: Regions skipped due to an error (events still work elsewhere)
+    Value: !GetAtt RegionFanOut.RegionsSkipped

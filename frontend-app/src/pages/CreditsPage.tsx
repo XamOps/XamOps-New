@@ -487,9 +487,11 @@ const CreditRequestCard: React.FC<{ request: CreditRequest }> = ({ request }) =>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{request.awsAccountId}</h4>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${PRIORITY_BADGE[request.priority] ?? 'bg-gray-100 text-gray-500'}`}>
-                  {request.priority}
-                </span>
+                {request.priority && (
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${PRIORITY_BADGE[request.priority] ?? 'bg-gray-100 text-gray-500'}`}>
+                    {request.priority}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3 mt-0.5 text-xs text-[rgba(0,0,0,0.4)] font-medium">
                 <span>ID: <span className="text-[rgba(0,0,0,0.7)] font-bold">#{request.id}</span></span>

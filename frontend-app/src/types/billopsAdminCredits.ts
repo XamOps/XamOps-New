@@ -28,7 +28,8 @@ export interface AdminCreditRequest {
   expectedCredits: number;
   services: string;
   useCase: string;
-  priority: 'low' | 'medium' | 'high';
+  /** Absent on requests submitted before the priority was stored server-side */
+  priority?: 'low' | 'medium' | 'high' | null;
   userId: number;
   submittedDate: string;
   status: AdminCreditStatus;

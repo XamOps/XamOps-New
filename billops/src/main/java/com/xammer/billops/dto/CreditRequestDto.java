@@ -50,6 +50,7 @@ public class CreditRequestDto {
     private String services;
     private String useCase;
     private String status;
+    private String priority; // low / medium / high, null on requests submitted before it was stored
     private Date submittedDate;
     private Long userId;
     // Concrete ArrayList: these DTOs round-trip through the Redis cache, whose serializer writes
@@ -85,6 +86,9 @@ public class CreditRequestDto {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public String getPriority() { return priority; }
+    public void setPriority(String priority) { this.priority = priority; }
 
     public Date getSubmittedDate() { return submittedDate; }
     public void setSubmittedDate(Date submittedDate) { this.submittedDate = submittedDate; }

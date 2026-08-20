@@ -208,6 +208,15 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>servicequotas</artifactId>
         </dependency>
+        <!--
+            Resource Explorer: one cross-region query replaces the ~1000 per-service
+            describe/list calls CloudListService fans out. Free of charge, and since
+            Oct 2025 it self-enables from IAM permissions with no customer setup.
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>resourceexplorer2</artifactId>
+        </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>costexplorer</artifactId>

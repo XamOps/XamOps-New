@@ -37,7 +37,8 @@ export interface CreditRequest {
   expectedCredits: number;
   services: string; // Multicloud: can include services from any cloud provider
   useCase: string;
-  priority: CreditPriority;
+  /** Absent on requests submitted before the priority was stored server-side */
+  priority?: CreditPriority | null;
   userId: number;
   submittedDate: string;
   status: CreditStatus;

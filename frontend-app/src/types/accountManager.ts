@@ -17,6 +17,8 @@ export interface CloudAccount {
   azureSubscriptionId?: string;
   billingExportTable?: string;
   cspManaged?: boolean;
+  /** Where cost data is read from. Absent on responses from an older backend. */
+  billingSource?: 'OWN_EXPORT' | 'XAMMER_CSP_DATASET' | 'XAMMER_EXPORT';
   billingDataAvailable?: boolean | null;
 }
 

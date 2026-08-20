@@ -10,6 +10,7 @@ import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.dto.ServicePaginatedResponse;
 import com.xammer.cloud.repository.CachedDataRepository; // Imported
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.inventory.InventoryProjectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -160,6 +161,16 @@ public class CloudListService {
     @Qualifier("backgroundTaskExecutor")
     private Executor backgroundTaskExecutor;
 
+    /**
+     * Shared inventory plane. When it has a fresh Resource Explorer sync for an account
+     * we serve from it — ~5 API calls instead of the ~1000 this class otherwise fans
+     * out. When it does not, every method below behaves exactly as before, which is why
+     * this is field-injected and null-checked rather than made mandatory: the fallback
+     * has to keep working untouched for accounts where Resource Explorer is blocked.
+     */
+    @Autowired(required = false)
+    private InventoryProjectionService inventoryProjection;
+
     // Cache to collapse multiple concurrent requests for the same account's
     // regional status
     private final Map<String, CompletableFuture<List<DashboardData.RegionStatus>>> regionStatusRequests = new ConcurrentHashMap<>();
@@ -198,6 +209,25 @@ public class CloudListService {
                     }
                     return accounts.get(0);
                 });
+    }
+
+    /**
+     * The {@code cloud_account} row id for an account identifier, or null if unknown.
+     *
+     * <p>
+     * The inventory plane is scoped per connection rather than per AWS account, so callers
+     * holding only the 12-digit id have to resolve it. Returns null rather than throwing
+     * because every caller treats "cannot use the plane" as "fall back to describes", and
+     * an unknown id should degrade to the slow path, not fail the request.
+     */
+    private Long resolveCloudAccountId(String accountId) {
+        try {
+            return getAccount(accountId).getId();
+        } catch (RuntimeException e) {
+            logger.debug("[Inventory] No cloud_account row for {} — plane unavailable: {}",
+                    accountId, e.getMessage());
+            return null;
+        }
     }
 
     private void loadRegionCoordinates() {
@@ -348,6 +378,25 @@ public class CloudListService {
     @Async("awsTaskExecutor")
     public CompletableFuture<Page<ResourceDto>> getAllResourcesPaginated(CloudAccount account, boolean forceRefresh,
             int page, int size) {
+
+        // Page in SQL when the plane is available. The fallback below pulls the whole
+        // account into memory and calls subList(), so page 50 costs as much as page 1 —
+        // this is the path that removes that.
+        if (inventoryProjection != null && account.getId() != null) {
+            try {
+                if (inventoryProjection.isFresh(account.getId())) {
+                    Page<ResourceDto> paged = inventoryProjection.pagedList(
+                            account.getId(), page, size);
+                    if (paged.getTotalElements() > 0) {
+                        return CompletableFuture.completedFuture(paged);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("[Inventory] Paged plane read failed for {} — falling back: {}",
+                        account.getAwsAccountId(), e.getMessage());
+            }
+        }
+
         return getAllResources(account, forceRefresh).thenApply(allResources -> {
             PageRequest pageRequest = PageRequest.of(page, size);
             int start = (int) pageRequest.getOffset();
@@ -372,6 +421,28 @@ public class CloudListService {
         try {
             String cacheKey = "groupedCloudlistResources-" + accountId;
             String dbSnapshotKey = "CLOUD_LIST_GROUPED::" + accountId;
+
+            // Tier 0 — inventory plane. Grouping happens in the projection so we do not
+            // materialise the flat list twice.
+            if (inventoryProjection != null) {
+                try {
+                    // Resolve the tenant connection: the plane is keyed on the
+                    // cloud_account row, not the AWS account id, which can map to several.
+                    Long cloudAccountId = resolveCloudAccountId(accountId);
+                    if (inventoryProjection.isFresh(cloudAccountId)) {
+                        List<DashboardData.ServiceGroupDto> grouped =
+                                inventoryProjection.groupedList(cloudAccountId);
+                        if (!grouped.isEmpty()) {
+                            logger.info("✅ Grouped CloudList served from inventory plane for account {} "
+                                    + "({} service groups, 0 AWS calls)", accountId, grouped.size());
+                            return CompletableFuture.completedFuture(grouped);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("[Inventory] Grouped plane read failed for {} — falling back: {}",
+                            accountId, e.getMessage());
+                }
+            }
 
             if (!forceRefresh) {
                 // 1. Try Redis cache first (Fastest)
@@ -431,6 +502,14 @@ public class CloudListService {
     public CompletableFuture<List<ResourceDto>> getAllResources(CloudAccount account, boolean forceRefresh) {
         String cacheKey = "cloudlistResources-" + account.getAwsAccountId();
         String dbCacheKey = "CLOUD_LIST::" + account.getAwsAccountId();
+
+        // Tier 0 — inventory plane. Checked even on forceRefresh: the reconciler keeps
+        // this within a minute of AWS, so "refresh" no longer needs to mean a 1000-call
+        // rescan. If the plane is stale or unavailable the original path runs unchanged.
+        List<ResourceDto> fromPlane = tryInventoryPlane(account.getAwsAccountId());
+        if (fromPlane != null) {
+            return CompletableFuture.completedFuture(fromPlane);
+        }
 
         if (!forceRefresh) {
             // 1. Redis — fastest path
@@ -1795,6 +1874,38 @@ public class CloudListService {
                 return Collections.emptyList();
             }
         });
+    }
+
+    /**
+     * Flat resource list from the inventory plane, or null when it cannot answer.
+     *
+     * <p>
+     * Returning null rather than an empty list is deliberate: empty is a valid answer
+     * meaning "this account has no resources", and conflating the two would let a cold
+     * plane blank the cloud list instead of falling through to the describe path.
+     */
+    private List<ResourceDto> tryInventoryPlane(String awsAccountId) {
+        if (inventoryProjection == null || awsAccountId == null) {
+            return null;
+        }
+        try {
+            Long cloudAccountId = resolveCloudAccountId(awsAccountId);
+            if (!inventoryProjection.isFresh(cloudAccountId)) {
+                return null;
+            }
+            List<ResourceDto> resources = inventoryProjection.flatList(cloudAccountId);
+            if (resources.isEmpty()) {
+                return null;
+            }
+            logger.info("✅ CloudList served from inventory plane for account {} ({} resources, 0 AWS calls)",
+                    awsAccountId, resources.size());
+            return resources;
+        } catch (Exception e) {
+            // Never let the new path break the old one.
+            logger.warn("[Inventory] Plane read failed for account {} — falling back to describes: {}",
+                    awsAccountId, e.getMessage());
+            return null;
+        }
     }
 
     private void saveResourcesSnapshot(String accountId, List<ResourceDto> resources) {

@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps Inventory Engine - the queue side of the inventory plane. Deploy ONCE
+  in the XamOps account (not in customer accounts). Creates the FIFO queue that
+  customer forwarder Lambdas write to and InventoryEventListener polls.
+
+# =============================================================================
+# Deploy order matters: this stack must exist BEFORE any customer onboards with
+# inventory events enabled, because the forwarder Lambda created by
+# xamops-inventory-events-nested.yaml writes to the queue created here. Without
+# it their Lambda fails on every event, the failures surface only in their
+# CloudWatch logs, and inventory silently stays on the 60s poll — a confusing
+# failure to debug from our side.
+#
+# Cost on the XamOps bill is effectively zero. Long polling (20s) means roughly
+# 130k receive requests/month regardless of how many customer accounts feed the
+# queue, comfortably inside the 1M/month free tier.
+# =============================================================================
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [development, staging, production]
+    Description: Environment name for resource tagging
+
+  BackendPrincipalArn:
+    Type: String
+    Description: >
+      ARN of the IAM role/user the XamOps backend runs as. Granted receive and
+      delete on the queue. Matches the pattern used by autospotting-engine.yaml.
+    Default: 'arn:aws:iam::605134457560:role/XamOps-App-EC2-Role'
+
+Resources:
+
+  # ===========================================================================
+  # Inventory event queue
+  # ===========================================================================
+  InventoryEventQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: xamops-inventory-events.fifo
+      FifoQueue: true
+      # Explicitly FALSE. The forwarder Lambda sets MessageDeduplicationId to the
+      # EventBridge event id, which is a far better dedup key than a content hash:
+      # two genuinely different changes to the same resource can produce identical
+      # bodies, and content-based dedup would silently discard the second.
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600  # 14 days
+      # 5 min, well above the time to apply one event. Long enough that a slow
+      # batch is not redelivered while still being processed.
+      VisibilityTimeout: 300
+      ReceiveMessageWaitTimeSeconds: 20  # Long polling — this is the cost control
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt InventoryEventDLQ.Arn
+        # 3 attempts. Event application is idempotent by ARN, so retrying is safe;
+        # anything failing three times is a bad message, not a transient fault.
+        maxReceiveCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: XamOpsInventory
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # Messages that failed three times. Worth alarming on: a non-empty DLQ means
+  # resource changes are being dropped, which shows up to users as an inventory
+  # that is stale in a way the 60s poll will eventually paper over — so the
+  # symptom is subtle and the alarm is how you find out.
+  InventoryEventDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: xamops-inventory-events-dlq.fifo
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: XamOpsInventory-DLQ
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ===========================================================================
+  # Bootstrap queue policy
+  #
+  # Intentionally minimal: it authorises only the backend, and says nothing about
+  # customer accounts. InventoryQueueAuthorizer in xamops-service then rewrites
+  # the full policy from the database, adding every CONNECTED AWS account.
+  #
+  # Customer authorisation is deliberately NOT expressed here. A CloudFormation
+  # parameter listing account ids does not survive a hundred customers: it is a
+  # list someone has to remember to update, and when they forget the new customer's
+  # events are rejected with no error anywhere in XamOps. Deriving the list from
+  # the accounts table means onboarding authorises the customer as a side effect.
+  #
+  # Note this policy is replaced, not merged, by the application. That is why it
+  # grants sqs:SetQueueAttributes — without it the backend cannot install the
+  # policy that authorises customers, and the pipeline never starts. A stack
+  # update will revert to this bootstrap policy; the authorizer restores the full
+  # one within an hour, or immediately on restart.
+  # ===========================================================================
+  InventoryQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref InventoryEventQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: XamOpsInventoryBackendConsume
+            Effect: Allow
+            Principal:
+              AWS: !Ref BackendPrincipalArn
+            Action:
+              - 'sqs:ReceiveMessage'
+              - 'sqs:DeleteMessage'
+              - 'sqs:GetQueueAttributes'
+              - 'sqs:SetQueueAttributes'
+              - 'sqs:GetQueueUrl'
+            Resource: !GetAtt InventoryEventQueue.Arn
+
+  # ===========================================================================
+  # Alarms
+  # ===========================================================================
+
+  # Non-empty DLQ means changes are being lost. The 60s reconcile will mask it,
+  # so without this alarm a broken event pipeline can run unnoticed for days.
+  DLQNotEmptyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: xamops-inventory-dlq-not-empty
+      AlarmDescription: >
+        Inventory events are failing permanently. Inventory still self-heals via
+        the Resource Explorer reconcile, but near-real-time updates are degraded.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt InventoryEventDLQ.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  # A growing backlog means the consumer cannot keep up. Set above a normal
+  # burst so an autoscaling storm does not page anyone.
+  QueueBacklogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: xamops-inventory-queue-backlog
+      AlarmDescription: >
+        Inventory event backlog is growing — InventoryEventListener may be down
+        or xamops.inventory.events.enabled may be false while customers forward.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt InventoryEventQueue.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 1000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  # Oldest-message age catches a stuck consumer that a depth alarm can miss:
+  # a low but never-draining backlog looks healthy by depth alone.
+  QueueStaleMessageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: xamops-inventory-queue-stale
+      AlarmDescription: Inventory events are sitting unprocessed for over 15 minutes
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt InventoryEventQueue.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 900
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  QueueUrl:
+    Description: >
+      Set this as xamops.inventory.events.queue-url in application.properties,
+      and pass it as XamOpsSQSQueueUrl to the customer stack.
+    Value: !Ref InventoryEventQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-QueueUrl'
+
+  QueueArn:
+    Description: ARN of the inventory event queue
+    Value: !GetAtt InventoryEventQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-QueueArn'
+
+  DLQUrl:
+    Description: Dead letter queue URL — inspect this when the DLQ alarm fires
+    Value: !Ref InventoryEventDLQ
+
+  NextSteps:
+    Description: Deployment order
+    Value: !Sub >
+      1) Set xamops.inventory.events.queue-url to ${InventoryEventQueue}
+      2) Set xamops.inventory.events.backend-principal-arn to the backend role ARN
+      3) Set xamops.inventory.events.enabled=true and restart the backend
+      4) Onboard customers normally. Each connection authorises that account on
+         this queue automatically — there is no per-customer step here, and no
+         list to maintain.

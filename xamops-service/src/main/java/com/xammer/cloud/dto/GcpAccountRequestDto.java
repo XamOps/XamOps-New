@@ -10,6 +10,8 @@ public class GcpAccountRequestDto {
     private String serviceAccountKey;
     private String projectId;
     private String billingExportTable;
+    /** OWN_EXPORT, XAMMER_CSP_DATASET or XAMMER_EXPORT. Falls back to cspManaged when absent. */
+    private String billingSource;
     private Boolean cspManaged;
     private Long cspBillingConfigId;
     private String accessType;
@@ -77,6 +79,14 @@ public class GcpAccountRequestDto {
 
     public void setBillingExportTable(String billingExportTable) {
         this.billingExportTable = billingExportTable;
+    }
+
+    public String getBillingSource() {
+        return billingSource;
+    }
+
+    public void setBillingSource(String billingSource) {
+        this.billingSource = billingSource;
     }
 
     public Boolean getCspManaged() {

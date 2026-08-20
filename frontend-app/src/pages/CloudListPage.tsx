@@ -63,6 +63,8 @@ const CloudListPage: React.FC = () => {
   const [applyingAllFor, setApplyingAllFor] = useState<string | null>(null);
   // Label loading flag to avoid re-fetching on every render
   const labelMapLoadedForRef = useRef<string | null>(null);
+  // Set when a search-driven page load fails, so it is not retried in a loop
+  const autoLoadFailedRef = useRef(false);
 
   const { setActions, clearActions } = useTopbar();
 
@@ -280,6 +282,41 @@ const CloudListPage: React.FC = () => {
           }
         }
       });
+
+      // Inventory plane: pushed when a resource actually appears or disappears in
+      // AWS, not when a manual refresh finishes. This is what makes a newly created
+      // resource show up on an already-open page without the user doing anything.
+      //
+      // Kept as a second subscription rather than folded into the one above because
+      // the semantics differ: cloudlist-refresh reports the outcome of an action the
+      // user started, while this is unsolicited news about their AWS account.
+      client.subscribe('/topic/inventory-refresh', (message: any) => {
+        if (!isMountedRef.current) return;
+
+        const body = JSON.parse(message.body);
+        const isTargetAccount = selectedAccountId === body.accountId ||
+          (selectedAccountId && selectedAccountId.split(',').includes(body.accountId));
+
+        if (!isTargetAccount || body.status !== 'inventory-changed') return;
+
+        const added = body.added || 0;
+        const removed = body.removed || 0;
+        if (added === 0 && removed === 0) return;
+
+        console.log(`📦 [CloudList] Inventory changed: +${added} -${removed}`);
+
+        // Describe what changed rather than just saying "updated", so the user can
+        // tell whether the change was the one they were expecting.
+        const parts: string[] = [];
+        if (added > 0) parts.push(`${added} new`);
+        if (removed > 0) parts.push(`${removed} removed`);
+        setStatusMessage(`${parts.join(', ')} · ${new Date().toLocaleTimeString()}`);
+        setStatusColor('green');
+
+        // Reload from the inventory plane. Cheap because it is a DB read, not the
+        // ~1000-call AWS scan a forceRefresh would trigger.
+        loadInitialResources(false);
+      });
     }, (error: any) => {
       isConnectingRef.current = false;
       console.error('❌ [CloudList] WebSocket connection failed:', error);
@@ -325,6 +362,9 @@ const CloudListPage: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ [CloudList] Error loading more resources:', error);
+      // Stop the search-driven auto-load below from retrying this page in a
+      // tight loop; the Load More button still lets the user try again.
+      autoLoadFailedRef.current = true;
     } finally {
       setIsLoadingMore(false);
     }
@@ -426,22 +466,54 @@ const CloudListPage: React.FC = () => {
   }, [selectedAccountId]);
 
   /**
+   * Services arrive five at a time, so a search would otherwise only see the
+   * pages already fetched — typing "ec2" before the EC2 group has loaded finds
+   * nothing. Pull the remaining pages in while a search is active; each load
+   * re-runs this effect until there is no next page left.
+   */
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      autoLoadFailedRef.current = false;   // fresh search, allow retrying
+      return;
+    }
+    if (autoLoadFailedRef.current || !hasNextPage || isLoading || isLoadingMore) return;
+    const timer = setTimeout(() => loadMoreResources(), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm, hasNextPage, isLoading, isLoadingMore, loadMoreResources]);
+
+  /**
    * Filter resources by search term, region, and label
    */
   const filteredGroups = useMemo(() => {
-    return allGroups.map(group => {
+    const term = searchTerm.trim().toLowerCase();
+    const groups = allGroups.map(group => {
       const resources = group.resources || [];
+      // A term matching the service name (e.g. "EBS", "CloudWatch") keeps the
+      // whole group; otherwise resources are matched on their own fields.
+      const serviceMatch = !!term && group.serviceType.toLowerCase().includes(term);
       const matchingResources = resources.filter(res => {
         const regionMatch = !selectedRegion || res.region === selectedRegion;
-        const searchMatch = !searchTerm ||
-          (res.name && res.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (res.id && res.id.toLowerCase().includes(searchTerm.toLowerCase()));
+        const searchMatch = !term || serviceMatch ||
+          (res.name && res.name.toLowerCase().includes(term)) ||
+          (res.id && res.id.toLowerCase().includes(term)) ||
+          (res.type && res.type.toLowerCase().includes(term));
         const labelMatch = !filterLabelId ||
           (labelMap[res.id] ?? []).some(l => l.id === Number(filterLabelId));
         return regionMatch && searchMatch && labelMatch;
       });
       return { ...group, resources: matchingResources };
     }).filter(group => group.resources.length > 0);
+
+    if (!term) return groups;
+
+    // Lead with the services whose own name matches, so searching "ec2" shows
+    // the EC2 group first rather than a log group that happens to have "ec2"
+    // somewhere in its path.
+    return groups.sort((a, b) => {
+      const aService = a.serviceType.toLowerCase().includes(term) ? 0 : 1;
+      const bService = b.serviceType.toLowerCase().includes(term) ? 0 : 1;
+      return aService - bService;
+    });
   }, [allGroups, searchTerm, selectedRegion, filterLabelId, labelMap]);
 
   /**
@@ -464,6 +536,14 @@ const CloudListPage: React.FC = () => {
   const totalResourceCount = useMemo(() => {
     return filteredGroups.reduce((acc, group) => acc + group.resources.length, 0);
   }, [filteredGroups]);
+
+  /**
+   * While a search is active every matching group is shown expanded, so the
+   * matching resources are visible without an extra click.
+   */
+  const isGroupExpanded = useCallback((serviceType: string) => {
+    return searchTerm.trim() ? true : expandedGroups.has(serviceType);
+  }, [searchTerm, expandedGroups]);
 
   /**
    * Toggle service group expansion
@@ -741,7 +821,7 @@ const CloudListPage: React.FC = () => {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search by name or ID…"
+                  placeholder="Search by service, name or ID…"
                   className="w-full pl-9 pr-4 py-2 text-[13px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
                 />
               </div>
@@ -766,7 +846,7 @@ const CloudListPage: React.FC = () => {
 
             <div className="flex items-center gap-3">
               <p className="text-[12px] text-[rgba(0,0,0,0.4)] font-medium whitespace-nowrap">
-                {totalResourceCount} resources · {allGroups.length} services
+                {totalResourceCount} resources · {filteredGroups.length} services
               </p>
               <button
                 onClick={exportData}
@@ -816,6 +896,14 @@ const CloudListPage: React.FC = () => {
               <Skeleton key={i} variant="rounded" height={72} className="w-full" />
             ))}
           </div>
+        ) : filteredGroups.length === 0 && searchTerm.trim() && (isLoadingMore || hasNextPage) ? (
+          // Still pulling in the remaining service pages for this search — saying
+          // "No Resources Found" here would be wrong, the match may be on a page
+          // that has not arrived yet.
+          <div className="text-center py-20 bg-white border border-[rgba(0,0,0,0.08)] rounded-xl">
+            <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">Searching all services…</p>
+            <p className="text-[13px] text-[rgba(0,0,0,0.4)]">Loading the remaining services to search across them.</p>
+          </div>
         ) : filteredGroups.length === 0 ? (
           <div className="text-center py-20 bg-white border border-[rgba(0,0,0,0.08)] rounded-xl">
             <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-4">
@@ -862,7 +950,7 @@ const CloudListPage: React.FC = () => {
                     >
                       <div className="flex items-center gap-4 flex-1">
                         <svg
-                          className={`w-3.5 h-3.5 text-[rgba(0,0,0,0.3)] transition-transform duration-200 flex-shrink-0 ${expandedGroups.has(group.serviceType) ? 'rotate-90' : ''}`}
+                          className={`w-3.5 h-3.5 text-[rgba(0,0,0,0.3)] transition-transform duration-200 flex-shrink-0 ${isGroupExpanded(group.serviceType) ? 'rotate-90' : ''}`}
                           fill="none" stroke="currentColor" viewBox="0 0 24 24"
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
@@ -881,7 +969,7 @@ const CloudListPage: React.FC = () => {
                     </div>
 
                     {/* Resources Table */}
-                    {expandedGroups.has(group.serviceType) && (
+                    {isGroupExpanded(group.serviceType) && (
                       <div className="border-t border-[rgba(0,0,0,0.06)]">
                         {/* Table header */}
                         <div className="grid grid-cols-12 items-center px-5 py-2 bg-[rgba(0,0,0,0.02)]">

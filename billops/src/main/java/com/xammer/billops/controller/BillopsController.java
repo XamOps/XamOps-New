@@ -419,6 +419,7 @@ public class BillopsController {
             @RequestParam("expectedCredits") BigDecimal expectedCredits,
             @RequestParam(value = "services", required = false) String services,
             @RequestParam(value = "useCase", required = false) String useCase,
+            @RequestParam(value = "priority", required = false) String priority,
             @RequestParam("userId") Long userId,
             @RequestParam(value = "files", required = false) List<MultipartFile> files) {
         try {
@@ -427,6 +428,7 @@ public class BillopsController {
             dto.setExpectedCredits(expectedCredits);
             dto.setServices(services);
             dto.setUseCase(useCase);
+            dto.setPriority(priority);
             dto.setUserId(userId);
 
             return ResponseEntity.ok(creditRequestService.createCreditRequest(dto,

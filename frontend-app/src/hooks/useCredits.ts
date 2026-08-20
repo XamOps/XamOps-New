@@ -117,6 +117,7 @@ export const useCredits = (): UseCreditsReturn => {
         form.append('expectedCredits', String(newRequestData.expectedCredits));
         form.append('services', newRequestData.services);
         form.append('useCase', newRequestData.useCase);
+        form.append('priority', newRequestData.priority);
         form.append('userId', String(userId));
         files.forEach((file) => form.append('files', file));
 

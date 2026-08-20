@@ -65,6 +65,9 @@ public class CreditRequestService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static final Set<String> ALLOWED_PRIORITIES = Set.of("low", "medium", "high");
+    private static final String DEFAULT_PRIORITY = "medium";
+
     /** Requests are submitted with a free-form id, e.g. "GCP: my-project (011DDB-9E3A99)". */
     private static final Pattern PROVIDER_PREFIX = Pattern.compile("^(aws|gcp|google|azure)\\s*[:\\-]\\s*",
             Pattern.CASE_INSENSITIVE);
@@ -88,6 +91,7 @@ public class CreditRequestService {
         creditRequest.setUseCase(creditRequestDto.getUseCase());
         creditRequest.setUser(user);
         creditRequest.setStatus("submitted");
+        creditRequest.setPriority(normalizePriority(creditRequestDto.getPriority()));
         creditRequest.setSubmittedDate(new Date());
         creditRequest.setAttachmentsJson(uploadAttachments(files));
 
@@ -321,6 +325,18 @@ public class CreditRequestService {
         return value.trim();
     }
 
+    /**
+     * Credit requests carry one of three urgencies. Anything else the client sends - including
+     * nothing at all - falls back to the same default the submission form starts on.
+     */
+    private static String normalizePriority(String rawPriority) {
+        if (rawPriority == null) {
+            return DEFAULT_PRIORITY;
+        }
+        String value = rawPriority.trim().toLowerCase();
+        return ALLOWED_PRIORITIES.contains(value) ? value : DEFAULT_PRIORITY;
+    }
+
     private static String providerHint(String rawAccountId) {
         if (rawAccountId == null) {
             return null;
@@ -341,6 +357,7 @@ public class CreditRequestService {
         dto.setServices(creditRequest.getServices());
         dto.setUseCase(creditRequest.getUseCase());
         dto.setStatus(creditRequest.getStatus());
+        dto.setPriority(creditRequest.getPriority());
         dto.setSubmittedDate(creditRequest.getSubmittedDate());
         if (creditRequest.getUser() != null) {
             dto.setUserId(creditRequest.getUser().getId());

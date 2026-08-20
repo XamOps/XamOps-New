@@ -85,6 +85,7 @@ public final class AwsPermissionCatalog {
         map("PricingClient", "pricing", "Pricing");
         map("RdsClient", "rds", "RDS");
         map("RedshiftClient", "redshift", "Redshift");
+        map("ResourceExplorer2Client", "resource-explorer-2", "Resource Explorer");
         map("Route53Client", "route53", "Route 53");
         map("S3Client", "s3", "S3");
         map("SageMakerClient", "sagemaker", "SageMaker");
@@ -140,6 +141,12 @@ public final class AwsPermissionCatalog {
         features("route53", CLOUD_MAP, CLOUD_LIST);
         features("organizations", BILLOPS, DASHBOARD, FINOPS);
         features("servicequotas", DASHBOARD, CLOUD_LIST);
+        // Resource Explorer backs the shared inventory plane, so losing it degrades
+        // every page that reads resource identity — not just the cloud list. Losing it
+        // is not fatal (the reconciler falls back to per-service describes) but it is
+        // worth naming, because the fallback is ~1000 calls instead of ~5.
+        features("resource-explorer-2", CLOUD_LIST, DASHBOARD, CLOUD_MAP, WASTE,
+                RIGHTSIZING, SECURITY, PERFORMANCE);
         features("glue", DATAOPS);
         features("athena", DATAOPS, FINOPS);
         features("datazone", DATAOPS);

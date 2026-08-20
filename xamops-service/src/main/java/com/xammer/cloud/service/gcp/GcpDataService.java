@@ -24,6 +24,7 @@ import com.google.cloud.scheduler.v1.CloudSchedulerClient;
 import com.google.cloud.secretmanager.v1.Secret;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.logging.v2.LogBucket;
+import com.xammer.cloud.domain.BillingSource;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
@@ -922,6 +923,19 @@ public class GcpDataService {
                 validateBillingTableFormat(request.getBillingExportTable());
             }
 
+            BillingSource billingSource = resolveBillingSource(request);
+
+            // XAMMER_EXPORT reads costs from the export table and nowhere else, so onboarding
+            // without one produces an account that silently reports zero spend — the exact
+            // failure this billing source was added to prevent. OWN_EXPORT stays optional
+            // because that flow deliberately lets users add the table later.
+            if (billingSource == BillingSource.XAMMER_EXPORT
+                    && (request.getBillingExportTable() == null || request.getBillingExportTable().isBlank())) {
+                throw new RuntimeException(
+                        "A BigQuery billing export table is required when billing is managed by Xammer "
+                        + "via an export table.");
+            }
+
             String projectId = request.getGcpProjectId() != null ? request.getGcpProjectId() : request.getProjectId();
 
             // Verify the service account actually has IAM access to the project before
@@ -956,9 +970,9 @@ public class GcpDataService {
             account.setExternalId(projectId);
 
             account.setBillingExportTable(request.getBillingExportTable());
+            account.setBillingSource(billingSource);
 
-            if (Boolean.TRUE.equals(request.getCspManaged())) {
-                account.setCspManaged(true);
+            if (billingSource == BillingSource.XAMMER_CSP_DATASET) {
                 // The reseller (CSP billing config) is a property of the deployment/tenant,
                 // not something the end user picks. Auto-resolve it so onboarding works
                 // end-to-end without a reseller-selection step in the UI.
@@ -976,7 +990,8 @@ public class GcpDataService {
 
             // Save to database
             CloudAccount savedAccount = cloudAccountRepository.save(account);
-            log.info("✅ GCP account created successfully with ID: {}", savedAccount.getId());
+            log.info("✅ GCP account created successfully with ID: {} (billing source: {})",
+                    savedAccount.getId(), billingSource);
 
             if (savedAccount.getBillingExportTable() != null) {
                 log.info("📊 Billing export table configured: {}", savedAccount.getBillingExportTable());
@@ -1065,6 +1080,20 @@ public class GcpDataService {
         }
 
         account.setBillingExportTable(billingTable);
+
+        // Pointing a reseller-dataset account at an export table is how a mis-onboarded
+        // project gets corrected, so move it onto the table it was just given. Without this
+        // the read path keeps choosing the CSP dataset, the table is ignored, and the only
+        // remaining fix is editing the database by hand. Xammer still pays the bill, hence
+        // XAMMER_EXPORT rather than OWN_EXPORT.
+        if (billingTable != null && !billingTable.isBlank()
+                && account.resolveBillingSource() == BillingSource.XAMMER_CSP_DATASET) {
+            account.setBillingSource(BillingSource.XAMMER_EXPORT);
+            account.setCspBillingConfig(null);
+            log.info("Account {} moved from XAMMER_CSP_DATASET to XAMMER_EXPORT — costs now read from {}",
+                    accountId, billingTable);
+        }
+
         CloudAccount saved = cloudAccountRepository.save(account);
         log.info("Updated billing export table for account {}: {}", accountId, billingTable);
 
@@ -1120,6 +1149,26 @@ public class GcpDataService {
             log.error("Failed to parse service account key", e);
             throw new RuntimeException("Invalid service account key format: " + e.getMessage());
         }
+    }
+
+    /**
+     * Billing source from the request, falling back to the old boolean for callers that
+     * predate the field. The fallback can only ever produce the two states that boolean
+     * could express, so an older client cannot accidentally create a XAMMER_EXPORT account.
+     */
+    private BillingSource resolveBillingSource(GcpAccountRequestDto request) {
+        String requested = request.getBillingSource();
+        if (requested != null && !requested.isBlank()) {
+            try {
+                return BillingSource.valueOf(requested.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new RuntimeException("Unknown billing source '" + requested
+                        + "'. Expected OWN_EXPORT, XAMMER_CSP_DATASET or XAMMER_EXPORT.");
+            }
+        }
+        return Boolean.TRUE.equals(request.getCspManaged())
+                ? BillingSource.XAMMER_CSP_DATASET
+                : BillingSource.OWN_EXPORT;
     }
 
     private void validateBillingTableFormat(String billingTable) {

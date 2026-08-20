@@ -59,6 +59,10 @@ public class CloudAccount {
     @Column(name = "csp_managed", nullable = false)
     private boolean cspManaged = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "billing_source", length = 32)
+    private BillingSource billingSource;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "csp_billing_config_id")
     private CspBillingConfig cspBillingConfig;
@@ -168,6 +172,30 @@ public class CloudAccount {
             default:
                 return null;
         }
+    }
+
+    /**
+     * Billing source is authoritative; {@code cspManaged} is derived here rather than set
+     * independently. The reseller read path
+     * ({@code CloudAccountRepository#findCspBillingConfigByGcpProjectId}) and the nightly
+     * ingestion job both still select on {@code csp_managed}, so writing the two in one
+     * place is what stops them drifting — and drift is exactly what sent a Xammer-billed
+     * project with its own export table to the reseller dataset, where it read zero.
+     */
+    public void setBillingSource(BillingSource billingSource) {
+        this.billingSource = billingSource;
+        this.cspManaged = billingSource != null && billingSource.usesCspDataset();
+    }
+
+    /**
+     * Billing source for accounts predating the column, where it is still null: fall back to
+     * what {@code cspManaged} used to mean on its own.
+     */
+    public BillingSource resolveBillingSource() {
+        if (this.billingSource != null) {
+            return this.billingSource;
+        }
+        return this.cspManaged ? BillingSource.XAMMER_CSP_DATASET : BillingSource.OWN_EXPORT;
     }
 
 }

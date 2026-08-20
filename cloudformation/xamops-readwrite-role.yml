@@ -73,8 +73,54 @@ Parameters:
       - 'false'
     Description: Enable or disable AutoSpotting event forwarding to XamOps.
 
+  # -------------------------------------------------------------------
+  # Inventory events (near-real-time resource discovery)
+  #
+  # On by default. Without it XamOps still discovers resources, but by
+  # polling every 60s instead of being told within seconds. Defaulting to
+  # 'true' rather than making it opt-in matters: the feature costs this
+  # account a few cents a month, and an opt-in flag buried in a stack
+  # parameter is one almost nobody would ever turn on.
+  # -------------------------------------------------------------------
+  EnableInventoryEvents:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Forward resource change events to XamOps so new resources appear within
+      seconds instead of up to a minute. Creates an EventBridge bus, rules in
+      each of your enabled regions, and one small Lambda. Cost is typically
+      under $0.10/month.
+
+  IncludeSecurityFindings:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Also forward Security Hub, GuardDuty and AWS Config findings. These events
+      are free on the default event bus.
+
+  XamOpsInventoryQueueUrl:
+    Type: String
+    Description: URL of the XamOps inventory event queue.
+    Default: 'https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-inventory-events.fifo'
+
+  XamOpsInventoryRegion:
+    Type: String
+    Description: Region hosting the XamOps inventory event queue.
+    Default: 'ap-south-1'
+
+  XamOpsInventoryTemplateUrl:
+    Type: String
+    Description: S3 URL of the nested inventory-events template.
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-inventory-events-nested.yaml'
+
 Conditions:
   IsAutoSpottingEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
+
+  # Guards the nested stack. With inventory events off, nothing below is created
+  # and the account simply relies on 60s polling.
+  DeployInventoryEvents: !Equals [!Ref EnableInventoryEvents, 'true']
 
 Resources:
 
@@ -167,6 +213,37 @@ Resources:
               - 'rds:DescribeDBInstances'
               - 'rds:DescribeDBSnapshots'
               - 'rds:ListTagsForResource'
+              # Resource Explorer — inventory source. One cross-region Search
+              # replaces ~1000 per-service describes, at no charge. Read-only:
+              # these actions never create an index. Kept in sync with the
+              # read-only templates.
+              - 'resource-explorer-2:Search'
+              - 'resource-explorer-2:ListResources'
+              - 'resource-explorer-2:ListIndexes'
+              - 'resource-explorer-2:ListViews'
+              - 'resource-explorer-2:GetIndex'
+              - 'resource-explorer-2:GetView'
+              - 'resource-explorer-2:GetDefaultView'
+              # ------------------------------------------------------------------
+              # Index creation - the only non-read Resource Explorer action here.
+              #
+              # AWS does not auto-index opt-in regions (Hyderabad, Jakarta, Melbourne,
+              # UAE, Zurich, Spain, Milan, Cape Town, Bahrain, Osaka). Measured on a
+              # live account: 18 enabled regions, 17 indexed, and the 7 EC2 instances
+              # in the unindexed region were invisible to XamOps. Without this
+              # permission every customer using an opt-in region needs a manual fix
+              # before their inventory is complete, so the gap persists silently.
+              #
+              # A Resource Explorer index holds no customer data of its own and is free
+              # of charge - it only lets AWS answer "what exists in this region".
+              # Creation is one-time per region and idempotent.
+              # ------------------------------------------------------------------
+              - 'resource-explorer-2:CreateIndex'
+              # Fallback when Resource Explorer is blocked: one call per region.
+              # Note this role already has tag:TagResources for the tagging
+              # feature; GetResources is the read counterpart and was missing.
+              - 'tag:GetResources'
+              - 'tag:GetTagKeys'
               - 'route53:ListHostedZones'
               - 's3:GetBucketAcl'
               - 's3:GetBucketLocation'
@@ -709,6 +786,29 @@ Resources:
       # Inline policies are updated independently via stack updates.
       # -----------------------------------------------------------------
       Policies:
+        # -----------------------------------------------------------------
+        # Resource Explorer service-linked role.
+        #
+        # Without this, Search still works but returns PARTIAL results —
+        # tagged resources plus untagged ones created after Oct 2025, missing
+        # older untagged history. With it, Resource Explorer builds a complete
+        # index and keeps it current within minutes.
+        #
+        # Condition-scoped to one AWS service: IAM evaluates
+        # iam:AWSServiceName, so the only role creatable here is
+        # AWSServiceRoleForResourceExplorer. Created once per account.
+        # -----------------------------------------------------------------
+        - PolicyName: XamOpsPolicyResourceExplorerSlr
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: XamOpsResourceExplorerServiceLinkedRole
+                Effect: Allow
+                Action: 'iam:CreateServiceLinkedRole'
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'iam:AWSServiceName': 'resource-explorer-2.amazonaws.com'
         - PolicyName: XamOpsPolicyRightsizing
           PolicyDocument:
             Version: '2012-10-17'
@@ -1209,6 +1309,29 @@ Resources:
           Value: !Ref AutoSpottingEventForwarderFunction
       TreatMissingData: notBreaching
 
+  # =================================================================
+  # INVENTORY EVENTS (nested)
+  #
+  # Nested rather than inlined so the same logic serves the read-only and
+  # read-write templates across every environment without six copies to keep
+  # in step. The nested stack discovers the account's enabled regions itself,
+  # so single- and multi-region customers deploy exactly the same thing and
+  # nobody has to declare a region list up front.
+  # =================================================================
+  XamOpsInventoryEvents:
+    Type: AWS::CloudFormation::Stack
+    Condition: DeployInventoryEvents
+    Properties:
+      TemplateURL: !Ref XamOpsInventoryTemplateUrl
+      # Comfortably longer than the fan-out needs; a region that hangs must not
+      # leave the parent stack waiting indefinitely.
+      TimeoutInMinutes: 20
+      Parameters:
+        XamOpsAccountId: !Ref XamOpsAccountId
+        XamOpsSQSQueueUrl: !Ref XamOpsInventoryQueueUrl
+        XamOpsRegion: !Ref XamOpsInventoryRegion
+        IncludeSecurityFindings: !Ref IncludeSecurityFindings
+
 Outputs:
   XamOpsRoleArn:
     Description: ARN of the IAM role created for the XamOps platform (Read-Write access).
@@ -1262,3 +1385,23 @@ Outputs:
   AutoSpottingStatus:
     Description: AutoSpotting event forwarding status in this account.
     Value: !If [IsAutoSpottingEnabled, 'ENABLED', 'DISABLED']
+
+  InventoryEventsEnabled:
+    Description: Whether near-real-time inventory events were configured.
+    Value: !Ref EnableInventoryEvents
+
+  InventoryEventRegions:
+    Description: >
+      Regions where inventory event rules were created. Discovered automatically
+      from this account's enabled regions.
+    Value: !If
+      - DeployInventoryEvents
+      - !GetAtt XamOpsInventoryEvents.Outputs.RegionsConfigured
+      - 'disabled — XamOps will poll every 60s instead'
+
+  InventoryEventRegionCount:
+    Description: Number of regions forwarding inventory events.
+    Value: !If
+      - DeployInventoryEvents
+      - !GetAtt XamOpsInventoryEvents.Outputs.RegionCount
+      - '0'

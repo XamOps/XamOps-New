@@ -38,6 +38,7 @@ import software.amazon.awssdk.services.computeoptimizer.ComputeOptimizerClient;
 import software.amazon.awssdk.services.config.ConfigClient;
 import software.amazon.awssdk.services.controltower.ControlTowerClient;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
+import software.amazon.awssdk.services.resourceexplorer2.ResourceExplorer2Client;
 import software.amazon.awssdk.services.datazone.DataZoneClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -361,6 +362,21 @@ public class AwsClientProvider {
         return getClient(ComputeOptimizerClient.class, ComputeOptimizerClient.builder(), account, region);
     }
 
+    /**
+     * Resource Explorer client, used by the inventory plane to enumerate an entire
+     * account in a handful of paginated calls instead of the ~1000 per-service
+     * describes CloudListService fans out.
+     *
+     * <p>
+     * The region matters here in a way it does not for most clients: a Search against
+     * the region holding the account's <em>aggregator</em> index returns resources from
+     * every region, while any other region returns only its own. The caller resolves
+     * which region that is and passes it in, so this stays a plain regional client.
+     */
+    public ResourceExplorer2Client getResourceExplorerClient(CloudAccount account, String region) {
+        return getClient(ResourceExplorer2Client.class, ResourceExplorer2Client.builder(), account, region);
+    }
+
     public CloudWatchClient getCloudWatchClient(CloudAccount account, String region) {
         return getClient(CloudWatchClient.class, CloudWatchClient.builder(), account, region);
     }
@@ -428,6 +444,10 @@ public class AwsClientProvider {
 
     public AcmClient getAcmClient(CloudAccount account, String region) {
         return getClient(AcmClient.class, AcmClient.builder(), account, region);
+    }
+
+    public CloudFormationClient getCloudFormationClient(CloudAccount account, String region) {
+        return getClient(CloudFormationClient.class, CloudFormationClient.builder(), account, region);
     }
 
     public CloudWatchLogsClient getCloudWatchLogsClient(CloudAccount account, String region) {

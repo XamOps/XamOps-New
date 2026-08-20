@@ -124,7 +124,11 @@ const GcpCloudListPage: React.FC = () => {
     return lower.charAt(0).toUpperCase() + lower.slice(1);
   };
 
-  const loadResources = useCallback(async (forceRefresh: boolean = false, isPaginatedLoad: boolean = false) => {
+  // `pageOverride` lets a caller name the page to fetch. Without it a paginated
+  // load would use the `currentPage` captured in this closure, which is still
+  // the previous page when the caller has just bumped the state — refetching
+  // and re-appending the page that is already on screen.
+  const loadResources = useCallback(async (forceRefresh: boolean = false, isPaginatedLoad: boolean = false, pageOverride?: number) => {
     const storedAccountIds = JSON.parse(sessionStorage.getItem('selectedAccountIds') || '[]');
     const accountId = urlAccountIds || (storedAccountIds.length > 0 ? storedAccountIds[0] : null);
 
@@ -145,7 +149,8 @@ const GcpCloudListPage: React.FC = () => {
     }
 
     try {
-      const apiUrl = `/api/xamops/gcp/cloudlist/services-paginated?accountId=${accountId}&page=${currentPage}&servicesPerPage=${servicesPerPage}&forceRefresh=${forceRefresh}`;
+      const pageToLoad = pageOverride ?? currentPage;
+      const apiUrl = `/api/xamops/gcp/cloudlist/services-paginated?accountId=${accountId}&page=${pageToLoad}&servicesPerPage=${servicesPerPage}&forceRefresh=${forceRefresh}`;
       const response = await fetch(apiUrl, { credentials: 'include' });
 
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -224,13 +229,27 @@ const GcpCloudListPage: React.FC = () => {
     }
   }, [isRefreshing, loadResources]);
 
-  const handleLoadMore = async () => {
+  const handleLoadMore = useCallback(async () => {
     if (isLoadingMore || !hasNextPage) return;
     setIsLoadingMore(true);
-    setCurrentPage(prev => prev + 1);
-    await loadResources(false, true);
+    const nextPage = currentPage + 1;
+    setCurrentPage(nextPage);
+    await loadResources(false, true, nextPage);
     setIsLoadingMore(false);
-  };
+  }, [isLoadingMore, hasNextPage, currentPage, loadResources]);
+
+  /**
+   * Services arrive a page at a time, so a search would otherwise only see the
+   * pages already fetched. Pull the remaining pages in while a search is active;
+   * each load re-runs this effect until there is no next page left.
+   */
+  useEffect(() => {
+    // statusColor turns red when a load fails — stop there rather than retrying
+    // the same page in a tight loop; the Load More button remains available.
+    if (!searchInput.trim() || !hasNextPage || isLoading || isLoadingMore || statusColor === 'red') return;
+    const timer = setTimeout(() => { void handleLoadMore(); }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput, hasNextPage, isLoading, isLoadingMore, statusColor, handleLoadMore]);
 
   const availableRegions = useMemo(() => {
     const regions = [...new Set(allGroups.flatMap(g => g.resources.map(r => r.location)).filter(Boolean))];
@@ -238,21 +257,40 @@ const GcpCloudListPage: React.FC = () => {
   }, [allGroups]);
 
   const filteredGroups = useMemo(() => {
-    return allGroups.map(group => {
+    const term = searchInput.trim().toLowerCase();
+    const groups = allGroups.map(group => {
+      // A term matching the service name (e.g. "Compute Engine") keeps the
+      // whole group; otherwise resources are matched on their own fields.
+      const serviceMatch = !!term && group.serviceType.toLowerCase().includes(term);
       const matchingResources = group.resources.filter(res => {
         const regionMatch = !regionFilter || (res.location && res.location === regionFilter);
-        const searchMatch = !searchInput ||
-          (res.name && res.name.toLowerCase().includes(searchInput.toLowerCase())) ||
-          (res.id && res.id.toLowerCase().includes(searchInput.toLowerCase()));
+        const searchMatch = !term || serviceMatch ||
+          (res.name && res.name.toLowerCase().includes(term)) ||
+          (res.id && res.id.toLowerCase().includes(term)) ||
+          (res.type && res.type.toLowerCase().includes(term));
         return regionMatch && searchMatch;
       });
       return { ...group, resources: matchingResources };
     }).filter(group => group.resources.length > 0);
+
+    if (!term) return groups;
+
+    // Lead with the services whose own name matches, ahead of groups that only
+    // matched because a resource name contains the term.
+    return groups.sort((a, b) => {
+      const aService = a.serviceType.toLowerCase().includes(term) ? 0 : 1;
+      const bService = b.serviceType.toLowerCase().includes(term) ? 0 : 1;
+      return aService - bService;
+    });
   }, [allGroups, regionFilter, searchInput]);
 
   const displayedResourceCount = useMemo(() => {
     return filteredGroups.reduce((acc, group) => acc + group.resources.length, 0);
   }, [filteredGroups]);
+
+  // While a search is active every matching group is shown expanded.
+  const isGroupExpanded = (serviceType: string) =>
+    searchInput.trim() ? true : expandedGroups.has(serviceType);
 
   const toggleGroup = (serviceType: string) => {
     setExpandedGroups(prev => {
@@ -350,7 +388,7 @@ const GcpCloudListPage: React.FC = () => {
                   type="text"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search by name or ID…"
+                  placeholder="Search by service, name or ID…"
                   className="w-full pl-9 pr-4 py-2 text-[13px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
                 />
               </div>
@@ -421,7 +459,7 @@ const GcpCloudListPage: React.FC = () => {
                     >
                       <div className="flex items-center gap-4 flex-1">
                         <svg
-                          className={`w-3.5 h-3.5 text-[rgba(0,0,0,0.3)] transition-transform duration-200 flex-shrink-0 ${expandedGroups.has(group.serviceType) ? 'rotate-90' : ''}`}
+                          className={`w-3.5 h-3.5 text-[rgba(0,0,0,0.3)] transition-transform duration-200 flex-shrink-0 ${isGroupExpanded(group.serviceType) ? 'rotate-90' : ''}`}
                           fill="none" stroke="currentColor" viewBox="0 0 24 24"
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
@@ -440,7 +478,7 @@ const GcpCloudListPage: React.FC = () => {
                     </div>
 
                     {/* Resources Table */}
-                    {expandedGroups.has(group.serviceType) && (
+                    {isGroupExpanded(group.serviceType) && (
                       <div className="border-t border-[rgba(0,0,0,0.06)]">
                         {/* Table header */}
                         <div className="grid grid-cols-12 items-center px-5 py-2 bg-[rgba(0,0,0,0.02)]">
