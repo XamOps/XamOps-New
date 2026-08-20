@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.sqs.SqsClient;
@@ -57,7 +56,7 @@ public class InventoryEventListener {
     private final CloudAccountRepository cloudAccountRepository;
     private final InventoryEventIngestService ingestService;
     private final RedisCacheService redisCache;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final InventoryChangeNotifier notifier;
     private final SchedulingEnvironmentConfig envConfig;
     private final ObjectMapper objectMapper;
 
@@ -120,14 +119,14 @@ public class InventoryEventListener {
             CloudAccountRepository cloudAccountRepository,
             InventoryEventIngestService ingestService,
             RedisCacheService redisCache,
-            SimpMessagingTemplate messagingTemplate,
+            InventoryChangeNotifier notifier,
             SchedulingEnvironmentConfig envConfig,
             ObjectMapper objectMapper) {
         this.sqsClient = sqsClient;
         this.cloudAccountRepository = cloudAccountRepository;
         this.ingestService = ingestService;
         this.redisCache = redisCache;
-        this.messagingTemplate = messagingTemplate;
+        this.notifier = notifier;
         this.envConfig = envConfig;
         this.objectMapper = objectMapper;
     }
@@ -176,14 +175,16 @@ public class InventoryEventListener {
     private void processBatch(List<Message> messages) {
         // Accumulated per account so one eviction and one push covers the whole batch.
         Map<String, int[]> changesByAccount = new HashMap<>();
-        Set<String> accountsTouched = new HashSet<>();
+        // Keyed by AWS account id but holding the resolved connection: the dashboard push
+        // needs cloud_account.id, and handleMessage has already looked it up.
+        Map<String, CloudAccount> accountsTouched = new HashMap<>();
         List<DeleteMessageBatchRequestEntry> toDelete = new ArrayList<>();
 
         for (Message message : messages) {
             try {
-                String accountId = handleMessage(message.body(), changesByAccount);
-                if (accountId != null) {
-                    accountsTouched.add(accountId);
+                CloudAccount touched = handleMessage(message.body(), changesByAccount);
+                if (touched != null) {
+                    accountsTouched.put(touched.getAwsAccountId(), touched);
                 }
                 // Deleted on success AND on "recognised but not actionable": a message we
                 // cannot act on will never become actionable, and leaving it would have
@@ -215,11 +216,11 @@ public class InventoryEventListener {
             }
         }
 
-        for (String accountId : accountsTouched) {
-            int[] counts = changesByAccount.getOrDefault(accountId, new int[] { 0, 0 });
+        for (Map.Entry<String, CloudAccount> entry : accountsTouched.entrySet()) {
+            int[] counts = changesByAccount.getOrDefault(entry.getKey(), new int[] { 0, 0 });
             if (counts[0] > 0 || counts[1] > 0) {
-                invalidateProjections(accountId);
-                notifyUi(accountId, counts[0], counts[1]);
+                invalidateProjections(entry.getKey());
+                notifyUi(entry.getValue(), counts[0], counts[1]);
             }
         }
     }
@@ -227,9 +228,10 @@ public class InventoryEventListener {
     /**
      * Applies one envelope.
      *
-     * @return the AWS account id touched, or null if the message was not actionable
+     * @return the connection touched, or null if the message was not actionable
      */
-    private String handleMessage(String body, Map<String, int[]> changesByAccount) throws Exception {
+    private CloudAccount handleMessage(String body, Map<String, int[]> changesByAccount)
+            throws Exception {
         JsonNode root = objectMapper.readTree(body);
 
         String awsAccountId = root.path("account").asText(null);
@@ -282,7 +284,7 @@ public class InventoryEventListener {
         int[] counts = changesByAccount.computeIfAbsent(awsAccountId, k -> new int[2]);
         counts[0] += created;
         counts[1] += deleted;
-        return awsAccountId;
+        return account;
     }
 
     /**
@@ -315,18 +317,11 @@ public class InventoryEventListener {
                 keys.size(), awsAccountId);
     }
 
-    private void notifyUi(String awsAccountId, int created, int deleted) {
-        try {
-            messagingTemplate.convertAndSend(TOPIC, Map.of(
-                    "status", "inventory-changed",
-                    "accountId", awsAccountId,
-                    "added", created,
-                    "removed", deleted,
-                    "source", "event"));
-            log.info("[InventoryEvent] Account {} changed via events — {} added, {} removed",
-                    awsAccountId, created, deleted);
-        } catch (Exception e) {
-            log.warn("[InventoryEvent] Could not push change for {}: {}", awsAccountId, e.getMessage());
-        }
+    private void notifyUi(CloudAccount account, int created, int deleted) {
+        // Delegated so the cloud list topic and the dashboard widget topic are always
+        // published together. See InventoryChangeNotifier.
+        notifier.inventoryChanged(account, created, deleted, -1, "event");
+        log.info("[InventoryEvent] Account {} changed via events — {} added, {} removed",
+                account.getAwsAccountId(), created, deleted);
     }
 }

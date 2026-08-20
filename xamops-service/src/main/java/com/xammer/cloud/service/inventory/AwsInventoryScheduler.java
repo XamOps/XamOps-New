@@ -9,7 +9,6 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,9 +44,9 @@ public class AwsInventoryScheduler {
     private final CloudAccountRepository cloudAccountRepository;
     private final AwsInventoryReconciler reconciler;
     private final SchedulingEnvironmentConfig envConfig;
-    private final SimpMessagingTemplate messagingTemplate;
     private final AwsCloudResourceRepository resourceRepository;
     private final AwsInventorySyncStateRepository syncStateRepository;
+    private final InventoryChangeNotifier notifier;
 
     @Value("${xamops.inventory.enabled:false}")
     private boolean enabled;
@@ -62,15 +61,15 @@ public class AwsInventoryScheduler {
     public AwsInventoryScheduler(CloudAccountRepository cloudAccountRepository,
             AwsInventoryReconciler reconciler,
             SchedulingEnvironmentConfig envConfig,
-            SimpMessagingTemplate messagingTemplate,
             AwsCloudResourceRepository resourceRepository,
-            AwsInventorySyncStateRepository syncStateRepository) {
+            AwsInventorySyncStateRepository syncStateRepository,
+            InventoryChangeNotifier notifier) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.reconciler = reconciler;
         this.envConfig = envConfig;
-        this.messagingTemplate = messagingTemplate;
         this.resourceRepository = resourceRepository;
         this.syncStateRepository = syncStateRepository;
+        this.notifier = notifier;
     }
 
     /**
@@ -151,7 +150,7 @@ public class AwsInventoryScheduler {
                             // account does not push a message every minute to every
                             // connected browser.
                             if (result.created > 0 || result.swept > 0) {
-                                notifyChanged(account.getAwsAccountId(), result);
+                                notifyChanged(account, result);
                             }
                         } else {
                             fellBack++;
@@ -191,27 +190,19 @@ public class AwsInventoryScheduler {
                 && account.getRoleArn() != null;
     }
 
-    private void notifyChanged(String awsAccountId, AwsInventoryReconciler.SyncResult result) {
-        try {
-            messagingTemplate.convertAndSend(TOPIC, java.util.Map.of(
-                    "status", "inventory-changed",
-                    "accountId", awsAccountId,
-                    "added", result.created,
-                    "removed", result.swept,
-                    "total", result.observed));
-            log.info("[Inventory] Account {} changed — {} added, {} removed; pushed to {}",
-                    awsAccountId, result.created, result.swept, TOPIC);
-        } catch (Exception e) {
-            log.warn("[Inventory] Could not push inventory change for {}: {}",
-                    awsAccountId, e.getMessage());
-        }
+    private void notifyChanged(CloudAccount account, AwsInventoryReconciler.SyncResult result) {
+        // Delegated so the cloud list topic and the dashboard widget topic are always
+        // published together. See InventoryChangeNotifier.
+        notifier.inventoryChanged(account, result.created, result.swept, result.observed, "poll");
+        log.info("[Inventory] Account {} changed — {} added, {} removed; pushed to {}",
+                account.getAwsAccountId(), result.created, result.swept, TOPIC);
     }
 
     /** Manual trigger for the refresh button and for onboarding a new account. */
     public AwsInventoryReconciler.SyncResult syncNow(CloudAccount account) {
         AwsInventoryReconciler.SyncResult result = reconciler.sync(account);
         if (result.success) {
-            notifyChanged(account.getAwsAccountId(), result);
+            notifyChanged(account, result);
         }
         return result;
     }

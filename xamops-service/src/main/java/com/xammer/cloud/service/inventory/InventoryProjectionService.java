@@ -202,6 +202,19 @@ public class InventoryProjectionService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * The dashboard's Resource Inventory widget, straight from SQL.
+     *
+     * <p>
+     * One indexed {@code GROUP BY} rather than materialising the account's resources and
+     * counting them in the JVM, which is what made this widget expensive enough to cache —
+     * and being cached is what made it show stale numbers.
+     */
+    @Transactional(readOnly = true)
+    public DashboardData.ResourceInventory resourceInventory(Long cloudAccountId) {
+        return ResourceInventoryMapper.fromLongCounts(countsByType(cloudAccountId));
+    }
+
     /** Per-type counts without materialising the resources. */
     @Transactional(readOnly = true)
     public Map<String, Long> countsByType(Long cloudAccountId) {

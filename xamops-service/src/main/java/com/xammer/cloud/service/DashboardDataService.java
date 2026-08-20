@@ -117,6 +117,13 @@ public class DashboardDataService {
     // ADDED: Environment-aware configuration
     private final com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig;
 
+    /**
+     * Optional so the dashboard keeps working unchanged where the inventory plane is
+     * disabled or Resource Explorer is blocked.
+     */
+    @Autowired(required = false)
+    private com.xammer.cloud.service.inventory.InventoryProjectionService inventoryProjection;
+
     // Dedicated executor for background data-fetch lambdas (IAM, CloudWatch, etc.)
     // Keeps AWS-Async-* threads free for HTTP-facing requests
     private final TaskExecutor backgroundTaskExecutor;
@@ -2417,45 +2424,98 @@ public class DashboardDataService {
     private CompletableFuture<DashboardData.ResourceInventory> getResourceInventory(
             CompletableFuture<List<DashboardData.ServiceGroupDto>> groupedResourcesFuture) {
         return groupedResourcesFuture.thenApply(groupedResources -> {
-            DashboardData.ResourceInventory inventory = new DashboardData.ResourceInventory();
             Map<String, Integer> counts = groupedResources.stream()
                     .collect(Collectors.toMap(
                             DashboardData.ServiceGroupDto::getServiceType,
                             group -> group.getResources().size(),
                             (existing, replacement) -> existing)); // Handle duplicates if any
-
-            // Original fields
-            inventory.setVpc(counts.getOrDefault("VPC", 0));
-            inventory.setEcs(counts.getOrDefault("ECS Cluster", 0));
-            inventory.setEc2(counts.getOrDefault("EC2 Instance", 0));
-            inventory.setKubernetes(counts.getOrDefault("EKS Cluster", 0));
-            inventory.setLambdas(counts.getOrDefault("Lambda Function", 0));
-            inventory.setEbsVolumes(counts.getOrDefault("EBS Volume", 0));
-            inventory.setImages(counts.getOrDefault("AMI", 0));
-            inventory.setSnapshots(counts.getOrDefault("Snapshot", 0));
-            inventory.setS3Buckets(counts.getOrDefault("S3 Bucket", 0));
-            inventory.setRdsInstances(counts.getOrDefault("RDS Instance", 0));
-            inventory.setRoute53Zones(counts.getOrDefault("Route 53 Zone", 0));
-            inventory.setLoadBalancers(counts.getOrDefault("Load Balancer", 0));
-            inventory.setLightsail(counts.getOrDefault("Lightsail Instance", 0));
-            inventory.setAmplify(counts.getOrDefault("Amplify App", 0));
-
-            // Frontend compatibility fields
-            inventory.setEc2Count(inventory.getEc2());
-            inventory.setS3Count(inventory.getS3Buckets());
-            inventory.setRdsCount(inventory.getRdsInstances());
-            inventory.setVpcCount(inventory.getVpc());
-            inventory.setLambdaCount(inventory.getLambdas());
-            inventory.setEbsCount(inventory.getEbsVolumes());
-            inventory.setRoute53Count(inventory.getRoute53Zones());
-            inventory.setLoadBalancerCount(inventory.getLoadBalancers());
-            inventory.setEcsCount(inventory.getEcs());
-            inventory.setEksCount(inventory.getKubernetes());
-            inventory.setLightsailCount(inventory.getLightsail());
-            inventory.setAmplifyCount(inventory.getAmplify());
-
-            return inventory;
+            return buildResourceInventory(counts);
         });
+    }
+
+    /**
+     * The Resource Inventory widget straight from the plane, or null when it cannot answer.
+     *
+     * <p>
+     * Null rather than an empty payload, for the same reason the cloud list does it: empty
+     * is a valid answer meaning "this account owns nothing", and conflating the two would
+     * let a cold plane blank the dashboard instead of falling through to the describe path.
+     *
+     * <p>
+     * CloudWatch status is deliberately carried over from the previous snapshot instead of
+     * being recomputed. It is not part of the plane and costs a per-region fan-out, so
+     * recomputing it on every dashboard load to keep the counts live would trade the problem
+     * being fixed for a slower one. Counts change constantly; alarm status does not, and the
+     * describe path below refreshes it on its normal schedule.
+     */
+    private DashboardData inventoryFromPlane(String accountId, String cacheKey) {
+        if (inventoryProjection == null) {
+            return null;
+        }
+        try {
+            CloudAccount account = getAccount(accountId);
+            if (!"AWS".equalsIgnoreCase(account.getProvider())
+                    || !inventoryProjection.isFresh(account.getId())) {
+                return null;
+            }
+            Map<String, Long> planeCounts = inventoryProjection.countsByType(account.getId());
+            if (planeCounts.isEmpty()) {
+                return null;
+            }
+            Map<String, Integer> counts = new HashMap<>();
+            planeCounts.forEach((type, count) -> counts.put(type, count.intValue()));
+
+            DashboardData data = new DashboardData();
+            data.setSelectedProvider(account.getProvider());
+
+            DashboardData.Account mainAccount = new DashboardData.Account();
+            mainAccount.setId(accountId);
+            mainAccount.setName(account.getAccountName());
+
+            DashboardData.ResourceInventory inventory = buildResourceInventory(counts);
+            mainAccount.setResourceInventory(inventory);
+            mainAccount.setEc2Count(inventory.getEc2Count());
+            mainAccount.setS3Count(inventory.getS3Count());
+            mainAccount.setRdsCount(inventory.getRdsCount());
+            mainAccount.setVpcCount(inventory.getVpcCount());
+            mainAccount.setLambdaCount(inventory.getLambdaCount());
+            mainAccount.setEbsCount(inventory.getEbsCount());
+            mainAccount.setRoute53Count(inventory.getRoute53Count());
+            mainAccount.setLoadBalancerCount(inventory.getLoadBalancerCount());
+            mainAccount.setEcsCount(inventory.getEcsCount());
+            mainAccount.setEksCount(inventory.getEksCount());
+            mainAccount.setLightsailCount(inventory.getLightsailCount());
+            mainAccount.setAmplifyCount(inventory.getAmplifyCount());
+
+            DashboardData previous = getSnapshot(cacheKey);
+            if (previous != null && previous.getSelectedAccount() != null) {
+                mainAccount.setCloudWatchStatus(previous.getSelectedAccount().getCloudWatchStatus());
+            }
+
+            data.setSelectedAccount(mainAccount);
+            data.setLastUpdated(java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+
+            logger.info("✅ [Inventory] Resource inventory served from plane | Account: {} "
+                    + "({} types, 0 AWS calls)", accountId, counts.size());
+            return data;
+        } catch (Exception e) {
+            // Never let the new path break the old one.
+            logger.warn("[Inventory] Plane read failed for dashboard inventory {} — "
+                    + "falling back: {}", accountId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Maps display-type counts onto the inventory widget's fields.
+     *
+     * <p>
+     * Delegates to {@link com.xammer.cloud.service.inventory.ResourceInventoryMapper} so the
+     * describe path, the inventory plane and the WebSocket push cannot disagree.
+     */
+    private DashboardData.ResourceInventory buildResourceInventory(Map<String, Integer> counts) {
+        return com.xammer.cloud.service.inventory.ResourceInventoryMapper.fromCounts(counts);
     }
 
     @Async("backgroundTaskExecutor")
@@ -3118,6 +3178,23 @@ public class DashboardDataService {
         String idToUse = accountId.contains(",") ? accountId.split(",")[0] : accountId;
         try {
             String cacheKey = "DASHBOARD_INVENTORY::" + idToUse;
+
+            // Tier 0 — counts straight from the inventory plane, ahead of the snapshot read
+            // on purpose.
+            //
+            // The snapshot is written to Redis *and* to cached_data, and cached_data has no
+            // expiry, so "invalidate it" means deleting a database row. Any eviction we
+            // forget leaves the customer looking at a permanently wrong number — which is
+            // exactly what happened here: the cloud list moved to the plane and updated
+            // within seconds while this widget kept serving counts from a snapshot nothing
+            // ever invalidated, showing 20 S3 buckets against a real 23. Since the plane
+            // answers with one indexed GROUP BY, there is nothing worth caching in front of
+            // it, and reading it first removes the whole class of staleness rather than
+            // adding one more key to an eviction list.
+            DashboardData live = inventoryFromPlane(idToUse, cacheKey);
+            if (live != null) {
+                return live;
+            }
 
             // 1. Try Cache (Redis + DB)
             if (!forceRefresh) {
