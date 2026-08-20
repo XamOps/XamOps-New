@@ -16,6 +16,7 @@ import * as xamops from './xamopsMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
 import * as soc2 from './soc2MockData';
+import * as war from './warMockData';
 
 /** Reads a query-string value off a URL that may be relative. */
 function param(url: string, name: string): string {
@@ -277,11 +278,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamops/compliance/'))
     return makeResponse({ status: 'DEMO', message: 'Not persisted in demo mode.' });
 
-  // NOTE: WAR demo routes belong here, ahead of the /api/xamops/ catch-all which would
-  // otherwise serve {} and leave the page rendering an unassessable report with five empty
-  // tabs. They were removed because they imported ./warMockData, which is not in the
-  // repository — the import broke every Vitest suite that loads this module. Restore them
-  // together with warMockData.ts and warControlBaseline.ts, in one commit.
+  // WAR — must precede the /api/xamops/ catch-all, which would otherwise serve {} and
+  // leave the page rendering an unassessable report with five empty tabs.
+  if (url.includes('/api/xamops/war/report'))
+    return makeResponse(war.demoWarReport(param(url, 'accountId')));
+  if (url.includes('/api/xamops/war/scan'))
+    return makeResponse(war.demoWarScanAck);
 
   // Security — every prowler sub-path before the generic security catch-all.
   // ComplianceOps reads prowler/findings (not /security/findings) and expects the
