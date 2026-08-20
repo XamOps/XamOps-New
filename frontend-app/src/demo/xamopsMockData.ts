@@ -3,6 +3,7 @@
  */
 
 import type { Account } from '../types/account';
+import type { Budget } from '../types/finops';
 import type { FlexComputeCapacity } from '../types/flexCompute';
 
 // ─── /api/xamops/account-manager/accounts ────────────────────────────────────
@@ -429,6 +430,21 @@ export const demoFinOpsTaggingCompliance = {
     { resourceId: 's3-bucket-01',resourceType: 'S3',    region: 'us-east-1' },
   ],
 };
+
+/**
+ * budgets: matches Budget in src/types/finops.ts
+ *
+ * The account-wide entry is what the Cost Trend widget draws as its reference line, and
+ * its limit sits under the demo forecast on purpose — the widget exists to answer "is the
+ * projection heading past the budget", and an empty budget list hides that whole state.
+ * Values line up with the MTD spend and forecast in demoGranularKPI.
+ */
+export const demoFinOpsBudgets: Budget[] = [
+  { budgetName: 'Monthly-AWS-Total', budgetLimit: 22000, budgetUnit: 'USD', actualSpend: 18420.75, forecastedSpend: 24800, serviceName: null },
+  { budgetName: 'EC2-Compute',       budgetLimit: 9500,  budgetUnit: 'USD', actualSpend: 8120.40,  forecastedSpend: 10450, serviceName: 'Amazon Elastic Compute Cloud - Compute' },
+  { budgetName: 'S3-Storage',        budgetLimit: 2600,  budgetUnit: 'USD', actualSpend: 1740.20,  forecastedSpend: 2180,  serviceName: 'Amazon Simple Storage Service' },
+  { budgetName: 'RDS-Database',      budgetLimit: 4200,  budgetUnit: 'USD', actualSpend: 3010.80,  forecastedSpend: 3960,  serviceName: 'Amazon Relational Database Service' },
+];
 
 // Keep old name for backward compat with anything that imported it
 export const demoFinOpsReport = demoFinOpsBillingSummary;
@@ -2182,9 +2198,9 @@ export const demoAzureWasteData = [
 export const demoAzureRightsizingData = {
   status: 'OK',
   recommendations: [
-    { recommendationId: 'az-rs-001', resourceId: '/subscriptions/demo/vm-prod-001',    resourceName: 'vm-prod-api-01',    resourceType: 'Virtual Machine', category: 'Cost Savings',    impact: 'High',   currentSku: 'Standard_D4s_v3', targetSku: 'Standard_D2s_v3', monthlySavings: 220, annualSavings: 2640, currency: 'USD', problem: 'CPU P95 < 15%', solution: 'Downsize VM', maxCpuP95: '14.2', maxMemoryP95: '42.0', location: 'East US'       },
-    { recommendationId: 'az-rs-002', resourceId: '/subscriptions/demo/vm-staging-001', resourceName: 'vm-staging-web-01', resourceType: 'Virtual Machine', category: 'Cost Savings',    impact: 'Medium', currentSku: 'Standard_D2s_v3', targetSku: 'Standard_B2s',    monthlySavings: 85,  annualSavings: 1020, currency: 'USD', problem: 'Low utilization outside business hours', solution: 'Switch to burstable tier', maxCpuP95: '22.8', maxMemoryP95: '38.6', location: 'East US'       },
-    { recommendationId: 'az-rs-003', resourceId: '/subscriptions/demo/func-001',       resourceName: 'func-data-processor', resourceType: 'Function App',  category: 'Best Practice',   impact: 'Low',    currentSku: 'Premium_P1v3',    targetSku: 'Consumption',     monthlySavings: 62,  annualSavings: 744,  currency: 'USD', problem: 'Function runs infrequently',             solution: 'Switch to Consumption plan', maxCpuP95: '8.0', maxMemoryP95: '24.0',  location: 'West Europe'   },
+    { recommendationId: 'az-rs-001', resourceId: '/subscriptions/demo/vm-prod-001',    resourceName: 'vm-prod-api-01',    resourceType: 'Virtual Machine', category: 'Cost Savings',    impact: 'High',   currentSku: 'Standard_D4s_v3', targetSku: 'Standard_D2s_v3', monthlySavings: 220, annualSavings: 2640, currency: 'USD', problem: 'CPU P95 < 15%', solution: 'Downsize VM', maxCpuObserved: '14.2', maxMemoryObserved: '42.0', location: 'East US'       },
+    { recommendationId: 'az-rs-002', resourceId: '/subscriptions/demo/vm-staging-001', resourceName: 'vm-staging-web-01', resourceType: 'Virtual Machine', category: 'Cost Savings',    impact: 'Medium', currentSku: 'Standard_D2s_v3', targetSku: 'Standard_B2s',    monthlySavings: 85,  annualSavings: 1020, currency: 'USD', problem: 'Low utilization outside business hours', solution: 'Switch to burstable tier', maxCpuObserved: '22.8', maxMemoryObserved: '38.6', location: 'East US'       },
+    { recommendationId: 'az-rs-003', resourceId: '/subscriptions/demo/func-001',       resourceName: 'func-data-processor', resourceType: 'Function App',  category: 'Best Practice',   impact: 'Low',    currentSku: 'Premium_P1v3',    targetSku: 'Consumption',     monthlySavings: 62,  annualSavings: 744,  currency: 'USD', problem: 'Function runs infrequently',             solution: 'Switch to Consumption plan', maxCpuObserved: '8.0', maxMemoryObserved: '24.0',  location: 'West Europe'   },
   ],
 };
 

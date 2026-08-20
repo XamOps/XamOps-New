@@ -12,8 +12,17 @@ public class CloudsitterEmailBuilder {
             DateTimeFormatter.ofPattern("MMM d, yyyy 'at' h:mm a z");
 
     public String subject(String action, String instanceId, String policyName) {
+        // Subject lines are plain text, so no HTML escaping. Strip CR/LF instead, which
+        // would otherwise permit header injection into the outgoing message.
         return String.format("[XamOps CloudSitter] Instance %s %s by policy \"%s\"",
-                instanceId, action.equals("STARTED") ? "started" : "stopped", policyName);
+                stripNewlines(instanceId),
+                "STARTED".equals(action) ? "started" : "stopped",
+                stripNewlines(policyName));
+    }
+
+    /** Removes CR/LF so a value cannot inject additional email headers. */
+    private static String stripNewlines(String value) {
+        return value == null ? "" : value.replaceAll("[\\r\\n]", " ").trim();
     }
 
     public String buildHtml(String action, String instanceId, String instanceName,
@@ -30,9 +39,14 @@ public class CloudsitterEmailBuilder {
                 ? "The schedule indicates this instance should be <strong>running</strong> at this hour."
                 : "The schedule indicates this instance should be <strong>stopped</strong> at this hour.";
 
+        // Escape every caller-supplied value. Instance names come from EC2 tags and are
+        // fully attacker-controlled by anyone who can tag a resource, so injecting them raw
+        // into an HTML email body was a stored-XSS vector in any web-based mail client.
+        String safeInstanceId = escapeHtml(instanceId);
+        String safeInstanceName = escapeHtml(instanceName);
         String displayName = (instanceName != null && !instanceName.isBlank())
-                ? instanceName + " (" + instanceId + ")"
-                : instanceId;
+                ? safeInstanceName + " (" + safeInstanceId + ")"
+                : safeInstanceId;
 
         String timeStr = actionTime != null ? actionTime.format(TIME_FMT) : "—";
 
@@ -67,9 +81,11 @@ public class CloudsitterEmailBuilder {
                "<tr><td style=\"padding:24px 36px\">" +
                "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" " +
                "style=\"border:1px solid #e5e7eb;border-radius:8px;overflow:hidden\">" +
-               row("Instance", displayName) +
+               // displayName is pre-escaped above; the rest are escaped here.
+               rowRaw("Instance", displayName) +
                row("Region", region) +
-               row("Action", "<span style=\"background:" + accentLight + ";color:" + accentText +
+               // actionLabel is derived internally, so this markup is trusted.
+               rowRaw("Action", "<span style=\"background:" + accentLight + ";color:" + accentText +
                    ";padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600\">" + actionLabel + "</span>") +
                row("Policy", policyName) +
                row("Timezone", timezone) +
@@ -89,11 +105,36 @@ public class CloudsitterEmailBuilder {
                "</table></td></tr></table></body></html>";
     }
 
+    /** Renders a row, HTML-escaping the value. Use for anything caller-supplied. */
     private String row(String label, String value) {
+        return rowRaw(label, escapeHtml(value));
+    }
+
+    /**
+     * Renders a row without escaping the value. Only for markup this class builds itself, or
+     * values already escaped by the caller.
+     */
+    private String rowRaw(String label, String value) {
         return "<tr style=\"border-bottom:1px solid #f3f4f6\">" +
                "<td style=\"padding:12px 16px;font-size:13px;font-weight:600;color:#6b7280;" +
-               "background:#f9fafb;width:38%;border-right:1px solid #e5e7eb\">" + label + "</td>" +
+               "background:#f9fafb;width:38%;border-right:1px solid #e5e7eb\">" + escapeHtml(label) + "</td>" +
                "<td style=\"padding:12px 16px;font-size:13px;color:#111827\">" + value + "</td>" +
                "</tr>";
+    }
+
+    /**
+     * Escapes the five XML/HTML metacharacters. Sufficient here because every interpolation
+     * point is HTML element text or a double-quoted attribute value.
+     */
+    private static String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 }

@@ -95,29 +95,56 @@ public class GcpMetricsService {
     /**
      * Get average Memory utilization for Compute Engine instance over last N days
      */
+    /**
+     * Candidate Cloud Monitoring metric types for guest memory utilization, in priority
+     * order.
+     *
+     * <p>Compute Engine does not publish guest memory itself; it comes from an in-guest
+     * agent. The Ops Agent publishes {@code agent.googleapis.com/memory/percent_used}
+     * (with a {@code state} label), while newer images may expose
+     * {@code compute.googleapis.com/guest/memory/bytes_used}. The previously hardcoded
+     * {@code compute.googleapis.com/instance/memory/percent_used} is not a metric GCE
+     * emits, so this method returned null for every instance regardless of whether an
+     * agent was installed — leaving rightsizing decisions on CPU alone.
+     */
+    private static final List<String> MEMORY_METRIC_TYPES = List.of(
+            "agent.googleapis.com/memory/percent_used",
+            "compute.googleapis.com/instance/memory/percent_used");
+
     public Double getAverageMemoryUtilization(String gcpProjectId, String instanceId, int lookbackDays) {
-        try {
-            String metricType = "compute.googleapis.com/instance/memory/percent_used";
-            String resourceFilter = String.format("resource.labels.instance_id = \"%s\"", instanceId);
-            Aggregation.Aligner aligner = Aggregation.Aligner.ALIGN_MEAN;
-            Aggregation.Reducer reducer = Aggregation.Reducer.REDUCE_NONE;
-            boolean asPercentage = false; // Already in percentage
+        String resourceFilter = String.format("resource.labels.instance_id = \"%s\"", instanceId);
+        Aggregation.Aligner aligner = Aggregation.Aligner.ALIGN_MEAN;
+        Aggregation.Reducer reducer = Aggregation.Reducer.REDUCE_NONE;
+        boolean asPercentage = false; // Already a percentage
 
-            List<GcpMetricDto> metrics = getTimeSeriesData(gcpProjectId, metricType, resourceFilter,
-                aligner, reducer, lookbackDays * 24, 3600, asPercentage);
+        for (String metricType : MEMORY_METRIC_TYPES) {
+            try {
+                // The Ops Agent breaks memory down by state; only "used" reflects utilization.
+                String filter = metricType.startsWith("agent.googleapis.com")
+                        ? resourceFilter + " AND metric.labels.state = \"used\""
+                        : resourceFilter;
 
-            if (metrics.isEmpty()) {
-                return null;
+                List<GcpMetricDto> metrics = getTimeSeriesData(gcpProjectId, metricType, filter,
+                        aligner, reducer, lookbackDays * 24, 3600, asPercentage);
+
+                if (!metrics.isEmpty()) {
+                    double average = metrics.stream()
+                            .mapToDouble(GcpMetricDto::getValue)
+                            .average()
+                            .orElse(0.0);
+                    log.debug("Memory utilization for {} resolved from {}: {}%",
+                            instanceId, metricType, String.format("%.1f", average));
+                    return average;
+                }
+            } catch (Exception e) {
+                log.debug("Memory metric {} unavailable for instance {}: {}",
+                        metricType, instanceId, e.getMessage());
             }
-
-            return metrics.stream()
-                .mapToDouble(GcpMetricDto::getValue)
-                .average()
-                .orElse(0.0);
-        } catch (Exception e) {
-            log.error("Failed to get average memory utilization for instance {}: {}", instanceId, e.getMessage());
-            return null;
         }
+
+        log.debug("No memory metric available for instance {}. Install the Ops Agent to enable "
+                + "memory-aware rightsizing.", instanceId);
+        return null;
     }
 
     /**

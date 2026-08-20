@@ -487,6 +487,19 @@ public class DashboardData {
     private String region;
     private String instanceName;
 
+    /** CPU architecture of the current resource, e.g. {@code x86_64} or {@code arm64}. */
+    private String currentArchitecture;
+
+    /** CPU architecture of the recommended target. */
+    private String recommendedArchitecture;
+
+    /**
+     * True when applying this recommendation changes CPU architecture. Such a change
+     * needs an AMI rebuilt for the target architecture, so it cannot be applied by a
+     * stop/modify/start resize and must be surfaced as a migration.
+     */
+    private boolean requiresArchitectureMigration;
+
     public OptimizationRecommendation(
         String service,
         String resourceId,
@@ -595,15 +608,46 @@ public class DashboardData {
   }
 
   @Data
-  @AllArgsConstructor
   @NoArgsConstructor
   public static class WastedResource {
     private String resourceId;
     private String resourceName;
     private String resourceType;
     private String region;
+    /** Estimated monthly savings in USD; valid only when {@link #savingsUnknown} is false. */
     private double monthlySavings;
     private String reason;
+
+    /**
+     * True when the resource's cost could not be determined, so {@link #monthlySavings} is
+     * a placeholder zero rather than a real figure.
+     *
+     * <p>Needed because the pricing lookups return {@code 0.0} on failure. Without this
+     * flag an idle instance whose price lookup failed appeared to cost nothing, quietly
+     * understating a customer's waste in the dashboard total.
+     */
+    private boolean savingsUnknown;
+
+    public WastedResource(String resourceId, String resourceName, String resourceType,
+                          String region, double monthlySavings, String reason) {
+      this.resourceId = resourceId;
+      this.resourceName = resourceName;
+      this.resourceType = resourceType;
+      this.region = region;
+      this.monthlySavings = monthlySavings;
+      this.reason = reason;
+      this.savingsUnknown = false;
+    }
+
+    /**
+     * Creates a wasted resource whose cost impact is real but could not be priced.
+     */
+    public static WastedResource withUnknownSavings(String resourceId, String resourceName,
+                                                    String resourceType, String region, String reason) {
+      WastedResource r = new WastedResource(resourceId, resourceName, resourceType, region, 0.0, reason);
+      r.setSavingsUnknown(true);
+      return r;
+    }
   }
 
   @Data

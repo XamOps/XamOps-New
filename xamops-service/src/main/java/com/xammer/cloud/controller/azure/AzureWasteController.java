@@ -4,10 +4,10 @@ import com.xammer.cloud.dto.azure.AzureWasteItem;
 import com.xammer.cloud.service.azure.AzureWasteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -36,8 +36,10 @@ public class AzureWasteController {
             List<AzureWasteItem> items = azureWasteService.getWasteItems(accountId, forceRefresh);
             return ResponseEntity.ok(items);
         } catch (Exception e) {
+            // Returning 200 with an empty list made an expired service-principal secret or a
+            // missing role look identical to a subscription with nothing to optimize.
             log.error("Failed to fetch Azure waste items for {}: {}", accountId, e.getMessage(), e);
-            return ResponseEntity.ok(Collections.emptyList());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
         }
     }
 }

@@ -41,7 +41,17 @@ public class GcpOptimizationController {
                         backgroundTaskExecutor)
                 .orTimeout(55, TimeUnit.SECONDS)
                 .<ResponseEntity<List<GcpOptimizationRecommendation>>>thenApply(ResponseEntity::ok)
-                .exceptionally(ex -> ResponseEntity.ok(Collections.emptyList()));
+                .exceptionally(ex -> {
+                    // Returning 200 with an empty list made a permissions failure or timeout
+                    // indistinguishable from a fully optimized project. Surface the failure.
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    if (cause instanceof TimeoutException) {
+                        log.warn("[GcpRightsizing] timed out for project={}", accountId);
+                        return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).build();
+                    }
+                    log.error("[GcpRightsizing] failed for project={}", accountId, cause);
+                    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+                });
     }
 
     /**
@@ -71,10 +81,16 @@ public class GcpOptimizationController {
                         log.warn("[GcpWaste] /waste-report TIMEOUT — project={} durationMs={}",
                                 accountId, System.currentTimeMillis() - startMs);
                         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                                .body(new GcpWasteReport(Collections.emptyList(), true));
+                                .body(GcpWasteReport.timeout(
+                                        "The waste scan exceeded its time budget. Retry, or use forceRefresh=false "
+                                                + "to read the last completed scan."));
                     }
+                    // This previously returned 200 with partial=false, which told the client the
+                    // empty result was a complete, clean scan.
                     log.error("[GcpWaste] /waste-report ERROR — project={}", accountId, cause);
-                    return ResponseEntity.ok(new GcpWasteReport(Collections.emptyList(), false));
+                    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                            .body(GcpWasteReport.error("The waste scan could not be completed: "
+                                    + cause.getMessage()));
                 });
     }
 }

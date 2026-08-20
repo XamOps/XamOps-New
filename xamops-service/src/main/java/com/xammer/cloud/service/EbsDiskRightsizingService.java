@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.EbsVolumeAction;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.util.RemoteCommandInputValidator;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -451,6 +452,13 @@ public class EbsDiskRightsizingService {
                                                  String instanceId, String mountPoint, int targetSizeGb) {
         CloudAccount account = resolveAccount(accountId);
 
+        // The shrink workflow interpolates these values into root shell commands executed
+        // via SSM. Validate them against a strict allowlist before any AWS call is made.
+        volumeId = RemoteCommandInputValidator.requireValidVolumeId(volumeId);
+        region = RemoteCommandInputValidator.requireValidRegion(region);
+        instanceId = RemoteCommandInputValidator.requireValidInstanceId(instanceId);
+        mountPoint = RemoteCommandInputValidator.requireSafeMountPoint(mountPoint);
+
         // Validate volume is not root
         Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
         DescribeVolumesResponse descResp = ec2.describeVolumes(
@@ -870,13 +878,32 @@ public class EbsDiskRightsizingService {
      * for the given AWS account ID. Reads only from cache — never triggers a live scan.
      */
     public double getTotalPotentialSavings(String awsAccountId) {
+        return getTotalPotentialSavingsExcluding(awsAccountId, java.util.Collections.emptySet());
+    }
+
+    /**
+     * Same as {@link #getTotalPotentialSavings(String)}, but skips volumes whose ids are
+     * already accounted for elsewhere.
+     *
+     * <p>The dashboard uses this to avoid counting an unattached volume twice: the waste
+     * report books its full monthly cost, and this service separately recommends
+     * {@code DELETE_UNATTACHED} for the same volume with the same cost as "savings".
+     *
+     * @param awsAccountId    AWS account id
+     * @param excludedVolumeIds volume ids already counted by another savings source
+     */
+    public double getTotalPotentialSavingsExcluding(String awsAccountId, Set<String> excludedVolumeIds) {
         if (awsAccountId == null || awsAccountId.isBlank()) return 0.0;
         Optional<List<Map<String, Object>>> cached = redisCacheService.get(
                 CACHE_KEY_VOLUMES + awsAccountId,
                 new TypeReference<List<Map<String, Object>>>() {});
         if (cached.isEmpty()) return 0.0;
+        Set<String> excluded = excludedVolumeIds == null ? java.util.Collections.emptySet() : excludedVolumeIds;
         return cached.get().stream()
                 .filter(v -> !"NONE".equals(v.get("recommendation")))
+                .filter(v -> !excluded.contains(String.valueOf(v.get("volumeId"))))
+                // EXPAND raises cost rather than saving; never add it to a savings total.
+                .filter(v -> !"EXPAND".equals(v.get("recommendation")))
                 .mapToDouble(v -> {
                     Object s = v.get("estimatedSavings");
                     return s instanceof Number ? ((Number) s).doubleValue() : 0.0;

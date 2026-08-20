@@ -142,14 +142,43 @@ class CloudsitterEmailBuilderTest {
 
     @Test
     void xss_instanceIdEscaped() {
-        // NOTE: The row() helper in CloudsitterEmailBuilder does NOT escape the value parameter.
-        // The instance ID is passed raw into the HTML table row.
-        // This test documents the CURRENT behavior — the instance ID appears as-is.
-        // A future improvement would add escaping to the row() helper.
+        // Instance IDs and names originate from EC2 tags, so they are attacker-controlled by
+        // anyone able to tag a resource. They must not reach the email body as live markup.
         String html = builder.buildHtml("STARTED", "<script>alert(1)</script>", "server",
                 "us-east-1", "policy", "UTC", FIXED_TIME);
-        // The HTML is generated — verify it contains XamOps branding at minimum
+
         assertThat(html).containsIgnoringCase("XamOps");
+        assertThat(html).doesNotContain("<script>alert(1)</script>");
+        assertThat(html).contains("&lt;script&gt;alert(1)&lt;/script&gt;");
+    }
+
+    @Test
+    void xss_instanceNameEscaped() {
+        String html = builder.buildHtml("STOPPED", "i-0123456789abcdef0",
+                "<img src=x onerror=alert(1)>", "us-east-1", "policy", "UTC", FIXED_TIME);
+
+        assertThat(html).doesNotContain("<img src=x onerror=alert(1)>");
+        assertThat(html).contains("&lt;img src=x onerror=alert(1)&gt;");
+    }
+
+    @Test
+    void xss_policyAndRegionEscaped() {
+        String html = builder.buildHtml("STOPPED", "i-0123456789abcdef0", "server",
+                "<b>region</b>", "<i>policy</i>", "UTC", FIXED_TIME);
+
+        assertThat(html).doesNotContain("<b>region</b>");
+        assertThat(html).doesNotContain("<i>policy</i>");
+        assertThat(html).contains("&lt;b&gt;region&lt;/b&gt;");
+        assertThat(html).contains("&lt;i&gt;policy&lt;/i&gt;");
+    }
+
+    @Test
+    void subject_stripsNewlinesToPreventHeaderInjection() {
+        String subject = builder.subject("STARTED",
+                "i-0123\r\nBcc: attacker@example.com", "policy");
+
+        assertThat(subject).doesNotContain("\r");
+        assertThat(subject).doesNotContain("\n");
     }
 
     @Test

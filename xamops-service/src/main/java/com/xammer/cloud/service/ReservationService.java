@@ -469,9 +469,15 @@ public class ReservationService {
 
                 logger.info("Account {}: RI Util={}%, SP Util={}%", account.getAwsAccountId(), riUtil, spUtil);
 
-                // 3. Merge Logic: Show max of either to represent total optimization effort
-                double finalUtil = (riUtil > 0) ? riUtil : spUtil;
-                double finalCov = (riCov > 0) ? riCov : spCov;
+                // 3. Merge: take the higher of RI and Savings Plan, matching what the
+                // historical trend path does.
+                //
+                // This previously read `(riUtil > 0) ? riUtil : spUtil`, which prefers RI
+                // whenever it is nonzero rather than taking the maximum the comment claimed.
+                // An account with 5% RI coverage and 90% SP coverage reported 5%, and the
+                // summary tile therefore contradicted the trend chart by construction.
+                double finalUtil = Math.max(riUtil, spUtil);
+                double finalCov = Math.max(riCov, spCov);
 
                 DashboardData.ReservationAnalysis result = new DashboardData.ReservationAnalysis(finalUtil, finalCov);
                 redisCache.put(cacheKey, result, 60 * 24);
@@ -698,46 +704,16 @@ public class ReservationService {
 
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
         try {
-            GetReservationPurchaseRecommendationRequest request = GetReservationPurchaseRecommendationRequest.builder()
-                    .lookbackPeriodInDays(LookbackPeriodInDays.fromValue(lookback))
-                    .termInYears(TermInYears.fromValue(term))
-                    .paymentOption(PaymentOption.fromValue(paymentOption))
-                    .service("Amazon Elastic Compute Cloud - Compute").build();
-
-            GetReservationPurchaseRecommendationResponse response = ce.getReservationPurchaseRecommendation(request);
-
-            List<DashboardData.ReservationPurchaseRecommendation> result = response.recommendations().stream()
-                    .filter(rec -> rec.recommendationDetails() != null && !rec.recommendationDetails().isEmpty())
-                    .flatMap(rec -> rec.recommendationDetails().stream()
-                            .map(details -> {
-                                try {
-                                    EC2InstanceDetails ec2Details = details.instanceDetails().ec2InstanceDetails();
-                                    double monthlySavings = Double.parseDouble(details.estimatedMonthlySavingsAmount());
-                                    double monthlyOnDemandCost = Double
-                                            .parseDouble(details.estimatedMonthlyOnDemandCost());
-                                    double estimatedRecurringMonthlyCost = monthlyOnDemandCost - monthlySavings;
-
-                                    return new DashboardData.ReservationPurchaseRecommendation(
-                                            ec2Details.family(),
-                                            String.valueOf(details.recommendedNumberOfInstancesToPurchase()),
-                                            String.valueOf(details.recommendedNormalizedUnitsToPurchase()),
-                                            String.valueOf(details.minimumNumberOfInstancesUsedPerHour()),
-                                            String.valueOf(monthlySavings),
-                                            String.valueOf(monthlyOnDemandCost),
-                                            String.valueOf(estimatedRecurringMonthlyCost),
-                                            String.valueOf(rec.termInYears()),
-                                            ec2Details.instanceType(),
-                                            ec2Details.region(),
-                                            ec2Details.platform(),
-                                            ec2Details.tenancy(),
-                                            ec2Details.currentGeneration() ? "Current" : "Previous",
-                                            ec2Details.sizeFlexEligible());
-                                } catch (Exception e) {
-                                    return null;
-                                }
-                            }))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+            // Query every reservable service, not just EC2. Restricting this to
+            // "Amazon Elastic Compute Cloud - Compute" meant RDS, ElastiCache, OpenSearch and
+            // Redshift reservation opportunities were never surfaced at all — often the
+            // largest single savings available on a database-heavy account.
+            List<DashboardData.ReservationPurchaseRecommendation> result = new ArrayList<>();
+            for (String serviceName : RESERVABLE_SERVICES) {
+                result.addAll(fetchPurchaseRecommendationsForService(
+                        ce, serviceName, term, paymentOption, lookback, offeringClass,
+                        account.getAwsAccountId()));
+            }
             redisCache.put(cacheKey, result, 60 * 24);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
@@ -755,10 +731,200 @@ public class ReservationService {
         }
     }
 
-    private double fetchSingleRIUtilization(CloudAccount account, String riId) {
+    /**
+     * Services for which AWS offers reservations via
+     * {@code GetReservationPurchaseRecommendation}. Names must match Cost Explorer's
+     * service strings exactly.
+     */
+    private static final List<String> RESERVABLE_SERVICES = List.of(
+            "Amazon Elastic Compute Cloud - Compute",
+            "Amazon Relational Database Service",
+            "Amazon ElastiCache",
+            "Amazon OpenSearch Service",
+            "Amazon Redshift",
+            "Amazon MemoryDB");
+
+    /**
+     * Fetches reservation purchase recommendations for one service.
+     *
+     * <p>Each service returns its own details shape, so the extraction is per-service. A
+     * failure for one service is logged and skipped rather than aborting the whole set —
+     * an account may not use every service, and Cost Explorer rejects unknown ones.
+     *
+     * @param offeringClass only meaningful for EC2; ignored by the other services
+     */
+    private List<DashboardData.ReservationPurchaseRecommendation> fetchPurchaseRecommendationsForService(
+            CostExplorerClient ce, String serviceName, String term, String paymentOption,
+            String lookback, String offeringClass, String accountId) {
+
+        try {
+            GetReservationPurchaseRecommendationRequest.Builder builder =
+                    GetReservationPurchaseRecommendationRequest.builder()
+                            .lookbackPeriodInDays(LookbackPeriodInDays.fromValue(lookback))
+                            .termInYears(TermInYears.fromValue(term))
+                            .paymentOption(PaymentOption.fromValue(paymentOption))
+                            // Pinned explicitly rather than relying on the PAYER default, so the
+                            // scope of the result matches what the UI attributes it to.
+                            .accountScope(AccountScope.PAYER)
+                            .service(serviceName);
+
+            // offeringClass lives in the EC2 service specification, not on the request, and
+            // only applies to EC2. It was previously part of the cache key but never sent, so
+            // STANDARD and CONVERTIBLE produced identical results under two different keys.
+            if (serviceName.startsWith("Amazon Elastic Compute Cloud")) {
+                builder.serviceSpecification(ServiceSpecification.builder()
+                        .ec2Specification(EC2Specification.builder()
+                                .offeringClass(OfferingClass.fromValue(offeringClass))
+                                .build())
+                        .build());
+            }
+
+            GetReservationPurchaseRecommendationResponse response =
+                    ce.getReservationPurchaseRecommendation(builder.build());
+
+            List<DashboardData.ReservationPurchaseRecommendation> out = new ArrayList<>();
+            for (ReservationPurchaseRecommendation rec : response.recommendations()) {
+                if (rec.recommendationDetails() == null) {
+                    continue;
+                }
+                for (ReservationPurchaseRecommendationDetail details : rec.recommendationDetails()) {
+                    DashboardData.ReservationPurchaseRecommendation mapped =
+                            mapPurchaseRecommendationDetail(rec, details, serviceName);
+                    if (mapped != null) {
+                        out.add(mapped);
+                    }
+                }
+            }
+            if (!out.isEmpty()) {
+                logger.info("Found {} reservation recommendations for {} in account {}",
+                        out.size(), serviceName, accountId);
+            }
+            return out;
+
+        } catch (Exception e) {
+            // Expected when an account does not use the service, or Cost Explorer does not
+            // recognise the name. Not fatal to the other services.
+            logger.debug("No reservation recommendations for {} in account {}: {}",
+                    serviceName, accountId, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Maps one recommendation detail into the dashboard DTO, reading whichever
+     * service-specific instance details are populated.
+     *
+     * @return the mapped recommendation, or null when the detail cannot be parsed
+     */
+    private DashboardData.ReservationPurchaseRecommendation mapPurchaseRecommendationDetail(
+            ReservationPurchaseRecommendation rec, ReservationPurchaseRecommendationDetail details,
+            String serviceName) {
+        try {
+            double monthlySavings = parseDouble(details.estimatedMonthlySavingsAmount());
+            double monthlyOnDemandCost = parseDouble(details.estimatedMonthlyOnDemandCost());
+            double estimatedRecurringMonthlyCost = monthlyOnDemandCost - monthlySavings;
+
+            // Defaults for services that do not expose an equivalent attribute.
+            String family = serviceName;
+            String instanceType = "N/A";
+            String region = "N/A";
+            String platform = "N/A";
+            String tenancy = "N/A";
+            boolean currentGeneration = false;
+            boolean sizeFlexEligible = false;
+
+            InstanceDetails instanceDetails = details.instanceDetails();
+            if (instanceDetails != null) {
+                if (instanceDetails.ec2InstanceDetails() != null) {
+                    EC2InstanceDetails d = instanceDetails.ec2InstanceDetails();
+                    family = d.family();
+                    instanceType = d.instanceType();
+                    region = d.region();
+                    platform = d.platform();
+                    tenancy = d.tenancy();
+                    currentGeneration = Boolean.TRUE.equals(d.currentGeneration());
+                    sizeFlexEligible = Boolean.TRUE.equals(d.sizeFlexEligible());
+                } else if (instanceDetails.rdsInstanceDetails() != null) {
+                    RDSInstanceDetails d = instanceDetails.rdsInstanceDetails();
+                    family = d.family();
+                    instanceType = d.instanceType();
+                    region = d.region();
+                    // RDS uses engine/edition/deployment where EC2 uses platform/tenancy.
+                    platform = d.databaseEngine();
+                    tenancy = d.deploymentOption();
+                    currentGeneration = Boolean.TRUE.equals(d.currentGeneration());
+                    sizeFlexEligible = Boolean.TRUE.equals(d.sizeFlexEligible());
+                } else if (instanceDetails.elastiCacheInstanceDetails() != null) {
+                    ElastiCacheInstanceDetails d = instanceDetails.elastiCacheInstanceDetails();
+                    family = d.family();
+                    instanceType = d.nodeType();
+                    region = d.region();
+                    platform = d.productDescription();
+                    currentGeneration = Boolean.TRUE.equals(d.currentGeneration());
+                    sizeFlexEligible = Boolean.TRUE.equals(d.sizeFlexEligible());
+                } else if (instanceDetails.esInstanceDetails() != null) {
+                    ESInstanceDetails d = instanceDetails.esInstanceDetails();
+                    family = d.instanceClass();
+                    instanceType = d.instanceSize();
+                    region = d.region();
+                    currentGeneration = Boolean.TRUE.equals(d.currentGeneration());
+                    sizeFlexEligible = Boolean.TRUE.equals(d.sizeFlexEligible());
+                } else if (instanceDetails.redshiftInstanceDetails() != null) {
+                    RedshiftInstanceDetails d = instanceDetails.redshiftInstanceDetails();
+                    family = d.family();
+                    instanceType = d.nodeType();
+                    region = d.region();
+                    currentGeneration = Boolean.TRUE.equals(d.currentGeneration());
+                    sizeFlexEligible = Boolean.TRUE.equals(d.sizeFlexEligible());
+                }
+            }
+
+            return new DashboardData.ReservationPurchaseRecommendation(
+                    family,
+                    String.valueOf(details.recommendedNumberOfInstancesToPurchase()),
+                    String.valueOf(details.recommendedNormalizedUnitsToPurchase()),
+                    String.valueOf(details.minimumNumberOfInstancesUsedPerHour()),
+                    String.valueOf(monthlySavings),
+                    String.valueOf(monthlyOnDemandCost),
+                    String.valueOf(estimatedRecurringMonthlyCost),
+                    String.valueOf(rec.termInYears()),
+                    instanceType,
+                    region,
+                    platform,
+                    tenancy,
+                    currentGeneration ? "Current" : "Previous",
+                    sizeFlexEligible);
+        } catch (Exception e) {
+            logger.debug("Could not map a {} reservation recommendation detail: {}",
+                    serviceName, e.getMessage());
+            return null;
+        }
+    }
+
+    /** Parses a Cost Explorer numeric string, treating null or malformed input as zero. */
+    private double parseDouble(String value) {
+        if (value == null || value.isBlank()) {
+            return 0.0;
+        }
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+
+    /**
+     * Fetches 30-day utilization for a single reserved instance.
+     *
+     * <p>Returns an empty {@link OptionalDouble} when the figure could not be obtained, so
+     * callers can distinguish "no data" from "0% utilized". Returning a bare {@code 0.0} on
+     * failure previously caused an API error to be reported to users as a genuinely idle
+     * reservation.
+     */
+    private java.util.OptionalDouble fetchSingleRIUtilization(CloudAccount account, String riId) {
         // Use mock data if enabled (performance optimization)
         if (useMockData) {
-            return costMockService.getMockSingleRIUtilization(riId);
+            return java.util.OptionalDouble.of(costMockService.getMockSingleRIUtilization(riId));
         }
 
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
@@ -783,12 +949,15 @@ public class ReservationService {
             List<UtilizationByTime> utilizationsByTime = ce.getReservationUtilization(utilRequest).utilizationsByTime();
 
             if (utilizationsByTime.isEmpty() || utilizationsByTime.get(0).total() == null) {
-                return 0.0;
+                logger.debug("Cost Explorer returned no utilization data for RI {}", riId);
+                return java.util.OptionalDouble.empty();
             }
 
-            return Double.parseDouble(utilizationsByTime.get(0).total().utilizationPercentage());
+            return java.util.OptionalDouble.of(
+                    Double.parseDouble(utilizationsByTime.get(0).total().utilizationPercentage()));
         } catch (Exception e) {
-            return 0.0;
+            logger.warn("Could not fetch utilization for RI {}: {}", riId, e.getMessage());
+            return java.util.OptionalDouble.empty();
         }
     }
 
@@ -864,15 +1033,16 @@ public class ReservationService {
 
             List<CompletableFuture<ReservationInventoryDto>> utilizationFutures = inventory.stream()
                     .map(ri -> CompletableFuture.supplyAsync(() -> {
-                        double utilization = 0.0;
-                        if ("active".equalsIgnoreCase(ri.getState())) {
-                            utilization = fetchSingleRIUtilization(account, ri.getReservationId());
-                        }
-                        return new ReservationInventoryDto(
+                        java.util.OptionalDouble utilization = "active".equalsIgnoreCase(ri.getState())
+                                ? fetchSingleRIUtilization(account, ri.getReservationId())
+                                : java.util.OptionalDouble.empty();
+                        ReservationInventoryDto dto = new ReservationInventoryDto(
                                 ri.getReservationId(), ri.getOfferingType(), ri.getInstanceType(),
                                 ri.getScope(), ri.getAvailabilityZone(), ri.getDuration(),
                                 ri.getStart(), ri.getEnd(), ri.getInstanceCount(), ri.getState(),
-                                utilization);
+                                utilization.orElse(0.0));
+                        dto.setUtilizationMeasured(utilization.isPresent());
+                        return dto;
                     }, awsTaskExecutor))
                     .collect(Collectors.toList());
 
@@ -941,14 +1111,39 @@ public class ReservationService {
                 for (ReservationInventoryDto ri : activeReservations) {
                     double utilizationPercentage = ri.getUtilizationPercentage();
 
-                    if (utilizationPercentage < 80.0 && "Convertible".equalsIgnoreCase(ri.getOfferingType())
+                    // Only act on a utilization figure we actually measured. fetchSingleRIUtilization
+                    // returns 0.0 on a Cost Explorer error, and treating that as "0% utilized"
+                    // manufactured a "Low Utilization (0.0%)" recommendation out of an API failure.
+                    if (!ri.isUtilizationMeasured()) {
+                        logger.debug("Skipping RI {}: utilization could not be measured", ri.getReservationId());
+                        continue;
+                    }
+                    if (utilizationPercentage < RI_LOW_UTILIZATION_THRESHOLD
+                            && "Convertible".equalsIgnoreCase(ri.getOfferingType())
                             && "active".equalsIgnoreCase(ri.getState())) {
                         String currentType = ri.getInstanceType();
                         String recommendedType = suggestSmallerInstanceType(currentType);
                         if (recommendedType != null && !recommendedType.equals(currentType)) {
-                            recommendations.add(new ReservationModificationRecommendationDto(
-                                    ri.getReservationId(), currentType, recommendedType,
-                                    String.format("Low Utilization (%.1f%%)", utilizationPercentage), 50.0));
+                            // RI modification must preserve normalized footprint: stepping down one
+                            // size halves the units per instance, so the instance count has to
+                            // double. Surface that instead of a flat invented dollar figure.
+                            int currentCount = ri.getInstanceCount();
+                            int requiredCount = currentCount * 2;
+                            ReservationModificationRecommendationDto dto =
+                                    new ReservationModificationRecommendationDto(
+                                            ri.getReservationId(), currentType, recommendedType,
+                                            String.format(
+                                                    "Low utilization (%.1f%%). Exchanging %d x %s for %d x %s "
+                                                            + "preserves the reserved normalized units.",
+                                                    utilizationPercentage, currentCount, currentType,
+                                                    requiredCount, recommendedType),
+                                            0.0);
+                            // No dollar figure: the saving from an RI exchange depends on the
+                            // replacement offering's rate, which requires a separate Cost Explorer
+                            // call. A hardcoded 50.0 was presented to users as real money.
+                            dto.setSavingsUnknown(true);
+                            dto.setRecommendedInstanceCount(requiredCount);
+                            recommendations.add(dto);
                         }
                     }
                 }
@@ -971,6 +1166,50 @@ public class ReservationService {
         });
     }
 
+    /** Threshold below which a convertible RI is considered underutilized. */
+    private static final double RI_LOW_UTILIZATION_THRESHOLD = 80.0;
+
+    /** A reservation together with a client bound to the region that holds it. */
+    private record RegionalReservation(ReservedInstances reservation, Ec2Client client, String region) {
+    }
+
+    /**
+     * Finds a reserved instance across the account's opted-in regions.
+     *
+     * @throws IllegalArgumentException when the reservation exists in no opted-in region
+     */
+    private RegionalReservation locateReservation(CloudAccount account, String reservationId) {
+        List<String> regions;
+        try {
+            regions = cloudListService.getAllOptedInRegions(account).join().stream()
+                    .map(DashboardData.RegionStatus::getRegionId)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.warn("Could not enumerate opted-in regions for account {}; falling back to {}: {}",
+                    account.getAwsAccountId(), configuredRegion, e.getMessage());
+            regions = List.of(configuredRegion);
+        }
+        if (regions.isEmpty()) {
+            regions = List.of(configuredRegion);
+        }
+
+        for (String region : regions) {
+            try {
+                Ec2Client ec2 = awsClientProvider.getEc2Client(account, region);
+                DescribeReservedInstancesResponse response = ec2
+                        .describeReservedInstances(r -> r.reservedInstancesIds(reservationId));
+                if (!response.reservedInstances().isEmpty()) {
+                    logger.info("Located reservation {} in region {}", reservationId, region);
+                    return new RegionalReservation(response.reservedInstances().get(0), ec2, region);
+                }
+            } catch (Exception e) {
+                // An unknown id in this region is expected while scanning; keep looking.
+                logger.debug("Reservation {} not found in {}: {}", reservationId, region, e.getMessage());
+            }
+        }
+        throw new IllegalArgumentException("Reservation ID not found in any opted-in region: " + reservationId);
+    }
+
     public String applyReservationModification(String accountId, ReservationModificationRequestDto request) {
         // Use mock data if enabled
         if (useMockData) {
@@ -982,15 +1221,14 @@ public class ReservationService {
         }
 
         CloudAccount account = getAccount(accountId);
-        Ec2Client ec2 = awsClientProvider.getEc2Client(account, configuredRegion);
         logger.info("Attempting to modify reservation {} for account {}", request.getReservationId(), accountId);
 
-        DescribeReservedInstancesResponse riResponse = ec2
-                .describeReservedInstances(r -> r.reservedInstancesIds(request.getReservationId()));
-        if (riResponse.reservedInstances().isEmpty()) {
-            throw new IllegalArgumentException("Reservation ID not found: " + request.getReservationId());
-        }
-        ReservedInstances originalRi = riResponse.reservedInstances().get(0);
+        // Reservations are discovered across every opted-in region, but this used to always
+        // apply against AWS_REGION (default us-east-1), so modifying any RI outside that
+        // region failed with "Reservation ID not found". Locate the RI first.
+        RegionalReservation located = locateReservation(account, request.getReservationId());
+        Ec2Client ec2 = located.client();
+        ReservedInstances originalRi = located.reservation();
 
         if (!"Convertible".equalsIgnoreCase(originalRi.offeringTypeAsString())) {
             throw new IllegalArgumentException("Cannot modify a non-convertible reservation.");

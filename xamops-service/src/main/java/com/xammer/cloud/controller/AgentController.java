@@ -56,6 +56,10 @@ public class AgentController {
     static final String DISK_AGENT_KEY_PREFIX = "ebs-disk-agent:";
     /** Redis key prefix: gcp-disk-agent:{projectId}:{instanceName} (GCP) */
     static final String GCP_DISK_AGENT_KEY_PREFIX = "gcp-disk-agent:";
+    /** Redis key prefix: azure-disk-agent:{cloudAccountId}:{vmName} (Azure) */
+    static final String AZURE_DISK_AGENT_KEY_PREFIX = "azure-disk-agent:";
+    /** Sentinel prefix for Azure disk agents. */
+    static final String AZURE_DISK_AGENT_SEEN_PREFIX = "azure-disk-agent-seen:";
     /** Sentinel key written on every push; 24-hour TTL survives brief collection gaps. */
     static final String DISK_AGENT_SEEN_PREFIX = "ebs-disk-agent-seen:";
     static final String GCP_DISK_AGENT_SEEN_PREFIX = "gcp-disk-agent-seen:";
@@ -796,10 +800,29 @@ public class AgentController {
                 byInstance.computeIfAbsent(instanceId, k -> new ArrayList<>()).add(mount);
             }
 
-            // Select key prefix based on cloud provider
-            boolean isGcp = "GCP".equalsIgnoreCase(payload.getProvider());
-            String keyPrefix  = isGcp ? GCP_DISK_AGENT_KEY_PREFIX  : DISK_AGENT_KEY_PREFIX;
-            String seenPrefix = isGcp ? GCP_DISK_AGENT_SEEN_PREFIX : DISK_AGENT_SEEN_PREFIX;
+            // Select key prefix based on cloud provider.
+            //
+            // Azure previously fell through to the AWS branch, so Azure agent pushes were
+            // written under "ebs-disk-agent:" while AzureDiskRightsizingService read
+            // "azure-disk-agent:". Nothing ever matched, which left the whole Azure disk
+            // utilization feature (usedPercent, SHRINK/EXPAND) permanently inert.
+            String provider = payload.getProvider() == null ? "AWS" : payload.getProvider().toUpperCase();
+            String keyPrefix;
+            String seenPrefix;
+            switch (provider) {
+                case "GCP":
+                    keyPrefix = GCP_DISK_AGENT_KEY_PREFIX;
+                    seenPrefix = GCP_DISK_AGENT_SEEN_PREFIX;
+                    break;
+                case "AZURE":
+                    keyPrefix = AZURE_DISK_AGENT_KEY_PREFIX;
+                    seenPrefix = AZURE_DISK_AGENT_SEEN_PREFIX;
+                    break;
+                default:
+                    keyPrefix = DISK_AGENT_KEY_PREFIX;
+                    seenPrefix = DISK_AGENT_SEEN_PREFIX;
+                    break;
+            }
 
             // Cache each instance's disk data in Redis
             for (Map.Entry<String, List<Map<String, Object>>> entry : byInstance.entrySet()) {
@@ -814,7 +837,7 @@ public class AgentController {
                         entry.getValue().size(), instanceId, cloudAccountId);
             }
             logger.info("[disk-agent] stored disk data for {} instances (account {} provider={})",
-                    byInstance.size(), cloudAccountId, isGcp ? "GCP" : "AWS");
+                    byInstance.size(), cloudAccountId, provider);
         }
     }
 

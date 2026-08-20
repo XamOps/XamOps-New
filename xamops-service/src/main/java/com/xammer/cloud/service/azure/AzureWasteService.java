@@ -22,6 +22,7 @@ import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.dto.azure.AzureWasteItem;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.SnapshotFreshnessService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -70,23 +72,32 @@ public class AzureWasteService {
     private static final String DB_CACHE_PREFIX = "AZURE_WASTE::";
     private static final int CACHE_TTL_MINUTES = 60;
 
-    // Flat monthly savings estimates in INR
-    private static final double SAVINGS_UNATTACHED_DISK = 620.0;
-    private static final double SAVINGS_STOPPED_VM = 1500.0;
-    private static final double SAVINGS_DEALLOCATED_VM = 300.0;
-    private static final double SAVINGS_ORPHANED_IP = 280.0;
-    private static final double SAVINGS_UNATTACHED_NIC = 0.0;
-    private static final double SAVINGS_OLD_SNAPSHOT = 200.0;
-    private static final double SAVINGS_EMPTY_LOAD_BALANCER = 1800.0;
-    private static final double SAVINGS_UNUSED_NSG = 0.0;
-    private static final double SAVINGS_EMPTY_AVAILABILITY_SET = 0.0;
-    private static final double SAVINGS_ORPHANED_ROUTE_TABLE = 0.0;
-    private static final double SAVINGS_IDLE_RUNNING_VM = 2200.0;
-    private static final double SAVINGS_IDLE_SQL_DB = 1900.0;
-    private static final double SAVINGS_EMPTY_APP_SERVICE_PLAN = 2500.0;
-    private static final double SAVINGS_IDLE_STORAGE_ACCOUNT = 150.0;
-    private static final double SAVINGS_IDLE_COSMOS_DB = 3500.0;
-    private static final double SAVINGS_EMPTY_RESOURCE_GROUP = 0.0;
+    // Monthly savings are USD (AzureWasteItem.BASE_CURRENCY) and resolved from the Azure
+    // Retail Prices API where a SKU is known. The constants below are only used when a
+    // live lookup fails, and each is annotated with what it represents so a wrong figure
+    // is traceable. Resources whose cost genuinely cannot be derived are emitted via
+    // AzureWasteItem.withUnknownSavings so they are never counted as free.
+
+    /** Standard HDD 128 GB (S10) list price, the smallest common unattached-disk case. */
+    private static final double FALLBACK_UNATTACHED_DISK_USD = 5.89;
+    /** Basic Standard_B1s compute rate, a deliberately conservative floor. */
+    private static final double FALLBACK_VM_COMPUTE_USD = 7.59;
+    /** Standard static public IPv4, billed whether associated or not since Feb 2024. */
+    private static final double FALLBACK_PUBLIC_IP_USD = 3.65;
+    /** Standard Load Balancer base rule charge. */
+    private static final double FALLBACK_LOAD_BALANCER_USD = 18.25;
+    /** Basic-tier single database (S0-equivalent) list price. */
+    private static final double FALLBACK_SQL_DB_USD = 15.00;
+    /** Basic B1 App Service plan list price. */
+    private static final double FALLBACK_APP_SERVICE_PLAN_USD = 13.14;
+    /** Cosmos DB minimum provisioned throughput, 400 RU/s. */
+    private static final double FALLBACK_COSMOS_DB_USD = 23.36;
+
+    /**
+     * Grace period before an unattached disk is reported as waste. A disk detached during
+     * maintenance or a migration should not be recommended for deletion immediately.
+     */
+    private static final int UNATTACHED_DISK_MIN_AGE_DAYS = 7;
 
     // Snapshot age threshold (days) before it's considered waste
     private static final int SNAPSHOT_AGE_DAYS = 90;
@@ -102,12 +113,22 @@ public class AzureWasteService {
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private final SnapshotFreshnessService snapshotFreshnessService;
+    private final AzureRetailPricingService retailPricingService;
+    private final AzureArmClient armClient;
+
     public AzureWasteService(AzureClientProvider clientProvider,
                              RedisCacheService redisCache,
-                             CachedDataRepository cachedDataRepository) {
+                             CachedDataRepository cachedDataRepository,
+                             SnapshotFreshnessService snapshotFreshnessService,
+                             AzureRetailPricingService retailPricingService,
+                             AzureArmClient armClient) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
+        this.snapshotFreshnessService = snapshotFreshnessService;
+        this.retailPricingService = retailPricingService;
+        this.armClient = armClient;
     }
 
     /**
@@ -136,7 +157,8 @@ public class AzureWasteService {
 
             // 2. Try DB snapshot
             try {
-                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
+                Optional<CachedData> dbSnapshot = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(dbKey), dbKey);
                 if (dbSnapshot.isPresent()) {
                     List<AzureWasteItem> items = objectMapper.readValue(
                             dbSnapshot.get().getJsonData(),
@@ -213,16 +235,36 @@ public class AzureWasteService {
         try {
             for (Disk disk : azure.disks().list()) {
                 try {
-                    if (!disk.isAttachedToVirtualMachine()) {
-                        result.add(new AzureWasteItem(
-                                disk.id(),
-                                disk.name(),
-                                "Unattached Disk",
-                                disk.regionName() != null ? disk.regionName() : "",
-                                "Managed disk has no VM attachment — incurring storage cost with no workload",
-                                SAVINGS_UNATTACHED_DISK
-                        ));
+                    if (disk.isAttachedToVirtualMachine()) {
+                        continue;
                     }
+                    // A disk detached seconds ago during maintenance is not waste. Require it
+                    // to have been idle for a minimum period before recommending deletion.
+                    if (isRecentlyDetached(disk)) {
+                        log.debug("Skipping recently detached disk {} (within {} day grace period)",
+                                disk.name(), UNATTACHED_DISK_MIN_AGE_DAYS);
+                        continue;
+                    }
+                    // Disks retained by Azure Backup or Site Recovery are managed elsewhere.
+                    if (hasProtectedTag(disk.tags())) {
+                        log.debug("Skipping disk {} — carries a retention/protection tag", disk.name());
+                        continue;
+                    }
+
+                    String region = disk.regionName() != null ? disk.regionName() : "";
+                    String sku = disk.sku() != null && disk.sku().accountType() != null
+                            ? disk.sku().accountType().toString() : null;
+                    Optional<Double> price = sku == null ? Optional.empty()
+                            : retailPricingService.getManagedDiskMonthlyPriceUsd(sku, disk.sizeInGB(), region);
+
+                    String reason = String.format(
+                            "Managed disk (%s, %d GB) has no VM attachment — incurring storage cost with no workload",
+                            sku != null ? sku : "unknown SKU", disk.sizeInGB());
+
+                    result.add(price
+                            .map(p -> new AzureWasteItem(disk.id(), disk.name(), "Unattached Disk", region, reason, p))
+                            .orElseGet(() -> new AzureWasteItem(disk.id(), disk.name(), "Unattached Disk",
+                                    region, reason, FALLBACK_UNATTACHED_DISK_USD)));
                 } catch (Exception e) {
                     log.warn("Error processing disk {}: {}", disk.name(), e.getMessage());
                 }
@@ -232,28 +274,175 @@ public class AzureWasteService {
         }
     }
 
+    /**
+     * True when the disk was detached within the grace period, or when the detach time is
+     * unknown and the disk was created recently.
+     */
+    private boolean isRecentlyDetached(Disk disk) {
+        try {
+            OffsetDateTime cutoff = OffsetDateTime.now().minusDays(UNATTACHED_DISK_MIN_AGE_DAYS);
+            OffsetDateTime lastOwnership = disk.innerModel().lastOwnershipUpdateTime();
+            if (lastOwnership != null) {
+                return lastOwnership.isAfter(cutoff);
+            }
+            OffsetDateTime created = disk.innerModel().timeCreated();
+            return created != null && created.isAfter(cutoff);
+        } catch (Exception e) {
+            log.debug("Could not determine detach age for disk {}: {}", disk.name(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Identifies what a public IP is attached to, beyond the NIC and load-balancer cases
+     * the SDK exposes directly.
+     *
+     * <p>Inspects {@code ipConfiguration.id}, which for a NAT Gateway, Application Gateway,
+     * Azure Firewall, Bastion or VPN Gateway points at that resource.
+     *
+     * @return a human-readable resource type, or null when the IP is genuinely unattached
+     */
+    private String attachedResourceType(PublicIpAddress pip) {
+        try {
+            var inner = pip.innerModel();
+            String configId = inner.ipConfiguration() != null ? inner.ipConfiguration().id() : null;
+            if (configId == null || configId.isBlank()) {
+                // Some resource types reference the IP without populating ipConfiguration.
+                if (inner.natGateway() != null) {
+                    return "NAT Gateway";
+                }
+                return null;
+            }
+            String lower = configId.toLowerCase();
+            if (lower.contains("/natgateways/")) return "NAT Gateway";
+            if (lower.contains("/applicationgateways/")) return "Application Gateway";
+            if (lower.contains("/azurefirewalls/")) return "Azure Firewall";
+            if (lower.contains("/bastionhosts/")) return "Bastion Host";
+            if (lower.contains("/virtualnetworkgateways/")) return "VPN/ExpressRoute Gateway";
+            if (lower.contains("/loadbalancers/")) return "Load Balancer";
+            if (lower.contains("/networkinterfaces/")) return "Network Interface";
+            // An ipConfiguration exists but is an unrecognised type — assume it is in use
+            // rather than recommending deletion of something we do not understand.
+            return "attached resource";
+        } catch (Exception e) {
+            log.debug("Could not determine attachment for public IP {}: {}", pip.name(), e.getMessage());
+            // Fail safe: do not recommend deleting an IP we could not evaluate.
+            return "unknown";
+        }
+    }
+
+    /** Returns the VM size, or "unknown" when unavailable. */
+    private String vmSize(VirtualMachine vm) {
+        try {
+            return vm.size() != null ? vm.size().toString() : "unknown";
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    /**
+     * Resolves a VM's monthly compute list price, falling back to a conservative floor when
+     * the Retail Prices lookup fails.
+     */
+    private double resolveVmMonthlyPrice(String size, String region) {
+        if (size == null || "unknown".equals(size)) {
+            return FALLBACK_VM_COMPUTE_USD;
+        }
+        return retailPricingService.getVmMonthlyPriceUsd(size, region)
+                .orElseGet(() -> {
+                    log.debug("No retail price for VM size {} in {}; using conservative fallback", size, region);
+                    return FALLBACK_VM_COMPUTE_USD;
+                });
+    }
+
+    /** True when a SKU name denotes the free Basic tier. */
+    private boolean isBasicSku(String skuName) {
+        return skuName != null && skuName.toLowerCase().contains("basic");
+    }
+
+    /**
+     * True when a SQL database tier is billed under the DTU model rather than vCore.
+     *
+     * <p>DTU databases publish {@code dtu_consumption_percent}; vCore databases publish
+     * {@code cpu_percent}. Querying the wrong one returns no data.
+     */
+    private boolean isDtuModel(String edition) {
+        if (edition == null || edition.isBlank()) {
+            return false;
+        }
+        String lower = edition.toLowerCase();
+        return lower.equals("basic") || lower.equals("standard") || lower.equals("premium");
+    }
+
+    /**
+     * True when a SQL tier scales its own compute, making a low average expected rather
+     * than a sign of over-provisioning.
+     */
+    private boolean isAutoScalingSqlTier(String edition, SqlDatabase db) {
+        String lower = edition == null ? "" : edition.toLowerCase();
+        if (lower.contains("hyperscale")) {
+            return true;
+        }
+        try {
+            // Serverless is expressed through the service objective name on the vCore
+            // model, e.g. "GP_S_Gen5_2" (General Purpose, Serverless, Gen5, 2 vCores).
+            String objective = db.currentServiceObjectiveName() == null
+                    ? "" : db.currentServiceObjectiveName().toLowerCase();
+            return objective.contains("serverless")
+                    || objective.startsWith("gp_s_")
+                    || objective.startsWith("hs_")
+                    || objective.contains("_s_gen");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * True when a resource carries a tag indicating it is intentionally retained, e.g. by
+     * Azure Backup, Site Recovery, or an explicit operator hold.
+     */
+    private boolean hasProtectedTag(Map<String, String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return false;
+        }
+        return tags.keySet().stream()
+                .map(String::toLowerCase)
+                .anyMatch(k -> k.contains("asr") || k.contains("recovery") || k.contains("backup")
+                        || k.contains("donotdelete") || k.contains("do-not-delete") || k.contains("retain"));
+    }
+
     private void detectVirtualMachines(AzureResourceManager azure, List<AzureWasteItem> result) {
         try {
             for (VirtualMachine vm : azure.virtualMachines().list()) {
                 try {
                     PowerState powerState = vm.powerState();
+                    String region = vm.regionName() != null ? vm.regionName() : "";
+
                     if (PowerState.STOPPED.equals(powerState)) {
+                        // "Stopped" (not deallocated) still bills full compute. Price the actual
+                        // SKU: a flat constant understated a Standard_E16s_v5 by roughly 50x.
+                        String size = vmSize(vm);
+                        double savings = resolveVmMonthlyPrice(size, region);
                         result.add(new AzureWasteItem(
                                 vm.id(),
                                 vm.name(),
                                 "Stopped VM",
-                                vm.regionName() != null ? vm.regionName() : "",
-                                "VM is stopped but still incurring compute charges — deallocate to stop billing",
-                                SAVINGS_STOPPED_VM
+                                region,
+                                String.format("VM (%s) is stopped but not deallocated, so it still incurs full "
+                                        + "compute charges — deallocate to stop billing", size),
+                                savings
                         ));
                     } else if (PowerState.DEALLOCATED.equals(powerState)) {
-                        result.add(new AzureWasteItem(
+                        // Compute has already stopped. The only remaining charge is the attached
+                        // storage, and realizing it requires deleting the VM and its disks — so
+                        // this is reported as a finding without a compute-sized savings claim.
+                        result.add(AzureWasteItem.withUnknownSavings(
                                 vm.id(),
                                 vm.name(),
                                 "Deallocated VM",
-                                vm.regionName() != null ? vm.regionName() : "",
-                                "VM is deallocated — compute stopped but storage (OS disk) is still billed",
-                                SAVINGS_DEALLOCATED_VM
+                                region,
+                                "VM is deallocated — compute is not billed, but attached disks still are. "
+                                        + "Delete the VM and its disks to eliminate the remaining cost."
                         ));
                     }
                 } catch (Exception e) {
@@ -269,16 +458,30 @@ public class AzureWasteService {
         try {
             for (PublicIpAddress pip : azure.publicIpAddresses().list()) {
                 try {
-                    if (!pip.hasAssignedNetworkInterface() && !pip.hasAssignedLoadBalancer()) {
-                        result.add(new AzureWasteItem(
-                                pip.id(),
-                                pip.name(),
-                                "Orphaned Public IP",
-                                pip.regionName() != null ? pip.regionName() : "",
-                                "Static public IP reserved but not attached to any resource — incurring idle IP cost",
-                                SAVINGS_ORPHANED_IP
-                        ));
+                    if (pip.hasAssignedNetworkInterface() || pip.hasAssignedLoadBalancer()) {
+                        continue;
                     }
+                    // A public IP can also be consumed by a NAT Gateway, Application Gateway,
+                    // Azure Firewall, Bastion or VPN Gateway. None of those set
+                    // hasAssignedNetworkInterface or hasAssignedLoadBalancer, so checking only
+                    // those two flags labelled live infrastructure IPs as orphaned.
+                    String attachedTo = attachedResourceType(pip);
+                    if (attachedTo != null) {
+                        log.debug("Skipping public IP {} — in use by {}", pip.name(), attachedTo);
+                        continue;
+                    }
+
+                    String region = pip.regionName() != null ? pip.regionName() : "";
+                    double savings = retailPricingService.getPublicIpMonthlyPriceUsd(region)
+                            .orElse(FALLBACK_PUBLIC_IP_USD);
+                    result.add(new AzureWasteItem(
+                            pip.id(),
+                            pip.name(),
+                            "Orphaned Public IP",
+                            region,
+                            "Public IP is not attached to any resource — incurring idle IP cost",
+                            savings
+                    ));
                 } catch (Exception e) {
                     log.warn("Error processing public IP {}: {}", pip.name(), e.getMessage());
                 }
@@ -293,13 +496,12 @@ public class AzureWasteService {
             for (NetworkInterface nic : azure.networkInterfaces().list()) {
                 try {
                     if (nic.innerModel().virtualMachine() == null) {
-                        result.add(new AzureWasteItem(
+                        result.add(AzureWasteItem.withUnknownSavings(
                                 nic.id(),
                                 nic.name(),
                                 "Unattached NIC",
                                 nic.regionName() != null ? nic.regionName() : "",
-                                "Network interface not attached to any virtual machine — resource hygiene issue",
-                                SAVINGS_UNATTACHED_NIC
+                                "Network interface not attached to any virtual machine — resource hygiene issue"
                         ));
                     }
                 } catch (Exception e) {
@@ -326,7 +528,7 @@ public class AzureWasteService {
                                 "Old Snapshot",
                                 snapshot.regionName() != null ? snapshot.regionName() : "",
                                 "Snapshot is " + ageDays + " days old — consider deleting stale backups to save storage cost",
-                                SAVINGS_OLD_SNAPSHOT
+                                FALLBACK_UNATTACHED_DISK_USD
                         ));
                     }
                 } catch (Exception e) {
@@ -343,18 +545,28 @@ public class AzureWasteService {
         try {
             for (LoadBalancer lb : azure.loadBalancers().list()) {
                 try {
+                    // Both conditions must hold. With OR, a load balancer that had a populated
+                    // backend pool but used only inbound-NAT rules (no load-balancing rules) was
+                    // reported as empty.
                     boolean noBackends = lb.backends() == null || lb.backends().isEmpty();
                     boolean noRules = lb.loadBalancingRules() == null || lb.loadBalancingRules().isEmpty();
-                    if (noBackends || noRules) {
-                        result.add(new AzureWasteItem(
-                                lb.id(),
-                                lb.name(),
-                                "Empty Load Balancer",
-                                lb.regionName() != null ? lb.regionName() : "",
-                                "Load balancer has no backend pool members or rules — idle resource incurring cost",
-                                SAVINGS_EMPTY_LOAD_BALANCER
-                        ));
+                    if (!noBackends || !noRules) {
+                        continue;
                     }
+                    // Basic-SKU load balancers are free, so flagging them invented cost.
+                    if (isBasicSku(lb.sku() == null ? null : lb.sku().toString())) {
+                        log.debug("Skipping Basic-SKU load balancer {} — no standing charge", lb.name());
+                        continue;
+                    }
+                    result.add(new AzureWasteItem(
+                            lb.id(),
+                            lb.name(),
+                            "Empty Load Balancer",
+                            lb.regionName() != null ? lb.regionName() : "",
+                            "Load balancer has no backend pool members and no load-balancing rules "
+                                    + "— idle resource incurring cost",
+                            FALLBACK_LOAD_BALANCER_USD
+                    ));
                 } catch (Exception e) {
                     log.warn("Error processing load balancer {}: {}", lb.name(), e.getMessage());
                 }
@@ -372,13 +584,12 @@ public class AzureWasteService {
                     boolean noSubnets = nsg.listAssociatedSubnets() == null || nsg.listAssociatedSubnets().isEmpty();
                     boolean noNics = nsg.networkInterfaceIds() == null || nsg.networkInterfaceIds().isEmpty();
                     if (noSubnets && noNics) {
-                        result.add(new AzureWasteItem(
+                        result.add(AzureWasteItem.withUnknownSavings(
                                 nsg.id(),
                                 nsg.name(),
                                 "Unused NSG",
                                 nsg.regionName() != null ? nsg.regionName() : "",
-                                "Network security group not associated with any subnet or NIC — safe to remove",
-                                SAVINGS_UNUSED_NSG
+                                "Network security group not associated with any subnet or NIC — safe to remove"
                         ));
                     }
                 } catch (Exception e) {
@@ -396,13 +607,12 @@ public class AzureWasteService {
             for (AvailabilitySet as : azure.availabilitySets().list()) {
                 try {
                     if (as.virtualMachineIds() == null || as.virtualMachineIds().isEmpty()) {
-                        result.add(new AzureWasteItem(
+                        result.add(AzureWasteItem.withUnknownSavings(
                                 as.id(),
                                 as.name(),
                                 "Empty Availability Set",
                                 as.regionName() != null ? as.regionName() : "",
-                                "Availability set contains no virtual machines — orphaned configuration",
-                                SAVINGS_EMPTY_AVAILABILITY_SET
+                                "Availability set contains no virtual machines — orphaned configuration"
                         ));
                     }
                 } catch (Exception e) {
@@ -420,13 +630,12 @@ public class AzureWasteService {
             for (RouteTable rt : azure.routeTables().list()) {
                 try {
                     if (rt.listAssociatedSubnets() == null || rt.listAssociatedSubnets().isEmpty()) {
-                        result.add(new AzureWasteItem(
+                        result.add(AzureWasteItem.withUnknownSavings(
                                 rt.id(),
                                 rt.name(),
                                 "Orphaned Route Table",
                                 rt.regionName() != null ? rt.regionName() : "",
-                                "Route table not associated with any subnet — orphaned network configuration",
-                                SAVINGS_ORPHANED_ROUTE_TABLE
+                                "Route table not associated with any subnet — orphaned network configuration"
                         ));
                     }
                 } catch (Exception e) {
@@ -460,13 +669,16 @@ public class AzureWasteService {
 
                     Double avgCpu = queryAverageMetric(vm.id(), "Percentage%20CPU", token);
                     if (avgCpu != null && avgCpu < IDLE_VM_CPU_THRESHOLD) {
+                        String region = vm.regionName() != null ? vm.regionName() : "";
+                        String size = vmSize(vm);
                         result.add(new AzureWasteItem(
                                 vm.id(),
                                 vm.name(),
                                 "Idle Running VM",
-                                vm.regionName() != null ? vm.regionName() : "",
-                                String.format("VM is running but averaged only %.1f%% CPU over the last 7 days — consider downsizing or deallocating", avgCpu),
-                                SAVINGS_IDLE_RUNNING_VM
+                                region,
+                                String.format("VM (%s) is running but averaged only %.1f%% CPU over the last 7 days "
+                                        + "— consider downsizing or deallocating", size, avgCpu),
+                                resolveVmMonthlyPrice(size, region)
                         ));
                     }
                 } catch (Exception e) {
@@ -541,15 +753,54 @@ public class AzureWasteService {
                         try {
                             if ("master".equalsIgnoreCase(db.name())) continue;
 
-                            Double avgCpu = queryAverageMetric(db.id(), "cpu_percent", token);
-                            if (avgCpu != null && avgCpu < IDLE_SQL_CPU_THRESHOLD) {
+                            // Elastic-pool members do not have their own compute allocation —
+                            // the pool is the billing unit. Recommending a per-database tier
+                            // change is meaningless and the "savings" would be fictional.
+                            if (db.elasticPoolName() != null && !db.elasticPoolName().isBlank()) {
+                                log.debug("Skipping SQL DB {}/{}: member of elastic pool {}",
+                                        server.name(), db.name(), db.elasticPoolName());
+                                continue;
+                            }
+
+                            String edition = db.edition() == null ? "" : db.edition().toString();
+
+                            // Serverless and Hyperscale already autoscale compute and bill on
+                            // actual usage, so low average CPU is the expected steady state
+                            // rather than over-provisioning.
+                            if (isAutoScalingSqlTier(edition, db)) {
+                                log.debug("Skipping SQL DB {}/{}: tier {} scales compute automatically",
+                                        server.name(), db.name(), edition);
+                                continue;
+                            }
+
+                            // vCore-model databases report cpu_percent; DTU-model databases
+                            // report dtu_consumption_percent. Querying only cpu_percent left
+                            // every DTU database (Basic/Standard/Premium) permanently invisible.
+                            String metricName = isDtuModel(edition) ? "dtu_consumption_percent" : "cpu_percent";
+                            Double avgUtilisation = queryAverageMetric(db.id(), metricName, token);
+
+                            // Fall back to the other metric if the first returns nothing, since
+                            // edition strings do not map perfectly onto the two billing models.
+                            if (avgUtilisation == null) {
+                                String fallbackMetric = "cpu_percent".equals(metricName)
+                                        ? "dtu_consumption_percent" : "cpu_percent";
+                                avgUtilisation = queryAverageMetric(db.id(), fallbackMetric, token);
+                                if (avgUtilisation != null) {
+                                    metricName = fallbackMetric;
+                                }
+                            }
+
+                            if (avgUtilisation != null && avgUtilisation < IDLE_SQL_CPU_THRESHOLD) {
                                 result.add(new AzureWasteItem(
                                         db.id(),
                                         server.name() + "/" + db.name(),
                                         "Idle SQL Database",
                                         db.regionName() != null ? db.regionName() : "",
-                                        String.format("SQL database averaged only %.1f%% CPU over the last 7 days — consider scaling down the service tier", avgCpu),
-                                        SAVINGS_IDLE_SQL_DB
+                                        String.format("SQL database (%s) averaged only %.1f%% %s over the last "
+                                                        + "7 days — consider scaling down the service tier",
+                                                edition.isBlank() ? "unknown tier" : edition,
+                                                avgUtilisation, metricName),
+                                        FALLBACK_SQL_DB_USD
                                 ));
                             }
                         } catch (Exception e) {
@@ -566,57 +817,28 @@ public class AzureWasteService {
     }
 
     /** Acquires an ARM bearer token for the subscription's service principal. */
+    /**
+     * Bearer token for ARM, cached by {@link AzureArmClient}.
+     * Previously re-fetched three or more times per scan.
+     */
     private String getBearerToken(String subscriptionId) {
-        TokenCredential credential = clientProvider.getCredential(subscriptionId);
-        return credential.getToken(new TokenRequestContext().addScopes(ARM_SCOPE))
-                .block()
-                .getToken();
+        return armClient.getToken(subscriptionId);
     }
 
-    /** Simple authenticated GET against the Azure Resource Manager REST API. */
+    /**
+     * Authenticated ARM GET. Returns null when there is no data.
+     *
+     * <p>Delegates to {@link AzureArmClient}, which reuses one {@link java.net.http.HttpClient}
+     * with timeouts and logs authorization and throttling failures at warn rather than
+     * collapsing them to a silent null at debug.
+     */
     private String armGet(String url, String token) {
-        try {
-            HttpClient httpClient = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Authorization", "Bearer " + token)
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                return response.body();
-            }
-            log.debug("ARM GET {} returned HTTP {}", url, response.statusCode());
-            return null;
-        } catch (Exception e) {
-            log.debug("ARM GET error for {}: {}", url, e.getMessage());
-            return null;
-        }
+        return armClient.getQuietly(url, token).orElse(null);
     }
 
-    /** Lists all entries in the ARM "value" array, following nextLink pagination. */
+    /** Lists every ARM {@code value} entry, following {@code nextLink} to the end. */
     private List<JsonNode> armList(String url, String token) {
-        List<JsonNode> out = new ArrayList<>();
-        String next = url;
-        int pages = 0;
-        while (next != null && !next.isBlank() && pages < 20) {
-            String body = armGet(next, token);
-            if (body == null) break;
-            try {
-                JsonNode root = objectMapper.readTree(body);
-                JsonNode value = root.path("value");
-                if (value.isArray()) {
-                    for (JsonNode n : value) out.add(n);
-                }
-                next = root.path("nextLink").asText(null);
-            } catch (Exception e) {
-                log.debug("armList parse error for {}: {}", url, e.getMessage());
-                break;
-            }
-            pages++;
-        }
-        return out;
+        return armClient.list(url, token);
     }
 
     /**
@@ -680,7 +902,7 @@ public class AzureWasteService {
                             "Empty App Service Plan",
                             plan.path("location").asText(""),
                             "App Service Plan (" + tier + " tier) is hosting no apps — billing for unused compute",
-                            SAVINGS_EMPTY_APP_SERVICE_PLAN
+                            FALLBACK_APP_SERVICE_PLAN_USD
                     ));
                 }
             } catch (Exception e) {
@@ -705,7 +927,7 @@ public class AzureWasteService {
                             "Idle Storage Account",
                             sa.path("location").asText(""),
                             "Storage account had no transactions over the last 7 days — review for deletion or archival",
-                            SAVINGS_IDLE_STORAGE_ACCOUNT
+                            FALLBACK_UNATTACHED_DISK_USD
                     ));
                 }
             } catch (Exception e) {
@@ -730,7 +952,7 @@ public class AzureWasteService {
                             "Idle Cosmos DB",
                             acc.path("location").asText(""),
                             "Cosmos DB account served no requests over the last 7 days — consider scaling down RU/s or deleting",
-                            SAVINGS_IDLE_COSMOS_DB
+                            FALLBACK_COSMOS_DB_USD
                     ));
                 }
             } catch (Exception e) {
@@ -750,13 +972,12 @@ public class AzureWasteService {
                 String resUrl = ARM_BASE + "/subscriptions/" + subscriptionId
                         + "/resourceGroups/" + rgName + "/resources?api-version=2021-04-01";
                 if (armList(resUrl, token).isEmpty()) {
-                    result.add(new AzureWasteItem(
+                    result.add(AzureWasteItem.withUnknownSavings(
                             rg.path("id").asText(""),
                             rgName,
                             "Empty Resource Group",
                             rg.path("location").asText(""),
-                            "Resource group contains no resources — safe to remove for hygiene",
-                            SAVINGS_EMPTY_RESOURCE_GROUP
+                            "Resource group contains no resources — safe to remove for hygiene"
                     ));
                 }
             } catch (Exception e) {

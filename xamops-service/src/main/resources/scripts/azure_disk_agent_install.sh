@@ -162,23 +162,29 @@ while IFS= read -r line; do
   USED_GB=$(awk "BEGIN {printf \"%.2f\", $USED_KB/1048576}")
   FREE_GB=$(awk "BEGIN {printf \"%.2f\", $AVAIL_KB/1048576}")
 
+  # instanceId must carry the VM name: AzureDiskRightsizingService looks mounts up by
+  # azure-disk-agent:{cloudAccountId}:{vmName}.
   [[ $FIRST -eq 0 ]] && DISK_ARRAY+=","
-  DISK_ARRAY+="{\"device\":\"${DEVICE}\",\"mountPoint\":\"${MOUNT}\",\"sizeGb\":${SIZE_GB},\"usedGb\":${USED_GB},\"freeGb\":${FREE_GB},\"usedPercent\":${USED_PCT}}"
+  DISK_ARRAY+="{\"instanceId\":\"${VM_NAME}\",\"device\":\"${DEVICE}\",\"mountPoint\":\"${MOUNT}\",\"sizeGb\":${SIZE_GB},\"usedGb\":${USED_GB},\"freeGb\":${FREE_GB},\"usedPercent\":${USED_PCT}}"
   FIRST=0
 done < <(df -Pk 2>/dev/null | tail -n +2)
 
 DISK_ARRAY+="]"
 
 # ── Build payload ─────────────────────────────────────────────────────────────
-PAYLOAD="{\"vmName\":\"${VM_NAME}\",\"subscriptionId\":\"${SUBSCRIPTION_ID}\",\"resourceGroup\":\"${RESOURCE_GROUP}\",\"disks\":${DISK_ARRAY}}"
+# Shape matches AgentIngestPayload, consumed by POST /api/v1/agent/ingest with
+# provider=AZURE. This previously posted a bespoke payload to
+# /api/azure/disks/agent-push/{id} — an endpoint that does not exist — so no Azure
+# disk utilization ever reached the server and the whole SHRINK/EXPAND feature was inert.
+PAYLOAD="{\"cloudAccountId\":\"${XAMOPS_ACCOUNT_ID}\",\"provider\":\"AZURE\",\"batches\":[{\"collector\":\"disk-usage\",\"items\":${DISK_ARRAY}}]}"
 
 # ── POST to XamOps ────────────────────────────────────────────────────────────
 HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
   -X POST \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: ${XAMOPS_API_KEY}" \
+  -H "Authorization: Bearer ${XAMOPS_API_KEY}" \
   --data "${PAYLOAD}" \
-  "${XAMOPS_API_URL}/api/azure/disks/agent-push/${XAMOPS_ACCOUNT_ID}" 2>/dev/null || echo "000")
+  "${XAMOPS_API_URL}/api/v1/agent/ingest" 2>/dev/null || echo "000")
 
 if [[ "$HTTP_CODE" == "200" || "$HTTP_CODE" == "204" ]]; then
   echo "[xamops] disk report sent successfully (HTTP ${HTTP_CODE})"

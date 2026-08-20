@@ -173,10 +173,22 @@ public class GcpRightsizingController {
                 accountId, zone, instanceName, targetMachineType);
 
         try {
-            // Access guard runs synchronously before accepting the request
-            CompletableFuture.runAsync(() ->
-                    gcpOptimizationService.applyRightsizing(accountId, zone, instanceName, targetMachineType),
-                    backgroundTaskExecutor);
+            // Run the read-write access guard on THIS thread. It previously lived inside the
+            // runAsync body, so the SecurityException it throws surfaced on an executor
+            // thread where the catch blocks below could never see it: a read-only account
+            // received 202 Accepted with a message saying the instance would be restarted,
+            // and the rejection was dropped with no completion handler.
+            gcpOptimizationService.verifyRightsizingAllowed(accountId, zone, instanceName, targetMachineType);
+
+            CompletableFuture
+                    .runAsync(() -> gcpOptimizationService.applyRightsizing(
+                            accountId, zone, instanceName, targetMachineType), backgroundTaskExecutor)
+                    .whenComplete((ignored, throwable) -> {
+                        if (throwable != null) {
+                            log.error("[GcpRightsizing] async apply FAILED — project={} instance={}: {}",
+                                    accountId, instanceName, throwable.getMessage(), throwable);
+                        }
+                    });
 
             return ResponseEntity.accepted().body(Map.of(
                     "message", "Rightsizing is being applied. Instance " + instanceName +

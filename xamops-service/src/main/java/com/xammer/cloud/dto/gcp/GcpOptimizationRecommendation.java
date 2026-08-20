@@ -92,6 +92,22 @@ public class GcpOptimizationRecommendation {
      */
     private String utilizationBasedReason;
 
+    /**
+     * Unadjusted monthly saving at on-demand list price, in USD.
+     *
+     * <p>Set when {@link #monthlySavings} has been reduced to account for a discount the
+     * project already receives — a sustained use discount, or an active committed use
+     * discount that makes a downsize non-realizable until the commitment expires. Null when
+     * no adjustment was applied.
+     */
+    private Double listPriceMonthlySavings;
+
+    /**
+     * Explains any adjustment applied to {@link #monthlySavings}, so a figure that differs
+     * from the provider's own recommendation is auditable rather than unexplained.
+     */
+    private String savingsQualifier;
+
     // Constructor with 'reason' (9 args)
     public GcpOptimizationRecommendation(String resourceName, String currentMachineType,
                                          String recommendedMachineType, double monthlySavings,

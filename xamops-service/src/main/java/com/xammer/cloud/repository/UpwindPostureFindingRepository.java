@@ -149,7 +149,15 @@ public interface UpwindPostureFindingRepository extends JpaRepository<UpwindPost
            "WHERE p.syncedAt < :runStart AND p.status <> 'RESOLVED'")
     int markResolvedNotSyncedSince(@Param("runStart") Instant runStart);
 
-    /** Live rows, for the archive safety guard (see UpwindSyncService#archiveIsSafe). */
-    @Query("SELECT COUNT(p) FROM UpwindPostureFinding p WHERE p.status <> 'RESOLVED'")
+    /**
+     * Rows the posture sync is expected to re-cover, for the archive safety guard (see
+     * UpwindSyncService#archiveIsSafe).
+     *
+     * Scoped to FAIL, matching what the sync actually walks. It used to count everything that
+     * was not RESOLVED, which was right while PASS was synced too and wrong the moment it
+     * stopped: leftover PASS rows would have made a complete 63k-row FAIL walk look like 11%
+     * coverage, tripping the floor and stranding archiving behind the 24h age fallback.
+     */
+    @Query("SELECT COUNT(p) FROM UpwindPostureFinding p WHERE p.status = 'FAIL'")
     long countLive();
 }

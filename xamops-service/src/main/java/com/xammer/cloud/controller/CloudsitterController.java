@@ -58,8 +58,15 @@ public class CloudsitterController {
 
     @PostMapping("/assign")
     public ResponseEntity<?> assignPolicy(@RequestBody CloudsitterAssignmentRequest request) {
-        cloudsitterService.assignPolicyToInstances(request);
-        return ResponseEntity.ok().build();
+        // Returns a per-instance outcome map: some instances are refused (ASG members,
+        // Kubernetes nodes, production-tagged) and the caller needs to know which.
+        Map<String, String> outcomes = cloudsitterService.assignPolicyToInstances(request);
+        long assigned = outcomes.values().stream().filter("ASSIGNED"::equals).count();
+        long skipped = outcomes.size() - assigned;
+        return ResponseEntity.ok(Map.of(
+                "assigned", assigned,
+                "skipped", skipped,
+                "results", outcomes));
     }
 
     @GetMapping("/audit-log")
@@ -76,9 +83,12 @@ public class CloudsitterController {
             @RequestParam String accountId,
             @RequestParam String instanceId,
             @RequestParam String region,
-            @RequestParam(defaultValue = "30") int lookbackDays) {
-        CloudsitterRecommendationDto dto =
-                cloudsitterService.getScheduleRecommendation(accountId, instanceId, region, lookbackDays);
+            @RequestParam(defaultValue = "30") int lookbackDays,
+            @RequestParam(required = false) String timeZone) {
+        // timeZone must match the policy that will adopt this schedule; the enforcer
+        // evaluates schedules in the policy's zone, not UTC.
+        CloudsitterRecommendationDto dto = cloudsitterService.getScheduleRecommendation(
+                accountId, instanceId, region, lookbackDays, timeZone);
         return ResponseEntity.ok(dto);
     }
 }

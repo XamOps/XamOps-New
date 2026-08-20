@@ -33,6 +33,15 @@ public class XamOpsRightsizingService {
     private static final String CSV_FILE_PATH = "/RightSizing-XamOps - Instances.csv";
     private static final String CACHE_KEY_PREFIX = "xamops-rightsizing-v2-";
 
+    /** CloudWatch lookback window for the peak-CPU signal. */
+    private static final int LOOKBACK_DAYS = 14;
+
+    /**
+     * Minimum number of daily datapoints required before a resize is recommended.
+     * Half the window, matching the coverage gate CloudSitter applies.
+     */
+    private static final int MIN_METRIC_DAYS = 7;
+
     private final CloudListService cloudListService;
     private final MetricsService metricsService;
     private final RedisCacheService redisCacheService;
@@ -40,6 +49,8 @@ public class XamOpsRightsizingService {
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
     private final Map<String, List<XamOpsRightsizingRecommendation>> recommendationsMap;
+    private final SnapshotFreshnessService snapshotFreshnessService;
+    private final PricingService pricingService;
 
     // Local cache to store available instance types per region to avoid repeated
     // API calls
@@ -51,13 +62,17 @@ public class XamOpsRightsizingService {
             RedisCacheService redisCacheService,
             AwsClientProvider awsClientProvider,
             CachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            SnapshotFreshnessService snapshotFreshnessService,
+            PricingService pricingService) {
         this.cloudListService = cloudListService;
         this.metricsService = metricsService;
         this.redisCacheService = redisCacheService;
         this.awsClientProvider = awsClientProvider;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.snapshotFreshnessService = snapshotFreshnessService;
+        this.pricingService = pricingService;
         this.recommendationsMap = loadRecommendationsFromCsv();
     }
 
@@ -77,7 +92,8 @@ public class XamOpsRightsizingService {
 
             // 2. Check DB snapshot (survives Redis restarts)
             try {
-                Optional<CachedData> dbSnapshot = cachedDataRepository.findById(cacheKey);
+                Optional<CachedData> dbSnapshot = snapshotFreshnessService.ifFresh(
+                        cachedDataRepository.findById(cacheKey), cacheKey);
                 if (dbSnapshot.isPresent()) {
                     List<XamOpsRightsizingRecommendation> dbData = objectMapper.readValue(
                             dbSnapshot.get().getJsonData(),
@@ -131,16 +147,28 @@ public class XamOpsRightsizingService {
                 continue;
             }
 
-            Optional<Double> maxCpu = metricsService.getMaxCpuUtilization(accountId, instanceId, region, 14);
+            Optional<MetricsService.CpuUtilizationSample> sample =
+                    metricsService.getMaxCpuUtilizationSample(accountId, instanceId, region, LOOKBACK_DAYS);
 
-            if (maxCpu.isEmpty()) {
+            if (sample.isEmpty()) {
                 logger.warn("Could not retrieve CPU utilization for instance {}. Skipping.", instanceId);
                 continue;
             }
 
-            double utilization = maxCpu.get();
-            logger.info("Instance {} ({}) has max CPU utilization of {}%",
-                    instanceId, instanceType, String.format("%.2f", utilization));
+            // Require real observation coverage before recommending a downsize. Without this
+            // an instance launched an hour ago yields a single datapoint that reads as a
+            // 14-day peak, and a quiet first hour becomes a downsize recommendation.
+            if (!sample.get().hasSufficientData(MIN_METRIC_DAYS)) {
+                logger.info("Skipping instance {}: only {} of {} days of CPU data ({}% coverage), "
+                                + "need at least {} days before recommending a resize.",
+                        instanceId, sample.get().dataPoints(), LOOKBACK_DAYS,
+                        Math.round(sample.get().coverage() * 100), MIN_METRIC_DAYS);
+                continue;
+            }
+
+            double utilization = sample.get().maxCpuPercent();
+            logger.info("Instance {} ({}) has max CPU utilization of {}% over {} days",
+                    instanceId, instanceType, String.format("%.2f", utilization), sample.get().dataPoints());
 
             // ✅ Find matching recommendation and VALIDATE AVAILABILITY
             String instanceName = instanceDto.getName();
@@ -152,6 +180,10 @@ public class XamOpsRightsizingService {
                         }
                         // Validate if the recommended types exist in this region
                         validateRecommendationAvailability(account, region, rec);
+
+                        // Replace the CSV's embedded prices with live regional ones and compute
+                        // a real dollar saving.
+                        repriceRecommendation(rec, instanceType, region);
 
                         finalRecommendations.add(rec);
                         processedInstances.add(instanceId); // Mark as processed
@@ -193,6 +225,96 @@ public class XamOpsRightsizingService {
         }
 
         return uniqueRecommendations;
+    }
+
+    /**
+     * Replaces the CSV's embedded prices with live regional prices and computes a real
+     * dollar saving.
+     *
+     * <p>The CSV carries prices inside its recommendation text, e.g.
+     * {@code "t3.medium ($0.0416/h)"}. Those are static us-east-1 rates from when the sheet
+     * was authored, and they were displayed verbatim to customers running in any region.
+     * Its {@code Approx. Cost Savings} column is likewise a percentage range string such as
+     * {@code "~87% / ~88%"}, which cannot be summed into any total.
+     *
+     * <p>This keeps the CSV as the curated decision matrix — which instance to move to at
+     * which CPU band is legitimate domain knowledge — but sources every number from the
+     * Pricing API for the instance's actual region.
+     */
+    private void repriceRecommendation(XamOpsRightsizingRecommendation rec, String currentInstanceType,
+                                        String region) {
+        try {
+            double currentMonthly = pricingService.getEc2InstanceMonthlyPrice(currentInstanceType, region);
+            rec.setCurrentMonthlyCost(PricingService.isPriceAvailable(currentMonthly) ? currentMonthly : null);
+
+            // Intel and AMD columns are independent options; price whichever are actionable.
+            Double intelSaving = repriceOption(rec.getIntelRecommendation(), currentMonthly, region,
+                    rec::setIntelRecommendation, rec::setIntelMonthlyCost);
+            Double amdSaving = repriceOption(rec.getAmdRecommendation(), currentMonthly, region,
+                    rec::setAmdRecommendation, rec::setAmdMonthlyCost);
+
+            // Headline saving is the better of the two realizable options.
+            Double best = null;
+            if (intelSaving != null) best = intelSaving;
+            if (amdSaving != null && (best == null || amdSaving > best)) best = amdSaving;
+
+            if (best != null) {
+                rec.setEstimatedMonthlySavings(Math.round(best * 100.0) / 100.0);
+                rec.setSavingsUnknown(false);
+            } else {
+                rec.setEstimatedMonthlySavings(0.0);
+                rec.setSavingsUnknown(true);
+            }
+            rec.setCurrency("USD");
+        } catch (Exception e) {
+            logger.warn("Could not reprice recommendation for {} in {}: {}",
+                    currentInstanceType, region, e.getMessage());
+            rec.setSavingsUnknown(true);
+        }
+    }
+
+    /**
+     * Rewrites one recommendation column with a live price and returns the monthly saving.
+     *
+     * @param optionText     the CSV cell, e.g. {@code "t3.medium ($0.0416/h)"} or {@code "Stay t3.large"}
+     * @param currentMonthly current instance monthly cost, or {@link PricingService#PRICE_UNAVAILABLE}
+     * @param setText        writes the rewritten display text back onto the recommendation
+     * @param setCost        writes the resolved monthly cost back onto the recommendation
+     * @return the monthly saving, or null when this option is not an actionable resize
+     */
+    private Double repriceOption(String optionText, double currentMonthly, String region,
+                                  java.util.function.Consumer<String> setText,
+                                  java.util.function.Consumer<Double> setCost) {
+        if (optionText == null || optionText.isBlank()) {
+            return null;
+        }
+        // "Stay ..." and "Not available in ..." are not resizes.
+        String lower = optionText.toLowerCase();
+        if (lower.startsWith("stay") || lower.startsWith("not available")) {
+            return null;
+        }
+
+        String targetType = extractInstanceType(optionText);
+        if (targetType == null || !targetType.matches("^[a-z0-9]+\\.[a-z0-9]+$")) {
+            return null;
+        }
+
+        double targetMonthly = pricingService.getEc2InstanceMonthlyPrice(targetType, region);
+        if (!PricingService.isPriceAvailable(targetMonthly)) {
+            // Strip the stale embedded price rather than presenting it as current.
+            setText.accept(targetType + " (price unavailable)");
+            return null;
+        }
+
+        setCost.accept(targetMonthly);
+        // Show the live monthly figure for the instance's own region.
+        setText.accept(String.format("%s ($%.2f/mo)", targetType, targetMonthly));
+
+        if (!PricingService.isPriceAvailable(currentMonthly)) {
+            return null;
+        }
+        double saving = currentMonthly - targetMonthly;
+        return saving > 0 ? saving : null;
     }
 
     /**

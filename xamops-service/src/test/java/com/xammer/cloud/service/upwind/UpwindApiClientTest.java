@@ -224,6 +224,105 @@ class UpwindApiClientTest {
         verify(restTemplate, times(1)).exchange(eq(uri), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
     }
 
+    /**
+     * An empty-bodied 400 is not an API verdict.
+     *
+     * Every 400 Upwind's own validation produces explains itself in the body ("conditions:
+     * must not be empty" and friends). One with nothing in it comes from the edge, on the
+     * long-lived connections these 285-page walks hold open — and refusing to retry it is
+     * what left POSTURE reporting "400 Bad Request: [no body]" for a whole 6-hour cycle.
+     */
+    @Test
+    void retriesAnEmptyBodied400() {
+        mockToken();
+        client.setMaxAttempts(3);
+        client.setRetryBackoffMs(1);
+        URI uri = firstPage("/threat-detections");
+        when(restTemplate.exchange(eq(uri), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new org.springframework.web.client.HttpClientErrorException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST))
+                .thenReturn(ResponseEntity.ok("[{\"id\":\"a\"}]"));
+
+        assertEquals(1, client.fetchThreatDetections(1).size());
+        verify(restTemplate, times(2)).exchange(eq(uri), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(String.class));
+    }
+
+    /** A 400 that explains itself is a real rejection, and retrying it just wastes the window. */
+    @Test
+    void doesNotRetryA400WithAnExplanation() {
+        mockToken();
+        client.setMaxAttempts(3);
+        client.setRetryBackoffMs(1);
+        URI uri = firstPage("/threat-detections");
+        when(restTemplate.exchange(eq(uri), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenThrow(org.springframework.web.client.HttpClientErrorException.create(
+                        org.springframework.http.HttpStatus.BAD_REQUEST, "Bad Request",
+                        new HttpHeaders(), "{\"message\":\"conditions: must not be empty\"}".getBytes(),
+                        null));
+
+        assertThrows(org.springframework.web.client.HttpClientErrorException.class,
+                () -> client.fetchThreatDetections(1));
+        verify(restTemplate, times(1)).exchange(eq(uri), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(String.class));
+    }
+
+    /**
+     * A failure part-way through a streaming walk keeps the pages already handed to the sink.
+     *
+     * Those rows are committed as they stream, so unwinding the whole domain over one bad page
+     * discarded a mostly-complete refresh and reported it as an outright sync error.
+     */
+    @Test
+    void midWalkFailureKeepsWhatWasStreamedAndNamesThePage() {
+        mockToken();
+        client.setMaxAttempts(1);
+        client.setRetryBackoffMs(1);
+        String next = "https://api.example/v1/organizations/org_test/configuration-findings"
+                + "?status=FAIL&per-page=1000&page-token=abc";
+        HttpHeaders withNext = new HttpHeaders();
+        withNext.add("Link", "<" + next + ">; rel=\"next\"");
+
+        when(restTemplate.exchange(eq(findingsPage("FAIL")), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(String.class)))
+                .thenReturn(new ResponseEntity<>("[{\"id\":\"a\"},{\"id\":\"b\"}]", withNext,
+                        org.springframework.http.HttpStatus.OK));
+        when(restTemplate.exchange(eq(URI.create(next)), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new org.springframework.web.client.HttpClientErrorException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST));
+
+        List<JsonNode> seen = new java.util.ArrayList<>();
+        UpwindApiClient.StreamResult res =
+                client.streamConfigurationFindings("FAIL", 10, seen::add);
+
+        assertEquals(2, seen.size(), "page 1's items must survive page 2's failure");
+        assertEquals(2, res.count());
+        assertTrue(res.incomplete(), "an aborted walk must never be treated as complete");
+        assertFalse(res.truncated(), "it stopped on a failure, not at the page cap");
+        assertNotNull(res.failure());
+        assertTrue(res.failure().contains("page 2"), res.failure());
+        assertTrue(res.failure().contains("configuration-findings?status=FAIL"), res.failure());
+        assertTrue(res.failure().contains("empty response body"), res.failure());
+    }
+
+    /** Page 1 failing means the request itself was rejected, and that must stay loud. */
+    @Test
+    void firstPageFailureThrowsWithTheEndpointAndStatusAttached() {
+        mockToken();
+        client.setMaxAttempts(1);
+        client.setRetryBackoffMs(1);
+        when(restTemplate.exchange(eq(findingsPage("PASS")), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new org.springframework.web.client.HttpClientErrorException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST));
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> client.streamConfigurationFindings("PASS", 10, n -> { }));
+        assertTrue(e.getMessage().contains("status=PASS"), e.getMessage());
+        assertTrue(e.getMessage().contains("page 1"), e.getMessage());
+    }
+
     @Test
     void tokenIsReusedAcrossCalls() {
         mockToken();
