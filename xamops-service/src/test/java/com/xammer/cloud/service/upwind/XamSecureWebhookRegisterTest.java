@@ -22,7 +22,8 @@ class XamSecureWebhookRegisterTest {
         apiClient = mock(UpwindApiClient.class);
         var svc = mock(XamSecureService.class);
         var connRepo = mock(UpwindAccountConnectionRepository.class);
-        controller = new XamSecureOnboardingController(svc, connRepo, apiClient);
+        controller = new XamSecureOnboardingController(svc, connRepo, apiClient,
+                mock(UpwindOnboardingService.class));
         controller.setWebhookSecret("s3cr3t");
         controller.setPublicBaseUrl("https://xamops.example");
     }

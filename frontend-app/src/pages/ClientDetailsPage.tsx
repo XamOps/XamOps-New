@@ -33,6 +33,14 @@ interface ClientDetails {
     users: BillOpsUser[];
     totalConsumption: number;
     starred: boolean;
+    /**
+     * Whether this client may connect their own accounts to XamSecure.
+     *
+     * Optional because cached client lists written before this field existed will not carry it;
+     * defaulted to true at every read site, matching the column default, so a stale cache never
+     * renders an entitled client as restricted.
+     */
+    xamSecureOnboardingEnabled?: boolean;
 }
 
 const CACHE_KEY = 'billops_clients_cache';
@@ -210,6 +218,33 @@ const ClientDetailsPage: React.FC = () => {
             console.error('Failed to toggle star:', err);
         }
     }, []);
+
+    /**
+     * Grant or withdraw self-service XamSecure onboarding for a client.
+     *
+     * Sends the intended state rather than toggling server-side, so a double-click or a retry
+     * cannot silently reverse a decision about a paid capability.
+     *
+     * Withdrawing blocks NEW connections only; accounts already connected keep reporting. Tearing
+     * those down from here would stop a customer's security monitoring with no warning on their
+     * side, which is a support incident rather than an admin action.
+     */
+    const setXamSecureOnboarding = useCallback(
+        async (e: React.MouseEvent, clientId: number, enabled: boolean) => {
+            e.stopPropagation();
+            setClients(prev => prev.map(c =>
+                c.id === clientId ? { ...c, xamSecureOnboardingEnabled: enabled } : c));
+            try {
+                await apiClient.post(
+                    `/api/xamops/billops-admin/clients/${clientId}/xamsecure-onboarding`,
+                    { enabled });
+                localStorage.removeItem(CACHE_KEY);
+            } catch (err) {
+                setClients(prev => prev.map(c =>
+                    c.id === clientId ? { ...c, xamSecureOnboardingEnabled: !enabled } : c));
+                console.error('Failed to update XamSecure onboarding permission:', err);
+            }
+        }, []);
 
     const stats = useMemo(() => ({
         clients: clients.length,
@@ -433,6 +468,30 @@ const ClientDetailsPage: React.FC = () => {
                                         {client.users.length} Users
                                     </div>
                                 </div>
+                                {/* XamSecure onboarding entitlement. Shield icon rather than a
+                                    switch: it sits in a dense row of badges, and the on/off state
+                                    has to be legible at a glance across a long client list.
+                                    Defaults to true when the field is absent from a stale cache. */}
+                                {(() => {
+                                    const allowed = client.xamSecureOnboardingEnabled !== false;
+                                    return (
+                                        <button
+                                            onClick={(e) => setXamSecureOnboarding(e, client.id, !allowed)}
+                                            title={allowed
+                                                ? 'Security onboarding allowed — click to restrict. Existing connections keep working.'
+                                                : 'Security onboarding restricted — click to allow'}
+                                            aria-label={allowed
+                                                ? 'Restrict XamSecure onboarding for this client'
+                                                : 'Allow XamSecure onboarding for this client'}
+                                            aria-pressed={allowed}
+                                            className={`w-6 h-6 flex items-center justify-center transition-colors ${
+                                                allowed ? 'text-emerald-500 hover:text-emerald-600'
+                                                        : 'text-gray-300 hover:text-gray-400'}`}
+                                        >
+                                            <i className={`fas ${allowed ? 'fa-shield-alt' : 'fa-ban'} text-xs`}></i>
+                                        </button>
+                                    );
+                                })()}
                                 <button
                                     onClick={(e) => toggleStar(e, client.id)}
                                     title={client.starred ? 'Remove primary flag' : 'Mark as primary client'}

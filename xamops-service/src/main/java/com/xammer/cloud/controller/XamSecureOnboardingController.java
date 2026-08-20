@@ -30,6 +30,7 @@ public class XamSecureOnboardingController {
     private final XamSecureService xamSecureService;
     private final UpwindAccountConnectionRepository connectionRepo;
     private final UpwindApiClient apiClient;
+    private final com.xammer.cloud.service.upwind.UpwindOnboardingService onboardingService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Setter
@@ -42,16 +43,96 @@ public class XamSecureOnboardingController {
 
     public XamSecureOnboardingController(XamSecureService xamSecureService,
                                           UpwindAccountConnectionRepository connectionRepo,
-                                          UpwindApiClient apiClient) {
+                                          UpwindApiClient apiClient,
+                                          com.xammer.cloud.service.upwind.UpwindOnboardingService onboardingService) {
         this.xamSecureService = xamSecureService;
         this.connectionRepo = connectionRepo;
         this.apiClient = apiClient;
+        this.onboardingService = onboardingService;
     }
 
     /** Customer-facing: connection + sensor status for the caller's own accounts. */
     @GetMapping("/status")
     public ResponseEntity<?> status(@AuthenticationPrincipal ClientUserDetails user) {
         return ResponseEntity.ok(xamSecureService.getOnboardingStatus(user.getClientId()));
+    }
+
+    /**
+     * Customer-facing: disconnect one account from XamSecure.
+     *
+     * Deregisters upstream, then tells the customer to delete their stack. Deleting the stack on
+     * its own is NOT sufficient — Upwind's template Delete handler calls no API, so the
+     * registration would survive and Upwind would keep assuming a role that no longer exists.
+     */
+    @PostMapping("/aws/disconnect")
+    public ResponseEntity<?> awsDisconnect(@AuthenticationPrincipal ClientUserDetails user,
+                                           @RequestBody Map<String, String> body) {
+        String cloudAccountId = body.get("cloudAccountId");
+        if (cloudAccountId == null || cloudAccountId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "cloudAccountId is required"));
+        }
+        try {
+            return ResponseEntity.ok(
+                    onboardingService.disconnect(user.getClientId(), cloudAccountId));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(502).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Customer-facing: the CloudFormation launch URL that connects one of the caller's own AWS
+     * accounts to XamSecure.
+     *
+     * <p><b>The response body carries Xammer's shared Upwind client secret in the URL's query
+     * string.</b> That is unavoidable — the template takes the credentials as stack parameters —
+     * but it makes the response itself a credential. Hence POST rather than GET (keeps it out of
+     * browser history and access logs), no caching, and nothing about the URL is logged or
+     * persisted server-side. The customer never types or sees the credential as a field: it
+     * arrives pre-filled in the CloudFormation console form.
+     *
+     * <p>Ownership is enforced against the caller's own accounts in the service, so passing
+     * another tenant's account id yields 403 rather than a launch URL for someone else's account.
+     */
+    @PostMapping("/aws/launch-url")
+    public ResponseEntity<?> awsLaunchUrl(@AuthenticationPrincipal ClientUserDetails user,
+                                          @RequestBody Map<String, String> body) {
+        String cloudAccountId = body.get("cloudAccountId");
+        if (cloudAccountId == null || cloudAccountId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "cloudAccountId is required"));
+        }
+        try {
+            return ResponseEntity.ok()
+                    .header("Cache-Control", "no-store")
+                    .body(onboardingService.createLaunchUrl(user.getClientId(), cloudAccountId));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Customer-facing: has the connection come up yet?
+     *
+     * Answered by asking Upwind whether it reports any asset for the account, which is the only
+     * reachable signal — there is no cloud-account status API. The stack registers the account
+     * itself, so this is genuinely the confirmation, not a proxy for one.
+     */
+    @PostMapping("/aws/check")
+    public ResponseEntity<?> awsCheck(@AuthenticationPrincipal ClientUserDetails user,
+                                      @RequestBody Map<String, String> body) {
+        String cloudAccountId = body.get("cloudAccountId");
+        if (cloudAccountId == null || cloudAccountId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "cloudAccountId is required"));
+        }
+        try {
+            return ResponseEntity.ok(
+                    onboardingService.checkConnection(user.getClientId(), cloudAccountId));
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        }
     }
 
     /**

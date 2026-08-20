@@ -15,3 +15,4 @@ export { default as GitHubForm } from './GitHubForm';
 export { default as PolicyModal } from './PolicyModal';
 export { default as IntegrationsSection } from './IntegrationsSection';
 export { default as DataSourcesGrid } from './DataSourcesGrid';
+export { default as XamSecureSection } from './XamSecureSection';

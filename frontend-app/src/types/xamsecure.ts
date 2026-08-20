@@ -822,6 +822,63 @@ export interface OnboardingAccount {
   provider: string;
   status: 'NOT_CONNECTED' | 'PENDING' | 'CONNECTED';
   sensorInstallCommand: string | null;
+  /**
+   * Whether a Connect button should be offered: AWS, AND the client is entitled.
+   * Folds both conditions so the UI cannot offer an action that will 403.
+   */
+  selfServiceSupported: boolean;
+  /**
+   * Whether the client is entitled at all, controlled from BillOps admin. Separate from
+   * `selfServiceSupported` so the UI can distinguish "not entitled" from "provider unsupported",
+   * which need different explanations.
+   */
+  onboardingAllowed: boolean;
+  /** When a launch URL was last issued — anchors "waiting" vs "the stack probably failed". */
+  stackRequestedAt: string | null;
+  stackName: string | null;
+  stackRegion: string | null;
+  /** When Upwind first reported assets, i.e. proof the connection works. */
+  connectionVerifiedAt: string | null;
+}
+
+/**
+ * Response of POST /api/xamsecure/onboarding/aws/launch-url.
+ *
+ * `launchUrl` embeds Xammer's shared Upwind client secret as a stack parameter, so it is a
+ * credential: open it, never log it, never store it, never put it in a link the user can share.
+ */
+export interface UpwindLaunchUrl {
+  launchUrl: string;
+  stackName: string;
+  stackRegion: string;
+  cloudAccountId: string;
+  status: OnboardingAccount['status'];
+}
+
+/** Response of POST /api/xamsecure/onboarding/aws/check. */
+export interface UpwindConnectionCheck {
+  cloudAccountId: string;
+  status: OnboardingAccount['status'];
+  /** Data is actually flowing (assets present). */
+  reportingAssets: boolean;
+  /** Registered upstream — authoritative, and true before the first scan produces assets. */
+  registered: boolean;
+  /** Null when unknown. False means registered but producing no findings. */
+  scannerEnabled: boolean | null;
+  verifiedAt: string | null;
+  message: string;
+}
+
+/** Response of POST /api/xamsecure/onboarding/aws/disconnect. */
+export interface UpwindDisconnectResult {
+  cloudAccountId: string;
+  status: OnboardingAccount['status'];
+  /** Whether the registration was actually removed upstream. */
+  deregistered: boolean;
+  /** The stack the customer still has to delete themselves. */
+  stackName: string | null;
+  stackRegion: string | null;
+  message: string;
 }
 
 export const SEVERITY_ORDER: Severity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];

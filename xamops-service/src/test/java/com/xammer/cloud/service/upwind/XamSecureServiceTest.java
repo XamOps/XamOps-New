@@ -27,6 +27,7 @@ class XamSecureServiceTest {
     private UpwindInventoryAssetRepository inventoryRepo;
     private UpwindApiEndpointRepository apiEndpointRepo;
     private UpwindApiClient apiClient;
+    private UpwindOnboardingService onboardingService;
     private XamSecureService service;
 
     private CloudAccount aws(String awsId) {
@@ -51,9 +52,12 @@ class XamSecureServiceTest {
         inventoryRepo = mock(UpwindInventoryAssetRepository.class);
         apiEndpointRepo = mock(UpwindApiEndpointRepository.class);
         apiClient = mock(UpwindApiClient.class);
+        onboardingService = mock(UpwindOnboardingService.class);
+        // Entitled, so getOnboardingStatus behaves as it did before the permission existed.
+        when(onboardingService.isAllowedForClient(any())).thenReturn(true);
         service = new XamSecureService(cloudAccountRepo, detectionRepo, vulnRepo,
                 postureRepo, syncStateRepo, connectionRepo, redisCacheService, inventoryRepo,
-                apiEndpointRepo, apiClient);
+                apiEndpointRepo, apiClient, onboardingService);
     }
 
     @Test

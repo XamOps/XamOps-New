@@ -48,6 +48,12 @@ public class XamSecureService {
     private final UpwindInventoryAssetRepository inventoryRepo;
     private final UpwindApiEndpointRepository apiEndpointRepo;
     private final UpwindApiClient apiClient;
+    /**
+     * Injected only for {@link #getOnboardingStatus}'s entitlement check, so the "is this client
+     * allowed to onboard" rule lives in one place rather than being re-implemented here. No cycle:
+     * the onboarding service does not depend on this one.
+     */
+    private final UpwindOnboardingService onboardingService;
 
     /**
      * Cloud accounts whose owner may read org-level Upwind data (the shift-left CI stream).
@@ -68,7 +74,8 @@ public class XamSecureService {
                             RedisCacheService redisCacheService,
                             UpwindInventoryAssetRepository inventoryRepo,
                             UpwindApiEndpointRepository apiEndpointRepo,
-                            UpwindApiClient apiClient) {
+                            UpwindApiClient apiClient,
+                            UpwindOnboardingService onboardingService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.detectionRepo = detectionRepo;
         this.vulnRepo = vulnRepo;
@@ -79,6 +86,7 @@ public class XamSecureService {
         this.inventoryRepo = inventoryRepo;
         this.apiEndpointRepo = apiEndpointRepo;
         this.apiClient = apiClient;
+        this.onboardingService = onboardingService;
     }
 
     /**
@@ -2929,7 +2937,15 @@ public class XamSecureService {
         return inventoryRepo.findActiveByAccounts(ids, pageable);
     }
 
+    /**
+     * Per-account onboarding state for the caller.
+     *
+     * {@code selfServiceSupported} folds in the BillOps per-client permission as well as provider
+     * support, so the UI hides the button for a client who is not entitled rather than offering it
+     * and failing with a 403 on click.
+     */
     public List<Map<String, Object>> getOnboardingStatus(Long clientId) {
+        boolean onboardingAllowed = onboardingService.isAllowedForClient(clientId);
         List<CloudAccount> accounts = cloudAccountRepository.findByClientId(clientId);
         List<String> ids = accounts.stream()
                 .map(CloudAccount::getProviderAccountId)
@@ -2948,6 +2964,19 @@ public class XamSecureService {
                     m.put("provider", a.getProvider());
                     m.put("status", c == null ? "NOT_CONNECTED" : c.getStatus());
                     m.put("sensorInstallCommand", c == null ? null : c.getSensorInstallCommand());
+                    // Self-service onboarding state. The launch URL itself is NOT here: it
+                    // embeds Xammer's shared Upwind client secret, so it is minted on demand by
+                    // POST /onboarding/aws/launch-url rather than shipped in a list payload that
+                    // gets cached and logged.
+                    m.put("selfServiceSupported",
+                            onboardingAllowed && "AWS".equalsIgnoreCase(a.getProvider()));
+                    // Separated from selfServiceSupported so the UI can explain WHY the button is
+                    // absent: "not entitled" and "provider not supported" need different copy.
+                    m.put("onboardingAllowed", onboardingAllowed);
+                    m.put("stackRequestedAt", c == null ? null : c.getStackRequestedAt());
+                    m.put("stackName", c == null ? null : c.getStackName());
+                    m.put("stackRegion", c == null ? null : c.getStackRegion());
+                    m.put("connectionVerifiedAt", c == null ? null : c.getConnectionVerifiedAt());
                     return m;
                 }).collect(Collectors.toList());
     }
