@@ -185,6 +185,8 @@ class BillOpsClientDetailsDto {
     private List<BillOpsUserDto> users;
     private Double totalConsumption;
     private boolean starred;
+    /** Whether this client may self-serve XamSecure onboarding. Defaults on. */
+    private boolean xamSecureOnboardingEnabled = true;
 
     // Getters and Setters
     public Long getId() {
@@ -241,6 +243,14 @@ class BillOpsClientDetailsDto {
 
     public void setStarred(boolean starred) {
         this.starred = starred;
+    }
+
+    public boolean isXamSecureOnboardingEnabled() {
+        return xamSecureOnboardingEnabled;
+    }
+
+    public void setXamSecureOnboardingEnabled(boolean xamSecureOnboardingEnabled) {
+        this.xamSecureOnboardingEnabled = xamSecureOnboardingEnabled;
     }
 }
 
@@ -335,6 +345,44 @@ public class BillOpsAdminController {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("clientId", clientId);
         response.put("starred", client.isStarred());
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Grant or withdraw a client's ability to connect their own accounts to XamSecure.
+     *
+     * Explicit value rather than a toggle, unlike {@code /star} above: this one gates a paid
+     * capability, and a toggle makes a double-submitted request silently reverse the decision.
+     * Sending the intended state means a retry is idempotent.
+     *
+     * Enabled for every client by default; this exists so it can be withdrawn per contract.
+     * Onboarding consumes an Upwind license seat and places Xammer's shared Cloud account
+     * credential inside the customer's AWS account, so it is worth being able to say no.
+     *
+     * Withdrawing access blocks NEW connections. It deliberately does not tear down existing
+     * ones — silently disconnecting a customer's live security monitoring from an admin toggle
+     * would stop their findings with no warning and no audit trail on their side.
+     */
+    @PostMapping("/clients/{clientId}/xamsecure-onboarding")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN') or hasAuthority('ROLE_SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> setXamSecureOnboarding(
+            @PathVariable Long clientId, @RequestBody Map<String, Object> body) {
+        Object raw = body.get("enabled");
+        if (!(raw instanceof Boolean)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Body must be {\"enabled\": true|false}"));
+        }
+        boolean enabled = (Boolean) raw;
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Client not found: " + clientId));
+        client.setXamSecureOnboardingEnabled(enabled);
+        clientRepository.save(client);
+        redisCacheService.evict(CLIENTS_CACHE_KEY);
+        log.info("Client {} xamSecureOnboardingEnabled={}", clientId, enabled);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("clientId", clientId);
+        response.put("xamSecureOnboardingEnabled", enabled);
         return ResponseEntity.ok(response);
     }
 
@@ -573,6 +621,7 @@ public class BillOpsAdminController {
             clientDto.setName(client.getName());
             clientDto.setEmail(client.getEmail());
             clientDto.setStarred(client.isStarred());
+            clientDto.setXamSecureOnboardingEnabled(client.isXamSecureOnboardingEnabled());
 
             List<CloudAccount> accounts = accountsByClientId.getOrDefault(client.getId(), new ArrayList<>());
             List<BillOpsAccountDto> accountDtos = new ArrayList<>();

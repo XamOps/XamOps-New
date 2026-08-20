@@ -43,6 +43,7 @@ import {
   PolicyModal,
   IntegrationsSection,
   DataSourcesGrid,
+  XamSecureSection,
 } from '../components/AddAccount';
 import type { Provider } from '../types/addAccount';
 
@@ -297,6 +298,10 @@ const AddAccountPage: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-8 space-y-10">
           {/* Data Sources */}
           <DataSourcesGrid onSelectProvider={handleGridProviderSelect} />
+
+          {/* Security Monitoring — enables XamSecure on an already-connected account, so it
+              sits after Data Sources: there is nothing to protect until an account exists. */}
+          <XamSecureSection />
 
           {/* Apps (Slack, Google Chat, Teams) */}
           <IntegrationsSection />

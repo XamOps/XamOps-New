@@ -11,6 +11,7 @@ import {
 import {
   XamSecureHeader, IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsSection, VulnerabilitiesTab,
   ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, CodeTab, WorkflowsTab, OnboardingTab,
+  PoweredByProvider,
   IdentitiesTab,
 } from '../components/XamSecure';
 
@@ -177,7 +178,13 @@ const XamSecurePage: React.FC = () => {
           <CodeTab data={codeScans} isLoading={isLoading} loadFindings={loadCodeScanFindings} />
         )}
         {activeTab === 'workflows' && <WorkflowsTab data={workflows} isLoading={isLoading} />}
-        {activeTab === 'onboarding' && <OnboardingTab accounts={onboarding} isLoading={isLoading} />}
+        {activeTab === 'onboarding' && (
+          <OnboardingTab accounts={onboarding} isLoading={isLoading} onRefresh={refresh} />
+        )}
+
+        {/* One attribution for the whole section, below the active tab — rather than a mark per
+            tab, which would read as advertising. */}
+        <PoweredByProvider className="pt-2" />
       </div>
 
       {storyOpen && (
