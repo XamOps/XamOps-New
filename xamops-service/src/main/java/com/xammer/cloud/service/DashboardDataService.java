@@ -2712,7 +2712,7 @@ public class DashboardDataService {
                     // Skip resources whose cost could not be priced, so an unpriced finding is
                     // never counted as if the resource were free.
                     double wasteSavings = wasted.stream()
-                            .filter(w -> !w.isSavingsUnknown())
+                            .filter(DashboardData.WastedResource::isBillableWaste)
                             .mapToDouble(DashboardData.WastedResource::getMonthlySavings)
                             .sum();
 
@@ -2801,9 +2801,13 @@ public class DashboardDataService {
                 logger.warn("[Dashboard] AutoSpotting savings unavailable for {}: {}", account.getAwsAccountId(),
                         e.getMessage());
             }
-            // EBS Disk Rightsizing savings
+            // EBS Disk Rightsizing savings. Unattached volumes must be excluded: the waste
+            // detector already books them at their full monthly price, and the disk-rightsizing
+            // scanner books the same volumes again under DELETE_UNATTACHED. Counting both
+            // double-charged every unattached volume into the dashboard KPI, which is why the
+            // headline figure could exceed the reconciled FinOps total.
             try {
-                total += ebsDiskRightsizingService.getTotalPotentialSavings(account.getAwsAccountId());
+                total += ebsDiskRightsizingService.getResizeOnlyPotentialSavings(account.getAwsAccountId());
             } catch (Exception e) {
 
                 logger.warn("[Dashboard] EBS disk savings unavailable for {}: {}", account.getAwsAccountId(),
@@ -2888,7 +2892,10 @@ public class DashboardDataService {
                 .mapToDouble(DashboardData.OptimizationRecommendation::getEstimatedMonthlySavings)
                 .sum();
 
+        // Unpriced and genuinely-free findings must not contribute: their monthlySavings is a
+        // placeholder zero, and including them only inflated the accompanying resource count.
         double wasteSavings = wastedResources.stream()
+                .filter(DashboardData.WastedResource::isBillableWaste)
                 .mapToDouble(DashboardData.WastedResource::getMonthlySavings)
                 .sum();
 

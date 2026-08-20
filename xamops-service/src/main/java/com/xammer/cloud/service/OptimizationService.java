@@ -747,8 +747,11 @@ public class OptimizationService {
                 if (!values.isEmpty()) {
                     double avgCpu = values.stream().mapToDouble(Double::doubleValue).average().orElse(100.0);
                     if (avgCpu < 5.0) {
+                        // Control-plane charge for the cluster itself, at the region's real rate
+                        // rather than a flat us-east-1 $73/month.
+                        double monthlyCost = pricingService.getEksClusterHourlyPrice(regionId) * 730;
                         findings.add(new DashboardData.WastedResource(clusters.get(i), clusters.get(i), "EKS Cluster",
-                                regionId, 73.0, "Idle Cluster (low CPU)"));
+                                regionId, monthlyCost, "Idle Cluster (low CPU)"));
                     }
                 }
             }
@@ -764,8 +767,10 @@ public class OptimizationService {
             return ecs.listClusters().clusterArns().stream()
                     .map(clusterArn -> ecs.describeClusters(r -> r.clusters(clusterArn)).clusters().get(0))
                     .filter(cluster -> cluster.runningTasksCount() == 0 && cluster.activeServicesCount() == 0)
-                    .map(cluster -> new DashboardData.WastedResource(cluster.clusterArn(), cluster.clusterName(),
-                            "ECS Cluster", regionId, 0.0, "Idle Cluster (0 tasks/services)"))
+                    // An ECS cluster with no tasks or services has no charge of its own — any
+                    // cost sat in the (already terminated) container instances.
+                    .map(cluster -> DashboardData.WastedResource.withNoCostImpact(cluster.clusterArn(),
+                            cluster.clusterName(), "ECS Cluster", regionId, "Idle Cluster (0 tasks/services)"))
                     .collect(Collectors.toList());
         }, "Idle ECS Clusters");
     }
@@ -801,8 +806,13 @@ public class OptimizationService {
                         .mapToDouble(Double::doubleValue).sum();
                 if (total < 10) {
                     var func = functions.get(i);
-                    findings.add(new DashboardData.WastedResource(func.functionArn(), func.functionName(), "Lambda",
-                            regionId, 0.50, "Low Invocations (<10 in 30d)"));
+                    // Lambda bills per request and per GB-second, so a function invoked fewer
+                    // than ten times a month accrues essentially nothing — well inside the free
+                    // tier. The previous flat $0.50 was invented and inflated the waste total by
+                    // $0.50 for every idle function found. Kept as a hygiene finding.
+                    findings.add(DashboardData.WastedResource.withNoCostImpact(
+                            func.functionArn(), func.functionName(), "Lambda", regionId,
+                            "Low Invocations (<10 in 30d)"));
                 }
             }
             return findings;
@@ -824,6 +834,16 @@ public class OptimizationService {
         }, "Old DB Snapshots");
     }
 
+    /** CloudWatch Logs GB-month rate for a region, never negative. */
+    private double logsStorageGbMonthPrice(String regionId) {
+        try {
+            return Math.max(0.0, pricingService.getCloudWatchLogsStorageGbMonthPrice(regionId));
+        } catch (Exception e) {
+            logger.warn("CloudWatch Logs storage price unavailable for {}: {}", regionId, e.getMessage());
+            return 0.0;
+        }
+    }
+
     private CompletableFuture<List<DashboardData.WastedResource>> findUnusedCloudWatchLogGroups(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
@@ -831,11 +851,16 @@ public class OptimizationService {
             long sixtyDaysAgoMillis = Instant.now().minus(60, ChronoUnit.DAYS).toEpochMilli();
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             List<LogGroup> logGroups = logs.describeLogGroups().logGroups();
+            // Resolved once per region rather than per log group; the price call is cached but
+            // an account can have thousands of groups.
+            final double logsGbMonthPrice = logsStorageGbMonthPrice(regionId);
 
             for (LogGroup lg : logGroups) {
+                // storedBytes() == 0 means there is nothing to bill for; CloudWatch Logs
+                // charges on ingestion and stored volume, not on the group existing.
                 if (lg.creationTime() < sixtyDaysAgoMillis && lg.storedBytes() == 0) {
-                    findings.add(new DashboardData.WastedResource(lg.logGroupName(), lg.logGroupName(), "Log Group",
-                            regionId, 0.0, "Empty and created over 60 days ago"));
+                    findings.add(DashboardData.WastedResource.withNoCostImpact(lg.logGroupName(), lg.logGroupName(),
+                            "Log Group", regionId, "Empty and created over 60 days ago"));
                     continue;
                 }
                 try {
@@ -843,8 +868,17 @@ public class OptimizationService {
                             .logGroupName(lg.logGroupName()).orderBy("LastEventTime").descending(true).limit(1));
                     if (response.logStreams().isEmpty() || response.logStreams().get(0).lastEventTimestamp() == null
                             || response.logStreams().get(0).lastEventTimestamp() < sixtyDaysAgoMillis) {
-                        findings.add(new DashboardData.WastedResource(lg.logGroupName(), lg.logGroupName(), "Log Group",
-                                regionId, 0.0, "No new events in 60+ days"));
+                        // This group still holds data, so it carries a real storage charge.
+                        // Reporting 0.0 made an abandoned multi-gigabyte group look free to keep.
+                        double storedGb = lg.storedBytes() == null ? 0.0
+                                : lg.storedBytes() / (1024.0 * 1024 * 1024);
+                        double monthlyCost = storedGb * logsGbMonthPrice;
+                        findings.add(storedGb > 0
+                                ? new DashboardData.WastedResource(lg.logGroupName(), lg.logGroupName(), "Log Group",
+                                        regionId, monthlyCost,
+                                        String.format("No new events in 60+ days (%.2f GB retained)", storedGb))
+                                : DashboardData.WastedResource.withNoCostImpact(lg.logGroupName(), lg.logGroupName(),
+                                        "Log Group", regionId, "No new events in 60+ days"));
                     }
                 } catch (Exception e) {
                     logger.warn("Could not describe log streams for {}: {}", lg.logGroupName(), e.getMessage());
@@ -860,8 +894,9 @@ public class OptimizationService {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeSecurityGroups().securityGroups().stream()
                     .filter(sg -> sg.vpcId() != null && isSecurityGroupUnused(account, sg.groupId(), regionId))
-                    .map(sg -> new DashboardData.WastedResource(sg.groupId(), sg.groupName(), "Security Group",
-                            regionId, 0.0, "Unused Security Group"))
+                    // Security groups are free; this is a blast-radius/hygiene finding only.
+                    .map(sg -> DashboardData.WastedResource.withNoCostImpact(sg.groupId(), sg.groupName(),
+                            "Security Group", regionId, "Unused Security Group"))
                     .collect(Collectors.toList());
         }, "Unused Security Groups");
     }
@@ -1020,8 +1055,10 @@ public class OptimizationService {
                             req -> req.filters(List.of(software.amazon.awssdk.services.ec2.model.Filter.builder()
                                     .name("status").values("available").build())))
                     .networkInterfaces().stream()
-                    .map(eni -> new DashboardData.WastedResource(eni.networkInterfaceId(),
-                            getTagName(eni.tagSet(), eni.networkInterfaceId()), "ENI", regionId, 0.0, "Unattached ENI"))
+                    // An available ENI is free. Kept as a hygiene finding, but flagged so it
+                    // does not inflate a count shown next to a reclaimable-spend figure.
+                    .map(eni -> DashboardData.WastedResource.withNoCostImpact(eni.networkInterfaceId(),
+                            getTagName(eni.tagSet(), eni.networkInterfaceId()), "ENI", regionId, "Unattached ENI"))
                     .collect(Collectors.toList());
         }, "Unattached ENIs");
     }
@@ -1220,8 +1257,9 @@ public class OptimizationService {
                     var fs = fileSystems.get(i);
                     double sizeGb = fs.sizeInBytes().value() / (1024.0 * 1024 * 1024);
                     String name = fs.name() != null && !fs.name().isEmpty() ? fs.name() : fs.fileSystemId();
+                    double monthlyCost = sizeGb * pricingService.getEfsGbMonthPrice(regionId);
                     findings.add(new DashboardData.WastedResource(fs.fileSystemId(), name, "EFS File System",
-                            regionId, sizeGb * 0.30, "No I/O in 90 days - likely idle file system"));
+                            regionId, monthlyCost, "No I/O in 90 days - likely idle file system"));
                 }
             }
             return findings;
@@ -1318,8 +1356,9 @@ public class OptimizationService {
                     } catch (Exception e) {
                         sizeGb = 0.0;
                     }
+                    double monthlyCost = sizeGb * pricingService.getDynamoDbGbMonthPrice(regionId);
                     findings.add(new DashboardData.WastedResource(tableName, tableName, "DynamoDB Table",
-                            regionId, sizeGb * 0.25, "No read/write activity in 90 days"));
+                            regionId, monthlyCost, "No read/write activity in 90 days"));
                 }
             }
             return findings;
@@ -1354,7 +1393,7 @@ public class OptimizationService {
                         } catch (Exception e) {
                             sizeGb = 0.0;
                         }
-                        double monthlyCost = sizeGb * 0.10;
+                        double monthlyCost = sizeGb * pricingService.getEcrGbMonthPrice(regionId);
                         return new DashboardData.WastedResource(repo.repositoryArn(), repo.repositoryName(),
                                 "ECR Repository", regionId, monthlyCost,
                                 "No image push or pull in 90 days");
@@ -1371,9 +1410,11 @@ public class OptimizationService {
                     software.amazon.awssdk.services.acm.model.CertificateStatus.EXPIRED,
                     software.amazon.awssdk.services.acm.model.CertificateStatus.INACTIVE))
                     .certificateSummaryList().stream()
-                    .map(cert -> new DashboardData.WastedResource(cert.certificateArn(),
+                    // ACM public certificates are free; private-CA certificates are billed on
+                    // the CA, not the certificate. Either way deleting one frees no spend.
+                    .map(cert -> DashboardData.WastedResource.withNoCostImpact(cert.certificateArn(),
                             cert.domainName() != null ? cert.domainName() : cert.certificateArn(),
-                            "Certificate Manager", regionId, 0.0,
+                            "Certificate Manager", regionId,
                             "Certificate is " + cert.statusAsString() + " - review and delete if unused"))
                     .collect(Collectors.toList());
         }, "Expired ACM Certificates");
@@ -1410,8 +1451,10 @@ public class OptimizationService {
                 if (total == 0.0) {
                     String topicArn = topics.get(i).topicArn();
                     String topicName = topicArn.substring(topicArn.lastIndexOf(':') + 1);
-                    findings.add(new DashboardData.WastedResource(topicArn, topicName,
-                            "SNS Topic", regionId, 0.10, "No messages published in 90 days"));
+                    // SNS bills per published message and per delivery. A topic with no traffic
+                    // costs nothing to keep, so the previous flat $0.10 was invented.
+                    findings.add(DashboardData.WastedResource.withNoCostImpact(topicArn, topicName,
+                            "SNS Topic", regionId, "No messages published in 90 days"));
                 }
             }
             return findings;
@@ -1465,8 +1508,10 @@ public class OptimizationService {
                 if (sent == 0.0 && visible == 0.0) {
                     String queueUrl = queueUrls.get(i);
                     String queueName = queueUrl.substring(queueUrl.lastIndexOf('/') + 1);
-                    findings.add(new DashboardData.WastedResource(queueUrl, queueName,
-                            "SQS Queue", regionId, 0.05, "No messages sent in 90 days and queue is empty"));
+                    // SQS bills per request. An empty, unused queue costs nothing to keep, so
+                    // the previous flat $0.05 was invented.
+                    findings.add(DashboardData.WastedResource.withNoCostImpact(queueUrl, queueName,
+                            "SQS Queue", regionId, "No messages sent in 90 days and queue is empty"));
                 }
             }
             return findings;
@@ -1598,9 +1643,11 @@ public class OptimizationService {
                 // No scaling activity: max and min stayed equal across all days
                 if (overallMax == overallMin) {
                     var g = groups.get(i);
-                    findings.add(new DashboardData.WastedResource(
+                    // Auto Scaling itself is free; any cost sits in the instances it launches,
+                    // which the EC2 detectors already account for.
+                    findings.add(DashboardData.WastedResource.withNoCostImpact(
                             g.autoScalingGroupARN(), g.autoScalingGroupName(),
-                            "Auto Scaling Group", regionId, 0.0,
+                            "Auto Scaling Group", regionId,
                             "No scale-in/scale-out activity in 30 days"));
                 }
             }
@@ -1899,8 +1946,11 @@ public class OptimizationService {
                     try {
                         var runs = glue.getJobRuns(r -> r.jobName(job.name()).maxResults(1)).jobRuns();
                         if (runs.isEmpty()) {
-                            findings.add(new DashboardData.WastedResource(job.name(), job.name(),
-                                    "Glue Job", regionId, 0.0, "Job created but never executed"));
+                            // Glue bills per DPU-hour of execution, so a job that never ran has
+                            // cost nothing.
+                            findings.add(DashboardData.WastedResource.withNoCostImpact(
+                                    job.name(), job.name(),
+                                    "Glue Job", regionId, "Job created but never executed"));
                         }
                     } catch (Exception e) {
                         logger.warn("Could not get runs for Glue job {}: {}", job.name(), e.getMessage());
@@ -1949,8 +1999,11 @@ public class OptimizationService {
                         .stream().mapToDouble(Double::doubleValue).sum();
                 if (executions == 0.0) {
                     var m = machines.get(i);
-                    findings.add(new DashboardData.WastedResource(m.stateMachineArn(), m.name(),
-                            "Step Functions State Machine", regionId, 0.0,
+                    // Step Functions bills per state transition, so an unexecuted state machine
+                    // is free to keep.
+                    findings.add(DashboardData.WastedResource.withNoCostImpact(
+                            m.stateMachineArn(), m.name(),
+                            "Step Functions State Machine", regionId,
                             "Zero executions in 30 days"));
                 }
             }
@@ -1992,8 +2045,9 @@ public class OptimizationService {
                         .stream().mapToDouble(Double::doubleValue).sum();
                 if (count == 0.0) {
                     var api = apis.get(i);
-                    findings.add(new DashboardData.WastedResource(api.id(), api.name(),
-                            "API Gateway REST API", regionId, 0.0,
+                    // API Gateway bills per request; an API with no traffic accrues nothing.
+                    findings.add(DashboardData.WastedResource.withNoCostImpact(api.id(), api.name(),
+                            "API Gateway REST API", regionId,
                             "Zero API calls in 30 days"));
                 }
             }
@@ -2035,8 +2089,9 @@ public class OptimizationService {
                         .stream().mapToDouble(Double::doubleValue).sum();
                 if (builds == 0.0) {
                     String name = projectNames.get(i);
-                    findings.add(new DashboardData.WastedResource(name, name,
-                            "CodeBuild Project", regionId, 0.0,
+                    // CodeBuild bills per build minute, so a project with no builds is free.
+                    findings.add(DashboardData.WastedResource.withNoCostImpact(name, name,
+                            "CodeBuild Project", regionId,
                             "No builds in 60 days"));
                 }
             }

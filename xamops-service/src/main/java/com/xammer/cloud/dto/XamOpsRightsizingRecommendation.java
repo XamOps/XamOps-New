@@ -51,4 +51,27 @@ public class XamOpsRightsizingRecommendation {
      * placeholder zero. Consumers must exclude these from savings totals.
      */
     private boolean savingsUnknown;
+
+    /**
+     * Whether the Intel option can be applied with a stop / modify-instance-type / start
+     * sequence. False when the column is not a resize ({@code "Stay ..."}), the type is not
+     * offered in the region, or the move would change CPU architecture.
+     */
+    private boolean intelApplicable;
+
+    /** Why {@link #intelApplicable} is false; null when the option is applicable. */
+    private String intelBlockedReason;
+
+    /** Whether the AMD option can be applied in place. See {@link #intelApplicable}. */
+    private boolean amdApplicable;
+
+    /** Why {@link #amdApplicable} is false; null when the option is applicable. */
+    private String amdBlockedReason;
+
+    /**
+     * True when at least one option changes CPU architecture (x86 &lt;-&gt; arm64). Such a move
+     * needs an AMI built for the target architecture, so it cannot be applied in place — the
+     * instance would fail to boot. The saving is still real if the image is rebuilt.
+     */
+    private boolean requiresArchitectureMigration;
 }

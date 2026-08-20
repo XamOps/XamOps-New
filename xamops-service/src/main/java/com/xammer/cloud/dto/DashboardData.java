@@ -628,6 +628,20 @@ public class DashboardData {
      */
     private boolean savingsUnknown;
 
+    /**
+     * True when the resource is billed at nothing, so cleaning it up frees no spend.
+     *
+     * <p>Unattached ENIs, unused security groups, empty log groups, idle ECS cluster
+     * records and ACM public certificates are all free. They are still worth surfacing as
+     * hygiene and blast-radius findings, but counting them alongside billable waste
+     * produced headline figures like "257 wasted resources — $18.83/mo", where the count
+     * and the amount describe almost disjoint sets of resources.
+     *
+     * <p>Distinct from {@link #savingsUnknown}: that means the cost is real but could not
+     * be priced, this means the cost is known to be zero.
+     */
+    private boolean noCostImpact;
+
     public WastedResource(String resourceId, String resourceName, String resourceType,
                           String region, double monthlySavings, String reason) {
       this.resourceId = resourceId;
@@ -637,6 +651,7 @@ public class DashboardData {
       this.monthlySavings = monthlySavings;
       this.reason = reason;
       this.savingsUnknown = false;
+      this.noCostImpact = false;
     }
 
     /**
@@ -647,6 +662,24 @@ public class DashboardData {
       WastedResource r = new WastedResource(resourceId, resourceName, resourceType, region, 0.0, reason);
       r.setSavingsUnknown(true);
       return r;
+    }
+
+    /**
+     * Creates a hygiene finding for a resource that is genuinely free.
+     *
+     * @see #noCostImpact
+     */
+    public static WastedResource withNoCostImpact(String resourceId, String resourceName,
+                                                  String resourceType, String region, String reason) {
+      WastedResource r = new WastedResource(resourceId, resourceName, resourceType, region, 0.0, reason);
+      r.setNoCostImpact(true);
+      return r;
+    }
+
+    /** True when this finding should contribute to a reclaimable-spend total. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isBillableWaste() {
+      return !savingsUnknown && !noCostImpact;
     }
   }
 

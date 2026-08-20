@@ -330,14 +330,14 @@ export const useEbsRightsizingData = ({ selectedAccountId }: UseEbsRightsizingDa
 
   const calculateRoi = useCallback(async (
     provisionedGb: number, utilizationPct: number,
-    growthRatePct: number, diskType: string
+    growthRatePct: number, diskType: string, region?: string
   ): Promise<RoiResult | null> => {
     try {
       const res = await fetch('/api/ebs/roi/calculate', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provisionedGb, utilizationPct, growthRatePct, diskType }),
+        body: JSON.stringify({ provisionedGb, utilizationPct, growthRatePct, diskType, region }),
       });
       return await res.json();
     } catch (e) {

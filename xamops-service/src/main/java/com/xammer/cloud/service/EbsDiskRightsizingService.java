@@ -62,15 +62,28 @@ public class EbsDiskRightsizingService {
     private static final String CACHE_KEY_VOLUMES = "ebs-volumes-";
     private static final int CACHE_TTL_MINUTES = 120;
 
-    // GP3 pricing per GB/month (us-east-1 base rate)
-    private static final double GP3_PRICE_PER_GB = 0.08;
-    private static final double GP2_PRICE_PER_GB = 0.10;
-    private static final double IO1_PRICE_PER_GB = 0.125;
-    private static final double IO2_PRICE_PER_GB = 0.125;
-    private static final double SC1_PRICE_PER_GB = 0.025;
-    private static final double ST1_PRICE_PER_GB = 0.045;
+    /**
+     * Last-resort GB/month rates, us-east-1 list price. Only used when the Price List API
+     * lookup fails or no region is known — every other path resolves the real regional rate
+     * through {@link PricingService#getEbsGbMonthPrice(String, String)}. These are understated
+     * outside us-east-1 (ap-south-1 gp3 is ~14% higher), so treat any figure derived from them
+     * as a floor rather than an estimate.
+     */
+    private static final Map<String, Double> FALLBACK_PRICE_PER_GB = Map.of(
+            "gp2", 0.10,
+            "gp3", 0.08,
+            "io1", 0.125,
+            "io2", 0.125,
+            "sc1", 0.025,
+            "st1", 0.045);
+
+    private static final double FALLBACK_DEFAULT_PRICE_PER_GB = 0.08;
+
+    /** Region assumed by the ROI calculator when the caller does not supply one. */
+    private static final String DEFAULT_ROI_REGION = "us-east-1";
 
     private final AwsClientProvider awsClientProvider;
+    private final PricingService pricingService;
     private final CloudAccountRepository cloudAccountRepository;
     private final DiskPolicyRepository diskPolicyRepository;
     private final EbsVolumeActionRepository ebsVolumeActionRepository;
@@ -181,8 +194,8 @@ public class EbsDiskRightsizingService {
         action.setNewType(targetType);
         action.setOldSizeGb(vol.size());
         action.setNewSizeGb(vol.size());
-        action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size())
-                - calcMonthlyCost(targetType, vol.size()));
+        action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size(), region)
+                - calcMonthlyCost(targetType, vol.size(), region));
 
         boolean isAsg = asgName != null && !asgName.isBlank();
         if (isAsg) {
@@ -234,8 +247,8 @@ public class EbsDiskRightsizingService {
         }
         ec2.modifyVolume(modifyBuilder.build());
 
-        action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size())
-                - calcMonthlyCost(action.getNewType(), targetSizeGb));
+        action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size(), action.getRegion())
+                - calcMonthlyCost(action.getNewType(), targetSizeGb, action.getRegion()));
         action.setStatus("SUCCESS");
         action.setCompletedAt(Instant.now());
         ebsVolumeActionRepository.save(action);
@@ -259,7 +272,7 @@ public class EbsDiskRightsizingService {
 
         action.setOldType(vol.volumeTypeAsString());
         action.setOldSizeGb(vol.size());
-        action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size()));
+        action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size(), region));
 
         ec2.deleteVolume(DeleteVolumeRequest.builder().volumeId(volumeId).build());
 
@@ -323,9 +336,17 @@ public class EbsDiskRightsizingService {
 
     // ─── ROI Calculator ───────────────────────────────────────────────────────────
 
+    /**
+     * Projects the saving from right-sizing a hypothetical volume.
+     *
+     * @param region region whose rates to price against; defaults to {@value #DEFAULT_ROI_REGION}
+     *               when null so the figure is never silently priced at the wrong rate without
+     *               the response saying which region was used
+     */
     public Map<String, Object> calculateRoi(int provisionedGb, double utilizationPct,
-                                             double growthRatePct, String diskType) {
-        double currentCostPerMonth = calcMonthlyCost(diskType, provisionedGb);
+                                             double growthRatePct, String diskType, String region) {
+        String pricingRegion = (region == null || region.isBlank()) ? DEFAULT_ROI_REGION : region;
+        double currentCostPerMonth = calcMonthlyCost(diskType, provisionedGb, pricingRegion);
 
         // Target size: actual used data + growth headroom to reach 75% utilization
         double usedGb = provisionedGb * (utilizationPct / 100.0);
@@ -334,7 +355,7 @@ public class EbsDiskRightsizingService {
 
         // Always recommend gp3 (cheapest general-purpose type)
         String recommendedType = "gp3";
-        double newCostPerMonth = calcMonthlyCost(recommendedType, (int) targetGb);
+        double newCostPerMonth = calcMonthlyCost(recommendedType, (int) targetGb, pricingRegion);
 
         double monthlySavings = currentCostPerMonth - newCostPerMonth;
         double firstYearSavings = monthlySavings * 12;
@@ -343,6 +364,7 @@ public class EbsDiskRightsizingService {
 
         Map<String, Object> result = new HashMap<>();
         result.put("provisionedGb", provisionedGb);
+        result.put("region", pricingRegion);
         result.put("utilizationPct", utilizationPct);
         result.put("targetGb", (int) targetGb);
         result.put("currentType", diskType);
@@ -376,7 +398,7 @@ public class EbsDiskRightsizingService {
                     dto.put("volumeType", vol.volumeTypeAsString());
                     dto.put("sizeGb", vol.size());
                     dto.put("state", vol.stateAsString());
-                    dto.put("monthlyCost", Math.round(calcMonthlyCost(vol.volumeTypeAsString(), vol.size()) * 100.0) / 100.0);
+                    dto.put("monthlyCost", Math.round(calcMonthlyCost(vol.volumeTypeAsString(), vol.size(), region) * 100.0) / 100.0);
 
                     String deleteAfter = vol.tags().stream()
                             .filter(t -> "XamOps-DeleteAfter".equals(t.key()))
@@ -486,8 +508,8 @@ public class EbsDiskRightsizingService {
         action.setNewType(vol.volumeTypeAsString());
         action.setOldSizeGb(vol.size());
         action.setNewSizeGb(targetSizeGb);
-        action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size())
-                - calcMonthlyCost(vol.volumeTypeAsString(), targetSizeGb));
+        action.setEstimatedSavings(calcMonthlyCost(vol.volumeTypeAsString(), vol.size(), region)
+                - calcMonthlyCost(vol.volumeTypeAsString(), targetSizeGb, region));
         action.setStatus("PENDING");
         action.setInitiatedAt(Instant.now());
         EbsVolumeAction saved = ebsVolumeActionRepository.save(action);
@@ -892,6 +914,33 @@ public class EbsDiskRightsizingService {
      * @param awsAccountId    AWS account id
      * @param excludedVolumeIds volume ids already counted by another savings source
      */
+    /**
+     * Resize-only savings: excludes {@code DELETE_UNATTACHED} regardless of volume id.
+     *
+     * <p>For callers that know the waste report always books unattached volumes at full cost
+     * but do not have the waste list to hand. {@link #getTotalPotentialSavingsExcluding} needs
+     * the caller to pass the overlapping ids; this encodes the same invariant by recommendation
+     * type, so a caller cannot silently double-count by forgetting to build the exclusion set.
+     */
+    public double getResizeOnlyPotentialSavings(String awsAccountId) {
+        if (awsAccountId == null || awsAccountId.isBlank()) return 0.0;
+        Optional<List<Map<String, Object>>> cached = redisCacheService.get(
+                CACHE_KEY_VOLUMES + awsAccountId,
+                new TypeReference<List<Map<String, Object>>>() {});
+        if (cached.isEmpty()) return 0.0;
+        return cached.get().stream()
+                .filter(v -> !"NONE".equals(v.get("recommendation")))
+                // Counted by the waste detector at full monthly cost.
+                .filter(v -> !"DELETE_UNATTACHED".equals(v.get("recommendation")))
+                // EXPAND raises cost rather than saving.
+                .filter(v -> !"EXPAND".equals(v.get("recommendation")))
+                .mapToDouble(v -> {
+                    Object s = v.get("estimatedSavings");
+                    return s instanceof Number ? ((Number) s).doubleValue() : 0.0;
+                })
+                .sum();
+    }
+
     public double getTotalPotentialSavingsExcluding(String awsAccountId, Set<String> excludedVolumeIds) {
         if (awsAccountId == null || awsAccountId.isBlank()) return 0.0;
         Optional<List<Map<String, Object>>> cached = redisCacheService.get(
@@ -1007,6 +1056,7 @@ public class EbsDiskRightsizingService {
             String  currentRec = (String) vol.get("recommendation");
             String  state      = (String) vol.get("state");
             String  volumeType = (String) vol.get("volumeType");
+            String  volRegion  = (String) vol.get("region");
             int     sizeGb     = ((Number) vol.get("sizeGb")).intValue();
             boolean isRoot     = Boolean.TRUE.equals(vol.get("isRootVolume"));
 
@@ -1029,7 +1079,8 @@ public class EbsDiskRightsizingService {
                 double usedGb       = sizeGb * usedPct / 100.0;
                 int    targetSizeGb = Math.max(10, (int) Math.ceil(usedGb / 0.40));
                 if (targetSizeGb < (int)(sizeGb * 0.70)) {
-                    double savings = calcMonthlyCost(volumeType, sizeGb) - calcMonthlyCost(volumeType, targetSizeGb);
+                    double savings = calcMonthlyCost(volumeType, sizeGb, volRegion)
+                            - calcMonthlyCost(volumeType, targetSizeGb, volRegion);
                     String reason = isRoot
                         ? String.format("Root volume is only %.0f%% used — migrate to new %dGB volume to save $%.2f/mo (requires instance stop)", usedPct, targetSizeGb, savings)
                         : String.format("Volume is only %.0f%% used — shrink from %dGB to %dGB to save $%.2f/mo", usedPct, sizeGb, targetSizeGb, savings);
@@ -1326,16 +1377,16 @@ public class EbsDiskRightsizingService {
         }
 
         // Cost
-        double monthlyCost = calcMonthlyCost(vol.volumeTypeAsString(), vol.size());
+        double monthlyCost = calcMonthlyCost(vol.volumeTypeAsString(), vol.size(), region);
         dto.put("monthlyCost", Math.round(monthlyCost * 100.0) / 100.0);
 
         // Recommendation logic
-        buildRecommendation(dto, vol);
+        buildRecommendation(dto, vol, region);
 
         return dto;
     }
 
-    private void buildRecommendation(Map<String, Object> dto, Volume vol) {
+    private void buildRecommendation(Map<String, Object> dto, Volume vol, String region) {
         String volumeType = vol.volumeTypeAsString();
         String state = vol.stateAsString();
         int sizeGb = vol.size();
@@ -1344,7 +1395,7 @@ public class EbsDiskRightsizingService {
         if ("available".equals(state)) {
             dto.put("recommendation", "DELETE_UNATTACHED");
             dto.put("recommendationReason", "Volume is not attached to any instance");
-            dto.put("estimatedSavings", Math.round(calcMonthlyCost(volumeType, sizeGb) * 100.0) / 100.0);
+            dto.put("estimatedSavings", Math.round(calcMonthlyCost(volumeType, sizeGb, region) * 100.0) / 100.0);
             dto.put("recommendedType", volumeType);
             dto.put("recommendedSizeGb", sizeGb);
             return;
@@ -1352,7 +1403,7 @@ public class EbsDiskRightsizingService {
 
         // 2. gp2 → gp3 upgrade (always beneficial, same or better performance)
         if ("gp2".equals(volumeType)) {
-            double savings = (GP2_PRICE_PER_GB - GP3_PRICE_PER_GB) * sizeGb;
+            double savings = (gbMonthPrice("gp2", region) - gbMonthPrice("gp3", region)) * sizeGb;
             dto.put("recommendation", "UPGRADE_TYPE");
             dto.put("recommendationReason", "gp3 offers same performance with 20% lower cost");
             dto.put("recommendedType", "gp3");
@@ -1364,7 +1415,7 @@ public class EbsDiskRightsizingService {
         // 3. io1 volumes — recommend downgrade to gp3 if IOPS are low
         // (Without CloudWatch data here, we flag io1 volumes under 100GB as likely candidates)
         if ("io1".equals(volumeType) && sizeGb <= 100) {
-            double savings = (IO1_PRICE_PER_GB - GP3_PRICE_PER_GB) * sizeGb;
+            double savings = (gbMonthPrice("io1", region) - gbMonthPrice("gp3", region)) * sizeGb;
             dto.put("recommendation", "UPGRADE_TYPE");
             dto.put("recommendationReason", "io1 volume may be over-provisioned for workload size; consider gp3");
             dto.put("recommendedType", "gp3");
@@ -1436,8 +1487,8 @@ public class EbsDiskRightsizingService {
                         int recommendedSizeGb  = cfg.volumeSize() != null ? cfg.volumeSize() : currentSizeGb;
                         String recommendedType = cfg.volumeType() != null ? cfg.volumeType() : currentType;
 
-                        double currentCost  = calcMonthlyCost(currentType, currentSizeGb);
-                        double recommendedCost = calcMonthlyCost(recommendedType, recommendedSizeGb);
+                        double currentCost  = calcMonthlyCost(currentType, currentSizeGb, region);
+                        double recommendedCost = calcMonthlyCost(recommendedType, recommendedSizeGb, region);
                         double savings = currentCost - recommendedCost;
 
                         if (recommendedSizeGb < currentSizeGb && savings > 0) {
@@ -1467,18 +1518,41 @@ public class EbsDiskRightsizingService {
         }
     }
 
-    private double calcMonthlyCost(String volumeType, int sizeGb) {
-        double pricePerGb;
-        switch (volumeType) {
-            case "gp2":   pricePerGb = GP2_PRICE_PER_GB; break;
-            case "gp3":   pricePerGb = GP3_PRICE_PER_GB; break;
-            case "io1":   pricePerGb = IO1_PRICE_PER_GB; break;
-            case "io2":   pricePerGb = IO2_PRICE_PER_GB; break;
-            case "sc1":   pricePerGb = SC1_PRICE_PER_GB; break;
-            case "st1":   pricePerGb = ST1_PRICE_PER_GB; break;
-            default:      pricePerGb = GP3_PRICE_PER_GB; break;
+    /**
+     * Monthly cost of a volume at the real regional GB-month rate.
+     *
+     * <p>Resolved through the AWS Price List API and cached per region+type, so a scan of
+     * hundreds of volumes costs at most one lookup per distinct volume type per region.
+     * Falls back to us-east-1 list price only when the lookup yields nothing usable.
+     *
+     * @param region the volume's region; when null or blank the fallback table is used
+     */
+    private double calcMonthlyCost(String volumeType, int sizeGb, String region) {
+        return gbMonthPrice(volumeType, region) * sizeGb;
+    }
+
+    /**
+     * Regional GB-month price for an EBS volume type, with the static table as fallback.
+     */
+    private double gbMonthPrice(String volumeType, String region) {
+        String type = volumeType == null ? "gp3" : volumeType.toLowerCase();
+        double fallback = FALLBACK_PRICE_PER_GB.getOrDefault(type, FALLBACK_DEFAULT_PRICE_PER_GB);
+
+        if (region == null || region.isBlank()) {
+            return fallback;
         }
-        return pricePerGb * sizeGb;
+        try {
+            double live = pricingService.getEbsGbMonthPrice(region, type);
+            if (live > 0) {
+                return live;
+            }
+            logger.warn("[EBS] Price List API returned {} for {} in {} — falling back to {}/GB-mo",
+                    live, type, region, fallback);
+        } catch (Exception e) {
+            logger.warn("[EBS] EBS price lookup failed for {} in {}: {} — falling back to {}/GB-mo",
+                    type, region, e.getMessage(), fallback);
+        }
+        return fallback;
     }
 
 }

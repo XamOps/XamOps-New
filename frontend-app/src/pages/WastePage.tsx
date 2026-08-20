@@ -31,8 +31,12 @@ export const WastePage: React.FC = () => {
       return acc;
     }, {} as Record<string, ServiceGroup>);
     return Object.values(groups).sort((a, b) => {
-      const savA = a.resources.reduce((s, r) => s + (r.monthlySavings || 0), 0);
-      const savB = b.resources.reduce((s, r) => s + (r.monthlySavings || 0), 0);
+      // Sort by billable savings so free hygiene groups sink below groups that cost money.
+      const billableTotal = (g: ServiceGroup) => g.resources
+        .filter(r => !r.noCostImpact && !r.savingsUnknown)
+        .reduce((s, r) => s + (r.monthlySavings || 0), 0);
+      const savA = billableTotal(a);
+      const savB = billableTotal(b);
       return savB - savA;
     });
   }, [wastedResources, expandedGroups]);

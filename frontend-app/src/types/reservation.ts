@@ -72,10 +72,24 @@ export interface PurchaseRecommendation {
   instanceFamily: string;
   region: string;
   platform: string;
-  recommendedInstances: number;
+  /** Serialised as a string by the backend, not a number. */
+  recommendedInstances: string | number;
   onDemandCost: string;
   estimatedMonthlyCost: string;
   monthlySavings: string;
+  /**
+   * The term Cost Explorer actually returned for this recommendation, e.g. `ONE_YEAR`.
+   * Was previously absent from this type, so the table fell back to rendering the filter
+   * state and could not show a row whose term differed from the current selection.
+   */
+  term?: string;
+  instanceType?: string;
+  tenancy?: string;
+  recommendedUnits?: string;
+  minimumUnits?: string;
+  /** `Current` or `Previous` generation. */
+  generation?: string;
+  sizeFlex?: boolean;
 }
 
 export interface ReservationData {

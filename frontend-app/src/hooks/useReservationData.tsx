@@ -102,6 +102,8 @@ interface UseReservationDataReturn {
   data: ReservationData;
   isLoading: boolean;
   isRecsLoading: boolean;
+  /** True when the recommendation set is missing at least one service. */
+  recsIncomplete: boolean;
   isSpRecsLoading: boolean;
   error: Error | null;
   recFilters: RecommendationFilters;
@@ -128,6 +130,11 @@ export const useReservationData = ({
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRecsLoading, setIsRecsLoading] = useState(false);
+  /**
+   * True when at least one reservable service could not be queried, so an empty result must
+   * not be presented as "fully optimized".
+   */
+  const [recsIncomplete, setRecsIncomplete] = useState(false);
   const [isSpRecsLoading, setIsSpRecsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -246,6 +253,11 @@ export const useReservationData = ({
       }
 
       setIsRecsLoading(true);
+      // Clear the previous result set. Without this the table kept showing rows fetched under
+      // the old filters while the new request was in flight, so a 1-year row could appear
+      // under a 3-year selection.
+      setData((prev) => ({ ...prev, purchaseRecommendations: [] }));
+      setRecsIncomplete(false);
 
       try {
         const url = `/api/xamops/reservations/recommendations?accountId=${selectedAccountId}&term=${term}&paymentOption=${paymentOption}&lookback=${lookback}&offeringClass=${offeringClass}&forceRefresh=${forceRefresh}`;
@@ -263,14 +275,24 @@ export const useReservationData = ({
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
+        // The backend reports whether every reservable service answered. An empty list with
+        // complete=false means the lookup failed, not that the account is fully optimized.
+        const complete = response.headers.get('X-Recommendations-Complete') !== 'false';
+        const failedServices = response.headers.get('X-Recommendations-Failed-Services') || '';
+
         const recommendations: PurchaseRecommendation[] = await response.json();
-        console.log('[Reservation] Recommendations fetched:', recommendations.length);
+        console.log('[Reservation] Recommendations fetched:', recommendations.length,
+          complete ? '(complete)' : `(INCOMPLETE — failed: ${failedServices})`);
 
         setData((prev) => ({
           ...prev,
           purchaseRecommendations: recommendations,
         }));
-        setCachedData(cacheKey, recommendations);
+        setRecsIncomplete(!complete);
+        // Only cache a result we can stand behind, so a failed lookup does not stick.
+        if (complete) {
+          setCachedData(cacheKey, recommendations);
+        }
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         console.error('[Reservation] Failed to load recommendations:', err);
@@ -278,6 +300,7 @@ export const useReservationData = ({
           ...prev,
           purchaseRecommendations: [],
         }));
+        setRecsIncomplete(true);
       } finally {
         setIsRecsLoading(false);
       }
@@ -335,6 +358,7 @@ export const useReservationData = ({
     data,
     isLoading,
     isRecsLoading,
+    recsIncomplete,
     isSpRecsLoading,
     error,
     recFilters,

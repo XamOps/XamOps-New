@@ -34,6 +34,21 @@ export interface XamOpsRecommendation {
   approxCostSavings: string;
   reason: string;
   region?: string;
+  /** Live monthly cost of the current instance in its own region, USD. */
+  currentMonthlyCost?: number | null;
+  intelMonthlyCost?: number | null;
+  amdMonthlyCost?: number | null;
+  /** Best realizable monthly saving in USD across both options. */
+  estimatedMonthlySavings?: number;
+  /** True when no saving could be priced — exclude from totals. */
+  savingsUnknown?: boolean;
+  /** Whether each option can be applied via stop / modify / start. */
+  intelApplicable?: boolean;
+  intelBlockedReason?: string | null;
+  amdApplicable?: boolean;
+  amdBlockedReason?: string | null;
+  /** True when an option crosses x86 <-> arm64 and needs a rebuilt AMI. */
+  requiresArchitectureMigration?: boolean;
 }
 
 interface UseRightsizingDataOptions {
