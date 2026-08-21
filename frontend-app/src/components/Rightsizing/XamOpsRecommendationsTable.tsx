@@ -72,6 +72,30 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
         const intelUtil = extractUtilization(rec.intelRecommendation);
         const amdUtil = extractUtilization(rec.amdRecommendation);
 
+        // The backend decides applicability: a column may be "Stay ...", unavailable in the
+        // region, or a cross-architecture move that cannot be applied in place. Older cached
+        // payloads predate these flags, so treat an undefined flag as applicable.
+        const intelBlocked = rec.intelApplicable === false;
+        const amdBlocked = rec.amdApplicable === false;
+
+        const intelTitle = !canApply
+          ? 'Read-write access required'
+          : !rec.region
+            ? 'Region not available'
+            : intelBlocked
+              ? rec.intelBlockedReason || 'Not applicable'
+              : `Apply Intel: ${intelType}`;
+        const amdTitle = !canApply
+          ? 'Read-write access required'
+          : !rec.region
+            ? 'Region not available'
+            : amdBlocked
+              ? rec.amdBlockedReason || 'Not applicable'
+              : `Apply AMD: ${amdType}`;
+
+        const intelEnabled = canApply && !!rec.region && !!onApply && !intelBlocked;
+        const amdEnabled = canApply && !!rec.region && !!onApply && !amdBlocked;
+
         return (
           <motion.div
             key={`${rec.instanceId || rec.currentInstance}-${idx}`}
@@ -89,6 +113,15 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                 <p className="font-semibold text-[rgba(0,0,0,0.88)] truncate text-[13px]">{rec.instanceName || rec.instanceId || 'N/A'}</p>
                 {rec.instanceName && (
                   <p className="text-[10px] font-mono text-[rgba(0,0,0,0.35)] truncate">{rec.instanceId}</p>
+                )}
+                {rec.requiresArchitectureMigration && (
+                  <span
+                    className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                    title={rec.intelBlockedReason || rec.amdBlockedReason || undefined}
+                  >
+                    <Icon icon="mdi:alert-outline" width={9} aria-hidden="true" />
+                    Needs AMI rebuild
+                  </span>
                 )}
               </div>
             </div>
@@ -119,17 +152,40 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
             {/* Projected max util */}
             <div className="col-span-1 text-[rgba(0,0,0,0.55)]">{rec.projectedMaxUtil}</div>
 
-            {/* Savings */}
-            <div className="col-span-1 font-semibold text-emerald-600">{rec.approxCostSavings}</div>
+            {/* Savings — prefer the live-priced dollar figure over the source sheet's
+                percentage-range string, which cannot be summed into a total. */}
+            <div className="col-span-1">
+              {rec.savingsUnknown ? (
+                <span
+                  className="text-[11px] font-medium text-[rgba(0,0,0,0.4)]"
+                  title="Could not price this option in the instance's region"
+                >
+                  Unknown
+                </span>
+              ) : rec.estimatedMonthlySavings ? (
+                <>
+                  <p className="font-semibold text-emerald-600">
+                    ${rec.estimatedMonthlySavings.toFixed(2)}
+                    <span className="text-[10px] font-normal text-[rgba(0,0,0,0.4)]">/mo</span>
+                  </p>
+                  {rec.approxCostSavings && (
+                    <p className="text-[10px] text-[rgba(0,0,0,0.35)]">{rec.approxCostSavings}</p>
+                  )}
+                </>
+              ) : (
+                <span className="font-semibold text-emerald-600">{rec.approxCostSavings}</span>
+              )}
+            </div>
 
             {/* Actions */}
             <div className="col-span-1 flex flex-col items-end gap-1">
               <button
-                onClick={() => onApply && rec.region && onApply(rec.instanceId, intelType, rec.region)}
-                disabled={!canApply || !rec.region || !onApply}
-                title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply Intel: ${intelType}`}
+                onClick={() => intelEnabled && onApply && rec.region && onApply(rec.instanceId, intelType, rec.region)}
+                disabled={!intelEnabled}
+                title={intelTitle}
+                aria-label={intelTitle}
                 className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border transition-all active:scale-95 ${
-                  canApply && rec.region
+                  intelEnabled
                     ? 'border-blue-200 text-blue-600 hover:bg-blue-50 cursor-pointer'
                     : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.25)] cursor-not-allowed'
                 }`}
@@ -138,11 +194,12 @@ const XamOpsRecommendationsTable: React.FC<XamOpsRecommendationsTableProps> = ({
                 Intel
               </button>
               <button
-                onClick={() => onApply && rec.region && onApply(rec.instanceId, amdType, rec.region)}
-                disabled={!canApply || !rec.region || !onApply}
-                title={!canApply ? 'Read-write access required' : !rec.region ? 'Region not available' : `Apply AMD: ${amdType}`}
+                onClick={() => amdEnabled && onApply && rec.region && onApply(rec.instanceId, amdType, rec.region)}
+                disabled={!amdEnabled}
+                title={amdTitle}
+                aria-label={amdTitle}
                 className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border transition-all active:scale-95 ${
-                  canApply && rec.region
+                  amdEnabled
                     ? 'border-purple-200 text-purple-600 hover:bg-purple-50 cursor-pointer'
                     : 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.25)] cursor-not-allowed'
                 }`}

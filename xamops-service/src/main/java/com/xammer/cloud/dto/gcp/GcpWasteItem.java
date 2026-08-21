@@ -66,6 +66,20 @@ public class GcpWasteItem {
     }
 
     /**
+     * True when the resource is billed at nothing, so cleaning it up frees no spend.
+     *
+     * <p>Firewall rules, empty instance groups, unused Compute SSL certificates and empty
+     * target pools are all free in GCP. They are worth surfacing as hygiene findings, but
+     * counting them alongside billable waste makes a resource count and a dollar total
+     * describe almost disjoint sets.
+     *
+     * <p>Distinct from {@link #savingsUnknown}: that means the cost is real but could not be
+     * priced, this means the cost is known to be zero. Both were previously represented by a
+     * bare {@code monthlySavings = 0.0}, which conflated them.
+     */
+    private boolean noCostImpact;
+
+    /**
      * Creates an item whose cost impact is real but not yet quantified, so that it is
      * counted as a finding without contributing a misleading zero to savings totals.
      */
@@ -74,5 +88,23 @@ public class GcpWasteItem {
         GcpWasteItem item = new GcpWasteItem(resourceId, resourceName, type, location, 0.0, reason);
         item.setSavingsUnknown(true);
         return item;
+    }
+
+    /**
+     * Creates a hygiene finding for a resource that GCP does not bill for.
+     *
+     * @see #noCostImpact
+     */
+    public static GcpWasteItem withNoCostImpact(String resourceId, String resourceName, String type,
+                                                String location, String reason) {
+        GcpWasteItem item = new GcpWasteItem(resourceId, resourceName, type, location, 0.0, reason);
+        item.setNoCostImpact(true);
+        return item;
+    }
+
+    /** True when this finding should contribute to a reclaimable-spend total. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isBillableWaste() {
+        return !savingsUnknown && !noCostImpact;
     }
 }

@@ -120,12 +120,26 @@ const WasteKPICards: React.FC<WasteKPICardsProps> = ({ wastedResources, isLoadin
     );
   }
 
-  const potentialSavings = wastedResources.reduce((sum, r) => sum + (r.monthlySavings || 0), 0);
-  const resourceCount = wastedResources.length;
+  // Split billable waste from hygiene findings. ENIs, unused security groups, empty log
+  // groups, idle ECS cluster records and ACM certificates are free, so counting them beside
+  // a dollar figure produced headlines like "257 resources — $18.83/mo", where the count and
+  // the amount described almost disjoint sets.
+  const billable = wastedResources.filter(r => !r.noCostImpact && !r.savingsUnknown);
+  const freeFindings = wastedResources.filter(r => r.noCostImpact);
+  const unpricedCount = wastedResources.filter(r => r.savingsUnknown && !r.noCostImpact).length;
+
+  const potentialSavings = billable.reduce((sum, r) => sum + (r.monthlySavings || 0), 0);
+  const resourceCount = billable.length;
+
+  const countSubtitle = [
+    'billable items',
+    freeFindings.length ? `${freeFindings.length} free` : null,
+    unpricedCount ? `${unpricedCount} unpriced` : null,
+  ].filter(Boolean).join(' · ');
 
   const highestWasteService = (() => {
-    if (!wastedResources.length) return null;
-    const groups = wastedResources.reduce((acc, r) => {
+    if (!billable.length) return null;
+    const groups = billable.reduce((acc, r) => {
       const k = r.resourceType || 'Other';
       if (!acc[k]) acc[k] = { serviceType: k, totalCost: 0, count: 0 } as HighestWasteService;
       acc[k].totalCost += r.monthlySavings || 0;
@@ -154,7 +168,7 @@ const WasteKPICards: React.FC<WasteKPICardsProps> = ({ wastedResources, isLoadin
         index={1}
         label="Wasted Resources"
         rawValue={resourceCount}
-        subtitle="items detected"
+        subtitle={countSubtitle}
         icon="mdi:alert-circle-outline"
         iconColor="#DC2626"
         iconBg="#DC262614"

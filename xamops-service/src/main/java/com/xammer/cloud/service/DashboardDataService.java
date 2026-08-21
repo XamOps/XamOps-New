@@ -2712,7 +2712,7 @@ public class DashboardDataService {
                     // Skip resources whose cost could not be priced, so an unpriced finding is
                     // never counted as if the resource were free.
                     double wasteSavings = wasted.stream()
-                            .filter(w -> !w.isSavingsUnknown())
+                            .filter(DashboardData.WastedResource::isBillableWaste)
                             .mapToDouble(DashboardData.WastedResource::getMonthlySavings)
                             .sum();
 
@@ -2785,6 +2785,36 @@ public class DashboardDataService {
                 });
     }
 
+    /**
+     * Sums only resize savings from a disk-rightsizing scan.
+     *
+     * <p>Excludes {@code DELETE_UNATTACHED}, which the waste report already books at full monthly
+     * cost, and {@code EXPAND}, which raises cost rather than saving. Also skips rows the scanner
+     * marked un-actionable — a GCP or Azure shrink that needs a migration is not realizable by
+     * the action the UI offers.
+     */
+    private double sumResizeOnlyDiskSavings(java.util.List<java.util.Map<String, Object>> disks) {
+        if (disks == null) {
+            return 0.0;
+        }
+        return disks.stream()
+                .filter(d -> {
+                    Object rec = d.get("recommendation");
+                    return rec != null
+                            && !"NONE".equals(rec)
+                            && !"DELETE_UNATTACHED".equals(rec)
+                            && !"EXPAND".equals(rec);
+                })
+                .filter(d -> !Boolean.FALSE.equals(d.get("actionable")))
+                .mapToDouble(d -> {
+                    Object s = d.get("estimatedSavings");
+                    double value = s instanceof Number ? ((Number) s).doubleValue() : 0.0;
+                    // A negative figure denotes a cost increase; never let it flip the sign.
+                    return Math.max(0.0, value);
+                })
+                .sum();
+    }
+
     private double computeAdditionalSavings(com.xammer.cloud.domain.CloudAccount account) {
         double total = 0.0;
         String provider = account.getProvider();
@@ -2801,9 +2831,13 @@ public class DashboardDataService {
                 logger.warn("[Dashboard] AutoSpotting savings unavailable for {}: {}", account.getAwsAccountId(),
                         e.getMessage());
             }
-            // EBS Disk Rightsizing savings
+            // EBS Disk Rightsizing savings. Unattached volumes must be excluded: the waste
+            // detector already books them at their full monthly price, and the disk-rightsizing
+            // scanner books the same volumes again under DELETE_UNATTACHED. Counting both
+            // double-charged every unattached volume into the dashboard KPI, which is why the
+            // headline figure could exceed the reconciled FinOps total.
             try {
-                total += ebsDiskRightsizingService.getTotalPotentialSavings(account.getAwsAccountId());
+                total += ebsDiskRightsizingService.getResizeOnlyPotentialSavings(account.getAwsAccountId());
             } catch (Exception e) {
 
                 logger.warn("[Dashboard] EBS disk savings unavailable for {}: {}", account.getAwsAccountId(),
@@ -2827,16 +2861,14 @@ public class DashboardDataService {
                 logger.warn("[Dashboard] GCP Spot savings unavailable for {}: {}", account.getGcpProjectId(),
                         e.getMessage());
             }
-            // GCP Disk Rightsizing
+            // GCP Disk Rightsizing — resize savings only. DELETE_UNATTACHED is already booked at
+            // full cost by the waste report's findUnattachedDisks, and EXPAND raises cost rather
+            // than saving. Counting either here inflated the KPI above the reconciled total, the
+            // same defect getResizeOnlyPotentialSavings fixes on the AWS side.
             try {
                 java.util.List<java.util.Map<String, Object>> disks = gcpDiskRightsizingService
                         .getDisks(account.getId().toString(), false);
-                total += disks.stream()
-                        .filter(d -> !"NONE".equals(d.get("recommendation")))
-                        .mapToDouble(d -> {
-                            Object s = d.get("estimatedSavings");
-                            return s instanceof Number ? ((Number) s).doubleValue() : 0.0;
-                        }).sum();
+                total += sumResizeOnlyDiskSavings(disks);
             } catch (Exception e) {
                 logger.warn("[Dashboard] GCP disk savings unavailable for {}: {}", account.getGcpProjectId(),
                         e.getMessage());
@@ -2862,13 +2894,8 @@ public class DashboardDataService {
                 Long ownerClientId = account.getClient() != null ? account.getClient().getId() : null;
                 java.util.List<java.util.Map<String, Object>> disks = azureDiskRightsizingService
                         .getDisks(account.getId().toString(), ownerClientId, false);
-                total += disks.stream()
-
-                        .filter(d -> !"NONE".equals(d.get("recommendation")))
-                        .mapToDouble(d -> {
-                            Object s = d.get("estimatedSavings");
-                            return s instanceof Number ? ((Number) s).doubleValue() : 0.0;
-                        }).sum();
+                // Resize savings only — see the GCP branch above for why.
+                total += sumResizeOnlyDiskSavings(disks);
             } catch (Exception e) {
                 logger.warn("[Dashboard] Azure disk savings unavailable for {}: {}", account.getAzureSubscriptionId(),
                         e.getMessage());
@@ -2888,7 +2915,10 @@ public class DashboardDataService {
                 .mapToDouble(DashboardData.OptimizationRecommendation::getEstimatedMonthlySavings)
                 .sum();
 
+        // Unpriced and genuinely-free findings must not contribute: their monthlySavings is a
+        // placeholder zero, and including them only inflated the accompanying resource count.
         double wasteSavings = wastedResources.stream()
+                .filter(DashboardData.WastedResource::isBillableWaste)
                 .mapToDouble(DashboardData.WastedResource::getMonthlySavings)
                 .sum();
 

@@ -1170,6 +1170,28 @@ public class GcpClientProvider {
         });
     }
 
+    /**
+     * Client for TargetSslProxies, used by TCP/SSL proxy load balancers.
+     *
+     * <p>Needed so the unused-certificate detector can see certificates attached to an SSL
+     * proxy. Checking only {@link #getTargetHttpsProxiesClient} reported those as unused while
+     * they were terminating live traffic.
+     */
+    public Optional<com.google.cloud.compute.v1.TargetSslProxiesClient> getTargetSslProxiesClient(
+            String gcpProjectId) {
+        return getCredentials(gcpProjectId).map(credentials -> {
+            try {
+                return com.google.cloud.compute.v1.TargetSslProxiesClient.create(
+                        com.google.cloud.compute.v1.TargetSslProxiesSettings.newBuilder()
+                                .setCredentialsProvider(() -> credentials).build());
+            } catch (IOException e) {
+                log.error("Failed to create TargetSslProxiesClient for project {}: {}",
+                        gcpProjectId, e.getMessage());
+                return null;
+            }
+        });
+    }
+
     public Optional<SslCertificatesClient> getSslCertificatesClient(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {

@@ -207,9 +207,6 @@ public class GcpOptimizationService {
     private static final int GCP_DETECTOR_POOL_MAX_SIZE = 64;
     private static final int GCP_DETECTOR_POOL_QUEUE_CAPACITY = 512;
 
-    /** Rough Cloud Logging retention overage per extra day of retention, in USD. */
-    private static final double EST_LOG_RETENTION_USD_PER_EXTRA_DAY = 0.01;
-
     /**
      * Minimum number of usable Cloud SQL backups always retained, regardless of age.
      * Prevents recommending deletion of an instance's only restore point.
@@ -238,6 +235,28 @@ public class GcpOptimizationService {
 
     /** Cloud NAT gateway uptime: ~$0.044/hour per gateway, excluding data processing. */
     private static final double EST_CLOUD_NAT_MONTHLY_USD = 0.044 * HOURS_PER_MONTH;
+
+    /** Cloud VPN tunnel: ~$0.05/hour per tunnel. */
+    private static final double EST_VPN_TUNNEL_MONTHLY_USD = 0.05 * HOURS_PER_MONTH;
+
+    /**
+     * VPN tunnel states that represent a durable failure rather than a transient one.
+     *
+     * <p>Deliberately an allowlist. Matching "anything but ESTABLISHED" caught tunnels that were
+     * still negotiating — {@code PROVISIONING}, {@code WAITING_FOR_FULL_CONFIG},
+     * {@code FIRST_HANDSHAKE}, {@code ALLOCATING_RESOURCES} — and healthy HA-VPN standby
+     * tunnels, which sit outside ESTABLISHED by design.
+     */
+    private static final Set<String> FAILED_VPN_TUNNEL_STATES = Set.of(
+            "NO_INCOMING_PACKETS",
+            "AUTHORIZATION_ERROR",
+            "NEGOTIATION_FAILURE",
+            "DEPROVISIONING",
+            "FAILED",
+            "REJECTED",
+            "STOPPED",
+            "PEER_IDENTITY_MISMATCH",
+            "TS_NARROWING_NOT_ALLOWED");
 
     /**
      * Monthly USD savings at or above which a recommendation is surfaced as a critical
@@ -358,7 +377,13 @@ public class GcpOptimizationService {
                 }
             }
         } catch (Exception e) {
-            log.error("Failed to fetch CUD inventory for project {}:", gcpProjectId, e);
+            // Do not persist the result of a failed fetch. An empty commitment inventory reads
+            // as "this project has no CUDs", and getCudUtilizationSummary derives and caches
+            // totalCuds: 0 from it — so one transient error asserted a confident wrong answer
+            // for 60 minutes in Redis and indefinitely in the DB snapshot.
+            log.error("Failed to fetch CUD inventory for project {} — not caching the partial result:",
+                    gcpProjectId, e);
+            return discounts;
         }
 
         redisCacheService.put(cacheKey, discounts, 60);
@@ -948,7 +973,7 @@ public class GcpOptimizationService {
                     "Idle Cloud SQL Instance", location));
         }
         fastFutures.add(findUnattachedDisks(gcpProjectId));
-        fastFutures.add(findUnusedCustomImages(gcpProjectId));
+        fastFutures.add(findUnusedCustomImages(gcpProjectId, locations));
         fastFutures.add(findUnusedFirewallRules(gcpProjectId));
         fastFutures.add(findOldSqlSnapshots(gcpProjectId));
         fastFutures.add(findOldComputeSnapshots(gcpProjectId));
@@ -1101,8 +1126,11 @@ public class GcpOptimizationService {
      * unpriced finding is never counted as zero-cost.
      */
     private double sumWasteSavings(List<GcpWasteItem> waste) {
+        // Excludes both unpriced items and genuinely-free ones. Free resources carry a real
+        // zero, so summing them is harmless, but filtering here keeps this total consistent
+        // with the billable count the UI shows beside it.
         return waste.stream()
-                .filter(w -> !w.isSavingsUnknown())
+                .filter(GcpWasteItem::isBillableWaste)
                 .mapToDouble(GcpWasteItem::getMonthlySavings)
                 .sum();
     }
@@ -1647,9 +1675,16 @@ public class GcpOptimizationService {
                         false)
                         .flatMap(entry -> entry.getValue().getDisksList().stream())
                         .filter(disk -> disk.getUsersList().isEmpty())
+                        // Kubernetes PersistentVolume disks read as unattached while their pod is
+                        // rescheduled, and deleting one destroys the volume's data. GKE names them
+                        // pvc-<uuid> and labels them goog-gke-volume. Azure guards this; GCP did
+                        // not.
+                        .filter(disk -> !isGkeVolume(disk.getName(), disk.getLabelsMap()))
                         // A disk detached moments ago during maintenance or a migration is not
-                        // waste. Without this guard a disk unattached for one minute was
-                        // recommended for deletion.
+                        // waste. Note this measures creation time, which is the only timestamp
+                        // the Disks API exposes — GCP does not report a detach time — so a
+                        // long-lived disk detached a minute ago is still reported. The GKE and
+                        // label guards above carry most of the protection.
                         .filter(disk -> !isWithinGracePeriod(disk.getCreationTimestamp()))
                         .map(disk -> {
                             String zoneUrl = disk.getZone();
@@ -1672,23 +1707,112 @@ public class GcpOptimizationService {
         }, executor);
     }
 
-    private CompletableFuture<List<GcpWasteItem>> findUnusedCustomImages(String gcpProjectId) {
+    /**
+     * Image names referenced as a boot source by any instance template in the project.
+     *
+     * <p>Deprecating an image does not stop a template from naming it, and Compute Engine will
+     * happily delete an image a template still points at. Nothing fails at delete time — the
+     * template breaks later, when a managed instance group next tries to create an instance from
+     * it. That surfaces as autoscaling and auto-healing silently ceasing to work, which is a far
+     * worse outcome than an error, so these images are excluded.
+     *
+     * @return the referenced image names, or empty when the templates could not be enumerated
+     */
+    private Optional<java.util.Set<String>> imageNamesUsedByInstanceTemplates(String gcpProjectId,
+            List<String> locations) {
+
+        java.util.Set<String> referenced = new java.util.HashSet<>();
+        boolean anyEnumerated = false;
+
+        Optional<com.google.cloud.compute.v1.InstanceTemplatesClient> globalOpt =
+                gcpClientProvider.getInstanceTemplatesClient(gcpProjectId);
+        if (globalOpt.isPresent()) {
+            try (var client = globalOpt.get()) {
+                for (var template : client.list(gcpProjectId).iterateAll()) {
+                    collectTemplateSourceImages(template, referenced);
+                }
+                anyEnumerated = true;
+            } catch (Exception e) {
+                log.warn("[GcpWaste] Could not list global instance templates for {}: {}",
+                        gcpProjectId, e.getMessage());
+            }
+        }
+
+        Optional<com.google.cloud.compute.v1.RegionInstanceTemplatesClient> regionalOpt =
+                gcpClientProvider.getRegionInstanceTemplatesClient(gcpProjectId);
+        if (regionalOpt.isPresent()) {
+            try (var client = regionalOpt.get()) {
+                for (String region : locations) {
+                    try {
+                        for (var template : client.list(gcpProjectId, region).iterateAll()) {
+                            collectTemplateSourceImages(template, referenced);
+                        }
+                        anyEnumerated = true;
+                    } catch (Exception e) {
+                        log.debug("[GcpWaste] Regional instance templates unavailable in {}: {}",
+                                region, e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GcpWaste] Could not list regional instance templates for {}: {}",
+                        gcpProjectId, e.getMessage());
+            }
+        }
+
+        // A partial view is not usable here: an image missing from an incomplete set looks unused.
+        return anyEnumerated ? Optional.of(referenced) : Optional.empty();
+    }
+
+    private void collectTemplateSourceImages(com.google.cloud.compute.v1.InstanceTemplate template,
+            java.util.Set<String> into) {
+        for (var disk : template.getProperties().getDisksList()) {
+            if (!disk.hasInitializeParams()) {
+                continue;
+            }
+            String sourceImage = disk.getInitializeParams().getSourceImage();
+            if (sourceImage != null && !sourceImage.isBlank()) {
+                // The value is a full or partial URL; the image name is its last segment.
+                into.add(sourceImage.substring(sourceImage.lastIndexOf('/') + 1));
+            }
+        }
+    }
+
+    private CompletableFuture<List<GcpWasteItem>> findUnusedCustomImages(String gcpProjectId,
+            List<String> locations) {
         return CompletableFuture.supplyAsync(() -> {
             log.info("Checking for unused custom images for project: {}", gcpProjectId);
             Optional<ImagesClient> clientOpt = gcpClientProvider.getImagesClient(gcpProjectId);
             if (clientOpt.isEmpty())
                 return List.of();
 
+            Optional<java.util.Set<String>> templateImages =
+                    imageNamesUsedByInstanceTemplates(gcpProjectId, locations);
+            if (templateImages.isEmpty()) {
+                log.warn("[GcpWaste] Instance templates could not be enumerated for {} — skipping the "
+                        + "deprecated image check rather than recommending deletion of an image a "
+                        + "template may still boot from", gcpProjectId);
+                return List.of();
+            }
+            java.util.Set<String> inUse = templateImages.get();
+
             try (ImagesClient client = clientOpt.get()) {
                 return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
                         .filter(image -> image.hasDeprecated() && "DEPRECATED".equals(image.getDeprecated().getState()))
+                        .filter(image -> {
+                            if (inUse.contains(image.getName())) {
+                                log.debug("[GcpWaste] Image {} is deprecated but still referenced by an "
+                                        + "instance template", image.getName());
+                                return false;
+                            }
+                            return true;
+                        })
                         .map(image -> new GcpWasteItem(
                                 image.getName(),
                                 image.getName(),
                                 "Deprecated Custom Image",
                                 "global",
                                 EST_IMAGE_STORAGE_COST_USD_PER_GB * image.getDiskSizeGb(),
-                                "Image is in DEPRECATED state"))
+                                "Image is in DEPRECATED state and no instance template boots from it"))
                         .collect(Collectors.toList());
             } catch (Exception e) {
                 log.error("Failed to list custom images for project {}:", gcpProjectId, e);
@@ -1707,12 +1831,12 @@ public class GcpOptimizationService {
             try (FirewallsClient client = clientOpt.get()) {
                 return StreamSupport.stream(client.list(gcpProjectId).iterateAll().spliterator(), false)
                         .filter(Firewall::getDisabled)
-                        .map(firewall -> new GcpWasteItem(
+                        // Firewall rules are free; a hygiene finding, not a saving.
+                        .map(firewall -> GcpWasteItem.withNoCostImpact(
                                 firewall.getName(),
                                 firewall.getName(),
                                 "Disabled Firewall Rule",
                                 "global",
-                                0.0,
                                 "Firewall rule is explicitly disabled"))
                         .collect(Collectors.toList());
             } catch (Exception e) {
@@ -1723,6 +1847,21 @@ public class GcpOptimizationService {
     }
 
     // Gap 3: Old Compute Engine snapshots (>90 days)
+    /**
+     * Gigabytes a snapshot actually stores.
+     *
+     * <p>Compute Engine snapshots are incremental: {@code storageBytes} is what is billed, while
+     * {@code diskSizeGb} is the provisioned size of the source disk. Falls back to the disk size
+     * only when {@code storageBytes} is unavailable, since overstating is safer than reporting
+     * zero cost for a snapshot that does occupy space.
+     */
+    private double snapshotStoredGb(com.google.cloud.compute.v1.Snapshot snap) {
+        if (snap.hasStorageBytes() && snap.getStorageBytes() > 0) {
+            return snap.getStorageBytes() / (1024.0 * 1024 * 1024);
+        }
+        return snap.getDiskSizeGb();
+    }
+
     private CompletableFuture<List<GcpWasteItem>> findOldComputeSnapshots(String gcpProjectId) {
         return CompletableFuture.supplyAsync(() -> {
             Optional<SnapshotsClient> clientOpt = gcpClientProvider.getSnapshotsClient(gcpProjectId);
@@ -1736,8 +1875,14 @@ public class GcpOptimizationService {
                 // point that disk had.
                 Map<String, List<com.google.cloud.compute.v1.Snapshot>> bySourceDisk = new HashMap<>();
                 for (var snap : client.list(gcpProjectId).iterateAll()) {
+                    // A blank sourceDisk means the source disk has been deleted, so this snapshot
+                    // may be the only remaining copy of that data. Keying them all under one
+                    // "(unknown)" bucket defeated the retention guard: MIN_RETAINED_DISK_SNAPSHOTS
+                    // kept ONE snapshot across every unrelated deleted disk in the project and
+                    // offered the rest for deletion. Key by the snapshot's own name so each is
+                    // treated as its own sole restore point and retained.
                     String sourceDisk = snap.getSourceDisk() == null || snap.getSourceDisk().isBlank()
-                            ? "(unknown)"
+                            ? "(orphaned)" + snap.getName()
                             : snap.getSourceDisk();
                     bySourceDisk.computeIfAbsent(sourceDisk, k -> new ArrayList<>()).add(snap);
                 }
@@ -1773,7 +1918,12 @@ public class GcpOptimizationService {
                                     snap.getName(),
                                     "Old Compute Snapshot",
                                     "global",
-                                    snap.getDiskSizeGb() * EST_SNAPSHOT_COST_USD_PER_GB,
+                                    // GCP snapshots are incremental and billed on the bytes they
+                                    // actually store, not on the source disk's provisioned size.
+                                    // Using diskSizeGb overstated a 500 GB disk's incremental
+                                    // snapshot — which may hold only a few GB of deltas — by two
+                                    // orders of magnitude.
+                                    snapshotStoredGb(snap) * EST_SNAPSHOT_COST_USD_PER_GB,
                                     String.format("Snapshot is older than 90 days. %d newer snapshot(s) of the "
                                             + "same disk are retained.", MIN_RETAINED_DISK_SNAPSHOTS)))
                             .forEach(items::add);
@@ -1787,6 +1937,30 @@ public class GcpOptimizationService {
     }
 
     // Gap 3: Reserved (unassigned) external IP addresses
+    /**
+     * Whether a persistent disk was provisioned by GKE for a PersistentVolume.
+     *
+     * <p>GKE names dynamically provisioned disks {@code pvc-<uuid>} and labels them
+     * {@code goog-gke-volume}. Such a disk shows no users while its pod is being rescheduled,
+     * so an unattached check alone will offer a live volume for deletion.
+     */
+    private boolean isGkeVolume(String diskName, Map<String, String> labels) {
+        if (diskName != null && diskName.toLowerCase().startsWith("pvc-")) {
+            return true;
+        }
+        if (labels != null) {
+            for (String key : labels.keySet()) {
+                if (key == null) continue;
+                String k = key.toLowerCase();
+                if (k.startsWith("goog-gke-") || k.startsWith("kubernetes.io/")
+                        || k.startsWith("k8s-")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private CompletableFuture<List<GcpWasteItem>> findReservedUnusedIps(String gcpProjectId) {
         return CompletableFuture.supplyAsync(() -> {
             Optional<AddressesClient> clientOpt = gcpClientProvider.getAddressesClient(gcpProjectId);
@@ -1796,6 +1970,18 @@ public class GcpOptimizationService {
                         client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
                         .flatMap(entry -> entry.getValue().getAddressesList().stream())
                         .filter(addr -> "RESERVED".equals(addr.getStatus()))
+                        // Only external addresses carry the unused-IP charge. Internal ranges
+                        // reserved for Private Services Access (purpose VPC_PEERING) sit in
+                        // RESERVED permanently by design and carry load — they back Cloud SQL and
+                        // Memorystore private connectivity — so flagging them proposed breaking
+                        // private access for a saving that does not exist.
+                        .filter(addr -> !"INTERNAL".equalsIgnoreCase(addr.getAddressType()))
+                        .filter(addr -> {
+                            String purpose = addr.getPurpose() == null ? "" : addr.getPurpose();
+                            return !purpose.contains("VPC_PEERING")
+                                    && !purpose.contains("PRIVATE_SERVICE_CONNECT")
+                                    && !purpose.contains("SHARED_LOADBALANCER_VIP");
+                        })
                         // An address reserved seconds ago for a pending deployment is not waste.
                         .filter(addr -> !isWithinGracePeriod(addr.getCreationTimestamp()))
                         .map(addr -> new GcpWasteItem(
@@ -1868,12 +2054,14 @@ public class GcpOptimizationService {
                     boolean hasSubscribers = topicClient.listTopicSubscriptions(topicName).iterateAll().iterator().hasNext();
                     if (!hasSubscribers) {
                         String shortName = topicName.substring(topicName.lastIndexOf('/') + 1);
-                        items.add(new GcpWasteItem(
+                        // Pub/Sub bills throughput and retained message storage, not the
+                        // existence of a topic. A topic with no subscriptions retains nothing,
+                        // so there is no standing charge to reclaim.
+                        items.add(GcpWasteItem.withNoCostImpact(
                                 topicName,
                                 shortName,
                                 "Idle Pub/Sub Topic",
                                 "global",
-                                0.0,
                                 "Topic has no subscriptions"));
                     }
                 }
@@ -3235,8 +3423,9 @@ public class GcpOptimizationService {
                         if (igm.getTargetSize() == 0) {
                             String zoneUrl = igm.getZone();
                             String zone = zoneUrl.contains("/") ? zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1) : zoneUrl;
-                            items.add(new GcpWasteItem(igm.getName(), igm.getName(),
-                                    "Empty Instance Group", zone, 0.0,
+                            // A MIG resource itself is free.
+                            items.add(GcpWasteItem.withNoCostImpact(igm.getName(), igm.getName(),
+                                    "Empty Instance Group", zone,
                                     "Managed instance group has 0 target instances"));
                         }
                     }
@@ -3257,6 +3446,8 @@ public class GcpOptimizationService {
             if (certOpt.isEmpty()) return List.of();
             try (SslCertificatesClient certClient = certOpt.get()) {
                 Set<String> usedCertSelfLinks = new HashSet<>();
+                boolean proxyScanComplete = true;
+
                 if (proxyOpt.isPresent()) {
                     try (TargetHttpsProxiesClient proxyClient = proxyOpt.get()) {
                         StreamSupport.stream(proxyClient.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
@@ -3264,15 +3455,45 @@ public class GcpOptimizationService {
                                 .forEach(proxy -> usedCertSelfLinks.addAll(proxy.getSslCertificatesList()));
                     } catch (Exception e) {
                         log.warn("[GcpWaste] Could not list TargetHttpsProxies: {}", e.getMessage());
+                        proxyScanComplete = false;
                     }
+                } else {
+                    proxyScanComplete = false;
+                }
+
+                // A certificate can also be attached to a TargetSslProxy, used by TCP/SSL
+                // proxy load balancers. Checking only HTTPS proxies reported those certificates
+                // as unused while they were terminating live traffic.
+                Optional<com.google.cloud.compute.v1.TargetSslProxiesClient> sslProxyOpt =
+                        gcpClientProvider.getTargetSslProxiesClient(gcpProjectId);
+                if (sslProxyOpt.isPresent()) {
+                    try (var sslProxyClient = sslProxyOpt.get()) {
+                        for (var proxy : sslProxyClient.list(gcpProjectId).iterateAll()) {
+                            usedCertSelfLinks.addAll(proxy.getSslCertificatesList());
+                        }
+                    } catch (Exception e) {
+                        log.warn("[GcpWaste] Could not list TargetSslProxies: {}", e.getMessage());
+                        proxyScanComplete = false;
+                    }
+                } else {
+                    proxyScanComplete = false;
+                }
+
+                // Without a complete picture of what references each certificate, "unused" cannot
+                // be established. Reporting anyway would flag live certificates.
+                if (!proxyScanComplete) {
+                    log.info("[GcpWaste] Skipping unused-SSL-certificate detection for {} — the set of "
+                            + "certificate consumers could not be enumerated in full", gcpProjectId);
+                    return List.of();
                 }
                 List<GcpWasteItem> items = new ArrayList<>();
                 StreamSupport.stream(certClient.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
                         .flatMap(e -> e.getValue().getSslCertificatesList().stream())
                         .filter(cert -> !usedCertSelfLinks.contains(cert.getSelfLink()))
-                        .forEach(cert -> items.add(new GcpWasteItem(
+                        // Classic Compute SSL certificates carry no charge.
+                        .forEach(cert -> items.add(GcpWasteItem.withNoCostImpact(
                                 cert.getName(), cert.getName(),
-                                "Unused SSL Certificate", "global", 0.0,
+                                "Unused SSL Certificate", "global",
                                 "Certificate is not attached to any HTTPS proxy")));
                 return items;
             } catch (Exception e) {
@@ -3291,13 +3512,21 @@ public class GcpOptimizationService {
                 List<GcpWasteItem> items = new ArrayList<>();
                 StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
                         .flatMap(e -> e.getValue().getVpnTunnelsList().stream())
-                        .filter(t -> !"ESTABLISHED".equalsIgnoreCase(t.getStatus()))
+                        // Only durably-failed tunnels. "Not ESTABLISHED" also matched tunnels that
+                        // are mid-negotiation (PROVISIONING, WAITING_FOR_FULL_CONFIG,
+                        // FIRST_HANDSHAKE, ALLOCATING_RESOURCES) and healthy HA-VPN standby
+                        // tunnels, so a tunnel being brought up was reported as waste and
+                        // deleting it would have destroyed a config negotiated with an on-prem
+                        // peer.
+                        .filter(t -> FAILED_VPN_TUNNEL_STATES.contains(
+                                t.getStatus() == null ? "" : t.getStatus().toUpperCase()))
                         .forEach(t -> {
                             String regionUrl = t.getRegion();
                             String region = regionUrl.contains("/") ? regionUrl.substring(regionUrl.lastIndexOf('/') + 1) : regionUrl;
                             items.add(new GcpWasteItem(t.getName(), t.getName(),
-                                    "Down VPN Tunnel", region, 36.0,
-                                    "VPN tunnel status is " + t.getStatus() + " (not ESTABLISHED)"));
+                                    "Down VPN Tunnel", region, EST_VPN_TUNNEL_MONTHLY_USD,
+                                    "VPN tunnel status is " + t.getStatus()
+                                            + " — a durable failure, not a transient handshake state"));
                         });
                 return items;
             } catch (Exception e) {
@@ -3320,8 +3549,9 @@ public class GcpOptimizationService {
                         .forEach(tp -> {
                             String regionUrl = tp.getRegion();
                             String region = regionUrl.contains("/") ? regionUrl.substring(regionUrl.lastIndexOf('/') + 1) : regionUrl;
-                            items.add(new GcpWasteItem(tp.getName(), tp.getName(),
-                                    "Empty Target Pool", region, 0.0,
+                            // Target pools are free.
+                            items.add(GcpWasteItem.withNoCostImpact(tp.getName(), tp.getName(),
+                                    "Empty Target Pool", region,
                                     "Target pool has no backend instances"));
                         });
                 return items;
@@ -3369,8 +3599,12 @@ public class GcpOptimizationService {
                                     .build();
                             boolean hasData = metricsClient.listTimeSeries(req).iterateAll().iterator().hasNext();
                             if (!hasData) {
-                                items.add(new GcpWasteItem(fn.getName(), fnName,
-                                        "Cloud Function (0 invocations)", location, 0.0,
+                                // There is no idle compute charge, but a deployed function
+                                // still stores its source archive and container image, so the
+                                // cost is real rather than zero. Reported as unpriced because
+                                // the artifact size is not available here.
+                                items.add(GcpWasteItem.withUnknownSavings(fn.getName(), fnName,
+                                        "Cloud Function (0 invocations)", location,
                                         "No invocations in 30 days"));
                             }
                         }
@@ -3394,13 +3628,36 @@ public class GcpOptimizationService {
                 List<GcpWasteItem> items = new ArrayList<>();
                 String parent = "projects/" + gcpProjectId + "/locations/-";
                 for (var cluster : client.listClusters(parent).getClustersList()) {
-                    int totalNodes = cluster.getNodePoolsList().stream()
-                            .mapToInt(np -> np.getInitialNodeCount())
-                            .sum();
-                    if (totalNodes == 0) {
+                    // getInitialNodeCount() is the value the pool was CREATED with, not its
+                    // current size. Reading it meant a live, autoscaled production cluster whose
+                    // pools were created with 0 initial nodes was reported as an idle cluster —
+                    // and a cluster scaled to zero overnight was missed. instanceGroupUrls
+                    // reflects the pool's actual managed instance groups.
+                    int totalNodes = 0;
+                    boolean sizeKnown = false;
+                    for (var pool : cluster.getNodePoolsList()) {
+                        if (pool.getInstanceGroupUrlsCount() > 0) {
+                            sizeKnown = true;
+                        }
+                        totalNodes += Math.max(pool.getInitialNodeCount(),
+                                pool.getInstanceGroupUrlsCount() > 0 ? 1 : 0);
+                    }
+
+                    // Autoscaling pools legitimately sit at zero; only report a cluster with no
+                    // node pools at all, which cannot be running anything.
+                    boolean hasAutoscalingPool = cluster.getNodePoolsList().stream()
+                            .anyMatch(p -> p.hasAutoscaling() && p.getAutoscaling().getEnabled());
+
+                    if (cluster.getNodePoolsCount() == 0) {
                         items.add(new GcpWasteItem(cluster.getName(), cluster.getName(),
                                 "Idle GKE Cluster", cluster.getLocation(), EST_GKE_CLUSTER_MONTHLY_USD,
-                                "Cluster has 0 nodes across all node pools"));
+                                "Cluster has no node pools — it can run no workloads while still "
+                                        + "incurring the cluster management fee"));
+                    } else if (totalNodes == 0 && !sizeKnown && !hasAutoscalingPool) {
+                        items.add(new GcpWasteItem(cluster.getName(), cluster.getName(),
+                                "Idle GKE Cluster", cluster.getLocation(), EST_GKE_CLUSTER_MONTHLY_USD,
+                                "Cluster has 0 nodes across all node pools and no autoscaler that "
+                                        + "could add them"));
                     }
                 }
                 return items;
@@ -3424,7 +3681,9 @@ public class GcpOptimizationService {
                     try {
                         boolean hasTables = bq.listTables(dataset.getDatasetId()).iterateAll().iterator().hasNext();
                         if (!hasTables) {
-                            items.add(GcpWasteItem.withUnknownSavings(datasetId, datasetId,
+                            // A dataset with no tables stores nothing, so BigQuery bills
+                            // nothing for it — free, rather than unpriced.
+                            items.add(GcpWasteItem.withNoCostImpact(datasetId, datasetId,
                                     "Empty BigQuery Dataset", "global",
                                     "Dataset has no tables"));
                         }
@@ -3469,7 +3728,37 @@ public class GcpOptimizationService {
         }, executor);
     }
 
-    // Artifact Registry repos not updated in 60 days — stale container image storage.
+    /**
+     * The most recent package push in a repository, or empty when it cannot be determined.
+     *
+     * <p>A {@code Repository}'s own {@code updateTime} moves when its labels, cleanup policies or
+     * encryption settings change — not when an image is pushed. So a repository holding a
+     * two-year-old image looked fresh if someone edited a label yesterday, and a repository being
+     * pushed to daily looked stale because nobody had touched its configuration. Package
+     * {@code updateTime} is the field that actually tracks pushes.
+     */
+    private Optional<Instant> newestArtifactPush(
+            com.google.devtools.artifactregistry.v1.ArtifactRegistryClient client, String repositoryName) {
+        try {
+            Instant newest = null;
+            for (var pkg : client.listPackages(repositoryName).iterateAll()) {
+                var updated = pkg.getUpdateTime();
+                if (updated.getSeconds() <= 0) {
+                    continue;
+                }
+                Instant at = Instant.ofEpochSecond(updated.getSeconds(), updated.getNanos());
+                if (newest == null || at.isAfter(newest)) {
+                    newest = at;
+                }
+            }
+            return Optional.ofNullable(newest);
+        } catch (Exception e) {
+            log.debug("[GcpWaste] Could not list packages in {}: {}", repositoryName, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // Artifact Registry repos holding images nobody has pushed in 60 days.
     private CompletableFuture<List<GcpWasteItem>> findStaleArtifactRepos(
             String gcpProjectId, List<String> locations) {
         return CompletableFuture.supplyAsync(() -> {
@@ -3483,13 +3772,35 @@ public class GcpOptimizationService {
                     String parent = "projects/" + gcpProjectId + "/locations/" + location;
                     try {
                         for (var repo : client.listRepositories(parent).iterateAll()) {
-                            var updateTime = repo.getUpdateTime();
-                            Instant updated = Instant.ofEpochSecond(updateTime.getSeconds(), updateTime.getNanos());
-                            if (updated.isBefore(cutoff)) {
-                                String repoName = repo.getName().substring(repo.getName().lastIndexOf('/') + 1);
+                            String repoName = repo.getName().substring(repo.getName().lastIndexOf('/') + 1);
+
+                            // Artifact Registry charges for stored bytes. An empty repository
+                            // costs nothing, so deleting it saves nothing — it was previously
+                            // reported alongside repositories holding real data.
+                            if (repo.getSizeBytes() <= 0) {
+                                log.debug("[GcpWaste] Artifact repo {} stores no bytes — no cost to reclaim",
+                                        repo.getName());
+                                continue;
+                            }
+
+                            Optional<Instant> lastPush = newestArtifactPush(client, repo.getName());
+                            if (lastPush.isEmpty()) {
+                                // Either the repository has no packages despite reporting a size,
+                                // or the list call failed. Neither is evidence of staleness, and
+                                // deleting a repository destroys every image in it.
+                                log.debug("[GcpWaste] Could not establish last push for {} — not reported",
+                                        repo.getName());
+                                continue;
+                            }
+
+                            if (lastPush.get().isBefore(cutoff)) {
                                 items.add(GcpWasteItem.withUnknownSavings(repo.getName(), repoName,
                                         "Stale Artifact Registry Repo", location,
-                                        "Repository not updated in 60+ days"));
+                                        String.format("No image pushed since %s. Holds %.2f GB. Pull "
+                                                + "activity is not visible on this API, so confirm nothing "
+                                                + "deploys from it before deleting.",
+                                                lastPush.get().atZone(java.time.ZoneOffset.UTC).toLocalDate(),
+                                                repo.getSizeBytes() / 1_073_741_824.0)));
                             }
                         }
                     } catch (Exception e) {
@@ -3503,7 +3814,32 @@ public class GcpOptimizationService {
         }, executor);
     }
 
-    // Cloud Scheduler jobs that consistently fail — firing but never succeeding.
+    /**
+     * gRPC status codes that mean the job's target is misconfigured rather than briefly
+     * unavailable, so the next attempt will fail for the same reason.
+     *
+     * <p>Cloud Scheduler exposes only the outcome of the most recent attempt — there is no
+     * attempt history on the API — so a permanent error class is the only evidence available
+     * that a failure will repeat. Without this distinction one unlucky {@code UNAVAILABLE} on a
+     * healthy job was enough to recommend deleting it.
+     */
+    private static final java.util.Set<Integer> PERMANENT_SCHEDULER_FAILURE_CODES = java.util.Set.of(
+            3,  // INVALID_ARGUMENT     — the request the job sends is malformed
+            5,  // NOT_FOUND            — the target URL or Pub/Sub topic is gone
+            7,  // PERMISSION_DENIED    — the job's service account lost access
+            9,  // FAILED_PRECONDITION  — the target rejects the request outright
+            12, // UNIMPLEMENTED        — the endpoint does not accept this method
+            16  // UNAUTHENTICATED      — the job's credentials are invalid
+    );
+
+    /**
+     * How stale a last attempt may be before it is no longer evidence about the job's current
+     * state. A job whose schedule has fired many times since would have a newer attempt time,
+     * so an old one means the job is not really running on its schedule.
+     */
+    private static final int SCHEDULER_ATTEMPT_FRESHNESS_DAYS = 30;
+
+    // Cloud Scheduler jobs whose target is broken — firing on schedule but unable to succeed.
     private CompletableFuture<List<GcpWasteItem>> findAlwaysFailingSchedulerJobs(
             String gcpProjectId, List<String> locations) {
         return CompletableFuture.supplyAsync(() -> {
@@ -3511,19 +3847,56 @@ public class GcpOptimizationService {
                     gcpClientProvider.getSchedulerClient(gcpProjectId);
             if (clientOpt.isEmpty()) return List.of();
             List<GcpWasteItem> items = new ArrayList<>();
+            Instant attemptCutoff = Instant.now().minus(SCHEDULER_ATTEMPT_FRESHNESS_DAYS, ChronoUnit.DAYS);
             try (com.google.cloud.scheduler.v1.CloudSchedulerClient client = clientOpt.get()) {
                 for (String location : locations) {
                     String parent = "projects/" + gcpProjectId + "/locations/" + location;
                     try {
                         for (var job : client.listJobs(parent).iterateAll()) {
                             var lastAttempt = job.getLastAttemptTime();
-                            // Job has been attempted but last status is not OK (code 0 = OK)
-                            if (lastAttempt.getSeconds() > 0 && job.getStatus().getCode() != 0) {
-                                String jobName = job.getName().substring(job.getName().lastIndexOf('/') + 1);
-                                items.add(new GcpWasteItem(job.getName(), jobName,
-                                        "Failing Scheduler Job", location, 0.0,
-                                        "Job last attempt failed: " + job.getStatus().getMessage()));
+                            if (lastAttempt.getSeconds() <= 0 || job.getStatus().getCode() == 0) {
+                                // Never attempted, or the last attempt succeeded.
+                                continue;
                             }
+
+                            // A paused or disabled job is not attempting anything, so its stored
+                            // status is left over from before it was paused. Reporting it as
+                            // "failing" described a job that is not running at all.
+                            if (job.getState() != com.google.cloud.scheduler.v1.Job.State.ENABLED) {
+                                log.debug("[GcpWaste] Scheduler job {} is {} — its last status is "
+                                        + "historical, not current", job.getName(), job.getState());
+                                continue;
+                            }
+
+                            Instant attemptedAt = Instant.ofEpochSecond(
+                                    lastAttempt.getSeconds(), lastAttempt.getNanos());
+                            if (attemptedAt.isBefore(attemptCutoff)) {
+                                log.debug("[GcpWaste] Scheduler job {} last attempted {} — too stale "
+                                        + "to describe its current state", job.getName(), attemptedAt);
+                                continue;
+                            }
+
+                            int code = job.getStatus().getCode();
+                            if (!PERMANENT_SCHEDULER_FAILURE_CODES.contains(code)) {
+                                // DEADLINE_EXCEEDED, UNAVAILABLE, RESOURCE_EXHAUSTED and the like
+                                // are transient. The API gives no attempt history, so one of these
+                                // is not evidence the job always fails.
+                                log.debug("[GcpWaste] Scheduler job {} last failed with transient code {} "
+                                        + "— not reported", job.getName(), code);
+                                continue;
+                            }
+
+                            String jobName = job.getName().substring(job.getName().lastIndexOf('/') + 1);
+                            // Cloud Scheduler bills per job per month beyond a small free
+                            // allowance, so a permanently failing job is a real recurring
+                            // charge — not free, as the previous 0.0 implied. The exact
+                            // rate depends on how many jobs the project already has
+                            // against the free tier, so it is reported as unpriced.
+                            items.add(GcpWasteItem.withUnknownSavings(job.getName(), jobName,
+                                    "Failing Scheduler Job", location,
+                                    String.format("Last attempt failed with a permanent error (code %d): %s. "
+                                            + "The target is misconfigured, so retries cannot succeed.",
+                                            code, job.getStatus().getMessage())));
                         }
                     } catch (Exception e) {
                         log.warn("[GcpWaste] Scheduler scan failed in {}/{}: {}", gcpProjectId, location, e.getMessage());
@@ -3549,9 +3922,35 @@ public class GcpOptimizationService {
                 List<com.google.api.services.dns.model.ManagedZone> zones = listAllDnsZones(dns, gcpProjectId);
                 if (zones.isEmpty()) return List.of();
                 for (com.google.api.services.dns.model.ManagedZone zone : zones) {
+                    // A peering or forwarding zone resolves names by delegating elsewhere, so it
+                    // holds no records of its own by design. Reporting one as empty proposed
+                    // deleting the mechanism that makes hybrid or cross-VPC resolution work.
+                    if (zone.getPeeringConfig() != null) {
+                        log.debug("[GcpWaste] Skipping DNS peering zone {} — record-less by design",
+                                zone.getName());
+                        continue;
+                    }
+                    if (zone.getForwardingConfig() != null) {
+                        log.debug("[GcpWaste] Skipping DNS forwarding zone {} — record-less by design",
+                                zone.getName());
+                        continue;
+                    }
+                    // Reverse-lookup and service-directory zones are likewise populated elsewhere.
+                    if (zone.getServiceDirectoryConfig() != null) {
+                        log.debug("[GcpWaste] Skipping Service Directory DNS zone {}", zone.getName());
+                        continue;
+                    }
+
                     List<com.google.api.services.dns.model.ResourceRecordSet> records =
                             listAllDnsRecords(dns, gcpProjectId, zone.getName());
-                    boolean onlyDefaults = records == null || records.stream()
+                    // A null record list means the lookup failed, which is not the same as the
+                    // zone being empty.
+                    if (records == null) {
+                        log.debug("[GcpWaste] Could not list records for DNS zone {} — not reporting it",
+                                zone.getName());
+                        continue;
+                    }
+                    boolean onlyDefaults = records.stream()
                             .allMatch(r -> "NS".equals(r.getType()) || "SOA".equals(r.getType()));
                     if (onlyDefaults) {
                         items.add(new GcpWasteItem(
@@ -3771,9 +4170,11 @@ public class GcpOptimizationService {
         if (!as.hasAutoscalingPolicy()) return;
         var policy = as.getAutoscalingPolicy();
         if (policy.getMinNumReplicas() > 0 && policy.getMinNumReplicas() == policy.getMaxNumReplicas()) {
-            items.add(new GcpWasteItem(
+            // An autoscaler resource is free. The waste is the over-provisioned instances it
+            // pins, which the rightsizing detectors price separately.
+            items.add(GcpWasteItem.withNoCostImpact(
                     as.getName(), as.getName(),
-                    "Ineffective Autoscaler (Min=Max)", location, 0.0,
+                    "Ineffective Autoscaler (Min=Max)", location,
                     "Min and max replicas are both " + policy.getMinNumReplicas() + " — autoscaling has no effect"));
         }
     }
@@ -3790,16 +4191,37 @@ public class GcpOptimizationService {
                     if (bucket.getRetentionDays() <= 30) continue;
                     String name = bucket.getName();
                     if (name.endsWith("/_Required")) continue;
+
+                    // A locked bucket's retention cannot be shortened by any API call — the only
+                    // way out is deleting the bucket, and buckets are locked precisely to stop
+                    // that. Recommending a reduction here produced advice that cannot be carried
+                    // out, usually against a bucket someone locked for a compliance requirement.
+                    if (bucket.getLocked()) {
+                        log.debug("[GcpWaste] Log bucket {} is locked — retention cannot be reduced", name);
+                        continue;
+                    }
+
                     String[] parts = name.split("/");
                     String bucketId = parts[parts.length - 1];
                     String location = parts.length > 3 ? parts[3] : "global";
-                    double extraDays = bucket.getRetentionDays() - 30;
-                    double estimatedUsd = extraDays * EST_LOG_RETENTION_USD_PER_EXTRA_DAY;
-                    items.add(new GcpWasteItem(
+                    int extraDays = bucket.getRetentionDays() - 30;
+
+                    // Cloud Logging charges $0.01 per GiB per month for bytes held past the first
+                    // 30 days, so the cost is a function of the volume retained — not of the
+                    // retention setting on its own. The previous figure multiplied the extra days
+                    // by a flat per-day constant, which meant a bucket holding a few megabytes was
+                    // quoted the same saving as one holding terabytes, and neither figure bore any
+                    // relation to the invoice. The Logging API publishes no per-bucket byte count
+                    // and the billing metric is project-wide, so the volume cannot be attributed
+                    // to a bucket here. Reported unpriced rather than priced wrongly.
+                    items.add(GcpWasteItem.withUnknownSavings(
                             name, bucketId,
-                            "Cloud Logging Excessive Retention", location, estimatedUsd,
-                            "Retention is " + bucket.getRetentionDays() + " days (default 30) — "
-                                    + (int) extraDays + " extra days of log storage cost"));
+                            "Cloud Logging Excessive Retention", location,
+                            String.format("Retention is %d days against a 30-day default, so %d extra "
+                                    + "days are billable. Cloud Logging charges $0.01 per GiB per month "
+                                    + "for bytes held beyond 30 days; the saving depends on how much "
+                                    + "this bucket stores, which the Logging API does not report per "
+                                    + "bucket.", bucket.getRetentionDays(), extraDays)));
                 }
             } catch (Exception e) {
                 log.warn("[GcpWaste] findExcessiveLogRetention failed for {}: {}", gcpProjectId, e.getMessage());

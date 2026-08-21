@@ -68,7 +68,8 @@ import java.util.Optional;
 public class AzureWasteService {
 
     private static final Logger log = LoggerFactory.getLogger(AzureWasteService.class);
-    private static final String CACHE_PREFIX = "azure:waste:";
+    /** Redis key prefix for a subscription's waste scan. Shared so readers cannot drift. */
+    public static final String CACHE_PREFIX = "azure:waste:";
     private static final String DB_CACHE_PREFIX = "AZURE_WASTE::";
     private static final int CACHE_TTL_MINUTES = 60;
 
@@ -248,6 +249,12 @@ public class AzureWasteService {
                     // Disks retained by Azure Backup or Site Recovery are managed elsewhere.
                     if (hasProtectedTag(disk.tags())) {
                         log.debug("Skipping disk {} — carries a retention/protection tag", disk.name());
+                        continue;
+                    }
+                    // A pvc- disk backs a Kubernetes PersistentVolume. It can read as unattached
+                    // while its pod is rescheduled, and deleting it destroys the volume's data.
+                    if (isKubernetesManaged(disk.id(), disk.name(), disk.resourceGroupName(), disk.tags())) {
+                        log.debug("Skipping AKS-managed disk {} — backs a PersistentVolume", disk.name());
                         continue;
                     }
 
@@ -495,8 +502,9 @@ public class AzureWasteService {
         try {
             for (NetworkInterface nic : azure.networkInterfaces().list()) {
                 try {
+                    // NICs carry no charge in Azure.
                     if (nic.innerModel().virtualMachine() == null) {
-                        result.add(AzureWasteItem.withUnknownSavings(
+                        result.add(AzureWasteItem.withNoCostImpact(
                                 nic.id(),
                                 nic.name(),
                                 "Unattached NIC",
@@ -521,14 +529,38 @@ public class AzureWasteService {
                 try {
                     OffsetDateTime created = snapshot.innerModel() != null ? snapshot.innerModel().timeCreated() : null;
                     if (created != null && created.isBefore(cutoff)) {
+                        // Guards the same way the unattached-disk detector does. Age alone is not
+                        // evidence a snapshot is unwanted: a snapshot kept by a backup policy is
+                        // deliberately old, and one belonging to a retired VM may be the only
+                        // remaining copy of that data.
+                        if (hasProtectedTag(snapshot.tags())) {
+                            log.debug("Skipping snapshot {} — carries a retention or protection tag",
+                                    snapshot.name());
+                            continue;
+                        }
+                        if (isKubernetesManaged(snapshot.id(), snapshot.name(),
+                                snapshot.resourceGroupName(), snapshot.tags())) {
+                            log.debug("Skipping AKS-managed snapshot {}", snapshot.name());
+                            continue;
+                        }
+
                         long ageDays = ChronoUnit.DAYS.between(created, OffsetDateTime.now());
+                        // Priced from the snapshot's own size at its tier where possible. The flat
+                        // FALLBACK_UNATTACHED_DISK_USD is a 128 GB HDD rate and was applied to
+                        // every snapshot regardless of size or SKU.
+                        String sku = snapshot.innerModel() != null && snapshot.innerModel().sku() != null
+                                && snapshot.innerModel().sku().name() != null
+                                ? snapshot.innerModel().sku().name().toString() : null;
+                        String region = snapshot.regionName() != null ? snapshot.regionName() : "";
+                        double monthlyCost = snapshotMonthlyCost(sku, snapshot.sizeInGB(), region);
+
                         result.add(new AzureWasteItem(
                                 snapshot.id(),
                                 snapshot.name(),
                                 "Old Snapshot",
-                                snapshot.regionName() != null ? snapshot.regionName() : "",
+                                region,
                                 "Snapshot is " + ageDays + " days old — consider deleting stale backups to save storage cost",
-                                FALLBACK_UNATTACHED_DISK_USD
+                                monthlyCost
                         ));
                     }
                 } catch (Exception e) {
@@ -538,6 +570,33 @@ public class AzureWasteService {
         } catch (Exception e) {
             log.warn("Failed to list snapshots for waste detection: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Monthly cost of a snapshot, scaled by its actual size.
+     *
+     * <p>Snapshot storage is billed per GB of used capacity rather than at a disk tier, so this
+     * derives a per-GB rate from the tier price and applies it to the snapshot's size. Falls back
+     * to the flat constant only when nothing better is available.
+     */
+    private double snapshotMonthlyCost(String skuName, int sizeGb, String region) {
+        if (sizeGb <= 0) {
+            return FALLBACK_UNATTACHED_DISK_USD;
+        }
+        if (skuName != null && region != null && !region.isBlank()) {
+            try {
+                // Standard HDD is the storage class Azure bills incremental snapshots against.
+                Optional<Double> tierPrice =
+                        retailPricingService.getManagedDiskMonthlyPriceUsd("Standard_LRS", sizeGb, region);
+                if (tierPrice.isPresent() && tierPrice.get() > 0) {
+                    return tierPrice.get();
+                }
+            } catch (Exception e) {
+                log.debug("Snapshot price lookup failed for {} {}GB in {}: {}",
+                        skuName, sizeGb, region, e.getMessage());
+            }
+        }
+        return FALLBACK_UNATTACHED_DISK_USD;
     }
 
     /** Load balancers with no backend pool members — paying for an idle LB. */
@@ -550,12 +609,25 @@ public class AzureWasteService {
                     // reported as empty.
                     boolean noBackends = lb.backends() == null || lb.backends().isEmpty();
                     boolean noRules = lb.loadBalancingRules() == null || lb.loadBalancingRules().isEmpty();
-                    if (!noBackends || !noRules) {
+                    // Inbound NAT rules are traffic too. A jump-host load balancer forwards SSH
+                    // or RDP to specific VMs using only NAT rules and no load-balancing rules, so
+                    // checking backends and LB rules alone reported it as idle while it was the
+                    // only way into those machines.
+                    boolean noNatRules = lb.inboundNatRules() == null || lb.inboundNatRules().isEmpty();
+                    boolean noOutboundRules = lb.innerModel() == null
+                            || lb.innerModel().outboundRules() == null
+                            || lb.innerModel().outboundRules().isEmpty();
+                    if (!noBackends || !noRules || !noNatRules || !noOutboundRules) {
                         continue;
                     }
                     // Basic-SKU load balancers are free, so flagging them invented cost.
                     if (isBasicSku(lb.sku() == null ? null : lb.sku().toString())) {
                         log.debug("Skipping Basic-SKU load balancer {} — no standing charge", lb.name());
+                        continue;
+                    }
+                    if (isKubernetesManaged(lb.id(), lb.name(), lb.resourceGroupName(), lb.tags())) {
+                        log.debug("Skipping AKS-managed load balancer {} — recreated by the cluster",
+                                lb.name());
                         continue;
                     }
                     result.add(new AzureWasteItem(
@@ -576,6 +648,56 @@ public class AzureWasteService {
         }
     }
 
+    /**
+     * Whether a resource is managed by AKS, and therefore must not be recommended for deletion.
+     *
+     * <p>AKS provisions load balancers, public IPs and disks into a node resource group and its
+     * cloud-controller reconciles them continuously. Deleting one is at best futile — the
+     * controller recreates it within minutes — and at worst breaks the cluster: a
+     * {@code pvc-} disk backs a live PersistentVolume, and removing the cluster's load
+     * balancer drops all ingress.
+     *
+     * <p>UAT showed three "Empty Load Balancer" findings all named {@code kubernetes} worth
+     * ₹1,800/month each, and an "Unattached Disk" named {@code pvc-51120e77-…}. All four were
+     * AKS-managed. This mirrors the Auto Scaling Group guard on the AWS side.
+     *
+     * @param resourceId    full ARM resource id, used to spot the {@code MC_} node resource group
+     * @param name          resource name
+     * @param resourceGroup owning resource group, may be null
+     * @param tags          resource tags, may be null
+     */
+    private boolean isKubernetesManaged(String resourceId, String name, String resourceGroup,
+                                        Map<String, String> tags) {
+        // AKS names its cluster load balancers exactly "kubernetes" / "kubernetes-internal",
+        // and dynamically provisioned disks "pvc-<uuid>".
+        if (name != null) {
+            String n = name.toLowerCase();
+            if (n.equals("kubernetes") || n.equals("kubernetes-internal") || n.startsWith("pvc-")) {
+                return true;
+            }
+        }
+        // AKS places managed infrastructure in a node resource group named MC_<rg>_<cluster>_<region>.
+        if (resourceGroup != null && resourceGroup.toUpperCase().startsWith("MC_")) {
+            return true;
+        }
+        if (resourceId != null && resourceId.toUpperCase().contains("/RESOURCEGROUPS/MC_")) {
+            return true;
+        }
+        // Kubernetes writes ownership tags on resources it provisions.
+        if (tags != null) {
+            for (Map.Entry<String, String> tag : tags.entrySet()) {
+                String key = tag.getKey() == null ? "" : tag.getKey().toLowerCase();
+                if (key.startsWith("kubernetes.io/")
+                        || key.startsWith("k8s.io/")
+                        || key.equals("aks-managed-cluster-name")
+                        || key.startsWith("aks-managed")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** Network security groups not associated with any subnet or NIC — orphaned config. */
     private void detectUnusedNetworkSecurityGroups(AzureResourceManager azure, List<AzureWasteItem> result) {
         try {
@@ -584,7 +706,8 @@ public class AzureWasteService {
                     boolean noSubnets = nsg.listAssociatedSubnets() == null || nsg.listAssociatedSubnets().isEmpty();
                     boolean noNics = nsg.networkInterfaceIds() == null || nsg.networkInterfaceIds().isEmpty();
                     if (noSubnets && noNics) {
-                        result.add(AzureWasteItem.withUnknownSavings(
+                        // NSGs carry no charge; this is a blast-radius finding.
+                        result.add(AzureWasteItem.withNoCostImpact(
                                 nsg.id(),
                                 nsg.name(),
                                 "Unused NSG",
@@ -607,7 +730,8 @@ public class AzureWasteService {
             for (AvailabilitySet as : azure.availabilitySets().list()) {
                 try {
                     if (as.virtualMachineIds() == null || as.virtualMachineIds().isEmpty()) {
-                        result.add(AzureWasteItem.withUnknownSavings(
+                        // Availability sets are free.
+                        result.add(AzureWasteItem.withNoCostImpact(
                                 as.id(),
                                 as.name(),
                                 "Empty Availability Set",
@@ -630,7 +754,8 @@ public class AzureWasteService {
             for (RouteTable rt : azure.routeTables().list()) {
                 try {
                     if (rt.listAssociatedSubnets() == null || rt.listAssociatedSubnets().isEmpty()) {
-                        result.add(AzureWasteItem.withUnknownSavings(
+                        // Route tables are free.
+                        result.add(AzureWasteItem.withNoCostImpact(
                                 rt.id(),
                                 rt.name(),
                                 "Orphaned Route Table",
@@ -667,18 +792,35 @@ public class AzureWasteService {
                     // Only consider running VMs — stopped/deallocated are caught by detectVirtualMachines
                     if (!PowerState.RUNNING.equals(vm.powerState())) continue;
 
+                    // An AKS node sits in the cluster's node resource group and is replaced by the
+                    // cluster if removed. Low CPU on a node pool member is a cluster-sizing
+                    // question, not a VM the customer should deallocate.
+                    if (isKubernetesManaged(vm.id(), vm.name(), vm.resourceGroupName(), vm.tags())) {
+                        log.debug("Skipping AKS node {} in idle-VM detection", vm.name());
+                        continue;
+                    }
+
                     Double avgCpu = queryAverageMetric(vm.id(), "Percentage%20CPU", token);
                     if (avgCpu != null && avgCpu < IDLE_VM_CPU_THRESHOLD) {
                         String region = vm.regionName() != null ? vm.regionName() : "";
                         String size = vmSize(vm);
-                        result.add(new AzureWasteItem(
+                        // The recommendation offers two mutually exclusive actions with very
+                        // different value: deallocating frees the whole compute charge, while
+                        // downsizing frees a fraction of it. Booking the full price for a
+                        // recommendation whose text says "downsize or deallocate" overstated the
+                        // saving whenever the customer downsizes, so this reports the compute
+                        // charge as unpriced and leaves the quantified figure to the rightsizing
+                        // service, which knows the target SKU.
+                        result.add(AzureWasteItem.withUnknownSavings(
                                 vm.id(),
                                 vm.name(),
                                 "Idle Running VM",
                                 region,
                                 String.format("VM (%s) is running but averaged only %.1f%% CPU over the last 7 days "
-                                        + "— consider downsizing or deallocating", size, avgCpu),
-                                resolveVmMonthlyPrice(size, region)
+                                        + "— consider downsizing or deallocating. Full compute cost is "
+                                        + "about %s/month; the saving depends on which action you take.",
+                                        size, avgCpu,
+                                        String.format("$%.2f", resolveVmMonthlyPrice(size, region)))
                         ));
                     }
                 } catch (Exception e) {
@@ -911,6 +1053,27 @@ public class AzureWasteService {
         }
     }
 
+    /**
+     * Blob list price per GB per month by access tier, Standard LRS.
+     *
+     * <p>Used only to size the finding. A storage account has no per-instance charge at all — the
+     * whole bill is capacity plus transactions — so the cost of an idle account is whatever it
+     * holds. It was previously priced at {@code FALLBACK_UNATTACHED_DISK_USD}, the list price of a
+     * 128 GB Standard HDD managed disk: a different product, and a figure that had no relationship
+     * to the account whether it held nothing or fifty terabytes.
+     */
+    private static double blobGbMonthUsd(String accessTier) {
+        if (accessTier == null) {
+            return 0.0184;
+        }
+        return switch (accessTier.toLowerCase()) {
+            case "cool" -> 0.0100;
+            case "cold" -> 0.0036;
+            case "archive" -> 0.00099;
+            default -> 0.0184; // Hot
+        };
+    }
+
     /** Storage accounts with effectively zero transactions over 7 days — likely abandoned. */
     private void detectIdleStorageAccounts(String subscriptionId, String token, List<AzureWasteItem> result) {
         String url = ARM_BASE + "/subscriptions/" + subscriptionId
@@ -920,20 +1083,62 @@ public class AzureWasteService {
                 String id = sa.path("id").asText("");
                 if (id.isEmpty()) continue;
                 Double txns = queryTotalMetric(id, "Transactions", token);
-                if (txns != null && txns < 1.0) {
-                    result.add(new AzureWasteItem(
-                            id,
-                            sa.path("name").asText(""),
-                            "Idle Storage Account",
-                            sa.path("location").asText(""),
-                            "Storage account had no transactions over the last 7 days — review for deletion or archival",
-                            FALLBACK_UNATTACHED_DISK_USD
-                    ));
+                if (txns == null || txns >= 1.0) {
+                    continue;
                 }
+
+                String name = sa.path("name").asText("");
+                String region = sa.path("location").asText("");
+                String accessTier = sa.path("properties").path("accessTier").asText(null);
+
+                // UsedCapacity is emitted daily, so an average over the window is the account's
+                // stored volume.
+                Double usedBytes = queryAverageMetric(id, "UsedCapacity", token);
+
+                if (usedBytes == null) {
+                    result.add(AzureWasteItem.withUnknownSavings(id, name, "Idle Storage Account", region,
+                            "No transactions over the last 7 days. Stored capacity could not be read, so "
+                                    + "the saving is unknown — a storage account is billed on capacity and "
+                                    + "transactions, with no charge for the account itself."));
+                    continue;
+                }
+
+                double usedGb = usedBytes / 1_073_741_824.0;
+                if (usedGb < 0.01) {
+                    // An empty account is billed nothing. Still worth surfacing as clutter, but
+                    // it must not inflate the savings total.
+                    result.add(AzureWasteItem.withNoCostImpact(id, name, "Idle Storage Account", region,
+                            "No transactions over the last 7 days and effectively no data stored. Costs "
+                                    + "nothing to keep; delete only to reduce clutter."));
+                    continue;
+                }
+
+                double monthlyUsd = usedGb * blobGbMonthUsd(accessTier);
+                result.add(new AzureWasteItem(id, name, "Idle Storage Account", region,
+                        String.format("No transactions over the last 7 days while storing %.2f GB in the %s "
+                                + "tier. Review for deletion, or move to a cooler tier.",
+                                usedGb, accessTier == null ? "Hot" : accessTier),
+                        monthlyUsd));
             } catch (Exception e) {
                 log.warn("Error processing storage account: {}", e.getMessage());
             }
         }
+    }
+
+    /**
+     * Whether a Cosmos DB account is in serverless mode.
+     *
+     * <p>Serverless accounts have no provisioned throughput: they bill per request unit consumed.
+     * An idle serverless account therefore has no throughput charge at all, which is the opposite
+     * of the assumption behind {@code FALLBACK_COSMOS_DB_USD} — a 400 RU/s provisioned minimum.
+     */
+    private static boolean isServerlessCosmosAccount(JsonNode account) {
+        for (JsonNode capability : account.path("properties").path("capabilities")) {
+            if ("EnableServerless".equalsIgnoreCase(capability.path("name").asText(""))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Cosmos DB accounts with zero requests over 7 days — provisioned throughput billed with no usage. */
@@ -945,16 +1150,37 @@ public class AzureWasteService {
                 String id = acc.path("id").asText("");
                 if (id.isEmpty()) continue;
                 Double reqs = queryTotalMetric(id, "TotalRequests", token);
-                if (reqs != null && reqs < 1.0) {
-                    result.add(new AzureWasteItem(
-                            id,
-                            acc.path("name").asText(""),
-                            "Idle Cosmos DB",
-                            acc.path("location").asText(""),
-                            "Cosmos DB account served no requests over the last 7 days — consider scaling down RU/s or deleting",
-                            FALLBACK_COSMOS_DB_USD
-                    ));
+                if (reqs == null || reqs >= 1.0) {
+                    continue;
                 }
+
+                String name = acc.path("name").asText("");
+                String region = acc.path("location").asText("");
+                int replicaCount = Math.max(1, acc.path("properties").path("locations").size());
+
+                if (isServerlessCosmosAccount(acc)) {
+                    // Nothing is charged for idle throughput here, only for stored data. Reporting
+                    // the 400 RU/s provisioned minimum against a serverless account invented a
+                    // charge that does not exist on the invoice.
+                    result.add(AzureWasteItem.withUnknownSavings(id, name, "Idle Cosmos DB", region,
+                            "Serverless account served no requests over the last 7 days. Serverless bills "
+                                    + "per request, so there is no idle throughput charge — the only cost is "
+                                    + "stored data. Delete it to reclaim that."));
+                    continue;
+                }
+
+                // Provisioned or autoscale. The account-level API does not expose per-container
+                // RU/s, and an autoscale container idles at 10% of its maximum, so the true figure
+                // needs a per-container walk. The 400 RU/s manual minimum is the floor, multiplied
+                // by the number of regions the account is replicated to — each replica is billed
+                // its own throughput.
+                double floorUsd = FALLBACK_COSMOS_DB_USD * replicaCount;
+                result.add(new AzureWasteItem(id, name, "Idle Cosmos DB", region,
+                        String.format("Served no requests over the last 7 days while provisioned across %d "
+                                + "region(s). At least %.2f USD/month of throughput is billed regardless of "
+                                + "usage; the actual figure depends on the RU/s set per container. Scale "
+                                + "down, switch to serverless, or delete.", replicaCount, floorUsd),
+                        floorUsd));
             } catch (Exception e) {
                 log.warn("Error processing Cosmos DB account: {}", e.getMessage());
             }
@@ -971,8 +1197,9 @@ public class AzureWasteService {
                 if (rgName.isEmpty()) continue;
                 String resUrl = ARM_BASE + "/subscriptions/" + subscriptionId
                         + "/resourceGroups/" + rgName + "/resources?api-version=2021-04-01";
+                // An empty resource group is a free container.
                 if (armList(resUrl, token).isEmpty()) {
-                    result.add(AzureWasteItem.withUnknownSavings(
+                    result.add(AzureWasteItem.withNoCostImpact(
                             rg.path("id").asText(""),
                             rgName,
                             "Empty Resource Group",

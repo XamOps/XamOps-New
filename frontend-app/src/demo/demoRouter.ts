@@ -16,6 +16,7 @@ import * as xamops from './xamopsMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
 import * as soc2 from './soc2MockData';
+import * as war from './warMockData';
 
 /** Reads a query-string value off a URL that may be relative. */
 function param(url: string, name: string): string {
@@ -223,7 +224,9 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
         return makeResponse({ budgetName: 'Demo Budget', budgetLimit: 1000, budgetUnit: 'USD', actualSpend: 0, forecastedSpend: 1000 });
       }
     }
-    return makeResponse([]);
+    // Read: the FinOps budgets table and the dashboard Cost Trend reference line both
+    // read this, so an empty array silently removed the budget overlay from the widget.
+    return makeResponse(xamops.demoFinOpsBudgets);
   }
   if (url.includes('/api/xamops/finops/rightsizing'))
     return makeResponse([]);
@@ -274,6 +277,13 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // rebuilt from fixtures on every read, so there is nowhere for them to land.
   if (url.includes('/api/xamops/compliance/'))
     return makeResponse({ status: 'DEMO', message: 'Not persisted in demo mode.' });
+
+  // WAR — must precede the /api/xamops/ catch-all, which would otherwise serve {} and
+  // leave the page rendering an unassessable report with five empty tabs.
+  if (url.includes('/api/xamops/war/report'))
+    return makeResponse(war.demoWarReport(param(url, 'accountId')));
+  if (url.includes('/api/xamops/war/scan'))
+    return makeResponse(war.demoWarScanAck);
 
   // Security — every prowler sub-path before the generic security catch-all.
   // ComplianceOps reads prowler/findings (not /security/findings) and expects the
@@ -704,6 +714,42 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamsecure.demoComponents);
   if (url.includes('/api/xamsecure/workflows'))
     return makeResponse(xamsecure.demoWorkflows);
+  // Self-service onboarding actions must be matched BEFORE the /onboarding list route below,
+  // which would otherwise swallow them and hand the caller an array where it expects an object.
+  //
+  // No real launch URL in demo mode: it would carry a live Upwind credential, and opening a
+  // customer's CloudFormation console from a sales demo is not a desirable surprise.
+  if (url.includes('/api/xamsecure/onboarding/aws/launch-url'))
+    return makeResponse({
+      launchUrl: 'https://example.invalid/demo-mode-no-real-stack',
+      stackName: 'upwind-readonly-permissions-demo-aws-002',
+      stackRegion: 'us-east-1',
+      cloudAccountId: 'demo-aws-002',
+      status: 'PENDING',
+    });
+  if (url.includes('/api/xamsecure/onboarding/aws/check'))
+    return makeResponse({
+      cloudAccountId: 'demo-aws-002',
+      status: 'PENDING',
+      reportingAssets: false,
+      registered: false,
+      scannerEnabled: null,
+      verifiedAt: null,
+      message: 'Waiting for the first scan. This usually takes a few minutes after the '
+        + 'stack finishes.',
+    });
+  // Demo mode must not reach the real integration API — that DELETE would deregister a live
+  // account from the shared Upwind org.
+  if (url.includes('/api/xamsecure/onboarding/aws/disconnect'))
+    return makeResponse({
+      cloudAccountId: 'demo-aws-002',
+      status: 'NOT_CONNECTED',
+      deregistered: true,
+      stackName: 'upwind-readonly-permissions-demo-aws-002',
+      stackRegion: 'us-east-1',
+      message: 'Removed from XamSecure. Now delete the CloudFormation stack in your AWS '
+        + 'account to remove the IAM role and stored credential.',
+    });
   if (url.includes('/api/xamsecure/onboarding'))
     return makeResponse(xamsecure.demoOnboarding);
   // Anything else under XamSecure — {} is safe, every remaining consumer is a

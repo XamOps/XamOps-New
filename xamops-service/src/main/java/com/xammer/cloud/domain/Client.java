@@ -26,6 +26,21 @@ public class Client {
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean starred = false;
 
+    /**
+     * Whether this client may connect their own cloud accounts to XamSecure.
+     *
+     * Defaults TRUE so behaviour is unchanged for every existing client, and so a null column on
+     * an already-populated table (ddl-auto=update adds it nullable) still reads as allowed rather
+     * than silently switching the feature off for everyone.
+     *
+     * The reason this is gated at all: onboarding consumes an Upwind license seat and injects
+     * Xammer's shared Cloud account credential into the customer's AWS account. Both are things
+     * to grant deliberately per contract rather than to leave open to every trial signup.
+     */
+    @Column(name = "xamsecure_onboarding_enabled", nullable = false,
+            columnDefinition = "boolean default true")
+    private boolean xamSecureOnboardingEnabled = true;
+
     // --- Trial lifecycle (self-signup customers) ---
     // Nullable at DB level so `ddl-auto=update` can add it to an existing populated
     // table. New rows default to PAID via the field initializer; existing rows (null)

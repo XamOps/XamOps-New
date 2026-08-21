@@ -84,13 +84,21 @@ public class ReservationController {
         }
         CloudAccount account = accounts.get(0);
 
-        return reservationService.getReservationPurchaseRecommendations(
+        return reservationService.getPurchaseRecommendationSet(
                     account, term, paymentOption, lookback, offeringClass, forceRefresh
                 )
-                .thenApply(ResponseEntity::ok)
+                // An empty list means either "nothing worth reserving" or "we could not find
+                // out", and the UI renders both as "Fully Optimized". These headers let it tell
+                // the difference without changing the response body's shape.
+                .thenApply(set -> ResponseEntity.ok()
+                        .header("X-Recommendations-Complete", String.valueOf(set.complete()))
+                        .header("X-Recommendations-Failed-Services", String.join(",", set.failedServices()))
+                        .body(set.recommendations()))
                 .exceptionally(ex -> {
                     logger.error("Error fetching purchase recommendations for account {}", accountId, ex);
-                    return ResponseEntity.status(500).body(Collections.emptyList());
+                    return ResponseEntity.status(500)
+                            .header("X-Recommendations-Complete", "false")
+                            .body(Collections.emptyList());
                 });
     }
 

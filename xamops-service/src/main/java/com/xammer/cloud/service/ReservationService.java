@@ -665,15 +665,52 @@ public class ReservationService {
         });
     }
 
+    /**
+     * A set of purchase recommendations together with whether every service was reachable.
+     *
+     * <p>An empty list means two very different things — "this account has nothing worth
+     * reserving" and "we could not find out" — and the UI renders both as "Fully Optimized".
+     * Carrying completeness alongside the list lets callers tell them apart.
+     *
+     * @param complete       true when every reservable service answered
+     * @param failedServices services that could not be queried; empty when {@code complete}
+     */
+    public record PurchaseRecommendationSet(
+            List<DashboardData.ReservationPurchaseRecommendation> recommendations,
+            boolean complete,
+            List<String> failedServices) {
+    }
+
+    /**
+     * Backwards-compatible view that discards completeness. Prefer
+     * {@link #getPurchaseRecommendationSet} where the caller can surface the distinction.
+     */
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.ReservationPurchaseRecommendation>> getReservationPurchaseRecommendations(
+            CloudAccount account, String term, String paymentOption, String lookback, String offeringClass,
+            boolean forceRefresh) {
+        return CompletableFuture.completedFuture(
+                getPurchaseRecommendationSetSync(account, term, paymentOption, lookback, offeringClass, forceRefresh)
+                        .recommendations());
+    }
+
+    @Async("awsTaskExecutor")
+    public CompletableFuture<PurchaseRecommendationSet> getPurchaseRecommendationSet(
+            CloudAccount account, String term, String paymentOption, String lookback, String offeringClass,
+            boolean forceRefresh) {
+        return CompletableFuture.completedFuture(getPurchaseRecommendationSetSync(
+                account, term, paymentOption, lookback, offeringClass, forceRefresh));
+    }
+
+    private PurchaseRecommendationSet getPurchaseRecommendationSetSync(
             CloudAccount account, String term, String paymentOption, String lookback, String offeringClass,
             boolean forceRefresh) {
         // Use mock data if enabled
         if (useMockData) {
             logger.info("[MOCK] Using mock data for getReservationPurchaseRecommendations");
-            return CompletableFuture.completedFuture(
-                    costMockService.getMockReservationPurchaseRecommendations(account, term, paymentOption));
+            return new PurchaseRecommendationSet(
+                    costMockService.getMockReservationPurchaseRecommendations(account, term, paymentOption),
+                    true, Collections.emptyList());
         }
 
         String cacheKey = String.format("reservationPurchaseRecs-%s-%s-%s-%s-%s", account.getAwsAccountId(), term,
@@ -685,16 +722,20 @@ public class ReservationService {
                     new TypeReference<>() {
                     });
             if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
+                return new PurchaseRecommendationSet(cachedData.get(), true, Collections.emptyList());
             }
             try {
                 Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
                 if (dbCached.isPresent()) {
                     List<DashboardData.ReservationPurchaseRecommendation> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
-                    if (dbData != null) {
+                    // Require non-empty. The DB snapshot has no TTL, so an empty one served an
+                    // all-clear forever and re-warmed Redis on every request, meaning a single
+                    // early failure could never self-heal. An empty snapshot now falls through
+                    // to a live query instead.
+                    if (dbData != null && !dbData.isEmpty()) {
                         redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
-                        return CompletableFuture.completedFuture(dbData);
+                        return new PurchaseRecommendationSet(dbData, true, Collections.emptyList());
                     }
                 }
             } catch (Exception dbEx) {
@@ -709,40 +750,153 @@ public class ReservationService {
             // Redshift reservation opportunities were never surfaced at all — often the
             // largest single savings available on a database-heavy account.
             List<DashboardData.ReservationPurchaseRecommendation> result = new ArrayList<>();
-            for (String serviceName : RESERVABLE_SERVICES) {
-                result.addAll(fetchPurchaseRecommendationsForService(
-                        ce, serviceName, term, paymentOption, lookback, offeringClass,
-                        account.getAwsAccountId()));
+            List<String> failedServices = new ArrayList<>();
+            for (ReservableService service : RESERVABLE_SERVICES) {
+                ServiceFetchResult fetched = fetchWithNameResolution(
+                        ce, service, term, paymentOption, lookback, offeringClass,
+                        account.getAwsAccountId());
+                result.addAll(fetched.recommendations());
+                if (!fetched.succeeded()) {
+                    failedServices.add(service.label());
+                }
             }
-            redisCache.put(cacheKey, result, 60 * 24);
-            try {
-                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
-                snapshot.setCacheKey(dbKey);
-                snapshot.setJsonData(objectMapper.writeValueAsString(result));
-                snapshot.setLastUpdated(java.time.LocalDateTime.now());
-                cachedDataRepository.save(snapshot);
-            } catch (Exception dbEx) {
-                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+
+            // Only persist a result we can stand behind. Caching an empty list produced by a
+            // failed lookup is worse than not caching at all: the UI renders empty as "Fully
+            // Optimized", so one throttled Cost Explorer call pinned a false all-clear for the
+            // whole 24h TTL — and the DB snapshot below has no TTL, so it pinned it
+            // indefinitely and re-warmed Redis on every subsequent request.
+            //
+            // This is the likely cause of PARTIAL_UPFRONT and ALL_UPFRONT showing no
+            // recommendations while NO_UPFRONT shows six: each filter combination is a separate
+            // cache key, and querying six services per request rather than one made throttling
+            // far more likely on whichever combination was fetched first.
+            boolean complete = failedServices.isEmpty();
+            if (complete) {
+                redisCache.put(cacheKey, result, 60 * 24);
+                try {
+                    CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                    snapshot.setCacheKey(dbKey);
+                    snapshot.setJsonData(objectMapper.writeValueAsString(result));
+                    snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                    cachedDataRepository.save(snapshot);
+                } catch (Exception dbEx) {
+                    logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                }
+                logger.info("Reservation purchase recommendations for account {} [{} / {} / {} / {}]: "
+                                + "{} recommendations across {} services",
+                        account.getAwsAccountId(), term, paymentOption, lookback, offeringClass,
+                        result.size(), RESERVABLE_SERVICES.size());
+            } else {
+                // Cache the partial result briefly so a burst of page loads does not re-hammer a
+                // throttled API, but expire it soon so the gap self-heals.
+                redisCache.put(cacheKey, result, PARTIAL_RESULT_TTL_MINUTES);
+                logger.warn("Reservation purchase recommendations for account {} [{} / {} / {} / {}] are "
+                                + "INCOMPLETE: {} of {} services failed ({}). Returning {} recommendations "
+                                + "and caching for only {} minutes.",
+                        account.getAwsAccountId(), term, paymentOption, lookback, offeringClass,
+                        failedServices.size(), RESERVABLE_SERVICES.size(), failedServices,
+                        result.size(), PARTIAL_RESULT_TTL_MINUTES);
             }
-            return CompletableFuture.completedFuture(result);
+            return new PurchaseRecommendationSet(result, complete, failedServices);
         } catch (Exception e) {
             logger.error("Could not fetch reservation purchase recommendations.", e);
-            return CompletableFuture.completedFuture(Collections.emptyList());
+            return new PurchaseRecommendationSet(
+                    Collections.emptyList(), false, List.of("all"));
+        }
+    }
+
+    /** TTL for a result that is known to be missing at least one service. */
+    private static final int PARTIAL_RESULT_TTL_MINUTES = 5;
+
+    /**
+     * Outcome of querying one service.
+     *
+     * @param recommendations what was returned; empty is meaningful only when
+     *                        {@code succeeded} is true
+     * @param succeeded        false when the call failed for a reason that does not mean
+     *                         "this account has no opportunities here"
+     */
+    private record ServiceFetchResult(
+            List<DashboardData.ReservationPurchaseRecommendation> recommendations,
+            boolean succeeded,
+            boolean nameRejected) {
+
+        static ServiceFetchResult ok(List<DashboardData.ReservationPurchaseRecommendation> recs) {
+            return new ServiceFetchResult(recs, true, false);
+        }
+
+        /** The account genuinely has nothing to reserve for this service. */
+        static ServiceFetchResult emptyButValid() {
+            return new ServiceFetchResult(Collections.emptyList(), true, false);
+        }
+
+        static ServiceFetchResult failed() {
+            return new ServiceFetchResult(Collections.emptyList(), false, false);
+        }
+
+        /**
+         * Cost Explorer did not recognise the service string. Not a failure of the account or
+         * the API — the caller should try the next candidate name.
+         */
+        static ServiceFetchResult unknownServiceName() {
+            return new ServiceFetchResult(Collections.emptyList(), false, true);
         }
     }
 
     /**
-     * Services for which AWS offers reservations via
-     * {@code GetReservationPurchaseRecommendation}. Names must match Cost Explorer's
-     * service strings exactly.
+     * A reservable service and the Cost Explorer {@code Service} strings to try for it.
+     *
+     * <p>AWS documents <em>which</em> services support reservation recommendations but has
+     * never published the accepted values for the API's {@code Service} parameter, and at
+     * least one service has been renamed (Elasticsearch to OpenSearch) while Cost Explorer
+     * kept the old string for historical data. Betting on a single spelling means a silent
+     * gap: a rejected name looks identical to "this account has nothing to reserve".
+     *
+     * <p>So each service carries candidate names tried in order. The first that is accepted
+     * wins and is remembered for the process lifetime, and the resolved name is logged, which
+     * turns an untestable assumption into something a production log line confirms.
+     *
+     * @param label      name for logs and for the recommendation's service column
+     * @param candidates Cost Explorer service strings, most likely first
      */
-    private static final List<String> RESERVABLE_SERVICES = List.of(
-            "Amazon Elastic Compute Cloud - Compute",
-            "Amazon Relational Database Service",
-            "Amazon ElastiCache",
-            "Amazon OpenSearch Service",
-            "Amazon Redshift",
-            "Amazon MemoryDB");
+    private record ReservableService(String label, List<String> candidates) {
+    }
+
+    /**
+     * Services for which Cost Explorer offers reservation recommendations, per
+     * <a href="https://docs.aws.amazon.com/cost-management/latest/userguide/ri-recommendations.html">
+     * Accessing reservation recommendations</a>: EC2, RDS, ElastiCache, OpenSearch, Redshift,
+     * MemoryDB and DynamoDB.
+     *
+     * <p>DynamoDB was missing from the original list, so reserved-capacity opportunities on a
+     * DynamoDB-heavy account were never surfaced at all.
+     */
+    private static final List<ReservableService> RESERVABLE_SERVICES = List.of(
+            new ReservableService("Amazon EC2", List.of(
+                    "Amazon Elastic Compute Cloud - Compute",
+                    "Amazon Elastic Compute Cloud")),
+            new ReservableService("Amazon RDS", List.of(
+                    "Amazon Relational Database Service")),
+            new ReservableService("Amazon ElastiCache", List.of(
+                    "Amazon ElastiCache")),
+            new ReservableService("Amazon OpenSearch Service", List.of(
+                    "Amazon OpenSearch Service",
+                    // Cost Explorer retained the pre-rename string for a long period.
+                    "Amazon Elasticsearch Service")),
+            new ReservableService("Amazon Redshift", List.of(
+                    "Amazon Redshift")),
+            new ReservableService("Amazon MemoryDB", List.of(
+                    "Amazon MemoryDB",
+                    "Amazon MemoryDB for Redis")),
+            new ReservableService("Amazon DynamoDB", List.of(
+                    "Amazon DynamoDB")));
+
+    /**
+     * Service label to the candidate string that Cost Explorer accepted, so the alias probe
+     * runs at most once per service per process rather than on every request.
+     */
+    private final Map<String, String> resolvedServiceNames = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * Fetches reservation purchase recommendations for one service.
@@ -753,7 +907,50 @@ public class ReservationService {
      *
      * @param offeringClass only meaningful for EC2; ignored by the other services
      */
-    private List<DashboardData.ReservationPurchaseRecommendation> fetchPurchaseRecommendationsForService(
+    /**
+     * Queries one service, probing its candidate names until Cost Explorer accepts one.
+     *
+     * <p>Only a name rejection advances to the next candidate. A throttle or permission error
+     * is a failure of that service, not evidence the name is wrong, so it stops the probe and
+     * is reported — otherwise a throttled EC2 lookup would silently retry under a wrong alias
+     * and then report success with no data.
+     */
+    private ServiceFetchResult fetchWithNameResolution(
+            CostExplorerClient ce, ReservableService service, String term, String paymentOption,
+            String lookback, String offeringClass, String accountId) {
+
+        String remembered = resolvedServiceNames.get(service.label());
+        if (remembered != null) {
+            return fetchPurchaseRecommendationsForService(
+                    ce, remembered, term, paymentOption, lookback, offeringClass, accountId);
+        }
+
+        ServiceFetchResult lastResult = ServiceFetchResult.failed();
+        for (String candidate : service.candidates()) {
+            ServiceFetchResult attempt = fetchPurchaseRecommendationsForService(
+                    ce, candidate, term, paymentOption, lookback, offeringClass, accountId);
+
+            if (attempt.nameRejected()) {
+                logger.debug("Cost Explorer rejected the service name '{}' for {}; trying the next candidate",
+                        candidate, service.label());
+                lastResult = attempt;
+                continue;
+            }
+
+            if (attempt.succeeded()) {
+                resolvedServiceNames.put(service.label(), candidate);
+                logger.info("Resolved Cost Explorer service name for {}: '{}'", service.label(), candidate);
+            }
+            return attempt;
+        }
+
+        logger.warn("No Cost Explorer service name worked for {} (tried {}). Reservation "
+                        + "opportunities for this service cannot be reported.",
+                service.label(), service.candidates());
+        return lastResult;
+    }
+
+    private ServiceFetchResult fetchPurchaseRecommendationsForService(
             CostExplorerClient ce, String serviceName, String term, String paymentOption,
             String lookback, String offeringClass, String accountId) {
 
@@ -780,7 +977,7 @@ public class ReservationService {
             }
 
             GetReservationPurchaseRecommendationResponse response =
-                    ce.getReservationPurchaseRecommendation(builder.build());
+                    getWithThrottleRetry(ce, builder.build(), serviceName, accountId);
 
             List<DashboardData.ReservationPurchaseRecommendation> out = new ArrayList<>();
             for (ReservationPurchaseRecommendation rec : response.recommendations()) {
@@ -795,19 +992,105 @@ public class ReservationService {
                     }
                 }
             }
-            if (!out.isEmpty()) {
-                logger.info("Found {} reservation recommendations for {} in account {}",
-                        out.size(), serviceName, accountId);
+            logger.info("Found {} reservation recommendations for {} in account {}",
+                    out.size(), serviceName, accountId);
+            return ServiceFetchResult.ok(out);
+
+        } catch (DataUnavailableException e) {
+            // The account has no usage history for this service, so there is genuinely nothing
+            // to reserve. A real answer, not a failure.
+            logger.debug("No usage data for {} in account {} — nothing to reserve", serviceName, accountId);
+            return ServiceFetchResult.emptyButValid();
+
+        } catch (AwsServiceException e) {
+            // Throttling, denied permissions and unrecognised service names all used to land in
+            // one catch that logged at DEBUG and returned empty, so a hard failure was
+            // indistinguishable from "fully optimized" both in the UI and in the logs.
+            if (isUnsupportedService(e)) {
+                // Reported separately so the caller can try an alternative spelling rather
+                // than concluding the account has nothing to reserve here.
+                return ServiceFetchResult.unknownServiceName();
             }
-            return out;
+            logger.warn("Reservation recommendation lookup FAILED for {} in account {} [{}]: {}",
+                    serviceName, accountId, e.getClass().getSimpleName(), e.getMessage());
+            return ServiceFetchResult.failed();
 
         } catch (Exception e) {
-            // Expected when an account does not use the service, or Cost Explorer does not
-            // recognise the name. Not fatal to the other services.
-            logger.debug("No reservation recommendations for {} in account {}: {}",
-                    serviceName, accountId, e.getMessage());
-            return Collections.emptyList();
+            logger.warn("Unexpected error fetching reservation recommendations for {} in account {}: {}",
+                    serviceName, accountId, e.getMessage(), e);
+            return ServiceFetchResult.failed();
         }
+    }
+
+    /**
+     * True when the error means this service cannot be queried at all, rather than that the
+     * call failed. Those are legitimately empty results and must not mark the set incomplete.
+     */
+    private boolean isUnsupportedService(AwsServiceException e) {
+        String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        // Cost Explorer reports an unrecognised or non-reservable service name as a plain 400
+        // validation error rather than a typed exception, so this is matched on the message.
+        // Deliberately narrow: anything else, including 400s we do not recognise, is treated as
+        // a real failure so it cannot masquerade as "fully optimized".
+        boolean badRequest = e.statusCode() == 400;
+        return badRequest && (message.contains("not supported")
+                || message.contains("invalid service")
+                || message.contains("unknown service")
+                || message.contains("no reservation"));
+    }
+
+    /**
+     * Issues the request, retrying on throttling with exponential backoff.
+     *
+     * <p>Querying six services per request instead of one made throttling materially more
+     * likely, and {@code GetReservationPurchaseRecommendation} has a low request-rate limit.
+     * Without a retry the first throttled service silently dropped out of the result.
+     */
+    private GetReservationPurchaseRecommendationResponse getWithThrottleRetry(
+            CostExplorerClient ce, GetReservationPurchaseRecommendationRequest request,
+            String serviceName, String accountId) {
+
+        for (int attempt = 1; attempt <= THROTTLE_MAX_ATTEMPTS; attempt++) {
+            try {
+                return ce.getReservationPurchaseRecommendation(request);
+            } catch (AwsServiceException e) {
+                // The final attempt rethrows, so the loop always terminates by return or throw.
+                if (!e.isThrottlingException() || attempt == THROTTLE_MAX_ATTEMPTS) {
+                    throw e;
+                }
+                long backoffMs = THROTTLE_BASE_BACKOFF_MS * (1L << (attempt - 1));
+                logger.info("Cost Explorer throttled the {} reservation lookup for account {} "
+                                + "(attempt {}/{}); retrying in {}ms",
+                        serviceName, accountId, attempt, THROTTLE_MAX_ATTEMPTS, backoffMs);
+                try {
+                    throttleBackoff.accept(backoffMs);
+                } catch (IllegalStateException interrupted) {
+                    throw e;
+                }
+            }
+        }
+        throw new IllegalStateException("Unreachable: throttle retry loop exited without a result");
+    }
+
+    private static final int THROTTLE_MAX_ATTEMPTS = 4;
+    private static final long THROTTLE_BASE_BACKOFF_MS = 500L;
+
+    /**
+     * How the retry loop waits between attempts. Overridable so tests exercise the retry
+     * logic without spending real seconds asleep.
+     */
+    private java.util.function.LongConsumer throttleBackoff = millis -> {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while backing off", e);
+        }
+    };
+
+    /** Test seam: replaces the backoff wait. */
+    void setThrottleBackoffForTesting(java.util.function.LongConsumer backoff) {
+        this.throttleBackoff = backoff;
     }
 
     /**

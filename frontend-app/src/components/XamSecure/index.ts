@@ -30,3 +30,4 @@ export { default as ThreatPoliciesTab } from './ThreatPoliciesTab';
 export { default as WorkflowsTab } from './WorkflowsTab';
 export { default as ComplianceTab } from './ComplianceTab';
 export { default as OnboardingTab } from './OnboardingTab';
+export { default as PoweredByProvider } from './PoweredByProvider';

@@ -530,6 +530,42 @@ public class PricingService {
         return fallback;
     }
 
+    /**
+     * GB-month rate for CloudWatch Logs stored data in a region.
+     *
+     * <p>Needed so a stale log group holding real data reports its actual carrying cost.
+     * The idle-log-group detector previously reported {@code 0.0} for every group, which
+     * made a multi-gigabyte abandoned group look free to keep.
+     */
+    @Cacheable(value = "cloudWatchLogsStoragePrice", key = "#region")
+    public double getCloudWatchLogsStorageGbMonthPrice(String region) {
+        double fallback = 0.03;
+        if (useMockData) {
+            return fallback;
+        }
+        logger.info("Fetching live CloudWatch Logs storage price for region: {}", region);
+        Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
+        Filter productFamilyFilter = Filter.builder().field("productFamily").value("Storage Snapshot")
+                .type("TERM_MATCH").build();
+
+        try {
+            GetProductsResponse response = pricingClient.getProducts(GetProductsRequest.builder()
+                    .serviceCode("AmazonCloudWatch")
+                    .filters(regionFilter, productFamilyFilter)
+                    .build());
+            if (!response.priceList().isEmpty()) {
+                double price = extractOnDemandPrice(objectMapper.readTree(response.priceList().get(0)));
+                if (price > 0) {
+                    return price;
+                }
+            }
+            logger.warn("No CloudWatch Logs storage price found for region {}, using fallback", region);
+        } catch (Exception e) {
+            logger.error("Failed to fetch CloudWatch Logs storage price for region {}", region, e);
+        }
+        return fallback;
+    }
+
     @Cacheable(value = "rdsSnapshotPrice", key = "#region + '-' + #engine")
     public double getRdsSnapshotGbMonthPrice(String region, String engine) {
         double fallback = 0.095;
@@ -633,6 +669,95 @@ public class PricingService {
             logger.warn("No ElastiCache price found for node type {} in region {}, using fallback", nodeType, region);
         } catch (Exception e) {
             logger.error("Failed to fetch ElastiCache price for node type {} in region {}", nodeType, region, e);
+        }
+        return fallback;
+    }
+
+    /**
+     * Hourly rate for an EKS cluster control plane in a region.
+     *
+     * <p>Replaces a flat {@code 73.0} monthly constant in the idle-cluster detector, which was
+     * $0.10/hour x 730 for us-east-1 and wrong wherever the rate differs.
+     */
+    @Cacheable(value = "eksClusterPrice", key = "#region")
+    public double getEksClusterHourlyPrice(String region) {
+        return firstOnDemandPrice("AmazonEKS", region, 0.10,
+                Filter.builder().field("usagetype").value("USE1-AmazonEKS-Hours:perCluster")
+                        .type("TERM_MATCH").build());
+    }
+
+    /**
+     * GB-month rate for EFS Standard storage in a region. Replaces a hardcoded $0.30/GB.
+     */
+    @Cacheable(value = "efsPrice", key = "#region")
+    public double getEfsGbMonthPrice(String region) {
+        return firstOnDemandPrice("AmazonEFS", region, 0.30,
+                Filter.builder().field("storageClass").value("General Purpose").type("TERM_MATCH").build());
+    }
+
+    /**
+     * GB-month rate for DynamoDB table storage in a region. Replaces a hardcoded $0.25/GB.
+     */
+    @Cacheable(value = "dynamoDbStoragePrice", key = "#region")
+    public double getDynamoDbGbMonthPrice(String region) {
+        return firstOnDemandPrice("AmazonDynamoDB", region, 0.25,
+                Filter.builder().field("productFamily").value("Database Storage").type("TERM_MATCH").build());
+    }
+
+    /**
+     * GB-month rate for ECR image storage in a region. Replaces a hardcoded $0.10/GB.
+     */
+    @Cacheable(value = "ecrStoragePrice", key = "#region")
+    public double getEcrGbMonthPrice(String region) {
+        return firstOnDemandPrice("AmazonECR", region, 0.10,
+                Filter.builder().field("productFamily").value("Storage").type("TERM_MATCH").build());
+    }
+
+    /**
+     * Shared shape for the simple "one region filter plus one discriminator" lookups above.
+     *
+     * <p>Falls back rather than returning zero, because a zero would be read downstream as
+     * "this resource is free" and quietly erase a real cost from the waste total.
+     *
+     * @param serviceCode Price List service code, e.g. {@code AmazonEFS}
+     * @param fallback    us-east-1 list price to use when the lookup yields nothing
+     * @param extra       additional filters narrowing the SKU
+     */
+    private double firstOnDemandPrice(String serviceCode, String region, double fallback, Filter... extra) {
+        if (useMockData) {
+            return fallback;
+        }
+        if (region == null || region.isBlank()) {
+            return fallback;
+        }
+        List<Filter> filters = new java.util.ArrayList<>();
+        filters.add(Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build());
+        filters.addAll(java.util.Arrays.asList(extra));
+
+        try {
+            GetProductsResponse response = pricingClient.getProducts(GetProductsRequest.builder()
+                    .serviceCode(serviceCode)
+                    .filters(filters)
+                    .build());
+
+            List<String> priceList = response.priceList();
+            if (priceList.isEmpty() && extra.length > 0) {
+                // The discriminator may not apply in this region or partition; retry on region
+                // alone rather than silently falling back to a us-east-1 constant.
+                priceList = pricingClient.getProducts(GetProductsRequest.builder()
+                        .serviceCode(serviceCode)
+                        .filters(filters.get(0))
+                        .build()).priceList();
+            }
+            for (String entry : priceList) {
+                double price = extractOnDemandPrice(objectMapper.readTree(entry));
+                if (price > 0) {
+                    return price;
+                }
+            }
+            logger.warn("No {} price found for region {}; using fallback {}", serviceCode, region, fallback);
+        } catch (Exception e) {
+            logger.error("Failed to fetch {} price for region {}: {}", serviceCode, region, e.getMessage());
         }
         return fallback;
     }

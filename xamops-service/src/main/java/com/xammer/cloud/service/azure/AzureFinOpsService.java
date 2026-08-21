@@ -227,7 +227,8 @@ public class AzureFinOpsService {
                         r.getMonthlySavings(),
                         r.getAnnualSavings(),
                         r.getImpact(),
-                        r.getLocation()
+                        r.getLocation(),
+                        r.isSavingsUnknown()
                     ));
                 }
                 logger.info("Added {} rightsizing items to FinOps report for {}", rightsizingItems.size(), subscriptionId);
@@ -249,7 +250,11 @@ public class AzureFinOpsService {
                         w.getResourceType(),
                         w.getRegion(),
                         w.getReason(),
-                        w.getMonthlySavings()
+                        w.getMonthlySavings(),
+                        // Previously dropped here, so ten unpriced or free findings rendered
+                        // as definitive $0.00 rows and were summed as though priced.
+                        w.isSavingsUnknown(),
+                        w.isNoCostImpact()
                     ));
                 }
                 logger.info("Added {} waste items to FinOps report for {}", wasteItems.size(), subscriptionId);
@@ -270,10 +275,15 @@ public class AzureFinOpsService {
                 .map(String::toLowerCase)
                 .collect(java.util.stream.Collectors.toSet());
 
+        // Only priced, billable findings contribute. Unpriced items and resources Azure does
+        // not bill for carry a placeholder zero, so including them added nothing to the total
+        // but did make the item count describe a different set from the amount beside it.
         double wasteTotal = wasteItems.stream()
+                .filter(AzureFinOpsReportDto.WasteItem::isBillableWaste)
                 .mapToDouble(AzureFinOpsReportDto.WasteItem::getMonthlySavings)
                 .sum();
         double rightsizingTotal = rightsizingItems.stream()
+                .filter(r -> !r.isSavingsUnknown())
                 .filter(r -> r.getResourceName() == null
                         || !wasteResourceNames.contains(r.getResourceName().toLowerCase()))
                 .mapToDouble(AzureFinOpsReportDto.RightsizingItem::getMonthlySavings)

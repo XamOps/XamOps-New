@@ -39,6 +39,7 @@ export const ReservationPage: React.FC = () => {
     data,
     isLoading,
     isRecsLoading,
+    recsIncomplete,
     isSpRecsLoading,
     error,
     recFilters,
@@ -186,6 +187,7 @@ export const ReservationPage: React.FC = () => {
                   recommendations={data.purchaseRecommendations}
                   filters={recFilters}
                   isLoading={isRecsLoading}
+                  isIncomplete={recsIncomplete}
                   onFilterChange={setRecFilters}
                   onFetchRecommendations={() => fetchPurchaseRecommendations(true)}
                   spRecommendations={data.savingsPlanRecommendations ?? []}

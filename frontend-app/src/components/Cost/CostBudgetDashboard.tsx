@@ -19,9 +19,29 @@ import type { CostDataItem } from '../../types/cost';
 interface CostBudgetDashboardProps {
   budgets: Budget[];
   costData: CostDataItem[];
+  /**
+   * Real month-by-month spend, aligned as `labels[i]` → `costs[i]`.
+   *
+   * Past months used to be generated with `Math.random()` scaled around the budget, so the
+   * chart showed four plausible-looking bars that were pure invention. When this is absent
+   * those months now render as "no data" instead.
+   */
+  costHistory?: { labels: string[]; costs: number[] };
+  /** ISO-4217 code for both budget limits and spend. Defaults to USD. */
+  currency?: string;
   onCreateBudget: () => void;
   onDeleteBudget: (budgetName: string) => void;
 }
+
+/** Renders an amount in the dashboard's currency. */
+const currencySymbol = (currency: string): string => {
+  switch (currency.toUpperCase()) {
+    case 'INR': return '₹';
+    case 'EUR': return '€';
+    case 'GBP': return '£';
+    default: return '$';
+  }
+};
 
 type FilterMode = 'all' | 'account' | 'service';
 
@@ -32,14 +52,19 @@ interface MonthData {
   withinBudget: number;
   overBudget: number;
   isCurrent: boolean;
+  /** False when no spend was recorded for this past month, so the bar must not be drawn. */
+  hasData: boolean;
 }
 
 const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
   budgets,
   costData,
+  costHistory,
+  currency = 'USD',
   onCreateBudget,
   onDeleteBudget,
 }) => {
+  const symbol = currencySymbol(currency);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [serviceFilter, setServiceFilter] = useState<string | null>(null);
@@ -71,6 +96,19 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
   const totalActual = totalCostFromData;
   const totalRemaining = totalBudget - totalActual;
 
+  // Month label → real spend, for the chart below.
+  const historyByLabel = useMemo(() => {
+    const map = new Map<string, number>();
+    const labels = costHistory?.labels ?? [];
+    const costs = costHistory?.costs ?? [];
+    labels.forEach((label, i) => {
+      if (typeof costs[i] === 'number') {
+        map.set(label, costs[i]);
+      }
+    });
+    return map;
+  }, [costHistory]);
+
   // Helper: get actual spend for a budget using costData
   const getActualSpend = (budget: Budget): number => {
     if (budget.serviceName) {
@@ -98,20 +136,40 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
       const isCurrent = i === 0;
       const isPast = i < 0;
 
-      if (isPast || isCurrent) {
-        // For past/current months, simulate spend based on actual budget data
-        const monthBudget = totalBudget;
-        const spent = isCurrent ? totalActual : totalBudget * (0.7 + Math.random() * 0.6);
-        const withinBudget = Math.min(spent, monthBudget);
-        const overBudget = Math.max(0, spent - monthBudget);
-        months.push({ label, budget: monthBudget, spent, withinBudget, overBudget, isCurrent });
+      if (isCurrent) {
+        const withinBudget = Math.min(totalActual, totalBudget);
+        const overBudget = Math.max(0, totalActual - totalBudget);
+        months.push({
+          label, budget: totalBudget, spent: totalActual,
+          withinBudget, overBudget, isCurrent: true, hasData: true,
+        });
+      } else if (isPast) {
+        // Real history only. A month with no recorded spend is reported as having no data
+        // rather than being filled in with a plausible-looking invention.
+        const spent = historyByLabel.get(label);
+        if (spent === undefined) {
+          months.push({
+            label, budget: totalBudget, spent: 0,
+            withinBudget: 0, overBudget: 0, isCurrent: false, hasData: false,
+          });
+        } else {
+          months.push({
+            label, budget: totalBudget, spent,
+            withinBudget: Math.min(spent, totalBudget),
+            overBudget: Math.max(0, spent - totalBudget),
+            isCurrent: false, hasData: true,
+          });
+        }
       } else {
-        // Future months - empty
-        months.push({ label, budget: totalBudget, spent: 0, withinBudget: 0, overBudget: 0, isCurrent: false });
+        // Future months carry no spend yet, which is a fact rather than missing data.
+        months.push({
+          label, budget: totalBudget, spent: 0,
+          withinBudget: 0, overBudget: 0, isCurrent: false, hasData: true,
+        });
       }
     }
     return months;
-  }, [totalBudget, totalActual]);
+  }, [totalBudget, totalActual, historyByLabel]);
 
   // Available services from cost data
   const availableServices = useMemo(() => {
@@ -141,17 +199,18 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
     return result;
   }, [budgets, searchQuery, serviceFilter]);
 
-  // Format currency
+  // Format currency. The symbol follows the account's currency: hardcoding "$" put a dollar
+  // sign on INR budget limits and compared them against INR spend as if both were USD.
   const fmt = (value: number): string => {
     if (value >= 1000) {
-      return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return symbol + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
-    return '$' + value.toFixed(2);
+    return symbol + value.toFixed(2);
   };
 
   const fmtShort = (value: number): string => {
-    if (value >= 1000) return '$' + (value / 1000).toFixed(1) + 'K';
-    return '$' + value.toFixed(0);
+    if (value >= 1000) return symbol + (value / 1000).toFixed(1) + 'K';
+    return symbol + value.toFixed(0);
   };
 
   // Chart dimensions
@@ -198,7 +257,7 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
               <span>{fmtShort(chartMaxValue)}</span>
               <span>{fmtShort(chartMaxValue * 0.66)}</span>
               <span>{fmtShort(chartMaxValue * 0.33)}</span>
-              <span>$0</span>
+              <span>{symbol}0</span>
             </div>
 
             {/* Bars */}
@@ -208,7 +267,10 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
                 const totalPx = month.spent > 0 ? (month.spent / chartMaxValue) * CHART_H : 0;
                 const greenPx = month.withinBudget > 0 ? (month.withinBudget / chartMaxValue) * CHART_H : 0;
                 const redPx = month.overBudget > 0 ? (month.overBudget / chartMaxValue) * CHART_H : 0;
+                // A past month with no recorded spend is unknown, not zero. Rendering it the
+                // same way as a future month keeps the chart honest instead of implying spend.
                 const isFuture = month.spent === 0 && !month.isCurrent;
+                const isUnknown = !month.hasData;
 
                 return (
                   <div
@@ -218,14 +280,14 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
                     onMouseLeave={() => setHoveredBar(null)}
                   >
                     {/* Value label on top */}
-                    {month.spent > 0 && (
+                    {month.spent > 0 && !isUnknown && (
                       <span className="text-[9px] font-semibold text-[rgba(0,0,0,0.5)] mb-0.5 whitespace-nowrap">
                         {fmtShort(month.spent)}
                       </span>
                     )}
                     {/* Bar */}
-                    <div className="w-full flex flex-col justify-end" style={{ height: isFuture ? '100%' : `${Math.max(totalPx, 4)}px` }}>
-                      {isFuture ? (
+                    <div className="w-full flex flex-col justify-end" style={{ height: (isFuture || isUnknown) ? '100%' : `${Math.max(totalPx, 4)}px` }}>
+                      {(isFuture || isUnknown) ? (
                         <div className="w-full h-full rounded-t-sm bg-[rgba(0,0,0,0.03)] border border-dashed border-[rgba(0,0,0,0.08)]" />
                       ) : (
                         <>
@@ -245,7 +307,13 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
                     </span>
 
                     {/* Tooltip on hover */}
-                    {hoveredBar === idx && month.spent > 0 && (
+                    {hoveredBar === idx && isUnknown && (
+                      <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg shadow-lg p-3 z-50 min-w-[160px]">
+                        <p className="text-[11px] font-bold text-black mb-1">{month.label}</p>
+                        <p className="text-[11px] text-[rgba(0,0,0,0.5)]">No spend recorded for this month.</p>
+                      </div>
+                    )}
+                    {hoveredBar === idx && month.spent > 0 && !isUnknown && (
                       <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg shadow-lg p-3 z-50 min-w-[180px]">
                         <p className="text-[11px] font-bold text-black mb-2">{month.label}</p>
                         <div className="space-y-1.5 text-[11px]">
@@ -280,7 +348,7 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
               TOTAL BUDGET
             </p>
             <p className="text-[28px] font-bold text-black leading-none">
-              ${Math.floor(totalBudget).toLocaleString()}<span className="text-[16px] text-[rgba(0,0,0,0.4)]">.{String(Math.round((totalBudget % 1) * 100)).padStart(2, '0')}</span>
+              {symbol}{Math.floor(totalBudget).toLocaleString()}<span className="text-[16px] text-[rgba(0,0,0,0.4)]">.{String(Math.round((totalBudget % 1) * 100)).padStart(2, '0')}</span>
             </p>
           </div>
           <div className="flex gap-6">

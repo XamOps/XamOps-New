@@ -279,6 +279,7 @@ public class FinOpsService {
                                 .mapToDouble(DashboardData.OptimizationRecommendation::getEstimatedMonthlySavings)
                                 .sum();
                         double wasteSavings = wastedResourcesFuture.join().stream()
+                                .filter(DashboardData.WastedResource::isBillableWaste)
                                 .mapToDouble(DashboardData.WastedResource::getMonthlySavings).sum();
                         double totalPotentialSavings = rightsizingSavings + wasteSavings;
 

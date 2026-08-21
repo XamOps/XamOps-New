@@ -10,6 +10,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.service.DiskAgentPeaks;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -59,6 +60,7 @@ public class AzureDiskRightsizingService {
     private final RedisCacheService         redisCacheService;
     private final AzureClientProvider       azureClientProvider;
     private final CachedDataRepository      cachedDataRepository;
+    private final AzureRetailPricingService retailPricingService;
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -189,10 +191,101 @@ public class AzureDiskRightsizingService {
         return result;
     }
 
+    /** Grace period before an unattached disk may be recommended for deletion. */
+    private static final int DEFAULT_MIN_DETACH_AGE_DAYS = 7;
+
+    /**
+     * Tag keys that mark a disk as retained by a backup or replication policy.
+     * Mirrors {@code AzureWasteService.hasProtectedTag}.
+     */
+    private static final List<String> PROTECTED_TAG_FRAGMENTS = List.of(
+            "backup", "retain", "retention", "donotdelete", "do-not-delete",
+            "asr-", "siterecovery", "recoveryservices");
+
+    /**
+     * Whether the disk is provisioned and reconciled by AKS.
+     *
+     * <p>Same rules as {@code AzureWasteService.isKubernetesManaged}: AKS names dynamically
+     * provisioned disks {@code pvc-<uuid>}, places managed infrastructure in an {@code MC_}
+     * node resource group, and writes ownership tags.
+     */
+    private boolean isKubernetesManaged(String resourceId, String name, String resourceGroup,
+                                        Map<String, String> tags) {
+        if (name != null && name.toLowerCase().startsWith("pvc-")) {
+            return true;
+        }
+        if (resourceGroup != null && resourceGroup.toUpperCase().startsWith("MC_")) {
+            return true;
+        }
+        if (resourceId != null && resourceId.toUpperCase().contains("/RESOURCEGROUPS/MC_")) {
+            return true;
+        }
+        if (tags != null) {
+            for (Map.Entry<String, String> tag : tags.entrySet()) {
+                String key = tag.getKey() == null ? "" : tag.getKey().toLowerCase();
+                if (key.startsWith("kubernetes.io/") || key.startsWith("k8s.io/")
+                        || key.startsWith("aks-managed")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Whether a retention or backup tag marks this disk as deliberately kept. */
+    private boolean hasProtectedTag(Map<String, String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return false;
+        }
+        return tags.keySet().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(String::toLowerCase)
+                .anyMatch(key -> PROTECTED_TAG_FRAGMENTS.stream().anyMatch(key::contains));
+    }
+
+    /**
+     * Whether the disk was detached recently enough that deletion would be premature.
+     * An unknown detach time is treated as recent when the disk itself is new.
+     */
+    private boolean isRecentlyDetached(Disk disk) {
+        try {
+            java.time.OffsetDateTime cutoff =
+                    java.time.OffsetDateTime.now().minusDays(DEFAULT_MIN_DETACH_AGE_DAYS);
+            java.time.OffsetDateTime lastOwnership = disk.innerModel().lastOwnershipUpdateTime();
+            if (lastOwnership != null) {
+                return lastOwnership.isAfter(cutoff);
+            }
+            java.time.OffsetDateTime created = disk.innerModel().timeCreated();
+            return created != null && created.isAfter(cutoff);
+        } catch (Exception e) {
+            logger.debug("[azure-disk] could not determine detach age for {}: {}",
+                    disk.name(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Whether the disk state indicates an in-flight operation that deletion would interrupt,
+     * such as an active SAS export or an upload.
+     */
+    private boolean isReservedState(String diskState) {
+        if (diskState == null) {
+            return false;
+        }
+        String state = diskState.toLowerCase();
+        return state.contains("activesas") || state.contains("activeupload")
+                || state.contains("attached") || state.contains("reserved");
+    }
+
     private Map<String, Object> buildDiskDto(Disk disk) {
+        // accountType() yields the catalog name ("Premium_LRS"); DiskSkuTypes.toString() does
+        // not, so keying the price table on it silently fell through to the default rate for
+        // every disk. AzureWasteService already reads accountType() for the same disks.
         String diskType = "Unknown";
         try {
-            diskType = disk.sku() != null ? disk.sku().toString() : "Unknown";
+            if (disk.sku() != null && disk.sku().accountType() != null) {
+                diskType = disk.sku().accountType().toString();
+            }
         } catch (Exception e) {
             logger.debug("[azure-disk] could not determine disk SKU for {}: {}", disk.name(), e.getMessage());
         }
@@ -205,9 +298,11 @@ public class AzureDiskRightsizingService {
         }
 
         int sizeGb = disk.sizeInGB();
-        double costPerGbUsd = DISK_COST_PER_GB.getOrDefault(diskType, DEFAULT_COST_PER_GB);
-        // USD, matching every other amount produced by the optimization services.
-        double monthlyCostUsd = sizeGb * costPerGbUsd;
+        // USD, matching every other amount produced by the optimization services. Priced at the
+        // disk's billed tier rather than per GB, so this agrees with the invoice and with
+        // AzureWasteService, which reported a different figure for the same disk.
+        double monthlyCostUsd = tierMonthlyCost(diskType, sizeGb,
+                disk.region() != null ? disk.region().name() : null);
 
         String diskState = "Unknown";
         try {
@@ -216,10 +311,23 @@ public class AzureDiskRightsizingService {
             logger.debug("[azure-disk] could not determine disk state for {}: {}", disk.name(), e.getMessage());
         }
 
+        // Signals that must block a delete recommendation. AzureWasteService applies all three
+        // to the same disks; this service applied none, so a Kubernetes PersistentVolume could
+        // be offered for one-click deletion here while being correctly excluded there.
+        boolean k8sManaged = isKubernetesManaged(disk.id(), disk.name(),
+                disk.resourceGroupName(), disk.tags());
+        boolean protectedByBackup = hasProtectedTag(disk.tags());
+        boolean recentlyDetached = isRecentlyDetached(disk);
+        boolean reserved = isReservedState(diskState);
+
         Map<String, Object> dto = new LinkedHashMap<>();
         dto.put("diskName",             disk.name());
         dto.put("resourceGroup",        disk.resourceGroupName());
         dto.put("region",               disk.region().name());
+        dto.put("kubernetesManaged",    k8sManaged);
+        dto.put("protectedByBackup",    protectedByBackup);
+        dto.put("recentlyDetached",     recentlyDetached);
+        dto.put("reservedState",        reserved);
         dto.put("diskType",             diskType);
         dto.put("sizeGb",               sizeGb);
         dto.put("status",               diskState);
@@ -300,6 +408,22 @@ public class AzureDiskRightsizingService {
                 dto.put("usedPercent",   Math.round(up * 10.0) / 10.0);
                 dto.put("usedGb",        Math.round(sizeGb * up / 100.0 * 100.0) / 100.0);
                 dto.put("freeGb",        Math.round(sizeGb * (1 - up / 100.0) * 100.0) / 100.0);
+
+                // A single instantaneous reading cannot support a shrink — see DiskAgentPeaks.
+                Map<String, Object> peaks = redisCacheService.get(
+                        DiskAgentPeaks.keyFor("azure-disk-agent:", agentAccountKey, instanceName),
+                        new TypeReference<Map<String, Object>>() {}).orElse(Map.of());
+                Object peakRaw = peaks.get((String) bestMount.get("device"));
+                Object samplesRaw = peaks.get(DiskAgentPeaks.SAMPLE_COUNT_FIELD);
+                if (peakRaw instanceof Number peak && samplesRaw instanceof Number samples) {
+                    dto.put("peakUsedPercent",
+                            Math.round(Math.max(peak.doubleValue(), up) * 10.0) / 10.0);
+                    dto.put("observationCount", samples.longValue());
+                    Object since = peaks.get(DiskAgentPeaks.WINDOW_START_FIELD);
+                    if (since instanceof Number sinceMillis) {
+                        dto.put("observationWindowStart", sinceMillis.longValue());
+                    }
+                }
             }
         }
     }
@@ -318,13 +442,37 @@ public class AzureDiskRightsizingService {
         boolean attached = Boolean.TRUE.equals(dto.get("attached"));
         int sizeGb = (int) dto.get("sizeGb");
         String diskType = (String) dto.get("diskType");
-        double costPerGbUsd = DISK_COST_PER_GB.getOrDefault(diskType, DEFAULT_COST_PER_GB);
 
         if (!attached) {
             String diskState = (String) dto.get("status");
-            // Treat an unknown state as unattached too: buildDiskDto falls back to "Unknown"
-            // when the state lookup fails, and requiring an exact "Unattached" match meant
-            // those disks silently produced no recommendation at all.
+
+            // Guards, matching AzureWasteService.detectUnattachedDisks. Without them this path
+            // offered a one-click delete for disks that are in legitimate use: a pvc- disk reads
+            // as unattached while its pod is rescheduled, and deleting it destroys the
+            // PersistentVolume's data irreversibly.
+            String blockedReason = null;
+            if (Boolean.TRUE.equals(dto.get("kubernetesManaged"))) {
+                blockedReason = "Managed by Kubernetes — backs a PersistentVolume and reads as "
+                        + "unattached while its pod is rescheduled";
+            } else if (Boolean.TRUE.equals(dto.get("protectedByBackup"))) {
+                blockedReason = "Carries a retention or protection tag — managed by a backup policy";
+            } else if (Boolean.TRUE.equals(dto.get("reservedState"))) {
+                blockedReason = "Disk state is " + diskState + " — an export or upload is in progress";
+            } else if (Boolean.TRUE.equals(dto.get("recentlyDetached"))) {
+                blockedReason = "Detached within the last " + DEFAULT_MIN_DETACH_AGE_DAYS
+                        + " days — may be mid-maintenance or mid-migration";
+            }
+
+            if (blockedReason != null) {
+                dto.put("recommendation",       "NONE");
+                dto.put("recommendationReason", blockedReason);
+                dto.put("estimatedSavings",     0.0);
+                return;
+            }
+
+            // Requiring an exact "Unattached" match meant a disk whose state lookup failed
+            // produced no recommendation at all. "Unknown" is admitted, but only after the
+            // guards above have cleared it.
             if ("Unattached".equalsIgnoreCase(diskState) || "Unknown".equalsIgnoreCase(diskState)) {
                 dto.put("recommendation",       "DELETE_UNATTACHED");
                 dto.put("recommendationReason", "Disk is not attached to any instance");
@@ -337,6 +485,8 @@ public class AzureDiskRightsizingService {
 
         double usedPct = ((Number) dto.get("usedPercent")).doubleValue();
 
+        String region = (String) dto.get("region");
+
         if (usedPct > policy.expandThresholdPct()) {
             int targetSize = policy.targetSizeGb(sizeGb, usedPct);
             dto.put("recommendation",       "EXPAND");
@@ -344,24 +494,102 @@ public class AzureDiskRightsizingService {
             dto.put("recommendationReason", String.format(
                     "Disk is %.0f%% full — expand to %d GB to avoid capacity issues", usedPct, targetSize));
             // An expand raises cost; report it as negative so it cannot be summed as a gain.
-            double costIncrease = (targetSize - sizeGb) * costPerGbUsd;
+            double costIncrease = Math.max(0.0,
+                    tierMonthlyCost(diskType, targetSize, region) - tierMonthlyCost(diskType, sizeGb, region));
             dto.put("estimatedSavings", -Math.round(costIncrease * 100.0) / 100.0);
             dto.put("estimatedMonthlyCostIncrease", Math.round(costIncrease * 100.0) / 100.0);
         } else if (usedPct < policy.shrinkThresholdPct() && sizeGb > policy.minDiskSizeGb()) {
-            int targetSize = policy.targetSizeGb(sizeGb, usedPct);
+            // Sized against the highest utilization observed, not the latest reading. Azure cannot
+            // shrink a managed disk in place, so a disk shrunk to fit one lucky sample can only be
+            // recovered by migrating again.
+            Object peakRaw = dto.get("peakUsedPercent");
+            Object samplesRaw = dto.get("observationCount");
+            if (!(peakRaw instanceof Number peak) || !(samplesRaw instanceof Number samples)
+                    || samples.longValue() < DiskAgentPeaks.MIN_OBSERVATIONS_FOR_SHRINK) {
+                dto.put("recommendation", "NONE");
+                dto.put("recommendationReason", String.format(
+                        "Currently %.0f%% used, but only %s of history is available. A shrink needs at "
+                                + "least %d agent observations so it can be sized against peak usage "
+                                + "rather than one instantaneous reading.",
+                        usedPct,
+                        samplesRaw instanceof Number n ? n.longValue() + " observation(s)" : "none",
+                        DiskAgentPeaks.MIN_OBSERVATIONS_FOR_SHRINK));
+                dto.put("estimatedSavings", 0.0);
+                dto.put("savingsUnknown", true);
+                return;
+            }
+
+            double peakPct = peak.doubleValue();
+            if (peakPct >= policy.shrinkThresholdPct()) {
+                dto.put("recommendation", "NONE");
+                dto.put("recommendationReason", String.format(
+                        "Currently %.0f%% used but peaked at %.0f%% across %d observations — the disk is "
+                                + "not over-provisioned for its busiest moment.",
+                        usedPct, peakPct, samples.longValue()));
+                dto.put("estimatedSavings", 0.0);
+                return;
+            }
+
+            int targetSize = policy.targetSizeGb(sizeGb, peakPct);
             if (targetSize < sizeGb) {
-                double saving = (sizeGb - targetSize) * costPerGbUsd;
+                // Azure bills a managed disk by provisioned TIER, not by the gigabyte. A 512 GiB
+                // Premium disk and a 400 GiB one are both billed as P20, so shrinking between
+                // them saves nothing. The previous per-GB arithmetic advertised
+                // (512-400) x 0.135 = $15.12/month for a change that would not alter the invoice
+                // at all.
+                String currentTier = retailPricingService.managedDiskTier(diskType, sizeGb);
+                String targetTier  = retailPricingService.managedDiskTier(diskType, targetSize);
+
+                if (currentTier != null && currentTier.equals(targetTier)) {
+                    dto.put("recommendation", "NONE");
+                    dto.put("recommendationReason", String.format(
+                            "Peaked at %.0f%% used, but %d GB and %d GB are both billed as %s — shrinking "
+                                    + "within a tier does not reduce cost.",
+                            peakPct, sizeGb, targetSize, currentTier));
+                    dto.put("estimatedSavings", 0.0);
+                    return;
+                }
+
+                double saving = Math.max(0.0,
+                        tierMonthlyCost(diskType, sizeGb, region) - tierMonthlyCost(diskType, targetSize, region));
                 dto.put("recommendation",       "SHRINK");
                 dto.put("recommendedSizeGb",    targetSize);
                 dto.put("recommendationReason", String.format(
-                        "Only %.0f%% used — a %d GB disk would suffice (currently %d GB). %s",
-                        usedPct, targetSize, sizeGb, SHRINK_UNSUPPORTED_MESSAGE));
+                        "Peaked at %.0f%% across %d observations — a %d GB disk would suffice "
+                                + "(currently %d GB), moving from %s to %s. %s",
+                        peakPct, samples.longValue(), targetSize, sizeGb,
+                        currentTier == null ? "the current tier" : currentTier,
+                        targetTier == null ? "a smaller tier" : targetTier,
+                        SHRINK_UNSUPPORTED_MESSAGE));
                 dto.put("estimatedSavings", Math.round(saving * 100.0) / 100.0);
                 // Not applicable via the Azure API; realizing it needs a migration.
                 dto.put("actionable", false);
                 dto.put("requiresMigration", true);
             }
         }
+    }
+
+    /**
+     * Monthly cost of a managed disk at its billed tier.
+     *
+     * <p>Resolves the live tier price where possible. Falls back to the per-GB table only when
+     * the catalog lookup fails or the family is not tier-billed (Premium v2 and Ultra bill on
+     * provisioned IOPS and throughput as well as capacity).
+     */
+    private double tierMonthlyCost(String diskType, int sizeGb, String region) {
+        if (diskType != null && region != null) {
+            try {
+                Optional<Double> tierPrice =
+                        retailPricingService.getManagedDiskMonthlyPriceUsd(diskType, sizeGb, region);
+                if (tierPrice.isPresent() && tierPrice.get() > 0) {
+                    return tierPrice.get();
+                }
+            } catch (Exception e) {
+                logger.debug("[azure-disk] tier price lookup failed for {} {}GB in {}: {}",
+                        diskType, sizeGb, region, e.getMessage());
+            }
+        }
+        return sizeGb * DISK_COST_PER_GB.getOrDefault(diskType, DEFAULT_COST_PER_GB);
     }
 
     /**

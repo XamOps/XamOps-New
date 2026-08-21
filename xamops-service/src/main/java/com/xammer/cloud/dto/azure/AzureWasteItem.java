@@ -59,6 +59,39 @@ public class AzureWasteItem {
         return item;
     }
 
+    /**
+     * True when Azure does not bill for the resource, so cleaning it up frees no spend.
+     *
+     * <p>NICs, network security groups, availability sets, route tables and empty resource
+     * groups are all free. These were previously emitted via {@link #withUnknownSavings},
+     * which claims the cost is real but unmeasured — overstating the value of acting on them.
+     *
+     * <p>Distinct from {@link #savingsUnknown}: that means real cost, unpriced; this means
+     * the cost is known to be zero.
+     */
+    private boolean noCostImpact;
+
+    /**
+     * Creates a hygiene finding for a resource that Azure does not bill for.
+     *
+     * @see #noCostImpact
+     */
+    public static AzureWasteItem withNoCostImpact(String resourceId, String resourceName,
+                                                  String resourceType, String region, String reason) {
+        AzureWasteItem item = new AzureWasteItem(resourceId, resourceName, resourceType, region, reason, 0.0);
+        item.setNoCostImpact(true);
+        return item;
+    }
+
+    public boolean isNoCostImpact() { return noCostImpact; }
+    public void setNoCostImpact(boolean noCostImpact) { this.noCostImpact = noCostImpact; }
+
+    /** True when this finding should contribute to a reclaimable-spend total. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isBillableWaste() {
+        return !savingsUnknown && !noCostImpact;
+    }
+
     public String getResourceId() { return resourceId; }
     public void setResourceId(String resourceId) { this.resourceId = resourceId; }
 

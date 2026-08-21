@@ -11,6 +11,8 @@ interface ReservationRecommendationsProps {
   recommendations: PurchaseRecommendation[];
   filters: RecommendationFilters;
   isLoading: boolean;
+  /** True when at least one reservable service could not be queried. */
+  isIncomplete?: boolean;
   onFilterChange: (filters: RecommendationFilters) => void;
   onFetchRecommendations: () => void;
   spRecommendations: SavingsPlanRecommendation[];
@@ -22,10 +24,26 @@ interface ReservationRecommendationsProps {
 
 type RecTab = 'ri' | 'sp';
 
+/**
+ * Renders the term carried by a recommendation. Cost Explorer returns the enum name, but
+ * older cached rows may hold a bare year count, so both shapes are handled.
+ */
+const formatTerm = (term?: string): string => {
+  if (!term) return '—';
+  const normalized = term.toUpperCase();
+  if (normalized.includes('THREE') || normalized === '3') return '3 yr';
+  if (normalized.includes('ONE') || normalized === '1') return '1 yr';
+  return term;
+};
+
+const formatPaymentOption = (paymentOption: string): string =>
+  paymentOption.replace(/_/g, ' ').toLowerCase();
+
 const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
   recommendations,
   filters,
   isLoading,
+  isIncomplete = false,
   onFilterChange,
   onFetchRecommendations,
   spRecommendations,
@@ -189,9 +207,13 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
                       </td>
                       <td className="px-6 py-4 font-medium text-[rgba(0,0,0,0.7)]">{rec.region}</td>
                       <td className="px-6 py-4 font-medium text-[rgba(0,0,0,0.7)]">{rec.platform}</td>
+                      {/* Term comes from the recommendation itself, not the filter state. Reading
+                          the filters here meant the label always agreed with the dropdowns and
+                          could never reveal a mismatch — and during a fetch it labelled the
+                          previous result set with the newly chosen filters. */}
                       <td className="px-6 py-4">
                         <span className="text-xs font-semibold bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] rounded-md px-2.5 py-1 inline-block">
-                          {filters.term.replace('ONE_YEAR', '1 yr').replace('THREE_YEARS', '3 yr')} / {filters.paymentOption.replace(/_/g, ' ').toLowerCase()}
+                          {formatTerm(rec.term)} / {formatPaymentOption(filters.paymentOption)}
                         </span>
                       </td>
                       <td className="px-6 py-4 line-through text-[rgba(0,0,0,0.35)] font-medium">{formatCurrency(rec.onDemandCost, false)}</td>
@@ -208,13 +230,28 @@ const ReservationRecommendations: React.FC<ReservationRecommendationsProps> = ({
                 ) : (
                   <tr>
                     <td colSpan={7} className="text-center py-16">
-                      <div className="flex flex-col items-center">
-                        <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mb-3">
-                          <Icon icon="mdi:check-circle-outline" className="text-green-600" width={24} />
+                      {/* An empty result is only an all-clear when every service was reachable.
+                          Presenting a failed lookup as "Fully Optimized" hid real savings. */}
+                      {isIncomplete ? (
+                        <div className="flex flex-col items-center">
+                          <div className="w-12 h-12 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-center mb-3">
+                            <Icon icon="mdi:alert-outline" className="text-amber-600" width={24} aria-hidden="true" />
+                          </div>
+                          <p className="text-[rgba(0,0,0,0.88)] font-bold">Couldn&apos;t check all services</p>
+                          <p className="text-[rgba(0,0,0,0.5)] text-xs mt-1 max-w-sm text-center">
+                            AWS Cost Explorer didn&apos;t answer for every reservable service, so this
+                            isn&apos;t a complete picture. Hit Refresh to try again.
+                          </p>
                         </div>
-                        <p className="text-[rgba(0,0,0,0.88)] font-bold">Fully Optimized</p>
-                        <p className="text-[rgba(0,0,0,0.5)] text-xs mt-1 max-w-sm text-center">No additional RI opportunities found. Try adjusting filters to explore other scenarios.</p>
-                      </div>
+                      ) : (
+                        <div className="flex flex-col items-center">
+                          <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mb-3">
+                            <Icon icon="mdi:check-circle-outline" className="text-green-600" width={24} aria-hidden="true" />
+                          </div>
+                          <p className="text-[rgba(0,0,0,0.88)] font-bold">Fully Optimized</p>
+                          <p className="text-[rgba(0,0,0,0.5)] text-xs mt-1 max-w-sm text-center">No additional RI opportunities found. Try adjusting filters to explore other scenarios.</p>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}

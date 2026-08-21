@@ -93,6 +93,13 @@ interface KPISectionProps {
   costHistory?: CostHistory;
   optimization?: OptimizationData;
   resourceInventory?: ResourceInventory;
+  /**
+   * Pre-computed resource count, for providers whose inventory does not use the AWS
+   * field names below. Without it the Azure and GCP dashboards showed
+   * "Total Resources 0" beside an inventory panel listing real counts, because the
+   * sum reads `ec2Count`, `lambdaCount` and friends, none of which those providers set.
+   */
+  totalResourcesOverride?: number;
   isLoading: boolean;
   provider?: 'AWS' | 'GCP' | 'Azure';
   accountId?: string | null;
@@ -301,7 +308,7 @@ const KPICard: React.FC<KPICardProps> = ({ def, rawValue, change, changeLabel, t
 };
 
 // ── KPI Section ───────────────────────────────────────────────────────────────
-const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimization, resourceInventory, isLoading, provider = 'AWS', accountId, headerAction }) => {
+const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimization, resourceInventory, totalResourcesOverride, isLoading, provider = 'AWS', accountId, headerAction }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>(() => loadKpiCards(provider));
   const [manageOpen, setManageOpen]   = useState(() => {
     try { return sessionStorage.getItem(MODAL_OPEN_KEY(provider)) === '1'; } catch { return false; }
@@ -436,13 +443,16 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
   const lastMonthChange = costs.length > 2 && costs[costs.length - 3] > 0
     ? ((lastMonthSpend - costs[costs.length - 3]) / costs[costs.length - 3] * 100) : 0;
 
-  const totalResources = resourceInventory
-    ? (resourceInventory.ec2Count + resourceInventory.s3Count + resourceInventory.rdsCount +
-       resourceInventory.vpcCount + resourceInventory.lambdaCount + resourceInventory.ebsCount +
-       resourceInventory.route53Count + resourceInventory.loadBalancerCount +
-       resourceInventory.ecsCount + resourceInventory.eksCount +
-       resourceInventory.lightsailCount + resourceInventory.amplifyCount)
-    : 0;
+  // The field sum below is AWS-shaped. Azure and GCP pass their own count instead.
+  const totalResources = totalResourcesOverride !== undefined
+    ? totalResourcesOverride
+    : resourceInventory
+      ? (resourceInventory.ec2Count + resourceInventory.s3Count + resourceInventory.rdsCount +
+         resourceInventory.vpcCount + resourceInventory.lambdaCount + resourceInventory.ebsCount +
+         resourceInventory.route53Count + resourceInventory.loadBalancerCount +
+         resourceInventory.ecsCount + resourceInventory.eksCount +
+         resourceInventory.lightsailCount + resourceInventory.amplifyCount)
+      : 0;
 
   // Map card ID → runtime value + metadata
   const getCardData = useCallback((id: string) => {

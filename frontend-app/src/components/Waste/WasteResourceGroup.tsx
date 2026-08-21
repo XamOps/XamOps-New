@@ -105,7 +105,12 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
     }
   }, [isOpen]);
 
-  const totalSavings = resources.reduce((sum, r) => sum + (r.monthlySavings || 0), 0);
+  // Only billable findings contribute to the group total; free resources and unpriced ones
+  // carry a placeholder zero in monthlySavings.
+  const totalSavings = resources
+    .filter(r => !r.noCostImpact && !r.savingsUnknown)
+    .reduce((sum, r) => sum + (r.monthlySavings || 0), 0);
+  const allFree = resources.length > 0 && resources.every(r => r.noCostImpact);
   const icon = SERVICE_ICONS[serviceType] || 'mdi:cube-outline';
 
   const toggleResource = (id: string) => {
@@ -141,9 +146,18 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[12px] font-semibold text-rose-600">
-            ${totalSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
-          </span>
+          {allFree ? (
+            <span
+              className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 border border-slate-200"
+              title="These resources are not billed — cleaning them up is hygiene, not cost saving"
+            >
+              No cost impact
+            </span>
+          ) : (
+            <span className="text-[12px] font-semibold text-rose-600">
+              ${totalSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
+            </span>
+          )}
           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100">
             {resources.length}
           </span>
@@ -187,8 +201,23 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
                   </div>
                 </div>
                 <div className="col-span-2 text-[rgba(0,0,0,0.6)] font-medium">{resource.region}</div>
-                <div className="col-span-2 font-semibold text-rose-600">
-                  ${(resource.monthlySavings || 0).toFixed(2)}
+                <div className="col-span-2">
+                  {resource.noCostImpact ? (
+                    <span className="text-[12px] font-medium text-[rgba(0,0,0,0.4)]" title="Not billed">
+                      No cost
+                    </span>
+                  ) : resource.savingsUnknown ? (
+                    <span
+                      className="text-[12px] font-medium text-amber-600"
+                      title="This resource does cost money, but its price could not be resolved"
+                    >
+                      Unpriced
+                    </span>
+                  ) : (
+                    <span className="font-semibold text-rose-600">
+                      ${(resource.monthlySavings || 0).toFixed(2)}
+                    </span>
+                  )}
                 </div>
                 <div className="col-span-3 flex justify-end gap-2" onClick={e => e.stopPropagation()}>
                   <button
@@ -222,7 +251,13 @@ const WasteResourceGroup: React.FC<WasteResourceGroupProps> = ({
                     </div>
                     <div className="flex gap-2">
                       <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Monthly Cost:</span>
-                      <span className="font-semibold text-rose-600">${(resource.monthlySavings || 0).toFixed(2)}</span>
+                      {resource.noCostImpact ? (
+                        <span className="font-medium text-[rgba(0,0,0,0.5)]">Not billed</span>
+                      ) : resource.savingsUnknown ? (
+                        <span className="font-medium text-amber-600">Could not be priced</span>
+                      ) : (
+                        <span className="font-semibold text-rose-600">${(resource.monthlySavings || 0).toFixed(2)}</span>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <span className="font-semibold text-[rgba(0,0,0,0.5)] min-w-[90px]">Region:</span>

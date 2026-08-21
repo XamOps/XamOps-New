@@ -1234,11 +1234,37 @@ const HELM_INSTALL =
   '  --namespace upwind --create-namespace \\\n' +
   '  --set clientId=demo-client-id --set clientSecret=<SECRET>';
 
+/** Self-service connection is AWS-only, so the GCP/Azure rows deliberately opt out. */
+const onboardingRow = (
+  accountName: string, cloudAccountId: string, provider: string,
+  status: OnboardingAccount['status'], sensorInstallCommand: string | null,
+  extra: Partial<OnboardingAccount> = {},
+): OnboardingAccount => ({
+  accountName, cloudAccountId, provider, status, sensorInstallCommand,
+  selfServiceSupported: provider === 'AWS',
+  // Demo tenants are entitled; the restriction is a BillOps admin decision, not a demo scenario.
+  onboardingAllowed: true,
+  stackRequestedAt: null,
+  stackName: null,
+  stackRegion: null,
+  connectionVerifiedAt: null,
+  ...extra,
+});
+
 export const demoOnboarding: OnboardingAccount[] = [
-  { accountName: 'Xammer Production', cloudAccountId: 'demo-aws-001',   provider: 'AWS',   status: 'CONNECTED',     sensorInstallCommand: null },
-  { accountName: 'Xammer Staging',    cloudAccountId: 'demo-aws-002',   provider: 'AWS',   status: 'CONNECTED',     sensorInstallCommand: null },
-  { accountName: 'GCP Analytics',     cloudAccountId: 'demo-gcp-001',   provider: 'GCP',   status: 'PENDING',       sensorInstallCommand: HELM_INSTALL },
-  { accountName: 'Azure Enterprise',  cloudAccountId: 'demo-azure-001', provider: 'Azure', status: 'NOT_CONNECTED', sensorInstallCommand: null },
+  onboardingRow('Xammer Production', 'demo-aws-001', 'AWS', 'CONNECTED', null, {
+    stackName: 'upwind-readonly-permissions-demo-aws-001',
+    stackRegion: 'us-east-1',
+    connectionVerifiedAt: hoursAgo(52),
+  }),
+  // A mid-onboarding AWS account, so the demo shows the Check connection path too.
+  onboardingRow('Xammer Staging', 'demo-aws-002', 'AWS', 'PENDING', null, {
+    stackName: 'upwind-readonly-permissions-demo-aws-002',
+    stackRegion: 'us-east-1',
+    stackRequestedAt: hoursAgo(1),
+  }),
+  onboardingRow('GCP Analytics', 'demo-gcp-001', 'GCP', 'PENDING', HELM_INSTALL),
+  onboardingRow('Azure Enterprise', 'demo-azure-001', 'Azure', 'NOT_CONNECTED', null),
 ];
 
 // ─── /api/xamsecure/summary ──────────────────────────────────────────────────

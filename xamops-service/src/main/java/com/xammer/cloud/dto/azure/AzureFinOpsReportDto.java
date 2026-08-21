@@ -60,6 +60,12 @@ public class AzureFinOpsReportDto {
         private double annualSavings;
         private String impact;
         private String location;
+        /**
+         * True when the saving could not be quantified, so {@link #monthlySavings} is a
+         * placeholder zero. Was previously dropped during mapping, so a deliberately
+         * unpriced recommendation rendered as a definitive $0.00.
+         */
+        private boolean savingsUnknown;
     }
 
     // Inner class for Waste items (mapped from AzureWasteItem)
@@ -73,5 +79,15 @@ public class AzureFinOpsReportDto {
         private String region;
         private String reason;
         private double monthlySavings;
+        /** Real cost that could not be priced; exclude from totals. */
+        private boolean savingsUnknown;
+        /** Azure does not bill for this resource; exclude from reclaimable-spend totals. */
+        private boolean noCostImpact;
+
+        /** True when this item should contribute to a reclaimable-spend total. */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public boolean isBillableWaste() {
+            return !savingsUnknown && !noCostImpact;
+        }
     }
 }

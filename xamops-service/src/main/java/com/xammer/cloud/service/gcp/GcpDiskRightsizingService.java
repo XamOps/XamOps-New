@@ -10,6 +10,7 @@ import com.xammer.cloud.domain.EbsVolumeAction;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.service.DiskAgentPeaks;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -38,6 +39,9 @@ public class GcpDiskRightsizingService {
             "pd-extreme",   0.125
     );
     private static final double DEFAULT_PD_COST_PER_GB = 0.100;
+
+    /** @see DiskAgentPeaks#MIN_OBSERVATIONS_FOR_SHRINK */
+    private static final int MIN_OBSERVATIONS_FOR_SHRINK = DiskAgentPeaks.MIN_OBSERVATIONS_FOR_SHRINK;
 
     // Defaults used only when no DiskPolicy is configured for the account.
     private static final double DEFAULT_SHRINK_THRESHOLD_PCT = 25.0;
@@ -195,6 +199,27 @@ public class GcpDiskRightsizingService {
         return result;
     }
 
+    /**
+     * Whether a disk was provisioned by GKE for a PersistentVolume. GKE names these
+     * {@code pvc-<uuid>} and labels them {@code goog-gke-volume}; such a disk reports no users
+     * while its pod is rescheduled, so an unattached check alone is not safe.
+     */
+    private boolean isGkeVolume(String diskName, Map<String, String> labels) {
+        if (diskName != null && diskName.toLowerCase().startsWith("pvc-")) {
+            return true;
+        }
+        if (labels != null) {
+            for (String key : labels.keySet()) {
+                if (key == null) continue;
+                String k = key.toLowerCase();
+                if (k.startsWith("goog-gke-") || k.startsWith("kubernetes.io/") || k.startsWith("k8s-")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private Map<String, Object> buildDiskDto(Disk disk) {
         String zoneUrl = disk.getZone();
         String zone = zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1);
@@ -215,6 +240,8 @@ public class GcpDiskRightsizingService {
         double monthlyCostUsd = sizeGb * PD_COST_PER_GB.getOrDefault(diskType, DEFAULT_PD_COST_PER_GB);
 
         Map<String, Object> dto = new LinkedHashMap<>();
+        // GKE-provisioned PersistentVolume disks must never be offered for deletion.
+        dto.put("gkeVolume",            isGkeVolume(disk.getName(), disk.getLabelsMap()));
         dto.put("diskName",             disk.getName());
         dto.put("zone",                 zone);
         dto.put("region",               region);
@@ -242,6 +269,10 @@ public class GcpDiskRightsizingService {
         Optional<List<Map<String, Object>>> agentData = redisCacheService.get(
                 cacheKey, new TypeReference<List<Map<String, Object>>>() {});
         logger.debug("[gcp-disk] agent key={} found={}", cacheKey, agentData.isPresent());
+
+        Map<String, Object> peaks = redisCacheService.get(
+                DiskAgentPeaks.keyFor("gcp-disk-agent:", projectId, instanceName),
+                new TypeReference<Map<String, Object>>() {}).orElse(Map.of());
 
         if (agentData.isEmpty()) {
             String seenKey = "gcp-disk-agent-seen:" + projectId + ":" + instanceName;
@@ -279,7 +310,32 @@ public class GcpDiskRightsizingService {
                 dto.put("usedPercent", Math.round(up * 10.0) / 10.0);
                 dto.put("usedGb",  Math.round(sizeGb * up / 100.0 * 100.0) / 100.0);
                 dto.put("freeGb",  Math.round(sizeGb * (1 - up / 100.0) * 100.0) / 100.0);
+                applyObservedPeak(dto, peaks, (String) bestMount.get("device"), up);
             }
+        }
+    }
+
+    /**
+     * Overlays the observed utilization high-water mark for a device onto a disk row.
+     *
+     * <p>{@code usedPercent} is a single instantaneous reading, so on its own it cannot support a
+     * shrink: a filesystem sitting at 30% when the agent looked may have been at 90% during the
+     * last log rotation or batch job. The peak accumulated at ingestion is what the shrink branch
+     * sizes against. Never lower than the current reading.
+     */
+    private void applyObservedPeak(Map<String, Object> dto, Map<String, Object> peaks,
+            String device, double currentPct) {
+
+        Object peakRaw = device == null ? null : peaks.get(device);
+        Object samplesRaw = peaks.get(DiskAgentPeaks.SAMPLE_COUNT_FIELD);
+        if (!(peakRaw instanceof Number peak) || !(samplesRaw instanceof Number samples)) {
+            return;
+        }
+        dto.put("peakUsedPercent", Math.round(Math.max(peak.doubleValue(), currentPct) * 10.0) / 10.0);
+        dto.put("observationCount", samples.longValue());
+        Object since = peaks.get(DiskAgentPeaks.WINDOW_START_FIELD);
+        if (since instanceof Number sinceMillis) {
+            dto.put("observationWindowStart", sinceMillis.longValue());
         }
     }
 
@@ -303,6 +359,15 @@ public class GcpDiskRightsizingService {
         double costPerGbUsd = PD_COST_PER_GB.getOrDefault(diskType, DEFAULT_PD_COST_PER_GB);
 
         if (!attached) {
+            // A GKE PersistentVolume disk shows no users while its pod is rescheduled, so
+            // deleting it destroys live data. This path previously had no guard of any kind.
+            if (Boolean.TRUE.equals(dto.get("gkeVolume"))) {
+                dto.put("recommendation", "NONE");
+                dto.put("recommendationReason", "Managed by GKE — backs a PersistentVolume and "
+                        + "shows no users while its pod is rescheduled");
+                dto.put("estimatedSavings", 0.0);
+                return;
+            }
             dto.put("recommendation", "DELETE_UNATTACHED");
             dto.put("recommendationReason", "Disk is not attached to any instance");
             dto.put("estimatedSavings", (double) dto.get("monthlyCost"));
@@ -325,14 +390,46 @@ public class GcpDiskRightsizingService {
             dto.put("estimatedSavings", -Math.round(costIncrease * 100.0) / 100.0);
             dto.put("estimatedMonthlyCostIncrease", Math.round(costIncrease * 100.0) / 100.0);
         } else if (usedPct < policy.shrinkThresholdPct() && sizeGb > policy.minDiskSizeGb()) {
-            int targetSize = policy.targetSizeGb(sizeGb, usedPct);
+            // A shrink is sized against the highest utilization ever observed, not the latest
+            // sample. Sizing to the sample means the first log rotation or batch job after the
+            // resize fills the disk, and GCP cannot grow a disk back without a migration.
+            Object peakRaw = dto.get("peakUsedPercent");
+            Object samplesRaw = dto.get("observationCount");
+            if (!(peakRaw instanceof Number peak) || !(samplesRaw instanceof Number samples)
+                    || samples.longValue() < MIN_OBSERVATIONS_FOR_SHRINK) {
+                dto.put("recommendation", "NONE");
+                dto.put("recommendationReason", String.format(
+                        "Currently %.0f%% used, but only %s of history is available. A shrink needs at "
+                                + "least %d agent observations so it can be sized against peak usage "
+                                + "rather than one instantaneous reading.",
+                        usedPct,
+                        samplesRaw instanceof Number n ? n.longValue() + " observation(s)" : "none",
+                        MIN_OBSERVATIONS_FOR_SHRINK));
+                dto.put("estimatedSavings", 0.0);
+                dto.put("savingsUnknown", true);
+                return;
+            }
+
+            double peakPct = peak.doubleValue();
+            if (peakPct >= policy.shrinkThresholdPct()) {
+                dto.put("recommendation", "NONE");
+                dto.put("recommendationReason", String.format(
+                        "Currently %.0f%% used but peaked at %.0f%% across %d observations — the disk is "
+                                + "not over-provisioned for its busiest moment.",
+                        usedPct, peakPct, samples.longValue()));
+                dto.put("estimatedSavings", 0.0);
+                return;
+            }
+
+            int targetSize = policy.targetSizeGb(sizeGb, peakPct);
             if (targetSize < sizeGb) {
                 double saving = (sizeGb - targetSize) * costPerGbUsd;
                 dto.put("recommendation", "SHRINK");
                 dto.put("recommendedSizeGb", targetSize);
                 dto.put("recommendationReason", String.format(
-                        "Only %.0f%% used — a %d GB disk would suffice (currently %d GB). %s",
-                        usedPct, targetSize, sizeGb, SHRINK_UNSUPPORTED_MESSAGE));
+                        "Peaked at %.0f%% across %d observations — a %d GB disk would suffice "
+                                + "(currently %d GB). %s",
+                        peakPct, samples.longValue(), targetSize, sizeGb, SHRINK_UNSUPPORTED_MESSAGE));
                 dto.put("estimatedSavings", Math.round(saving * 100.0) / 100.0);
                 // GCP cannot shrink in place, so this saving is only realizable by creating a
                 // smaller disk and migrating. Flag it so totals can exclude un-actionable

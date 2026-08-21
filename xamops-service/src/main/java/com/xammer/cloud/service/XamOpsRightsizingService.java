@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.XamOpsRightsizingRecommendation;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CachedDataRepository;
+import com.xammer.cloud.util.RightsizingOptionApplicability;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -195,6 +196,10 @@ public class XamOpsRightsizingService {
                         // a real dollar saving.
                         repriceRecommendation(rec, instanceType, region);
 
+                        // Decide which columns can actually be applied in place. Must run after
+                        // the two steps above because both rewrite the column text.
+                        markApplicability(rec, instanceType);
+
                         finalRecommendations.add(rec);
                         processedInstances.add(instanceId); // Mark as processed
                         logger.debug("Added recommendation for instance {}", instanceId);
@@ -376,6 +381,38 @@ public class XamOpsRightsizingService {
         }
         double saving = currentMonthly - targetMonthly;
         return saving > 0 ? saving : null;
+    }
+
+    /**
+     * Flags whether each column can be applied with a stop / modify-instance-type / start
+     * sequence, and why not when it cannot.
+     *
+     * <p>Without this the UI offered an Apply button for every column, including ones that
+     * are not resizes at all. Two cases failed in distinct ways:
+     *
+     * <ul>
+     *   <li>A column reading {@code "Not available in ap-south-2"} was parsed for its first
+     *       token, so Apply submitted the literal instance type {@code "Not"}.</li>
+     *   <li>The curated matrix pairs some Graviton sources with x86 targets, e.g.
+     *       {@code t4g.small -> t3.nano}. Changing architecture needs an AMI built for the
+     *       target, so the resize is rejected by the apply-path preflight. The saving is
+     *       genuine, but only after the image is rebuilt — hence
+     *       {@link XamOpsRightsizingRecommendation#isRequiresArchitectureMigration()} rather
+     *       than dropping the recommendation.</li>
+     * </ul>
+     */
+    private void markApplicability(XamOpsRightsizingRecommendation rec, String currentInstanceType) {
+        RightsizingOptionApplicability.Verdict intel =
+                RightsizingOptionApplicability.evaluate(rec.getIntelRecommendation(), currentInstanceType);
+        rec.setIntelApplicable(intel.applicable());
+        rec.setIntelBlockedReason(intel.reason());
+
+        RightsizingOptionApplicability.Verdict amd =
+                RightsizingOptionApplicability.evaluate(rec.getAmdRecommendation(), currentInstanceType);
+        rec.setAmdApplicable(amd.applicable());
+        rec.setAmdBlockedReason(amd.reason());
+
+        rec.setRequiresArchitectureMigration(intel.architectureChange() || amd.architectureChange());
     }
 
     /**

@@ -730,7 +730,7 @@ const EbsRightsizingPage: React.FC = () => {
 // ─── Sub-components ─────────────────────────────────────────────────────────────
 
 const RoiCalculator: React.FC<{
-  calculateRoi: (gb: number, util: number, growth: number, type: string) => Promise<RoiResult | null>;
+  calculateRoi: (gb: number, util: number, growth: number, type: string, region?: string) => Promise<RoiResult | null>;
 }> = ({ calculateRoi }) => {
   const [provisionedGb, setProvisionedGb] = useState(1000);
   const [utilizationPct, setUtilizationPct] = useState(25);

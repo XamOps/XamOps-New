@@ -31,6 +31,7 @@ class EbsDiskRightsizingServiceExpandTest {
     @Mock EbsShrinkExecutorService shrinkExecutorService;
     @Mock EbsExpandExecutorService expandExecutorService;
     @Mock EbsAsgHelper ebsAsgHelper;
+    @Mock PricingService pricingService;
 
     @InjectMocks EbsDiskRightsizingService service;
 

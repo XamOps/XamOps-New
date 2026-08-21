@@ -270,8 +270,10 @@ public class EbsDiskRightsizingController {
             double utilizationPct  = ((Number) request.get("utilizationPct")).doubleValue();
             double growthRatePct   = ((Number) request.getOrDefault("growthRatePct", 25)).doubleValue();
             String diskType        = (String) request.getOrDefault("diskType", "gp2");
+            String region          = (String) request.get("region");
 
-            return ResponseEntity.ok(ebsService.calculateRoi(provisionedGb, utilizationPct, growthRatePct, diskType));
+            return ResponseEntity.ok(
+                    ebsService.calculateRoi(provisionedGb, utilizationPct, growthRatePct, diskType, region));
         } catch (Exception e) {
             logger.error("ROI calculation failed: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
