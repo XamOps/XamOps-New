@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureDiskRightsizingData, AzureDisk } from '../hooks/useAzureDiskRightsizingData';
+import { useAgentInstallConfig } from '../hooks/useAgentInstallConfig';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { useTabState } from '../hooks/useTabState';
 
@@ -60,10 +61,18 @@ const AzureAgentSetupGuide: React.FC<{ count: number; accountId: string | null; 
   const [expanded, setExpanded] = React.useState(defaultExpanded);
   const [copied, setCopied]     = React.useState(false);
 
+  // Scoped agent key embedded automatically, so the customer copies one command.
+  const { config: agentConfig } = useAgentInstallConfig(expanded);
+
+  // This previously pointed at /scripts/… and passed XAMOPS_API_URL / XAMOPS_ACCOUNT_ID as
+  // environment variables. The script is served from /agentinstall/ and reads its account from
+  // the -a flag, not the environment, so the documented command could never have worked.
+  const accountArg = accountId ?? '<xamops-account-id>';
+  const serverUrl = agentConfig.serverUrl.replace(/\/+$/, '');
+  const keyArg = agentConfig.apiKey ? ` -k ${agentConfig.apiKey}` : '';
   const AGENT_CMD =
-`export XAMOPS_API_URL="https://your-xamops-api.com"
-export XAMOPS_ACCOUNT_ID="${accountId ?? 'your-account-id'}"
-curl -sSL \${XAMOPS_API_URL}/scripts/azure_disk_agent_install.sh | bash`;
+    `curl -fsSL ${serverUrl}/agentinstall/azure_disk_agent_install.sh | sudo bash -s -- `
+    + `-b ${serverUrl} -a ${accountArg}${keyArg}`;
 
   const copy = () => {
     navigator.clipboard.writeText(AGENT_CMD).then(() => {

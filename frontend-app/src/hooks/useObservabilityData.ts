@@ -196,6 +196,61 @@ export interface OverviewStats {
   provisionedAt: string;
 }
 
+// ── Error handling ────────────────────────────────────────────────────────────
+
+/** Outcome of a write. Callers must not assume success — see extractApiError. */
+export interface MutationResult {
+  ok: boolean;
+  error?: string;
+  /** Infrastructure failure the backend flagged as worth retrying. */
+  retryable?: boolean;
+}
+
+/** Outcome of a read that returns a collection, carrying the failure reason when it fails. */
+export interface QueryResult<T> {
+  data: T;
+  error?: string;
+  retryable?: boolean;
+}
+
+/**
+ * Turns a thrown apiClient error into something worth showing a user.
+ *
+ * apiClient throws `Error("HTTP 500: <raw body>")`, and the observability endpoints answer
+ * with `{ error, retryable }`. Rendering the raw message leaked the HTTP envelope and a JSON
+ * blob into the UI, so the envelope is unwrapped here and the backend's own message — which
+ * is already written for a user, including the 503 "temporarily unavailable" text — is used.
+ */
+export function extractApiError(e: unknown, fallback = 'Request failed'): { message: string; retryable: boolean } {
+  if (!(e instanceof Error)) return { message: fallback, retryable: false };
+
+  const match = /^HTTP (\d+): ([\s\S]*)$/.exec(e.message);
+  if (!match) {
+    // Client-side failure (timeout, network, abort) — the message is already readable.
+    return { message: e.message || fallback, retryable: /timed out|network|fetch/i.test(e.message) };
+  }
+
+  const status = Number(match[1]);
+  const body = match[2].trim();
+  let message = '';
+  let retryable = status === 503 || status === 504;
+
+  if (body.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(body) as { error?: string; message?: string; retryable?: boolean };
+      message = parsed.error || parsed.message || '';
+      if (typeof parsed.retryable === 'boolean') retryable = parsed.retryable;
+    } catch {
+      // fall through to the raw body
+    }
+  }
+
+  if (!message) {
+    message = body.length > 0 && body.length <= 300 ? body : `${fallback} (HTTP ${status})`;
+  }
+  return { message, retryable };
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export const useObservabilityData = () => {
@@ -216,6 +271,13 @@ export const useObservabilityData = () => {
   const [logsLoading, setLogsLoading] = useState(false);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Per-dataset failure reasons. These exist so a failed request renders as a failure
+  // rather than as an empty result — previously a 503 from the backend and a genuinely
+  // empty stream produced the identical "No logs found" screen.
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [streamsError, setStreamsError] = useState<string | null>(null);
+  const [tracesError, setTracesError] = useState<string | null>(null);
 
   // Build query string suffix for the active account
   const accountParam = activeAccountId
@@ -275,11 +337,14 @@ export const useObservabilityData = () => {
   // ── Streams ─────────────────────────────────────────────────────────────────
 
   const fetchStreams = useCallback(async () => {
+    setStreamsError(null);
     try {
       const data = await apiClient.get(`/api/observability/streams${accountParam}`);
       setStreams(data || []);
       return data as LogStream[];
-    } catch {
+    } catch (e: unknown) {
+      const { message } = extractApiError(e, 'Failed to load streams');
+      setStreamsError(message);
       setStreams([]);
       return [];
     }
@@ -291,6 +356,7 @@ export const useObservabilityData = () => {
   const searchLogs = useCallback(async (params: LogSearchParams) => {
     setLogsLoading(true);
     setError(null);
+    setLogsError(null);
     try {
       const data = await apiClient.post('/api/observability/logs/search', {
         ...params,
@@ -298,14 +364,28 @@ export const useObservabilityData = () => {
         from: params.from ?? 0,
         providerAccountId: activeAccountId ?? undefined,
       });
+
+      // The backend answers 200 with `{ hits: [], total: 0, error }` when OpenObserve
+      // rejects the query — a malformed SQL statement from the query editor being the
+      // common case. That `error` was dropped here, so a syntax error was indistinguishable
+      // from a stream with no matching records and the editor was undebuggable.
+      if (data?.error) {
+        setLogsError(String(data.error));
+        setLogs([]);
+        setLogTotal(0);
+        return [];
+      }
+
       const hits: LogEntry[] = data?.hits || [];
       setLogs(hits);
       setLogTotal(data?.total || hits.length);
       return hits;
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Log search failed';
-      setError(msg);
+      const { message } = extractApiError(e, 'Log search failed');
+      setError(message);
+      setLogsError(message);
       setLogs([]);
+      setLogTotal(0);
       return [];
     } finally {
       setLogsLoading(false);
@@ -383,15 +463,24 @@ export const useObservabilityData = () => {
 
   // ── Traces ───────────────────────────────────────────────────────────────────
 
+  // Trace reads clear `tracesError` on the search call only: search and stats run in
+  // parallel from the explorer, so clearing in both would let whichever resolved second
+  // wipe the other's error.
   const searchTraces = useCallback(async (params: TraceSearchParams): Promise<TraceSummary[]> => {
+    setTracesError(null);
     try {
       const data = await apiClient.post('/api/observability/traces/search', {
         ...params,
         size: params.size ?? 100,
         providerAccountId: activeAccountId ?? undefined,
       });
+      if (data?.error) {
+        setTracesError(String(data.error));
+        return [];
+      }
       return (data?.traces as TraceSummary[]) || [];
-    } catch {
+    } catch (e: unknown) {
+      setTracesError(extractApiError(e, 'Trace search failed').message);
       return [];
     }
   }, [activeAccountId]);
@@ -404,23 +493,30 @@ export const useObservabilityData = () => {
         ...params,
         providerAccountId: activeAccountId ?? undefined,
       });
+      if (data?.error) {
+        setTracesError(String(data.error));
+        return null;
+      }
       return data as TraceStats;
-    } catch {
+    } catch (e: unknown) {
+      setTracesError(extractApiError(e, 'Failed to load trace statistics').message);
       return null;
     }
   }, [activeAccountId]);
 
   const fetchTraceSpans = useCallback(async (
     traceId: string, startTime: number, endTime: number, stream = 'default'
-  ): Promise<TraceSpan[]> => {
+  ): Promise<QueryResult<TraceSpan[]>> => {
     try {
       const data = await apiClient.post('/api/observability/traces/spans', {
         traceId, startTime, endTime, stream,
         providerAccountId: activeAccountId ?? undefined,
       });
-      return (data?.spans as TraceSpan[]) || [];
-    } catch {
-      return [];
+      if (data?.error) return { data: [], error: String(data.error) };
+      return { data: (data?.spans as TraceSpan[]) || [] };
+    } catch (e: unknown) {
+      const { message, retryable } = extractApiError(e, 'Failed to load spans');
+      return { data: [], error: message, retryable };
     }
   }, [activeAccountId]);
 
@@ -438,61 +534,85 @@ export const useObservabilityData = () => {
 
   // ── Alerts ───────────────────────────────────────────────────────────────────
 
-  const fetchAlerts = useCallback(async (): Promise<ObservabilityAlert[]> => {
+  const fetchAlerts = useCallback(async (): Promise<QueryResult<ObservabilityAlert[]>> => {
     try {
       const data = await apiClient.get(`/api/observability/alerts${accountParam}`);
-      return (data as ObservabilityAlert[]) || [];
-    } catch { return []; }
+      return { data: (data as ObservabilityAlert[]) || [] };
+    } catch (e: unknown) {
+      const { message, retryable } = extractApiError(e, 'Failed to load alerts');
+      return { data: [], error: message, retryable };
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId]);
 
-  const createAlert = useCallback(async (alert: ObservabilityAlert): Promise<boolean> => {
+  // Writes report the reason they failed. These used to return a bare boolean from a
+  // `catch {}`, and every caller discarded it — so a rejected alert looked exactly like a
+  // created one. Callers are expected to check `ok` and surface `error`.
+  const createAlert = useCallback(async (alert: ObservabilityAlert): Promise<MutationResult> => {
     try {
       await apiClient.post(`/api/observability/alerts${accountParam}`, alert);
-      return true;
-    } catch { return false; }
+      return { ok: true };
+    } catch (e: unknown) {
+      const { message, retryable } = extractApiError(e, 'Could not create the alert');
+      return { ok: false, error: message, retryable };
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId]);
 
-  const deleteAlert = useCallback(async (streamType: string, streamName: string, alertName: string): Promise<boolean> => {
+  const deleteAlert = useCallback(async (streamType: string, streamName: string, alertName: string): Promise<MutationResult> => {
     try {
       await apiClient.delete(`/api/observability/alerts/${streamType}/${streamName}/${alertName}${accountParam}`);
-      return true;
-    } catch { return false; }
+      return { ok: true };
+    } catch (e: unknown) {
+      const { message, retryable } = extractApiError(e, 'Could not delete the alert');
+      return { ok: false, error: message, retryable };
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId]);
 
-  const toggleAlert = useCallback(async (streamType: string, streamName: string, alertName: string, enable: boolean): Promise<boolean> => {
+  const toggleAlert = useCallback(async (streamType: string, streamName: string, alertName: string, enable: boolean): Promise<MutationResult> => {
     try {
       await apiClient.put(`/api/observability/alerts/${streamType}/${streamName}/${alertName}/toggle${accountParam ? accountParam + '&' : '?'}enable=${enable}`, {});
-      return true;
-    } catch { return false; }
+      return { ok: true };
+    } catch (e: unknown) {
+      const { message, retryable } = extractApiError(e, `Could not ${enable ? 'enable' : 'disable'} the alert`);
+      return { ok: false, error: message, retryable };
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId]);
 
   // ── Alert Destinations ────────────────────────────────────────────────────────
 
-  const fetchDestinations = useCallback(async (): Promise<AlertDestination[]> => {
+  const fetchDestinations = useCallback(async (): Promise<QueryResult<AlertDestination[]>> => {
     try {
       const data = await apiClient.get(`/api/observability/alert-destinations${accountParam}`);
-      return (data as AlertDestination[]) || [];
-    } catch { return []; }
+      return { data: (data as AlertDestination[]) || [] };
+    } catch (e: unknown) {
+      const { message, retryable } = extractApiError(e, 'Failed to load destinations');
+      return { data: [], error: message, retryable };
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId]);
 
-  const saveDestination = useCallback(async (dest: AlertDestination): Promise<boolean> => {
+  const saveDestination = useCallback(async (dest: AlertDestination): Promise<MutationResult> => {
     try {
       await apiClient.post(`/api/observability/alert-destinations${accountParam}`, dest);
-      return true;
-    } catch { return false; }
+      return { ok: true };
+    } catch (e: unknown) {
+      const { message, retryable } = extractApiError(e, 'Could not save the destination');
+      return { ok: false, error: message, retryable };
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId]);
 
-  const deleteDestination = useCallback(async (name: string): Promise<boolean> => {
+  const deleteDestination = useCallback(async (name: string): Promise<MutationResult> => {
     try {
-      await apiClient.delete(`/api/observability/alert-destinations/${name}${accountParam}`);
-      return true;
-    } catch { return false; }
+      await apiClient.delete(`/api/observability/alert-destinations/${encodeURIComponent(name)}${accountParam}`);
+      return { ok: true };
+    } catch (e: unknown) {
+      const { message, retryable } = extractApiError(e, 'Could not delete the destination');
+      return { ok: false, error: message, retryable };
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId]);
 
@@ -568,6 +688,9 @@ export const useObservabilityData = () => {
     logsLoading,
     metricsLoading,
     error,
+    logsError,
+    streamsError,
+    tracesError,
     // Active account
     activeAccountId,
     // Actions

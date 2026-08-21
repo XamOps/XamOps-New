@@ -12,6 +12,7 @@ import {
   TraceSpan,
   TraceStats,
 } from '../../hooks/useObservabilityData';
+import ErrorNotice from './ErrorNotice';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -175,10 +176,12 @@ function flattenSpans(spans: TraceSpan[]): SpanRow[] {
   return out;
 }
 
-function TraceDrawer({ trace, spans, loading, onClose }: {
+function TraceDrawer({ trace, spans, loading, error, onClose }: {
   trace: TraceSummary | null;
   spans: TraceSpan[];
   loading: boolean;
+  /** Set when the span fetch failed, so the waterfall doesn't read as "trace has no spans". */
+  error?: string | null;
   onClose: () => void;
 }) {
   const [expandedSpan, setExpandedSpan] = useState<string | null>(null);
@@ -291,6 +294,8 @@ function TraceDrawer({ trace, spans, loading, onClose }: {
         {/* Waterfall */}
         {loading ? (
           <div className="flex items-center justify-center py-16"><div className="obs-spinner" /></div>
+        ) : error ? (
+          <ErrorNotice title="Could not load the waterfall" message={error} />
         ) : rows.length === 0 ? (
           <p className="text-[13px] text-[#94a3b8] py-8 text-center">No spans found for this trace.</p>
         ) : (
@@ -393,7 +398,7 @@ function TracesOnboarding() {
 // ── Main component ────────────────────────────────────────────────────────────
 
 const TracesExplorer: React.FC = () => {
-  const { activeAccountId, searchTraces, fetchTraceStats, fetchTraceSpans } = useObservabilityData();
+  const { activeAccountId, tracesError, searchTraces, fetchTraceStats, fetchTraceSpans } = useObservabilityData();
 
   // Filters
   const [keyword, setKeyword] = useState('');
@@ -422,6 +427,8 @@ const TracesExplorer: React.FC = () => {
   const [selected, setSelected] = useState<TraceSummary | null>(null);
   const [spans, setSpans] = useState<TraceSpan[]>([]);
   const [spansLoading, setSpansLoading] = useState(false);
+  /** Why the waterfall is empty, when it's empty because the request failed. */
+  const [spansError, setSpansError] = useState<string | null>(null);
 
   const keywordRef = useRef(keyword);
   keywordRef.current = keyword;
@@ -463,6 +470,7 @@ const TracesExplorer: React.FC = () => {
   const openTrace = useCallback(async (trace: TraceSummary) => {
     setSelected(trace);
     setSpans([]);
+    setSpansError(null);
     setSpansLoading(true);
     const startMs = startMsOf(trace);
     const durMs = (Number(trace.duration) || 0) / 1000;
@@ -471,7 +479,8 @@ const TracesExplorer: React.FC = () => {
       startMs - 5 * 60_000,
       startMs + Math.max(durMs, 1000) + 5 * 60_000,
     );
-    setSpans(found);
+    setSpans(found.data);
+    setSpansError(found.error ?? null);
     setSpansLoading(false);
   }, [fetchTraceSpans]);
 
@@ -552,13 +561,24 @@ const TracesExplorer: React.FC = () => {
     );
   }
 
-  // No data at all in range with no filters → onboarding
-  if (loadedOnce && !hasAnyData && noFilters) {
+  // No data at all in range with no filters → onboarding.
+  // Guarded on `tracesError`: a failed query also produces zero traces, and telling someone
+  // whose collector is working fine to go and install a collector is worse than telling them
+  // nothing. When the request failed we fall through and report the failure instead.
+  if (loadedOnce && !hasAnyData && noFilters && !tracesError) {
     return <TracesOnboarding />;
   }
 
   return (
     <div className="obs-wrap space-y-4">
+
+      {tracesError && (
+        <ErrorNotice
+          title="Could not load traces"
+          message={tracesError}
+          onRetry={() => setSearchNonce(n => n + 1)}
+        />
+      )}
 
       {/* Summary tiles */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -835,7 +855,13 @@ const TracesExplorer: React.FC = () => {
           ))}
         </div>
 
-        {traces.length === 0 && !loading ? (
+        {traces.length === 0 && !loading && tracesError ? (
+          <div className="px-4 py-12 text-center">
+            <p className="text-[13px] text-[#64748b]">
+              Trace results unavailable — see the message above.
+            </p>
+          </div>
+        ) : traces.length === 0 && !loading ? (
           <div className="px-4 py-12 text-center">
             <p className="text-[13px] text-[#64748b]">No traces match the current filters.</p>
             <button
@@ -904,6 +930,7 @@ const TracesExplorer: React.FC = () => {
         trace={selected}
         spans={spans}
         loading={spansLoading}
+        error={spansError}
         onClose={() => setSelected(null)}
       />
     </div>

@@ -30,6 +30,9 @@ class AgentIngestServiceTest {
                 mock(AgentEventRepository.class),
                 mock(CloudAccountRepository.class));
         ReflectionTestUtils.setField(service, "globalAgentApiKey", VALID_KEY);
+        // The shared global key is now opt-out via configuration. Spring is not involved here,
+        // so the primitive would default to false and every case below would fail closed.
+        ReflectionTestUtils.setField(service, "legacyGlobalKeyEnabled", true);
     }
 
     // ── validateApiKey ────────────────────────────────────────────────────────

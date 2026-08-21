@@ -407,10 +407,14 @@ preflight() {
       XAMOPS_SERVER_URL="$DEFAULT_SERVER_URL"
       warn "No --server-url given; defaulting to $XAMOPS_SERVER_URL" ;;
   esac
+  # The shared default is published in this script and is identical for every customer, so it
+  # cannot prove which account a request came from. Pass --api-key with the account-scoped key
+  # from XamOps instead; the shared key is being retired.
   case "$XAMOPS_API_KEY" in
     __XAMOPS_API_KEY__|"")
       XAMOPS_API_KEY="$DEFAULT_API_KEY"
-      warn "No --api-key given; using the shared default key" ;;
+      warn "No --api-key given; using the shared default key, which is being retired."
+      warn "Get a cluster- or account-scoped key from XamOps and re-run with --api-key <key>." ;;
   esac
   XAMOPS_SERVER_URL="${XAMOPS_SERVER_URL%/}"
 
