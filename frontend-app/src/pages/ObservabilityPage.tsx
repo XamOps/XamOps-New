@@ -900,6 +900,14 @@ function SetupTab() {
   const { fetchSetupConfig, fetchClusters } = useObservabilityData();
   const [activeSetup, setActiveSetup] = useState<SetupType>('ec2');
 
+  // Why a config could not be generated. The backend explains what to do — most often that the
+  // account needs re-provisioning to mint a scoped ingestion credential — and that has to reach
+  // the user, because "restart the backend" sends them somewhere that cannot help.
+  const [setupError, setSetupError] = useState<string | null>(null);
+  // Bumped by Retry. Setting a state value to itself does not re-run an effect, so a nonce is
+  // what actually makes the fetch happen again.
+  const [setupRetry, setSetupRetry] = useState(0);
+
   // EKS Helm
   const [helmCmd, setHelmCmd] = useState('');
   const [helmLoading, setHelmLoading] = useState(false);
@@ -928,35 +936,59 @@ function SetupTab() {
       setClusters(list);
       if (list.length > 0) setSelectedCluster(list[0]);
     });
-    fetchSetupConfig('agents/rbac').then(v => setRbacYaml(v || ''));
-    fetchSetupConfig('agents/xamops-agent').then(v => setAgentYaml(v || ''));
+    fetchSetupConfig('agents/rbac').then(r => setRbacYaml(r.data));
+    fetchSetupConfig('agents/xamops-agent').then(r => setAgentYaml(r.data));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    setSetupError(null);
     if (activeSetup === 'eks-helm' && !helmCmd) {
       setHelmLoading(true);
-      fetchSetupConfig('helm-eks').then(v => { setHelmCmd(v || ''); setHelmLoading(false); });
+      fetchSetupConfig('helm-eks').then(r => {
+        setHelmCmd(r.data); setSetupError(r.error ?? null); setHelmLoading(false);
+      });
     }
     if (activeSetup === 'ec2' && !ec2Config) {
       setEc2Loading(true);
-      fetchSetupConfig('ec2-otel').then(v => { setEc2Config(v || ''); setEc2Loading(false); });
+      fetchSetupConfig('ec2-otel').then(r => {
+        setEc2Config(r.data); setSetupError(r.error ?? null); setEc2Loading(false);
+      });
     }
     if (activeSetup === 'gce' && !gceConfig) {
       setGceLoading(true);
-      fetchSetupConfig('gce-otel').then(v => { setGceConfig(v || ''); setGceLoading(false); });
+      fetchSetupConfig('gce-otel').then(r => {
+        setGceConfig(r.data); setSetupError(r.error ?? null); setGceLoading(false);
+      });
     }
     if (activeSetup === 'eks-manual' && !agentSecret) {
       setSecretLoading(true);
       setSecretError(false);
-      fetchSetupConfig('agent-secret').then(v => {
-        setAgentSecret(v || '');
-        setSecretError(!v);
+      fetchSetupConfig('agent-secret').then(r => {
+        setAgentSecret(r.data);
+        setSecretError(!r.data);
+        setSetupError(r.error ?? null);
         setSecretLoading(false);
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSetup]);
+  }, [activeSetup, setupRetry]);
+
+  /**
+   * Shown wherever a config could not be generated. Prefers the backend's own explanation,
+   * which names the account and the remedy, over a generic message.
+   */
+  const setupFailureNotice = (
+    <ErrorNotice
+      title="Configuration could not be generated"
+      message={setupError ?? 'The server did not return a configuration. Please retry in a moment.'}
+      onRetry={() => {
+        setHelmCmd(''); setEc2Config(''); setGceConfig(''); setAgentSecret('');
+        setSetupError(null);
+        setSetupRetry(n => n + 1);
+      }}
+    />
+  );
 
   const kubeconfigCmd = selectedCluster
     ? `aws eks update-kubeconfig --name ${selectedCluster.clusterName} --region ${selectedCluster.region}`
@@ -1130,7 +1162,7 @@ function SetupTab() {
               </p>
               {helmLoading ? <LoadingSpinner /> : helmCmd
                 ? <CodeBlock label="terminal" code={helmCmd} />
-                : <p className="text-xs text-amber-600">Could not load command — try restarting the backend.</p>
+                : setupFailureNotice
               }
             </DeployStep>
 
@@ -1190,7 +1222,7 @@ function SetupTab() {
               <p className="text-[13px] font-medium text-[rgba(0,0,0,0.7)]">
                 Copy the script below and run it on your EC2 instance as root / sudo:
               </p>
-              <CodeBlock label="bash — run on EC2" code={ec2Config} />
+              <CodeBlock label="bash — run on EC2 (as root)" code={ec2Config} />
               <div className="rounded-lg border border-[rgba(0,0,0,0.06)] p-4 bg-[rgba(0,0,0,0.02)]">
                 <p className="text-[12px] font-semibold mb-2 text-black">
                   After install, data flows into:
@@ -1213,9 +1245,7 @@ function SetupTab() {
               </div>
             </div>
           ) : (
-            <p className="text-xs text-amber-600">
-              Could not load config — try restarting the backend.
-            </p>
+            setupFailureNotice
           )}
         </div>
       )}
@@ -1270,9 +1300,7 @@ function SetupTab() {
               </div>
             </div>
           ) : (
-            <p className="text-xs text-amber-600">
-              Could not load config — try restarting the backend.
-            </p>
+            setupFailureNotice
           )}
         </div>
       )}
@@ -1311,16 +1339,21 @@ function SetupTab() {
 
             <DeployStep num={2} title="Apply credentials secret (org ID auto-filled)">
               {secretLoading ? <LoadingSpinner /> : secretError ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-center justify-between gap-3">
-                  <p className="text-xs font-medium text-amber-700">
-                    Could not load secret — restart the backend then retry.
-                  </p>
-                  <button
-                    onClick={() => { setSecretLoading(true); setSecretError(false); fetchSetupConfig('agent-secret').then(v => { setAgentSecret(v || ''); setSecretError(!v); setSecretLoading(false); }); }}
-                    className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white">
-                    Retry
-                  </button>
-                </div>
+                <ErrorNotice
+                  title="Credentials secret could not be generated"
+                  message={setupError ?? 'The server did not return a secret. Please retry in a moment.'}
+                  onRetry={() => {
+                    setSecretLoading(true);
+                    setSecretError(false);
+                    setSetupError(null);
+                    fetchSetupConfig('agent-secret').then(r => {
+                      setAgentSecret(r.data);
+                      setSecretError(!r.data);
+                      setSetupError(r.error ?? null);
+                      setSecretLoading(false);
+                    });
+                  }}
+                />
               ) : agentSecret ? <CodeBlock label="agent-secret.yaml" code={agentSecret} /> : null}
               <CodeBlock label="terminal" code="kubectl apply -f agent-secret.yaml" />
             </DeployStep>
