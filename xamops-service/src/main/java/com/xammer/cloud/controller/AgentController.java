@@ -16,6 +16,7 @@ import com.xammer.cloud.repository.ExplainRequestRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
+import com.xammer.cloud.service.DiskAgentPeaks;
 import com.xammer.cloud.service.EksAutoscalingService;
 import com.xammer.cloud.service.OpenObserveService;
 import com.xammer.cloud.service.RedisCacheService;
@@ -63,6 +64,8 @@ public class AgentController {
     /** Sentinel key written on every push; 24-hour TTL survives brief collection gaps. */
     static final String DISK_AGENT_SEEN_PREFIX = "ebs-disk-agent-seen:";
     static final String GCP_DISK_AGENT_SEEN_PREFIX = "gcp-disk-agent-seen:";
+
+    // Rolling filesystem-utilization high-water marks; see DiskAgentPeaks for why they exist.
     private static final int DISK_AGENT_SEEN_TTL_MINUTES = 1440; // 24 hours
 
     private static final int SRE_AUTO_COOLDOWN_MINUTES = 30;
@@ -832,12 +835,35 @@ public class AgentController {
                 // Sentinel key survives brief collection gaps (e.g. EBS resize / GCE disk resize)
                 String seenKey = seenPrefix + cloudAccountId + ":" + instanceId;
                 redisCacheService.put(seenKey, Boolean.TRUE, DISK_AGENT_SEEN_TTL_MINUTES);
+                updateDiskUtilizationPeaks(keyPrefix, cloudAccountId, instanceId, entry.getValue());
                 logger.info("[disk-agent] STORED key={} mounts={}", cacheKey, entry.getValue().size());
                 logger.debug("[disk-agent] cached {} mounts for instance {} account {}",
                         entry.getValue().size(), instanceId, cloudAccountId);
             }
             logger.info("[disk-agent] stored disk data for {} instances (account {} provider={})",
                     byInstance.size(), cloudAccountId, provider);
+        }
+    }
+
+    /**
+     * Merges this push's utilization figures into the instance's high-water marks.
+     *
+     * <p>Deliberately best-effort: a failure here degrades the shrink recommendation to
+     * "insufficient history", which is the safe outcome, so it must never fail an agent push.
+     */
+    private void updateDiskUtilizationPeaks(String keyPrefix, String cloudAccountId, String instanceId,
+            List<Map<String, Object>> mounts) {
+        try {
+            String peakKey = DiskAgentPeaks.keyFor(keyPrefix, cloudAccountId, instanceId);
+            Map<String, Object> existing = redisCacheService
+                    .get(peakKey, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {})
+                    .orElse(null);
+
+            DiskAgentPeaks.merge(existing, mounts, System.currentTimeMillis())
+                    .ifPresent(peaks -> redisCacheService.put(peakKey, peaks, DiskAgentPeaks.TTL_MINUTES));
+        } catch (Exception e) {
+            logger.debug("[disk-agent] could not update utilization peaks for {}: {}",
+                    instanceId, e.getMessage());
         }
     }
 

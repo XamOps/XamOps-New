@@ -10,6 +10,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DiskPolicyRepository;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.EbsVolumeActionRepository;
+import com.xammer.cloud.service.DiskAgentPeaks;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -407,6 +408,22 @@ public class AzureDiskRightsizingService {
                 dto.put("usedPercent",   Math.round(up * 10.0) / 10.0);
                 dto.put("usedGb",        Math.round(sizeGb * up / 100.0 * 100.0) / 100.0);
                 dto.put("freeGb",        Math.round(sizeGb * (1 - up / 100.0) * 100.0) / 100.0);
+
+                // A single instantaneous reading cannot support a shrink — see DiskAgentPeaks.
+                Map<String, Object> peaks = redisCacheService.get(
+                        DiskAgentPeaks.keyFor("azure-disk-agent:", agentAccountKey, instanceName),
+                        new TypeReference<Map<String, Object>>() {}).orElse(Map.of());
+                Object peakRaw = peaks.get((String) bestMount.get("device"));
+                Object samplesRaw = peaks.get(DiskAgentPeaks.SAMPLE_COUNT_FIELD);
+                if (peakRaw instanceof Number peak && samplesRaw instanceof Number samples) {
+                    dto.put("peakUsedPercent",
+                            Math.round(Math.max(peak.doubleValue(), up) * 10.0) / 10.0);
+                    dto.put("observationCount", samples.longValue());
+                    Object since = peaks.get(DiskAgentPeaks.WINDOW_START_FIELD);
+                    if (since instanceof Number sinceMillis) {
+                        dto.put("observationWindowStart", sinceMillis.longValue());
+                    }
+                }
             }
         }
     }
@@ -482,7 +499,38 @@ public class AzureDiskRightsizingService {
             dto.put("estimatedSavings", -Math.round(costIncrease * 100.0) / 100.0);
             dto.put("estimatedMonthlyCostIncrease", Math.round(costIncrease * 100.0) / 100.0);
         } else if (usedPct < policy.shrinkThresholdPct() && sizeGb > policy.minDiskSizeGb()) {
-            int targetSize = policy.targetSizeGb(sizeGb, usedPct);
+            // Sized against the highest utilization observed, not the latest reading. Azure cannot
+            // shrink a managed disk in place, so a disk shrunk to fit one lucky sample can only be
+            // recovered by migrating again.
+            Object peakRaw = dto.get("peakUsedPercent");
+            Object samplesRaw = dto.get("observationCount");
+            if (!(peakRaw instanceof Number peak) || !(samplesRaw instanceof Number samples)
+                    || samples.longValue() < DiskAgentPeaks.MIN_OBSERVATIONS_FOR_SHRINK) {
+                dto.put("recommendation", "NONE");
+                dto.put("recommendationReason", String.format(
+                        "Currently %.0f%% used, but only %s of history is available. A shrink needs at "
+                                + "least %d agent observations so it can be sized against peak usage "
+                                + "rather than one instantaneous reading.",
+                        usedPct,
+                        samplesRaw instanceof Number n ? n.longValue() + " observation(s)" : "none",
+                        DiskAgentPeaks.MIN_OBSERVATIONS_FOR_SHRINK));
+                dto.put("estimatedSavings", 0.0);
+                dto.put("savingsUnknown", true);
+                return;
+            }
+
+            double peakPct = peak.doubleValue();
+            if (peakPct >= policy.shrinkThresholdPct()) {
+                dto.put("recommendation", "NONE");
+                dto.put("recommendationReason", String.format(
+                        "Currently %.0f%% used but peaked at %.0f%% across %d observations — the disk is "
+                                + "not over-provisioned for its busiest moment.",
+                        usedPct, peakPct, samples.longValue()));
+                dto.put("estimatedSavings", 0.0);
+                return;
+            }
+
+            int targetSize = policy.targetSizeGb(sizeGb, peakPct);
             if (targetSize < sizeGb) {
                 // Azure bills a managed disk by provisioned TIER, not by the gigabyte. A 512 GiB
                 // Premium disk and a 400 GiB one are both billed as P20, so shrinking between
@@ -495,9 +543,9 @@ public class AzureDiskRightsizingService {
                 if (currentTier != null && currentTier.equals(targetTier)) {
                     dto.put("recommendation", "NONE");
                     dto.put("recommendationReason", String.format(
-                            "Only %.0f%% used, but %d GB and %d GB are both billed as %s — shrinking "
+                            "Peaked at %.0f%% used, but %d GB and %d GB are both billed as %s — shrinking "
                                     + "within a tier does not reduce cost.",
-                            usedPct, sizeGb, targetSize, currentTier));
+                            peakPct, sizeGb, targetSize, currentTier));
                     dto.put("estimatedSavings", 0.0);
                     return;
                 }
@@ -507,9 +555,9 @@ public class AzureDiskRightsizingService {
                 dto.put("recommendation",       "SHRINK");
                 dto.put("recommendedSizeGb",    targetSize);
                 dto.put("recommendationReason", String.format(
-                        "Only %.0f%% used — a %d GB disk would suffice (currently %d GB), moving from "
-                                + "%s to %s. %s",
-                        usedPct, targetSize, sizeGb,
+                        "Peaked at %.0f%% across %d observations — a %d GB disk would suffice "
+                                + "(currently %d GB), moving from %s to %s. %s",
+                        peakPct, samples.longValue(), targetSize, sizeGb,
                         currentTier == null ? "the current tier" : currentTier,
                         targetTier == null ? "a smaller tier" : targetTier,
                         SHRINK_UNSUPPORTED_MESSAGE));

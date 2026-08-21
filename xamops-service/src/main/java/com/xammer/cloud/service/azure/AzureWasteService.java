@@ -529,14 +529,38 @@ public class AzureWasteService {
                 try {
                     OffsetDateTime created = snapshot.innerModel() != null ? snapshot.innerModel().timeCreated() : null;
                     if (created != null && created.isBefore(cutoff)) {
+                        // Guards the same way the unattached-disk detector does. Age alone is not
+                        // evidence a snapshot is unwanted: a snapshot kept by a backup policy is
+                        // deliberately old, and one belonging to a retired VM may be the only
+                        // remaining copy of that data.
+                        if (hasProtectedTag(snapshot.tags())) {
+                            log.debug("Skipping snapshot {} — carries a retention or protection tag",
+                                    snapshot.name());
+                            continue;
+                        }
+                        if (isKubernetesManaged(snapshot.id(), snapshot.name(),
+                                snapshot.resourceGroupName(), snapshot.tags())) {
+                            log.debug("Skipping AKS-managed snapshot {}", snapshot.name());
+                            continue;
+                        }
+
                         long ageDays = ChronoUnit.DAYS.between(created, OffsetDateTime.now());
+                        // Priced from the snapshot's own size at its tier where possible. The flat
+                        // FALLBACK_UNATTACHED_DISK_USD is a 128 GB HDD rate and was applied to
+                        // every snapshot regardless of size or SKU.
+                        String sku = snapshot.innerModel() != null && snapshot.innerModel().sku() != null
+                                && snapshot.innerModel().sku().name() != null
+                                ? snapshot.innerModel().sku().name().toString() : null;
+                        String region = snapshot.regionName() != null ? snapshot.regionName() : "";
+                        double monthlyCost = snapshotMonthlyCost(sku, snapshot.sizeInGB(), region);
+
                         result.add(new AzureWasteItem(
                                 snapshot.id(),
                                 snapshot.name(),
                                 "Old Snapshot",
-                                snapshot.regionName() != null ? snapshot.regionName() : "",
+                                region,
                                 "Snapshot is " + ageDays + " days old — consider deleting stale backups to save storage cost",
-                                FALLBACK_UNATTACHED_DISK_USD
+                                monthlyCost
                         ));
                     }
                 } catch (Exception e) {
@@ -546,6 +570,33 @@ public class AzureWasteService {
         } catch (Exception e) {
             log.warn("Failed to list snapshots for waste detection: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Monthly cost of a snapshot, scaled by its actual size.
+     *
+     * <p>Snapshot storage is billed per GB of used capacity rather than at a disk tier, so this
+     * derives a per-GB rate from the tier price and applies it to the snapshot's size. Falls back
+     * to the flat constant only when nothing better is available.
+     */
+    private double snapshotMonthlyCost(String skuName, int sizeGb, String region) {
+        if (sizeGb <= 0) {
+            return FALLBACK_UNATTACHED_DISK_USD;
+        }
+        if (skuName != null && region != null && !region.isBlank()) {
+            try {
+                // Standard HDD is the storage class Azure bills incremental snapshots against.
+                Optional<Double> tierPrice =
+                        retailPricingService.getManagedDiskMonthlyPriceUsd("Standard_LRS", sizeGb, region);
+                if (tierPrice.isPresent() && tierPrice.get() > 0) {
+                    return tierPrice.get();
+                }
+            } catch (Exception e) {
+                log.debug("Snapshot price lookup failed for {} {}GB in {}: {}",
+                        skuName, sizeGb, region, e.getMessage());
+            }
+        }
+        return FALLBACK_UNATTACHED_DISK_USD;
     }
 
     /** Load balancers with no backend pool members — paying for an idle LB. */
@@ -558,7 +609,15 @@ public class AzureWasteService {
                     // reported as empty.
                     boolean noBackends = lb.backends() == null || lb.backends().isEmpty();
                     boolean noRules = lb.loadBalancingRules() == null || lb.loadBalancingRules().isEmpty();
-                    if (!noBackends || !noRules) {
+                    // Inbound NAT rules are traffic too. A jump-host load balancer forwards SSH
+                    // or RDP to specific VMs using only NAT rules and no load-balancing rules, so
+                    // checking backends and LB rules alone reported it as idle while it was the
+                    // only way into those machines.
+                    boolean noNatRules = lb.inboundNatRules() == null || lb.inboundNatRules().isEmpty();
+                    boolean noOutboundRules = lb.innerModel() == null
+                            || lb.innerModel().outboundRules() == null
+                            || lb.innerModel().outboundRules().isEmpty();
+                    if (!noBackends || !noRules || !noNatRules || !noOutboundRules) {
                         continue;
                     }
                     // Basic-SKU load balancers are free, so flagging them invented cost.
@@ -733,18 +792,35 @@ public class AzureWasteService {
                     // Only consider running VMs — stopped/deallocated are caught by detectVirtualMachines
                     if (!PowerState.RUNNING.equals(vm.powerState())) continue;
 
+                    // An AKS node sits in the cluster's node resource group and is replaced by the
+                    // cluster if removed. Low CPU on a node pool member is a cluster-sizing
+                    // question, not a VM the customer should deallocate.
+                    if (isKubernetesManaged(vm.id(), vm.name(), vm.resourceGroupName(), vm.tags())) {
+                        log.debug("Skipping AKS node {} in idle-VM detection", vm.name());
+                        continue;
+                    }
+
                     Double avgCpu = queryAverageMetric(vm.id(), "Percentage%20CPU", token);
                     if (avgCpu != null && avgCpu < IDLE_VM_CPU_THRESHOLD) {
                         String region = vm.regionName() != null ? vm.regionName() : "";
                         String size = vmSize(vm);
-                        result.add(new AzureWasteItem(
+                        // The recommendation offers two mutually exclusive actions with very
+                        // different value: deallocating frees the whole compute charge, while
+                        // downsizing frees a fraction of it. Booking the full price for a
+                        // recommendation whose text says "downsize or deallocate" overstated the
+                        // saving whenever the customer downsizes, so this reports the compute
+                        // charge as unpriced and leaves the quantified figure to the rightsizing
+                        // service, which knows the target SKU.
+                        result.add(AzureWasteItem.withUnknownSavings(
                                 vm.id(),
                                 vm.name(),
                                 "Idle Running VM",
                                 region,
                                 String.format("VM (%s) is running but averaged only %.1f%% CPU over the last 7 days "
-                                        + "— consider downsizing or deallocating", size, avgCpu),
-                                resolveVmMonthlyPrice(size, region)
+                                        + "— consider downsizing or deallocating. Full compute cost is "
+                                        + "about %s/month; the saving depends on which action you take.",
+                                        size, avgCpu,
+                                        String.format("$%.2f", resolveVmMonthlyPrice(size, region)))
                         ));
                     }
                 } catch (Exception e) {
@@ -977,6 +1053,27 @@ public class AzureWasteService {
         }
     }
 
+    /**
+     * Blob list price per GB per month by access tier, Standard LRS.
+     *
+     * <p>Used only to size the finding. A storage account has no per-instance charge at all — the
+     * whole bill is capacity plus transactions — so the cost of an idle account is whatever it
+     * holds. It was previously priced at {@code FALLBACK_UNATTACHED_DISK_USD}, the list price of a
+     * 128 GB Standard HDD managed disk: a different product, and a figure that had no relationship
+     * to the account whether it held nothing or fifty terabytes.
+     */
+    private static double blobGbMonthUsd(String accessTier) {
+        if (accessTier == null) {
+            return 0.0184;
+        }
+        return switch (accessTier.toLowerCase()) {
+            case "cool" -> 0.0100;
+            case "cold" -> 0.0036;
+            case "archive" -> 0.00099;
+            default -> 0.0184; // Hot
+        };
+    }
+
     /** Storage accounts with effectively zero transactions over 7 days — likely abandoned. */
     private void detectIdleStorageAccounts(String subscriptionId, String token, List<AzureWasteItem> result) {
         String url = ARM_BASE + "/subscriptions/" + subscriptionId
@@ -986,20 +1083,62 @@ public class AzureWasteService {
                 String id = sa.path("id").asText("");
                 if (id.isEmpty()) continue;
                 Double txns = queryTotalMetric(id, "Transactions", token);
-                if (txns != null && txns < 1.0) {
-                    result.add(new AzureWasteItem(
-                            id,
-                            sa.path("name").asText(""),
-                            "Idle Storage Account",
-                            sa.path("location").asText(""),
-                            "Storage account had no transactions over the last 7 days — review for deletion or archival",
-                            FALLBACK_UNATTACHED_DISK_USD
-                    ));
+                if (txns == null || txns >= 1.0) {
+                    continue;
                 }
+
+                String name = sa.path("name").asText("");
+                String region = sa.path("location").asText("");
+                String accessTier = sa.path("properties").path("accessTier").asText(null);
+
+                // UsedCapacity is emitted daily, so an average over the window is the account's
+                // stored volume.
+                Double usedBytes = queryAverageMetric(id, "UsedCapacity", token);
+
+                if (usedBytes == null) {
+                    result.add(AzureWasteItem.withUnknownSavings(id, name, "Idle Storage Account", region,
+                            "No transactions over the last 7 days. Stored capacity could not be read, so "
+                                    + "the saving is unknown — a storage account is billed on capacity and "
+                                    + "transactions, with no charge for the account itself."));
+                    continue;
+                }
+
+                double usedGb = usedBytes / 1_073_741_824.0;
+                if (usedGb < 0.01) {
+                    // An empty account is billed nothing. Still worth surfacing as clutter, but
+                    // it must not inflate the savings total.
+                    result.add(AzureWasteItem.withNoCostImpact(id, name, "Idle Storage Account", region,
+                            "No transactions over the last 7 days and effectively no data stored. Costs "
+                                    + "nothing to keep; delete only to reduce clutter."));
+                    continue;
+                }
+
+                double monthlyUsd = usedGb * blobGbMonthUsd(accessTier);
+                result.add(new AzureWasteItem(id, name, "Idle Storage Account", region,
+                        String.format("No transactions over the last 7 days while storing %.2f GB in the %s "
+                                + "tier. Review for deletion, or move to a cooler tier.",
+                                usedGb, accessTier == null ? "Hot" : accessTier),
+                        monthlyUsd));
             } catch (Exception e) {
                 log.warn("Error processing storage account: {}", e.getMessage());
             }
         }
+    }
+
+    /**
+     * Whether a Cosmos DB account is in serverless mode.
+     *
+     * <p>Serverless accounts have no provisioned throughput: they bill per request unit consumed.
+     * An idle serverless account therefore has no throughput charge at all, which is the opposite
+     * of the assumption behind {@code FALLBACK_COSMOS_DB_USD} — a 400 RU/s provisioned minimum.
+     */
+    private static boolean isServerlessCosmosAccount(JsonNode account) {
+        for (JsonNode capability : account.path("properties").path("capabilities")) {
+            if ("EnableServerless".equalsIgnoreCase(capability.path("name").asText(""))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Cosmos DB accounts with zero requests over 7 days — provisioned throughput billed with no usage. */
@@ -1011,16 +1150,37 @@ public class AzureWasteService {
                 String id = acc.path("id").asText("");
                 if (id.isEmpty()) continue;
                 Double reqs = queryTotalMetric(id, "TotalRequests", token);
-                if (reqs != null && reqs < 1.0) {
-                    result.add(new AzureWasteItem(
-                            id,
-                            acc.path("name").asText(""),
-                            "Idle Cosmos DB",
-                            acc.path("location").asText(""),
-                            "Cosmos DB account served no requests over the last 7 days — consider scaling down RU/s or deleting",
-                            FALLBACK_COSMOS_DB_USD
-                    ));
+                if (reqs == null || reqs >= 1.0) {
+                    continue;
                 }
+
+                String name = acc.path("name").asText("");
+                String region = acc.path("location").asText("");
+                int replicaCount = Math.max(1, acc.path("properties").path("locations").size());
+
+                if (isServerlessCosmosAccount(acc)) {
+                    // Nothing is charged for idle throughput here, only for stored data. Reporting
+                    // the 400 RU/s provisioned minimum against a serverless account invented a
+                    // charge that does not exist on the invoice.
+                    result.add(AzureWasteItem.withUnknownSavings(id, name, "Idle Cosmos DB", region,
+                            "Serverless account served no requests over the last 7 days. Serverless bills "
+                                    + "per request, so there is no idle throughput charge — the only cost is "
+                                    + "stored data. Delete it to reclaim that."));
+                    continue;
+                }
+
+                // Provisioned or autoscale. The account-level API does not expose per-container
+                // RU/s, and an autoscale container idles at 10% of its maximum, so the true figure
+                // needs a per-container walk. The 400 RU/s manual minimum is the floor, multiplied
+                // by the number of regions the account is replicated to — each replica is billed
+                // its own throughput.
+                double floorUsd = FALLBACK_COSMOS_DB_USD * replicaCount;
+                result.add(new AzureWasteItem(id, name, "Idle Cosmos DB", region,
+                        String.format("Served no requests over the last 7 days while provisioned across %d "
+                                + "region(s). At least %.2f USD/month of throughput is billed regardless of "
+                                + "usage; the actual figure depends on the RU/s set per container. Scale "
+                                + "down, switch to serverless, or delete.", replicaCount, floorUsd),
+                        floorUsd));
             } catch (Exception e) {
                 log.warn("Error processing Cosmos DB account: {}", e.getMessage());
             }

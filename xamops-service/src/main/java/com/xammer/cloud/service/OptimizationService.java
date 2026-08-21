@@ -65,6 +65,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -548,6 +549,9 @@ public class OptimizationService {
                 findIdleAutoScalingGroups(account, activeRegions),
                 findIdleNatGateways(account, activeRegions),
                 findS3BucketsWithNoReads(account),
+                // Was written but never added to this list, so the capability existed in the
+                // codebase and never ran.
+                findOversizedEc2Instances(account, activeRegions),
                 findLogGroupsWithNoRetentionPolicy(account, activeRegions),
                 findAttachedButIdleEbsVolumes(account, activeRegions),
                 findCloudFrontDistributionsWithNoTraffic(account),
@@ -628,11 +632,17 @@ public class OptimizationService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             Instant ninetyDaysAgo = Instant.now().minus(90, ChronoUnit.DAYS);
+
+            // Snapshots that back a registered AMI cannot be deleted — DeleteSnapshot returns
+            // InvalidSnapshot.InUse — so recommending it produced advice that always fails.
+            java.util.Set<String> amiBackedSnapshotIds = snapshotIdsBackingImages(ec2, regionId);
+
             return ec2.describeSnapshots(r -> r.ownerIds("self")).snapshots().stream()
                     .filter(s -> s.startTime().isBefore(ninetyDaysAgo))
                     // A snapshot kept by a lifecycle policy, AWS Backup or an explicit retention
                     // tag is deliberately old — age alone is not evidence it is unwanted.
                     .filter(s -> !isManagedOrRetained(s.tags()))
+                    .filter(s -> !amiBackedSnapshotIds.contains(s.snapshotId()))
                     .map(snapshot -> new DashboardData.WastedResource(snapshot.snapshotId(),
                             getTagName(snapshot.tags(), snapshot.snapshotId()), "Snapshot", regionId,
                             calculateSnapshotMonthlyCost(snapshot, regionId), "Older than 90 days"))
@@ -708,18 +718,92 @@ public class OptimizationService {
         }, "Idle RDS Instances");
     }
 
+    /**
+     * Whether a tag key marks its resource as owned by a controller that will recreate it.
+     *
+     * <p>The AWS Load Balancer Controller and the in-tree service controller both tag what they
+     * create — {@code elbv2.k8s.aws/cluster}, {@code kubernetes.io/cluster/<name>},
+     * {@code kubernetes.io/service-name}. CloudFormation and Elastic Beanstalk do the same.
+     * Deleting one of these is undone by its owner within minutes, and in the meantime the
+     * service it fronts is unreachable.
+     */
+    static boolean isControllerOwnedTagKey(String key) {
+        if (key == null || key.isBlank()) {
+            return false;
+        }
+        String normalised = key.toLowerCase();
+        return normalised.startsWith("kubernetes.io/")
+                || normalised.startsWith("elbv2.k8s.aws/")
+                || normalised.startsWith("ingress.k8s.aws/")
+                || normalised.startsWith("service.k8s.aws/")
+                || normalised.startsWith("aws:cloudformation:")
+                || normalised.startsWith("aws:elasticbeanstalk:");
+    }
+
+    /**
+     * ARNs of the load balancers in {@code loadBalancers} that a controller owns.
+     *
+     * <p>Tags are resolved in batches of 20 — the {@code DescribeTags} limit — rather than one
+     * call per load balancer.
+     */
+    private java.util.Set<String> kubernetesManagedLoadBalancerArns(ElasticLoadBalancingV2Client elbv2,
+            List<software.amazon.awssdk.services.elasticloadbalancingv2.model.LoadBalancer> loadBalancers) {
+
+        java.util.Set<String> owned = new java.util.HashSet<>();
+        List<String> arns = loadBalancers.stream()
+                .map(software.amazon.awssdk.services.elasticloadbalancingv2.model.LoadBalancer::loadBalancerArn)
+                .collect(Collectors.toList());
+
+        // DescribeTags accepts at most 20 resource ARNs per call.
+        final int batchSize = 20;
+        for (int i = 0; i < arns.size(); i += batchSize) {
+            List<String> batch = arns.subList(i, Math.min(i + batchSize, arns.size()));
+            try {
+                for (var description : elbv2.describeTags(req -> req.resourceArns(batch)).tagDescriptions()) {
+                    boolean managed = description.tags().stream()
+                            .anyMatch(tag -> isControllerOwnedTagKey(tag.key()));
+                    if (managed) {
+                        owned.add(description.resourceArn());
+                    }
+                }
+            } catch (Exception e) {
+                // Fail open: an unreadable tag set should not hide a genuinely idle load balancer.
+                logger.debug("[Waste] Could not read load balancer tags for a batch of {}: {}",
+                        batch.size(), e.getMessage());
+            }
+        }
+        return owned;
+    }
+
     private CompletableFuture<List<DashboardData.WastedResource>> findIdleLoadBalancers(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             ElasticLoadBalancingV2Client elbv2 = awsClientProvider.getElbv2Client(account, regionId);
-            return elbv2.describeLoadBalancers().loadBalancers().stream()
+            var loadBalancers = elbv2.describeLoadBalancers().loadBalancers();
+            if (loadBalancers.isEmpty()) {
+                return List.of();
+            }
+            // Resolved in batches of 20 (the DescribeTags limit) rather than one call per load
+            // balancer, so a large account does not pay a round trip each.
+            java.util.Set<String> clusterOwnedArns = kubernetesManagedLoadBalancerArns(elbv2, loadBalancers);
+
+            return loadBalancers.stream()
+                    // A load balancer provisioned by the AWS Load Balancer Controller or by an
+                    // Ingress belongs to a cluster, which recreates it. Its target groups are
+                    // legitimately empty whenever the backing deployment is scaled to zero.
+                    .filter(lb -> !clusterOwnedArns.contains(lb.loadBalancerArn()))
                     .filter(lb -> {
-                        boolean isIdle = elbv2.describeTargetGroups(req -> req.loadBalancerArn(lb.loadBalancerArn()))
-                                .targetGroups().stream()
-                                .allMatch(
-                                        tg -> elbv2.describeTargetHealth(req -> req.targetGroupArn(tg.targetGroupArn()))
-                                                .targetHealthDescriptions().isEmpty());
-                        return isIdle;
+                        var targetGroups = elbv2
+                                .describeTargetGroups(req -> req.loadBalancerArn(lb.loadBalancerArn()))
+                                .targetGroups();
+                        // allMatch on an empty list is true, so a load balancer created moments ago
+                        // — before its target groups exist — was reported as idle mid-deployment.
+                        if (targetGroups.isEmpty()) {
+                            return false;
+                        }
+                        return targetGroups.stream().allMatch(
+                                tg -> elbv2.describeTargetHealth(req -> req.targetGroupArn(tg.targetGroupArn()))
+                                        .targetHealthDescriptions().isEmpty());
                     })
                     .map(lb -> new DashboardData.WastedResource(lb.loadBalancerArn(), lb.loadBalancerName(),
                             "Load Balancer", regionId,
@@ -832,19 +916,107 @@ public class OptimizationService {
         }, "Underutilized Lambda Functions");
     }
 
+    /**
+     * Manual RDS snapshots always retained per source instance, regardless of age, so the last
+     * surviving copy of a database is never proposed for deletion.
+     */
+    static final int MIN_RETAINED_DB_SNAPSHOTS = 1;
+
+    /**
+     * The grouping key for a manual snapshot: its source instance, or the snapshot itself when
+     * the source is gone.
+     *
+     * <p>An orphaned snapshot gets a key of its own so it forms a group of one and is therefore
+     * always retained. That is the case where deletion is least recoverable: RDS keeps no
+     * automated backups past an instance's lifetime, so a manual snapshot of a deleted instance
+     * is usually the only surviving copy of the data.
+     */
+    private static String dbSnapshotGroupKey(software.amazon.awssdk.services.rds.model.DBSnapshot snap) {
+        return snap.dbInstanceIdentifier() == null || snap.dbInstanceIdentifier().isBlank()
+                ? "(orphaned)" + snap.dbSnapshotIdentifier()
+                : snap.dbInstanceIdentifier();
+    }
+
+    /**
+     * The manual snapshots that are both older than {@code cutoff} and safe to delete.
+     *
+     * <p>Within each source instance the newest {@link #MIN_RETAINED_DB_SNAPSHOTS} are retained
+     * whatever their age, and only the snapshots beyond that are judged on age. Retaining
+     * unconditionally rather than only among the aged ones matters in both directions: a lone
+     * old snapshot is never proposed for deletion even though it is old, and an old snapshot
+     * sitting behind two recent ones is proposed even though its own group contains something
+     * ancient.
+     *
+     * <p>A snapshot with no creation time is never returned — an unknown age is not evidence of
+     * an old one.
+     */
+    static List<software.amazon.awssdk.services.rds.model.DBSnapshot> deletableManualDbSnapshots(
+            List<software.amazon.awssdk.services.rds.model.DBSnapshot> manual, Instant cutoff) {
+
+        Map<String, List<software.amazon.awssdk.services.rds.model.DBSnapshot>> byInstance =
+                new LinkedHashMap<>();
+        for (var snap : manual) {
+            byInstance.computeIfAbsent(dbSnapshotGroupKey(snap), k -> new ArrayList<>()).add(snap);
+        }
+
+        List<software.amazon.awssdk.services.rds.model.DBSnapshot> deletable = new ArrayList<>();
+        for (var snapshots : byInstance.values()) {
+            snapshots.stream()
+                    // Newest first, so the retained ones are the most recent. A snapshot of
+                    // unknown age sorts last and is therefore never one of the retained copies.
+                    .sorted(Comparator.comparing(
+                            software.amazon.awssdk.services.rds.model.DBSnapshot::snapshotCreateTime,
+                            Comparator.nullsLast(Comparator.reverseOrder())))
+                    .skip(MIN_RETAINED_DB_SNAPSHOTS)
+                    .filter(snap -> snap.snapshotCreateTime() != null
+                            && snap.snapshotCreateTime().isBefore(cutoff))
+                    .forEach(deletable::add);
+        }
+        return deletable;
+    }
+
     private CompletableFuture<List<DashboardData.WastedResource>> findOldDbSnapshots(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             RdsClient rds = awsClientProvider.getRdsClient(account, regionId);
             Instant ninetyDaysAgo = Instant.now().minus(90, ChronoUnit.DAYS);
-            return rds.describeDBSnapshots(r -> r.snapshotType("manual")).dbSnapshots().stream()
-                    .filter(snap -> snap.snapshotCreateTime().isBefore(ninetyDaysAgo))
-                    .map(snap -> new DashboardData.WastedResource(snap.dbSnapshotIdentifier(),
+
+            List<software.amazon.awssdk.services.rds.model.DBSnapshot> manual =
+                    rds.describeDBSnapshots(r -> r.snapshotType("manual")).dbSnapshots();
+
+            return deletableManualDbSnapshots(manual, ninetyDaysAgo).stream()
+                    .map(snap -> new DashboardData.WastedResource(
+                            snap.dbSnapshotIdentifier(),
                             snap.dbSnapshotIdentifier(), "DB Snapshot", regionId,
-                            snap.allocatedStorage() * pricingService.getRdsSnapshotGbMonthPrice(regionId, snap.engine()),
-                            "Older than 90 days"))
+                            snap.allocatedStorage()
+                                    * pricingService.getRdsSnapshotGbMonthPrice(regionId, snap.engine()),
+                            String.format("Older than 90 days. The %d most recent manual snapshot(s) of "
+                                    + "the same instance are retained.", MIN_RETAINED_DB_SNAPSHOTS)))
                     .collect(Collectors.toList());
         }, "Old DB Snapshots");
+    }
+
+    /**
+     * Snapshot ids referenced by the block device mappings of any registered AMI in the region.
+     *
+     * <p>{@code DeleteSnapshot} on one of these fails with {@code InvalidSnapshot.InUse}, so a
+     * recommendation to delete it can never be carried out. Returns an empty set on failure,
+     * which keeps the caller's previous behaviour rather than hiding every snapshot.
+     */
+    private java.util.Set<String> snapshotIdsBackingImages(Ec2Client ec2, String regionId) {
+        try {
+            java.util.Set<String> ids = new java.util.HashSet<>();
+            ec2.describeImages(DescribeImagesRequest.builder().owners("self").build())
+                    .images()
+                    .forEach(image -> image.blockDeviceMappings().stream()
+                            .filter(bdm -> bdm.ebs() != null && bdm.ebs().snapshotId() != null)
+                            .forEach(bdm -> ids.add(bdm.ebs().snapshotId())));
+            return ids;
+        } catch (Exception e) {
+            logger.warn("[Waste] Could not determine AMI-backed snapshots in {}: {}. Snapshots "
+                    + "backing an AMI may be reported as deletable.", regionId, e.getMessage());
+            return java.util.Set.of();
+        }
     }
 
     /**
@@ -1653,18 +1825,6 @@ public class OptimizationService {
         }, "Idle SQS Queues");
     }
 
-    private GetMetricDataRequest buildMetricDataRequest(String resourceId, String metricName, String namespace,
-            String dimensionName) {
-        Metric metric = Metric.builder().namespace(namespace).metricName(metricName)
-                .dimensions(Dimension.builder().name(dimensionName).value(resourceId).build()).build();
-        MetricStat metricStat = MetricStat.builder().metric(metric).period(300).stat("Average").build();
-        MetricDataQuery metricDataQuery = MetricDataQuery.builder()
-                .id(metricName.toLowerCase().replace(" ", "").replace("/", "")).metricStat(metricStat).returnData(true)
-                .build();
-        return GetMetricDataRequest.builder().startTime(Instant.now().minus(1, ChronoUnit.DAYS)).endTime(Instant.now())
-                .metricDataQueries(metricDataQuery).scanBy(ScanBy.TIMESTAMP_DESCENDING).build();
-    }
-
     // EC2 instances that are technically running but oversized — CPU between 3%
     // and 10% avg over 90 days on an instance type of xlarge or larger, where
     // idle capacity carries real cost. The >3% floor excludes truly idle
@@ -1713,10 +1873,20 @@ public class OptimizationService {
                 if (!values.isEmpty() && values.stream().allMatch(v -> v < 10.0) && avgCpu > 3.0) {
                     var inst = instances.get(i);
                     String name = getTagName(inst.tags(), inst.instanceId());
-                    double cost = pricingService.getEc2InstanceMonthlyPrice(inst.instanceTypeAsString(), regionId);
-                    findings.add(new DashboardData.WastedResource(inst.instanceId(), name,
-                            "EC2 Instance", regionId, cost,
-                            "Oversized: CPU 3-10% avg over 90 days (" + inst.instanceTypeAsString() + ")"));
+                    double fullCost = pricingService.getEc2InstanceMonthlyPrice(
+                            inst.instanceTypeAsString(), regionId);
+                    // The action here is a downsize, not a deletion, so the saving is the
+                    // difference between the current and target instance price — not the whole
+                    // bill. This detector does not choose a target size, so the figure is reported
+                    // as unpriced and the quantified recommendation is left to the rightsizing
+                    // service, which does. Booking the full price would have overstated it by
+                    // roughly the cost of the smaller instance.
+                    findings.add(DashboardData.WastedResource.withUnknownSavings(
+                            inst.instanceId(), name, "EC2 Instance", regionId,
+                            String.format("Oversized: CPU averaged %.1f%% and never exceeded 10%% over "
+                                    + "90 days (%s). Full compute cost is about $%.2f/month; the saving "
+                                    + "depends on the target size.",
+                                    avgCpu, inst.instanceTypeAsString(), fullCost)));
                 }
             }
             return findings;
@@ -1948,14 +2118,50 @@ public class OptimizationService {
 
     // CloudWatch Log Groups with no retention policy — logs accumulate forever at
     // $0.03/GB/month.
+    /**
+     * Whether a log group has received an event since {@code sinceMillis}.
+     *
+     * <p>Used so the no-retention detector does not also report groups that
+     * {@code findUnusedCloudWatchLogGroups} already covers. Returns true on failure, which keeps
+     * the group in this detector rather than dropping it from both.
+     */
+    private boolean hasRecentLogEvents(CloudWatchLogsClient logs, String logGroupName, long sinceMillis) {
+        try {
+            DescribeLogStreamsResponse response = logs.describeLogStreams(req -> req
+                    .logGroupName(logGroupName).orderBy("LastEventTime").descending(true).limit(1));
+            if (response.logStreams().isEmpty()) {
+                return false;
+            }
+            Long lastEvent = response.logStreams().get(0).lastEventTimestamp();
+            return lastEvent == null || lastEvent >= sinceMillis;
+        } catch (Exception e) {
+            logger.debug("[Waste] Could not read log streams for {}: {}", logGroupName, e.getMessage());
+            return true;
+        }
+    }
+
     private CompletableFuture<List<DashboardData.WastedResource>> findLogGroupsWithNoRetentionPolicy(
             CloudAccount account, List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             CloudWatchLogsClient logs = awsClientProvider.getCloudWatchLogsClient(account, regionId);
+            long sixtyDaysAgoMillis = Instant.now().minus(60, ChronoUnit.DAYS).toEpochMilli();
+            // Resolved once per region; the price call is cached but an account can have
+            // thousands of log groups.
+            final double logsGbMonthPrice = logsStorageGbMonthPrice(regionId);
+
             return logs.describeLogGroups().logGroups().stream()
                     .filter(lg -> lg.retentionInDays() == null && lg.storedBytes() != null && lg.storedBytes() > 0)
+                    // findUnusedCloudWatchLogGroups already reports groups with no recent events,
+                    // and priced the same stored gigabytes at a different rate. Reporting a group
+                    // in both places double-counted its cost and showed the customer two
+                    // contradictory figures for one resource. This detector is about the absence
+                    // of a retention policy, so it defers on anything already flagged as stale.
+                    .filter(lg -> lg.creationTime() == null || lg.creationTime() >= sixtyDaysAgoMillis
+                            || hasRecentLogEvents(logs, lg.logGroupName(), sixtyDaysAgoMillis))
                     .map(lg -> {
-                        double monthlyCost = (lg.storedBytes() / 1_073_741_824.0) * 0.03;
+                        // Was hardcoded at $0.03/GB while the sibling detector used the live
+                        // regional rate, so the two disagreed outside us-east-1.
+                        double monthlyCost = (lg.storedBytes() / 1_073_741_824.0) * logsGbMonthPrice;
                         return new DashboardData.WastedResource(lg.logGroupName(), lg.logGroupName(),
                                 "CloudWatch Log Group", regionId, monthlyCost,
                                 "No retention policy — logs accumulate indefinitely");

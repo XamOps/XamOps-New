@@ -6,6 +6,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -78,5 +79,43 @@ class AzureRetailPricingServiceTest {
     @DisplayName("uses a 730-hour month, matching how Azure bills")
     void usesCorrectHoursPerMonth() {
         assertEquals(730.0, AzureRetailPricingService.HOURS_PER_MONTH, 1e-9);
+    }
+
+    @Test
+    @DisplayName("shrinking within one tier lands on the same billing SKU")
+    void shrinkingWithinATierDoesNotChangeTheSku() {
+        // The rightsizing service reports savings as the difference between two tier prices.
+        // Both of these are P20, so that difference is zero and no recommendation is emitted.
+        // Before the tier model was introduced, the same 512 -> 400 GiB change was priced per
+        // GB and advertised a saving for a change that cannot alter the invoice.
+        assertEquals(service.managedDiskTier("Premium_LRS", 512),
+                service.managedDiskTier("Premium_LRS", 400));
+        assertEquals("P20 LRS", service.managedDiskTier("Premium_LRS", 400));
+
+        // Same at the bottom of the range, where the tiers are widest in relative terms.
+        assertEquals(service.managedDiskTier("Premium_LRS", 128),
+                service.managedDiskTier("Premium_LRS", 65));
+    }
+
+    @Test
+    @DisplayName("crossing a tier boundary changes the billing SKU")
+    void crossingATierBoundaryChangesTheSku() {
+        // Only a shrink that crosses a boundary can reduce the bill: 512 -> 256 moves P20 -> P15.
+        assertEquals("P20 LRS", service.managedDiskTier("Premium_LRS", 512));
+        assertEquals("P15 LRS", service.managedDiskTier("Premium_LRS", 256));
+        assertNotEquals(service.managedDiskTier("Premium_LRS", 512),
+                service.managedDiskTier("Premium_LRS", 256));
+    }
+
+    @Test
+    @DisplayName("a size one GB above a boundary is billed at the next tier up")
+    void oneGbOverABoundaryPaysForTheNextTier() {
+        // The case where a shrink genuinely saves money, and why the detector is worth keeping:
+        // 257 GB provisioned is billed as 512 GB (P20), so giving up 1 GB drops a whole tier.
+        assertEquals("P20 LRS", service.managedDiskTier("Premium_LRS", 257));
+        assertEquals("P15 LRS", service.managedDiskTier("Premium_LRS", 256));
+
+        assertEquals("P15 LRS", service.managedDiskTier("Premium_LRS", 129));
+        assertEquals("P10 LRS", service.managedDiskTier("Premium_LRS", 128));
     }
 }

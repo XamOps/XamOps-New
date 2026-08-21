@@ -24,6 +24,7 @@ import software.amazon.awssdk.services.iam.model.NoSuchEntityException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
 import software.amazon.awssdk.services.cloudwatch.model.DimensionFilter;
@@ -116,24 +117,31 @@ public class EbsDiskRightsizingService {
             }
         }
 
-        List<Map<String, Object>> allVolumes = new ArrayList<>();
         List<String> regions = getEnabledRegions(account);
         logger.info("[EBS] Scanning {} regions for account {}: {}", regions.size(), accountId, regions);
 
-        int errorCount = 0;
-        for (String region : regions) {
-            try {
-                List<Map<String, Object>> regionVolumes = describeVolumesInRegion(account, region);
-                logger.info("[EBS] Region {} → {} volumes", region, regionVolumes.size());
-                allVolumes.addAll(regionVolumes);
-            } catch (Exception e) {
-                errorCount++;
-                logger.error("[EBS] Failed to describe volumes in region {} for account {}: {}", region, accountId, e.getMessage());
-            }
-        }
+        List<CompletableFuture<List<Map<String, Object>>>> futures = regions.stream()
+                .map(region -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        List<Map<String, Object>> regionVolumes = describeVolumesInRegion(account, region);
+                        logger.info("[EBS] Region {} → {} volumes", region, regionVolumes.size());
+                        return regionVolumes;
+                    } catch (Exception e) {
+                        logger.error("[EBS] Failed to describe volumes in region {} for account {}: {}", region, accountId, e.getMessage());
+                        return Collections.<Map<String, Object>>emptyList();
+                    }
+                }))
+                .collect(Collectors.toList());
 
-        logger.info("[EBS] Total: {} volumes across {} regions ({} region errors) for account {}",
-                allVolumes.size(), regions.size(), errorCount, accountId);
+        List<Map<String, Object>> allVolumes = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .thenApply(v -> futures.stream()
+                        .map(CompletableFuture::join)
+                        .flatMap(List::stream)
+                        .collect(Collectors.toList()))
+                .join();
+
+        logger.info("[EBS] Total: {} volumes across {} regions for account {}",
+                allVolumes.size(), regions.size(), accountId);
         redisCacheService.put(cacheKey, allVolumes, CACHE_TTL_MINUTES);
         return allVolumes;
     }
@@ -1120,14 +1128,41 @@ public class EbsDiskRightsizingService {
 
             // Underutilized → SHRINK (root volumes included — migrate to smaller replacement volume)
             if (usedPct < 25 && sizeGb >= 20 && "NONE".equals(currentRec)) {
-                double usedGb       = sizeGb * usedPct / 100.0;
+                // Sized against the highest utilization observed, not the latest reading. This
+                // recommendation is directly executable — the workflow snapshots, stops the
+                // instance and swaps the volume — so sizing it to one lucky sample means the
+                // filesystem fills up after a change the customer cannot trivially undo.
+                Object peakRaw = vol.get("peakUsedPercent");
+                Object samplesRaw = vol.get("observationCount");
+                if (!(peakRaw instanceof Number peak) || !(samplesRaw instanceof Number samples)
+                        || samples.longValue() < DiskAgentPeaks.MIN_OBSERVATIONS_FOR_SHRINK) {
+                    vol.put("recommendationReason", String.format(
+                            "Currently %.0f%% used, but only %s of history is available. A shrink needs "
+                                    + "at least %d agent observations so it can be sized against peak "
+                                    + "usage rather than one instantaneous reading.",
+                            usedPct,
+                            samplesRaw instanceof Number n ? n.longValue() + " observation(s)" : "none",
+                            DiskAgentPeaks.MIN_OBSERVATIONS_FOR_SHRINK));
+                    continue;
+                }
+
+                double peakPct = peak.doubleValue();
+                if (peakPct >= 25) {
+                    vol.put("recommendationReason", String.format(
+                            "Currently %.0f%% used but peaked at %.0f%% across %d observations — not "
+                                    + "over-provisioned for its busiest moment.",
+                            usedPct, peakPct, samples.longValue()));
+                    continue;
+                }
+
+                double usedGb       = sizeGb * peakPct / 100.0;
                 int    targetSizeGb = Math.max(10, (int) Math.ceil(usedGb / 0.40));
                 if (targetSizeGb < (int)(sizeGb * 0.70)) {
                     double savings = calcMonthlyCost(volumeType, sizeGb, volRegion)
                             - calcMonthlyCost(volumeType, targetSizeGb, volRegion);
                     String reason = isRoot
-                        ? String.format("Root volume is only %.0f%% used — migrate to new %dGB volume to save $%.2f/mo (requires instance stop)", usedPct, targetSizeGb, savings)
-                        : String.format("Volume is only %.0f%% used — shrink from %dGB to %dGB to save $%.2f/mo", usedPct, sizeGb, targetSizeGb, savings);
+                        ? String.format("Root volume peaked at %.0f%% across %d observations — migrate to new %dGB volume to save $%.2f/mo (requires instance stop)", peakPct, samples.longValue(), targetSizeGb, savings)
+                        : String.format("Volume peaked at %.0f%% across %d observations — shrink from %dGB to %dGB to save $%.2f/mo", peakPct, samples.longValue(), sizeGb, targetSizeGb, savings);
                     vol.put("recommendation",      "SHRINK");
                     vol.put("recommendationReason", reason);
                     vol.put("recommendedSizeGb", targetSizeGb);
@@ -1236,6 +1271,22 @@ public class EbsDiskRightsizingService {
                     vol.put("freeGb",  Math.round(sizeGb * (1 - up / 100.0) * 100.0) / 100.0);
                     noAgentData.remove(instanceId);
                     logger.info("[disk-agent-debug] matched vol={} instance={} usedPct={}", vol.get("volumeId"), instanceId, up);
+
+                    // A single instantaneous reading cannot support a shrink — see DiskAgentPeaks.
+                    Map<String, Object> peaks = redisCacheService.get(
+                            DiskAgentPeaks.keyFor("ebs-disk-agent:", awsAccountId, instanceId),
+                            new TypeReference<Map<String, Object>>() {}).orElse(Map.of());
+                    Object peakRaw = peaks.get((String) bestMount.get("device"));
+                    Object samplesRaw = peaks.get(DiskAgentPeaks.SAMPLE_COUNT_FIELD);
+                    if (peakRaw instanceof Number peak && samplesRaw instanceof Number samples) {
+                        vol.put("peakUsedPercent",
+                                Math.round(Math.max(peak.doubleValue(), up) * 10.0) / 10.0);
+                        vol.put("observationCount", samples.longValue());
+                        Object since = peaks.get(DiskAgentPeaks.WINDOW_START_FIELD);
+                        if (since instanceof Number sinceMillis) {
+                            vol.put("observationWindowStart", sinceMillis.longValue());
+                        }
+                    }
                 }
             }
         }
