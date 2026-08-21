@@ -663,7 +663,10 @@ repair_legacy() {
     release="${pair%%:*}"; ns="${pair##*:}"
     kubectl get ns "$ns" >/dev/null 2>&1 || continue
     status="$(helm status "$release" -n "$ns" -o json 2>/dev/null | jq -r '.info.status' 2>/dev/null)"
-    [ -n "$status" ] && [ "$status" != "null" ] || continue
+    # jq prints the string "null" for a missing field, so both cases mean "no release here".
+    if [ -z "$status" ] || [ "$status" = "null" ]; then
+      continue
+    fi
     case "$status" in
       pending-install|pending-upgrade|pending-rollback)
         found=true
@@ -834,7 +837,11 @@ pick_falco_driver() {
   while IFS= read -r k; do
     [ -n "$k" ] || continue
     major="$(echo "$k" | cut -d. -f1)"; minor="$(echo "$k" | cut -d. -f2 | tr -cd '0-9')"
-    [ -n "$major" ] && [ -n "$minor" ] || continue
+    # An unparseable kernel string must not be compared numerically below — the arithmetic
+    # test would abort the script under `set -e`.
+    if [ -z "$major" ] || [ -z "$minor" ]; then
+      continue
+    fi
     if [ "$major" -lt "$min_major" ] || { [ "$major" -eq "$min_major" ] && [ "$minor" -lt "$min_minor" ]; }; then
       min_major="$major"; min_minor="$minor"
     fi
@@ -1416,8 +1423,10 @@ main() {
       local st
       st="$(aws eks describe-cluster --region "$REGION" --name "$CLUSTER_NAME" \
             --query 'cluster.status' --output text 2>/dev/null)"
-      [ -n "$st" ] && [ "$st" != "None" ] \
-        || die "No EKS cluster named '$CLUSTER_NAME' in region $REGION"
+      # `aws --output text` prints "None" for an absent value rather than failing.
+      if [ -z "$st" ] || [ "$st" = "None" ]; then
+        die "No EKS cluster named '$CLUSTER_NAME' in region $REGION"
+      fi
       [ "$st" = "ACTIVE" ] || die "Cluster '$CLUSTER_NAME' is not ACTIVE (status=$st)"
       targets+=("$CLUSTER_NAME|")
 
