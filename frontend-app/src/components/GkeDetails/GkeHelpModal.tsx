@@ -10,6 +10,16 @@ import React, { useState, useEffect } from 'react';
 import { DialogRoot, DialogPanel } from '../ui';
 import { useAgentInstallConfig } from '../../hooks/useAgentInstallConfig';
 
+/**
+ * Agent image tag this guide tells users to deploy.
+ *
+ * Keep in step with AGENT_IMAGE in resources/agent-install/install-k8s.sh; CI asserts they
+ * match. This guide had drifted to v2.0.0 while the installer and the AKS/EKS guides had moved
+ * to v2.1.0, so a customer following the GKE guide deployed an older agent than one running the
+ * installer against the same cluster.
+ */
+export const AGENT_IMAGE_TAG = 'v2.1.0';
+
 interface GkeHelpModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -442,7 +452,7 @@ helm repo update
 
 helm upgrade --install metrics-server metrics-server/metrics-server \\
   --namespace kube-system \\
-  --set args[0]="--kubelet-insecure-tls"`} />
+  --set 'args[0]=--kubelet-insecure-tls'`} />
       <p className="text-xs text-gray-500 mt-1">
         Or via manifest: <code>kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml</code>
       </p>
@@ -461,20 +471,19 @@ helm upgrade --install falco falcosecurity/falco \\
   --namespace falco \\
   --set driver.kind=modern_ebpf \\
   --set falco.json_output=true \\
-  --set falco.grpc.enabled=false \\
-  --set falco.grpc_output.enabled=false \\
   --set falcosidekick.enabled=true \\
   --set falcosidekick.webui.enabled=false \\
   --set falcosidekick.config.prometheus.enabled=true \\
   --set falcosidekick.service.port=2801 \\
-  --set tolerations[0].operator=Exists`} />
+  --set 'tolerations[0].operator=Exists'`} />
 
       <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 mt-2">
         <i className="fas fa-info-circle mr-2"></i>
         <strong>Driver compatibility on GKE:</strong>
         <ul className="list-disc list-inside mt-1 space-y-1">
           <li><strong>GKE Standard (Container-Optimized OS, kernel 5.10+):</strong> <code>--set driver.kind=modern_ebpf</code> — recommended</li>
-          <li><strong>GKE Standard (Ubuntu node image):</strong> <code>--set driver.kind=ebpf</code></li>
+          <li><strong>GKE Standard (Ubuntu node image, kernel 5.8+):</strong> <code>modern_ebpf</code> as well. <strong>Do not use <code>driver.kind=ebpf</code></strong> — Falco 0.44 removed the legacy eBPF probe and the chart rejects that value at render time, so the install fails before anything is applied.</li>
+          <li><strong>Kernels older than 5.8:</strong> <code>modern_ebpf</code> is unavailable; fall back to <code>--set driver.kind=module</code> (requires kernel headers on nodes).</li>
           <li><strong>GKE Autopilot:</strong> Falco is not supported on Autopilot clusters (no privileged DaemonSets allowed)</li>
         </ul>
       </div>
@@ -658,11 +667,19 @@ helm repo update
 helm upgrade --install trivy-operator aquasecurity/trivy-operator \\
   --namespace trivy-system --create-namespace \\
   --set trivy.ignoreUnfixed=false \\
-  --set trivy.severity=UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \\
+  --set 'trivy.severity=UNKNOWN\\,LOW\\,MEDIUM\\,HIGH\\,CRITICAL' \\
   --set operator.scanJobTimeout=10m \\
   --set operator.vulnerabilityScanner.enabled=true \\
   --set operator.configAuditScannerEnabled=true \\
   --set operator.rbacAssessmentScannerEnabled=true`} />
+
+      <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 mt-3">
+        <i className="fas fa-exclamation-triangle mr-2"></i>
+        <strong>Note the quoting on <code>trivy.severity</code>.</strong> Helm reads an unescaped comma as a
+        separator between <code>key=value</code> pairs, so plain commas parse as one key plus four malformed
+        ones and the install errors out. The commas must be escaped as <code>\,</code> and the whole argument
+        quoted.
+      </div>
 
       <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800 mt-3">
         <i className="fas fa-info-circle mr-2"></i>
@@ -900,7 +917,7 @@ spec:
       serviceAccountName: xamops-agent-sa
       containers:
         - name: xamops-agent
-          image: docker.io/xamops/agent:v2.0.0
+          image: docker.io/xamops/agent:${AGENT_IMAGE_TAG}
           imagePullPolicy: Always
           resources:
             requests:
