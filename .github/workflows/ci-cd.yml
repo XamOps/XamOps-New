@@ -296,6 +296,31 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Reject duplicate Flyway migration versions
+        run: |
+          # Two migrations sharing a version makes Flyway throw at validate time, before it
+          # applies anything -- so the application does not start at all. That is a total
+          # outage, not a partial one, and it is only discovered on deploy because nothing
+          # here checked for it. This has already happened twice: once fixed by hand in
+          # "fix(migration): resolve duplicate", and again when three separate versions
+          # collided at once and UAT would not boot.
+          #
+          # Cheap to catch: the version is everything between the leading V and the '__'.
+          DIR=xamops-service/src/main/resources/db/migration
+          DUPES=$(ls "$DIR" | sed -nE 's/^V([0-9_.]+)__.*\.sql$/\1/p' | sort | uniq -d)
+          if [ -n "$DUPES" ]; then
+            echo "::error::Duplicate Flyway migration versions found. Flyway refuses to start with these."
+            for v in $DUPES; do
+              echo "  version $v is claimed by:"
+              ls "$DIR" | grep -E "^V${v}__" | sed 's/^/    /'
+            done
+            echo ""
+            echo "Renumber whichever file has NOT been applied to a live database yet."
+            echo "Renaming an already-applied migration makes Flyway see it as missing."
+            exit 1
+          fi
+          echo "ok  no duplicate migration versions"
+
       - name: Run tests
         run: mvn test -B --no-transfer-progress -pl xamops-service -am
 
