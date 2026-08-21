@@ -8,12 +8,15 @@ import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.domain.SreInvestigation;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestResponse;
+import com.xammer.cloud.dto.agent.AgentPrincipal;
 import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.ExplainRequestRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.service.AgentApiKeyService;
 import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.DiskAgentPeaks;
@@ -26,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
@@ -80,6 +84,7 @@ public class AgentController {
     private final SreInvestigationService sreInvestigationService;
     private final OpenObserveService openObserveService;
     private final ExplainRequestRepository explainRequestRepository;
+    private final AgentApiKeyService agentApiKeyService;
 
     public AgentController(
             AgentIngestService agentIngestService,
@@ -91,7 +96,9 @@ public class AgentController {
             CloudAccountRepository cloudAccountRepository,
             SreInvestigationService sreInvestigationService,
             OpenObserveService openObserveService,
-            ExplainRequestRepository explainRequestRepository) {
+            ExplainRequestRepository explainRequestRepository,
+            AgentApiKeyService agentApiKeyService) {
+        this.agentApiKeyService = agentApiKeyService;
         this.agentIngestService = agentIngestService;
         this.dbAgentService = dbAgentService;
         this.clusterConfigRepository = clusterConfigRepository;
@@ -142,7 +149,9 @@ public class AgentController {
             @RequestBody AgentIngestPayload payload,
             HttpServletRequest request) {
 
-        // 1. Validate global API key
+        String clientIp = getClientIp(request);
+
+        // 1. Authenticate, resolving which account/cluster this key actually belongs to.
         String apiKey = extractApiKey(authHeader);
         if (apiKey == null) {
             logger.warn("Agent ingest request missing authorization header");
@@ -150,8 +159,8 @@ public class AgentController {
                     .body(AgentIngestResponse.error("Missing authorization header"));
         }
 
-        if (!agentIngestService.validateApiKey(apiKey)) {
-            logger.warn("Agent ingest request with invalid API key");
+        AgentPrincipal principal = agentIngestService.authenticate(apiKey, clientIp);
+        if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(AgentIngestResponse.error("Invalid API key"));
         }
@@ -169,7 +178,14 @@ public class AgentController {
                     .body(AgentIngestResponse.error("cloudAccountId is required in payload"));
         }
 
-        String clientIp = getClientIp(request);
+        // 2b. The payload states which cluster and account it is for, and every handler below
+        // trusts that. Confirm the key is entitled to it — without this, any key holder can
+        // write into another tenant's data, and the shared key is published in the installers.
+        String denied = agentIngestService.checkOwnership(
+                principal, payload.getCloudAccountId(), payload.getClusterName());
+        if (denied != null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(AgentIngestResponse.error(denied));
+        }
 
         // 3a. Handle disk-usage batches — store in Redis keyed by instanceId, no cluster config needed
         boolean isDiskPush = payload.getBatches() != null && payload.getBatches().stream()
@@ -295,14 +311,17 @@ public class AgentController {
             @RequestBody(required = false) Map<String, Object> body,
             HttpServletRequest request) {
 
-        // 1. Validate global API key
+        String clientIp = getClientIp(request);
+
+        // 1. Authenticate
         String apiKey = extractApiKey(authHeader);
         if (apiKey == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Missing authorization header"));
         }
 
-        if (!agentIngestService.validateApiKey(apiKey)) {
+        AgentPrincipal principal = agentIngestService.authenticate(apiKey, clientIp);
+        if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid API key"));
         }
@@ -321,8 +340,13 @@ public class AgentController {
                     .body(Map.of("error", "clusterName and cloudAccountId are required"));
         }
 
+        // A heartbeat updates another agent's status record, so the same ownership check applies.
+        String denied = agentIngestService.checkOwnership(principal, cloudAccountId, clusterName);
+        if (denied != null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", denied));
+        }
+
         String agentVersion = (String) body.get("agentVersion");
-        String clientIp = getClientIp(request);
 
         // 3. Check DB agent registry first
         java.util.Optional<DbAgentConfig> dbAgent = dbAgentService.findDbAgent(cloudAccountId, clusterName);
@@ -435,14 +459,46 @@ public class AgentController {
     }
 
     /**
-     * GET /api/v1/agent/install-info
-     * Returns pre-filled values needed to generate the agent install command in the UI.
-     * Called by the frontend "Agent Stats" tab to build the one-liner.
+     * GET /api/v1/agent/install-info?accountId=xxx
+     *
+     * Values the console needs to render an install command. Called by the logged-in frontend,
+     * so it requires a session and mints the caller's own account-scoped key.
+     *
+     * It previously performed no authentication at all and returned the shared global key to any
+     * caller — and it sits under the {@code /api/v1/agent/**} permitAll block, so that was an
+     * open endpoint handing out the credential every agent authenticates with.
      */
     @GetMapping("/install-info")
-    public ResponseEntity<Map<String, String>> getInstallInfo() {
+    public ResponseEntity<Map<String, String>> getInstallInfo(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestParam(value = "accountId", required = false) String accountId) {
+
+        if (userDetails == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Sign in to view agent install details"));
+        }
+
+        // No account given: the caller wants a command they can fill in themselves. Return the
+        // scoped key only when we know which account it is for — a key is meaningless, and
+        // dangerous, without that binding.
+        if (accountId == null || accountId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "accountId is required so the install command can be issued a "
+                            + "key scoped to that account"));
+        }
+
+        CloudAccount account = cloudAccountRepository.findByProviderAccountId(accountId).orElse(null);
+        if (account == null || account.getClient() == null
+                || !account.getClient().getId().equals(userDetails.getClientId())) {
+            // Same response whether the account is absent or belongs to someone else, so this
+            // cannot be used to discover which account ids exist.
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Cloud account not found"));
+        }
+
         return ResponseEntity.ok(Map.of(
-                "apiKey", agentIngestService.getGlobalApiKey()
+                "apiKey", agentApiKeyService.getOrCreate(account.getId()),
+                "accountId", accountId
         ));
     }
 
@@ -454,13 +510,41 @@ public class AgentController {
     @GetMapping("/config")
     public ResponseEntity<Map<String, Object>> getAgentConfig(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestParam(value = "accountId", required = false) String accountId) {
+            @RequestParam(value = "accountId", required = false) String accountId,
+            HttpServletRequest request) {
         String apiKey = extractApiKey(authHeader);
-        if (apiKey == null || !apiKey.equals(agentIngestService.getGlobalApiKey())) {
+        AgentPrincipal principal = apiKey == null
+                ? null
+                : agentIngestService.authenticate(apiKey, getClientIp(request));
+        if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
+
+        // `accountId` selects whose observability credential is returned, and the only previous
+        // guard was the shared key — which is published in the install scripts and the frontend
+        // bundle. Anyone could therefore enumerate account ids and collect every tenant's
+        // ingestion credential. A scoped key may now only ask about its own account.
+        String denied = agentIngestService.checkOwnership(principal, accountId, null);
+        if (denied != null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", denied));
+        }
+
+        // A scoped key knows its own account, so it never needs to be asked for one.
+        String effectiveAccountId = principal.isScoped() ? principal.getProviderAccountId() : accountId;
+
         Map<String, Object> response = new HashMap<>();
-        response.put("openobserve", openObserveService.getAgentConfig(accountId));
+        try {
+            response.put("openobserve", openObserveService.getAgentConfig(effectiveAccountId));
+        } catch (IllegalStateException e) {
+            // No org-scoped ingestion credential for this account. Answering 409 leaves the
+            // agent's OpenObserve settings unset, which disables log shipping — the correct
+            // outcome. This used to answer with the OpenObserve root credential instead, which
+            // gave every agent host read/write access to every tenant's telemetry.
+            logger.warn("Refusing to issue agent OpenObserve config for account {}: {}",
+                    effectiveAccountId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", e.getMessage()));
+        }
         return ResponseEntity.ok(response);
     }
 
@@ -483,6 +567,11 @@ public class AgentController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid or missing API key"));
         }
+
+        // NOTE: commands are addressed by agentName, which is not an account or cluster, so
+        // there is nothing here to bind a scoped key against. Tightening this needs agentName
+        // resolved back to its owning account first — tracked separately rather than left as a
+        // check that looks like enforcement but is not.
 
         // The deployed agent sends its name in the X-Agent-Name header, never as a query
         // parameter. Declaring the parameter required meant every poll from every agent
@@ -653,9 +742,19 @@ public class AgentController {
 
         // Validate API key
         String apiKey = extractApiKey(authHeader);
-        if (apiKey == null || !agentIngestService.validateApiKey(apiKey)) {
+        AgentPrincipal principal = apiKey == null ? null : agentIngestService.authenticate(apiKey, null);
+        if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid or missing API key"));
+        }
+
+        // cloudAccountId here is a Long that may have lost leading zeros; canAct normalises for
+        // that. The autoscaling policy describes what the automation agent is allowed to change
+        // in a cluster, so reading another tenant's is a disclosure worth refusing.
+        String ownershipDenied = agentIngestService.checkOwnership(
+                principal, String.valueOf(cloudAccountId), clusterName);
+        if (ownershipDenied != null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", ownershipDenied));
         }
 
         // Find cluster config — three-tier lookup to handle all deployment patterns:

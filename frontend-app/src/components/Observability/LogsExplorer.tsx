@@ -10,6 +10,7 @@ import {
 } from '../../hooks/useObservabilityData';
 import { Icon } from '@iconify/react';
 import SreInvestigateButton from '../SreInvestigateButton';
+import ErrorNotice from './ErrorNotice';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -493,10 +494,12 @@ interface LogsExplorerProps {
   streams: LogStream[];
   /** True once the stream list has resolved, so `streams: []` means "none" rather than "not loaded yet". */
   streamsReady?: boolean;
+  /** Why the stream list could not be loaded, if it failed. */
+  streamsError?: string | null;
 }
 
-const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams, streamsReady = true }) => {
-  const { logs, logTotal, histogram, logsLoading, searchLogs, fetchLogHosts, fetchHistogram } = useObservabilityData();
+const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams, streamsReady = true, streamsError = null }) => {
+  const { logs, logTotal, histogram, logsLoading, logsError, searchLogs, fetchLogHosts, fetchHistogram } = useObservabilityData();
 
   // Hosts sending logs to the selected stream — populates the Host/Source dropdown.
   const [hostOptions, setHostOptions] = useState<string[]>([]);
@@ -841,6 +844,13 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams, streamsReady = tru
 
   return (
     <div className="obs-wrap space-y-4">
+
+      {/* The stream list failing means the Stream dropdown is empty for reasons that have
+          nothing to do with what the account is shipping. Said plainly rather than left to
+          look like "this account has no logs". */}
+      {streamsError && (
+        <ErrorNotice title="Could not load your log streams" message={streamsError} />
+      )}
 
       {/* Interactive summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -1269,6 +1279,23 @@ const LogsExplorer: React.FC<LogsExplorerProps> = ({ streams, streamsReady = tru
         {logsLoading ? (
           <div className="flex items-center justify-center py-16">
             <div className="obs-spinner" />
+          </div>
+        ) : logsError ? (
+          // A rejected query and a stream with nothing in it are different answers. This
+          // branch exists because both used to render "No logs found", which made the SQL
+          // editor impossible to debug and a backend outage look like an idle system.
+          <div className="p-4">
+            <ErrorNotice
+              title={mode === 'query' ? 'Query failed' : 'Log search failed'}
+              message={logsError}
+              onRetry={() => { void doSearch(false); }}
+            />
+            {mode === 'query' && (
+              <p className="text-[12px] text-[#64748b] mt-3">
+                Queries are read-only and must be a single SELECT statement. Check the stream name
+                in your FROM clause matches one in the Stream dropdown.
+              </p>
+            )}
           </div>
         ) : logs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2 text-[#94a3b8]">

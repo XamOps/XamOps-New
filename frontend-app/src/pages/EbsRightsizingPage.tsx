@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useEbsRightsizingData, EbsVolume, RoiResult, PendingDeletionVolume } from '../hooks/useEbsRightsizingData';
+import { useAgentInstallConfig } from '../hooks/useAgentInstallConfig';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { EbsVolumeMonitoringDrawer } from '../components/EbsRightsizing/EbsVolumeMonitoringDrawer';
 import { useTabState } from '../hooks/useTabState';
@@ -1126,7 +1127,12 @@ const SsmSetupGuide: React.FC<{ count: number; awsAccountId: string | null }> = 
   const accountArg = awsAccountId ?? '<aws-account-id>';
   const isNgrok = serverUrl.includes('ngrok');
   const curlHeaders = isNgrok ? ' -H "ngrok-skip-browser-warning: true"' : '';
-  const AGENT_CMD = `curl -fsSL${curlHeaders} ${serverUrl}/agentinstall/agent_install.sh | sudo bash -s -- -b ${serverUrl} -t ${accountArg}`;
+  // The account-scoped agent key is fetched and embedded here so the customer copies one
+  // command and never has to look a key up. Without -k the installer falls back to the shared
+  // legacy key, which cannot prove which account the agent belongs to.
+  const { config: agentConfig } = useAgentInstallConfig(expanded);
+  const keyArg = agentConfig.apiKey ? ` -k ${agentConfig.apiKey}` : '';
+  const AGENT_CMD = `curl -fsSL${curlHeaders} ${serverUrl}/agentinstall/agent_install.sh | sudo bash -s -- -b ${serverUrl} -t ${accountArg}${keyArg}`;
   const copy = () => { navigator.clipboard.writeText(AGENT_CMD).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };
 
   return (

@@ -1,10 +1,16 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.AgentApiKeyService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
@@ -36,8 +42,23 @@ public class AgentInstallConfigController {
     @Value("${xamops.agent.api-key:xamops_DEFAULT_KEY_CHANGE_IN_PRODUCTION}")
     private String agentApiKey;
 
+    private final AgentApiKeyService agentApiKeyService;
+    private final CloudAccountRepository cloudAccountRepository;
+
+    public AgentInstallConfigController(AgentApiKeyService agentApiKeyService,
+                                        CloudAccountRepository cloudAccountRepository) {
+        this.agentApiKeyService = agentApiKeyService;
+        this.cloudAccountRepository = cloudAccountRepository;
+    }
+
     /**
-     * GET /api/xamops/agent-install/config
+     * GET /api/xamops/agent-install/config[?accountId=111122223333]
+     *
+     * <p>Returns the key the guides paste into their install commands. With an {@code accountId}
+     * that belongs to the caller, that is an account-scoped key, minted on first request — so the
+     * customer never sees or types a key, they copy a command that already contains the right
+     * one. Without a resolvable account the shared legacy key is returned, because a guide with
+     * no key at all is useless; {@code keyScope} tells the caller which it got.
      *
      * <p>{@code reachableFromCluster} is false when the configured URL is a loopback or
      * private address. An agent running inside a managed Kubernetes cluster cannot reach
@@ -45,10 +66,37 @@ public class AgentInstallConfigController {
      * a tunnel rather than silently handing them a manifest that can never connect.
      */
     @GetMapping("/config")
-    public ResponseEntity<Map<String, Object>> getConfig() {
+    public ResponseEntity<Map<String, Object>> getConfig(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestParam(required = false) String accountId) {
+
+        String key = agentApiKey;
+        String keyScope = "legacy-global";
+
+        if (userDetails != null && accountId != null && !accountId.isBlank()) {
+            CloudAccount account = cloudAccountRepository.findByProviderAccountId(accountId).orElse(null);
+            // Ownership is checked here as well as in AgentKeyController: this endpoint hands out
+            // a credential, so it must not become a way to read another tenant's key by passing
+            // their account id.
+            if (account != null && account.getClient() != null
+                    && account.getClient().getId().equals(userDetails.getClientId())) {
+                try {
+                    key = agentApiKeyService.getOrCreate(account.getId());
+                    keyScope = "account";
+                } catch (RuntimeException e) {
+                    log.warn("Could not issue a scoped agent key for account {}; falling back to "
+                            + "the shared key: {}", accountId, e.getMessage());
+                }
+            } else {
+                log.warn("Agent install config requested for account {} not owned by client {}",
+                        accountId, userDetails.getClientId());
+            }
+        }
+
         return ResponseEntity.ok(Map.of(
                 "serverUrl", xamopsServerUrl,
-                "apiKey", agentApiKey,
+                "apiKey", key,
+                "keyScope", keyScope,
                 "reachableFromCluster", isReachableFromCluster(xamopsServerUrl)
         ));
     }

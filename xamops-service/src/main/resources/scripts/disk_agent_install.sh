@@ -16,6 +16,9 @@
 #
 # Options:
 #   -t ACCOUNT_ID  Your 12-digit AWS account ID (required)
+#   -k API_KEY     Account-scoped agent key from XamOps (recommended).
+#                  Without it the agent falls back to the shared legacy key, which
+#                  cannot prove which account it belongs to and is being retired.
 #   -b BASE_URL    XamOps API base URL (default: https://api.xamops.com)
 #   -v VERSION     Agent version to install (default: latest)
 # ---------------------------------------------------------------------------
@@ -27,17 +30,24 @@ info()  { echo -e "${GREEN}[xamops]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[xamops]${NC} $*"; }
 error() { echo -e "${RED}[xamops]${NC} $*"; exit 1; }
 
-# ── Baked-in XamOps connection (customers do NOT change these) ────────────────
-XAMOPS_API_KEY="xamops_SecureAgentKey2024XamOps"
+# ── Legacy shared key ─────────────────────────────────────────────────────────
+# Every agent everywhere authenticated with this one value, and it ships in this
+# public script — so it is not a secret and it proves nothing about which account
+# a request belongs to. Prefer -k with an account-scoped key from
+# XamOps → the account's agent settings. This fallback exists only so that
+# installs documented before scoped keys existed keep working.
+LEGACY_SHARED_KEY="xamops_SecureAgentKey2024XamOps"
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 CLOUD_ACCOUNT_ID=""
+XAMOPS_API_KEY=""
 BASE_URL="https://api.xamops.com"
 AGENT_VERSION="latest"
 
-while getopts "t:b:v:" opt; do
+while getopts "t:k:b:v:" opt; do
   case $opt in
     t) CLOUD_ACCOUNT_ID="$OPTARG" ;;
+    k) XAMOPS_API_KEY="$OPTARG" ;;
     b) BASE_URL="$OPTARG" ;;
     v) AGENT_VERSION="$OPTARG" ;;
     *) error "Unknown option: -$OPTARG" ;;
@@ -45,6 +55,15 @@ while getopts "t:b:v:" opt; do
 done
 
 [[ -z "$CLOUD_ACCOUNT_ID" ]] && error "-t <aws-account-id> is required — your 12-digit AWS account ID (visible top-right in AWS Console)"
+
+if [[ -z "$XAMOPS_API_KEY" ]]; then
+  XAMOPS_API_KEY="$LEGACY_SHARED_KEY"
+  warn "No -k <api-key> given — using the shared legacy key."
+  warn "That key is published in this script and is being retired. Get an"
+  warn "account-scoped key from XamOps and re-run with -k <api-key>."
+else
+  info "Using account-scoped agent key (${XAMOPS_API_KEY:0:12}...)"
+fi
 
 # ── Detect OS/arch ────────────────────────────────────────────────────────────
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

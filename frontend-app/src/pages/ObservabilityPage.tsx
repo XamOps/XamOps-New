@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import React, { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useObservabilityData, ObservabilityConfig, OverviewStats, EksCluster, ConnectedInstance, ObservabilityAlert, AlertDestination } from '../hooks/useObservabilityData';
 import AgentHealthBanner from '../components/Observability/AgentHealthBanner';
+import ErrorNotice from '../components/Observability/ErrorNotice';
 import ScopeFallbackBanner from '../components/Observability/ScopeFallbackBanner';
 import { AGENT_STATUS_PRESENTATION, statusHint, toAgentHealth } from '../utils/agentHealth';
 import { Icon } from '@iconify/react';
@@ -315,11 +316,18 @@ const SEVERITY_STYLE: Record<string, string> = {
 };
 
 function AlertsTab() {
-  const { fetchAlerts, createAlert, deleteAlert, toggleAlert, fetchDestinations, saveDestination, deleteDestination } = useObservabilityData();
+  const { fetchAlerts, createAlert, deleteAlert, toggleAlert, fetchDestinations, saveDestination, deleteDestination, activeAccountId } = useObservabilityData();
 
   const [alerts, setAlerts]             = useState<ObservabilityAlert[]>([]);
   const [destinations, setDestinations] = useState<AlertDestination[]>([]);
   const [loading, setLoading]           = useState(true);
+  /** Why the alert/destination lists could not be loaded. */
+  const [loadError, setLoadError]       = useState<string | null>(null);
+  /** Why the last create/delete/toggle failed. Cleared when the next one is attempted. */
+  const [actionError, setActionError]   = useState<string | null>(null);
+  const [actionOk, setActionOk]         = useState<string | null>(null);
+  /** Name of the alert currently being toggled or deleted, so its row can show progress. */
+  const [busyAlert, setBusyAlert]       = useState<string | null>(null);
 
   // Destination form
   const [showDestForm, setShowDestForm]   = useState(false);
@@ -346,6 +354,24 @@ function AlertsTab() {
   const [logDest, setLogDest]               = useState('');
   const [savingLogAlert, setSavingLogAlert] = useState(false);
 
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    const [a, d] = await Promise.all([fetchAlerts(), fetchDestinations()]);
+    setAlerts(a.data);
+    setDestinations(d.data);
+    // Either list failing means what's on screen is incomplete. Reporting it stops an
+    // unreachable backend from rendering as "No alerts yet", which reads as "nothing is
+    // being monitored" — the most costly thing this screen could get wrong.
+    setLoadError(a.error ?? d.error ?? null);
+    setLoading(false);
+  }, [fetchAlerts, fetchDestinations]);
+
+  // fetchAlerts/fetchDestinations are account-scoped, so this has to re-run when the
+  // selected account changes. It previously ran once on mount, leaving the previous
+  // account's alerts on screen after a switch with nothing to indicate they were stale.
+  useEffect(() => { void reload(); }, [reload, activeAccountId]);
+
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     if (p.get('fromLogs') !== '1') return;
@@ -367,6 +393,8 @@ function AlertsTab() {
 
   const handleCreateLogAlert = async () => {
     if (!logAlertDraft || !logAlertSql.trim() || !logAlertName.trim()) return;
+    setActionError(null);
+    setActionOk(null);
     setSavingLogAlert(true);
     const payload: ObservabilityAlert = {
       name: logAlertName.trim().replace(/[^a-zA-Z0-9_]/g, '_'),
@@ -380,42 +408,45 @@ function AlertsTab() {
       query_condition: { type: 'sql', sql: logAlertSql.trim() },
       trigger_condition: { period: logPeriod, frequency: logPeriod, silence: logSilence, threshold: logThreshold, operator: '>=' },
     };
-    const ok = await createAlert(payload);
+    const result = await createAlert(payload);
     setSavingLogAlert(false);
-    if (ok) {
-      setLogAlertDraft(null);
-      const a = await fetchAlerts();
-      setAlerts(a);
+    if (!result.ok) {
+      // Keep the form open with the user's input intact — closing it on failure was
+      // indistinguishable from success.
+      setActionError(result.error ?? 'Could not create the alert.');
+      return;
     }
+    setLogAlertDraft(null);
+    setActionOk(`Alert "${payload.name}" created.`);
+    await reload();
   };
 
   const card = 'rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-5';
   const inputCls = 'w-full text-[13px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-black/5 focus:border-[rgba(0,0,0,0.25)] text-black placeholder:text-[rgba(0,0,0,0.3)] transition-colors';
   const labelCls = 'block text-[12px] font-medium mb-1.5 text-[rgba(0,0,0,0.6)]';
 
-  const reload = async () => {
-    setLoading(true);
-    const [a, d] = await Promise.all([fetchAlerts(), fetchDestinations()]);
-    setAlerts(a);
-    setDestinations(d);
-    setLoading(false);
-  };
-
-  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const handleSaveDest = async () => {
     if (!destName.trim() || !destUrl.trim()) return;
+    setActionError(null);
+    setActionOk(null);
     setSavingDest(true);
-    await saveDestination({ name: destName.trim(), url: destUrl.trim(), method: destMethod });
+    const result = await saveDestination({ name: destName.trim(), url: destUrl.trim(), method: destMethod });
     setSavingDest(false);
+    if (!result.ok) {
+      setActionError(result.error ?? 'Could not save the destination.');
+      return;
+    }
     setShowDestForm(false);
+    setActionOk(`Destination "${destName.trim()}" saved.`);
     setDestName(''); setDestUrl('');
     const d = await fetchDestinations();
-    setDestinations(d);
+    setDestinations(d.data);
   };
 
   const handleCreateAlert = async () => {
     if (!activeTemplate) return;
+    setActionError(null);
+    setActionOk(null);
     setSavingAlert(true);
     const alertName = `${activeTemplate.id}_above_${threshold}`.replace(/[^a-z0-9_]/g, '_');
     const payload: ObservabilityAlert = {
@@ -430,25 +461,87 @@ function AlertsTab() {
       query_condition: { type: 'promql', promql: activeTemplate.promql(threshold) },
       trigger_condition: { period, frequency: 1, silence, threshold: 1, operator: '>=' },
     };
-    await createAlert(payload);
+    const result = await createAlert(payload);
     setSavingAlert(false);
+    if (!result.ok) {
+      setActionError(result.error ?? 'Could not create the alert.');
+      return;
+    }
     setActiveTemplate(null);
-    const a = await fetchAlerts();
-    setAlerts(a);
+    setActionOk(`Alert "${alertName}" created.`);
+    await reload();
   };
 
+  // Delete and toggle refetch instead of mutating local state optimistically. The optimistic
+  // version applied the change regardless of the outcome, so a failed toggle showed "Disabled"
+  // while OpenObserve carried on evaluating the alert — the UI and reality disagreed silently.
   const handleDelete = async (a: ObservabilityAlert) => {
-    await deleteAlert(a.stream_type, a.stream_name, a.name);
-    setAlerts(prev => prev.filter(x => x.name !== a.name));
+    setActionError(null);
+    setActionOk(null);
+    setBusyAlert(a.name);
+    const result = await deleteAlert(a.stream_type, a.stream_name, a.name);
+    setBusyAlert(null);
+    if (!result.ok) {
+      setActionError(result.error ?? 'Could not delete the alert.');
+      return;
+    }
+    setActionOk(`Alert "${a.name}" deleted.`);
+    await reload();
   };
 
   const handleToggle = async (a: ObservabilityAlert) => {
-    await toggleAlert(a.stream_type, a.stream_name, a.name, !a.enabled);
-    setAlerts(prev => prev.map(x => x.name === a.name ? { ...x, enabled: !x.enabled } : x));
+    setActionError(null);
+    setActionOk(null);
+    setBusyAlert(a.name);
+    const result = await toggleAlert(a.stream_type, a.stream_name, a.name, !a.enabled);
+    setBusyAlert(null);
+    if (!result.ok) {
+      setActionError(result.error ?? 'Could not update the alert.');
+      return;
+    }
+    setActionOk(`Alert "${a.name}" ${a.enabled ? 'disabled' : 'enabled'}.`);
+    await reload();
+  };
+
+  const handleDeleteDest = async (name: string) => {
+    setActionError(null);
+    setActionOk(null);
+    const result = await deleteDestination(name);
+    if (!result.ok) {
+      setActionError(result.error ?? 'Could not delete the destination.');
+      return;
+    }
+    setActionOk(`Destination "${name}" deleted.`);
+    const d = await fetchDestinations();
+    setDestinations(d.data);
   };
 
   return (
     <div className="space-y-6">
+
+      {/* Could not load what already exists — shown above everything, since every
+          decision on this screen depends on knowing the current alert set. */}
+      {loadError && (
+        <ErrorNotice
+          title="Could not load your alerts"
+          message={loadError}
+          onRetry={() => { void reload(); }}
+        />
+      )}
+
+      {/* Outcome of the last create/delete/toggle. */}
+      {actionError && (
+        <ErrorNotice message={actionError} onDismiss={() => setActionError(null)} />
+      )}
+      {actionOk && (
+        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-start gap-3">
+          <Icon icon="mdi:check-circle-outline" width={18} className="mt-0.5 text-emerald-600 flex-shrink-0" />
+          <p className="text-[12px] text-emerald-900 flex-1">{actionOk}</p>
+          <button onClick={() => setActionOk(null)} className="text-[12px] font-medium text-emerald-700/70 hover:text-emerald-900">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Log alert — pre-filled from the Logs tab */}
       {logAlertDraft && (
@@ -582,7 +675,8 @@ function AlertsTab() {
                     <p className="text-[11px] truncate max-w-xs text-[rgba(0,0,0,0.45)]">{d.url}</p>
                   </div>
                 </div>
-                <button onClick={async () => { await deleteDestination(d.name); setDestinations(prev => prev.filter(x => x.name !== d.name)); }}
+                <button onClick={() => { void handleDeleteDest(d.name); }}
+                  aria-label={`Delete destination ${d.name}`}
                   className="text-xs text-red-400 hover:text-red-600 transition-colors px-2">
                   <Icon icon="mdi:trash-can-outline" />
                 </button>
@@ -675,6 +769,16 @@ function AlertsTab() {
             <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
             <span className="text-xs text-[rgba(0,0,0,0.4)]">Loading…</span>
           </div>
+        ) : loadError ? (
+          // Never claim "no alerts" when the list simply could not be fetched.
+          <div className="rounded-xl border border-dashed border-red-200 p-8 flex flex-col items-center gap-2 text-center">
+            <Icon icon="mdi:cloud-alert-outline" width={28} className="text-red-400" />
+            <p className="text-[13px] font-medium text-[rgba(0,0,0,0.7)]">Alert list unavailable</p>
+            <p className="text-[12px] text-[rgba(0,0,0,0.45)] max-w-sm">
+              Existing alerts could not be loaded, so this list may be incomplete. Any alerts you
+              already created are still running.
+            </p>
+          </div>
         ) : alerts.length === 0 ? (
           <div className="rounded-xl border border-dashed border-[rgba(0,0,0,0.15)] p-8 flex flex-col items-center gap-2 text-[rgba(0,0,0,0.4)]">
             <Icon icon="mdi:bell-off-outline" width={28} className="opacity-40" />
@@ -712,16 +816,19 @@ function AlertsTab() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={() => handleToggle(a)}
-                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors ${
+                  <button onClick={() => { void handleToggle(a); }}
+                    disabled={busyAlert === a.name}
+                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors disabled:opacity-40 ${
                       a.enabled
                         ? 'border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)]'
                         : 'border-emerald-500 text-emerald-600 hover:bg-emerald-50'
                     }`}>
-                    {a.enabled ? 'Disable' : 'Enable'}
+                    {busyAlert === a.name ? '…' : a.enabled ? 'Disable' : 'Enable'}
                   </button>
-                  <button onClick={() => handleDelete(a)}
-                    className="text-red-400 hover:text-red-600 transition-colors px-1">
+                  <button onClick={() => { void handleDelete(a); }}
+                    disabled={busyAlert === a.name}
+                    aria-label={`Delete alert ${a.name}`}
+                    className="text-red-400 hover:text-red-600 transition-colors px-1 disabled:opacity-40">
                     <Icon icon="mdi:trash-can-outline" className="text-xs" />
                   </button>
                 </div>
@@ -1335,7 +1442,7 @@ function TabHeader({ tab }: { tab: Tab }) {
 const ObservabilityPage: React.FC = () => {
   const { setTitle } = useTopbar();
   const {
-    config, overview, streams,
+    config, overview, streams, streamsError,
     activeAccountId,
     fetchConfig, fetchOverview, fetchStreams, fetchConnectedInstances,
   } = useObservabilityData();
@@ -1400,7 +1507,7 @@ const ObservabilityPage: React.FC = () => {
                        loading={!overviewReady} activeAccountId={activeAccountId} />
         )}
         {activeTab === 'logs' && (
-          <LogsExplorer streams={streams} streamsReady={streamsReady} />
+          <LogsExplorer streams={streams} streamsReady={streamsReady} streamsError={streamsError} />
         )}
         {activeTab === 'metrics' && (
           // config/activeAccountId are already loaded here, so the scope warning

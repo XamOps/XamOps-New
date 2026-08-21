@@ -37,11 +37,34 @@ public class OpenObserveService {
     @Value("${openobserve.external.url:}")
     private String o2ExternalUrl;
 
-    @Value("${openobserve.admin.email:root@example.com}")
+    /**
+     * No default. These previously fell back to the demo credentials published in
+     * OpenObserve's own quickstart, baked into the source, which meant a deployment that forgot
+     * to set them silently came up authenticating with a password anyone could look up. Every
+     * profile sets both properties explicitly, so an empty value now means misconfiguration and
+     * is reported as such by {@link #verifyCredentialsConfigured()} rather than being papered
+     * over.
+     */
+    @Value("${openobserve.admin.email:}")
     private String adminEmail;
 
-    @Value("${openobserve.admin.password:Complexpass#123}")
+    @Value("${openobserve.admin.password:}")
     private String adminPassword;
+
+    /**
+     * Fails fast at startup instead of on the first user query. Without this the missing
+     * credentials surfaced as a 401 from O2 buried inside a log-search failure, which reads
+     * as "observability is broken" rather than "this deployment is misconfigured".
+     */
+    @javax.annotation.PostConstruct
+    void verifyCredentialsConfigured() {
+        if (adminEmail == null || adminEmail.isBlank() || adminPassword == null || adminPassword.isBlank()) {
+            throw new IllegalStateException(
+                    "openobserve.admin.email and openobserve.admin.password must be configured "
+                            + "(e.g. via OPENOBSERVE_ADMIN_EMAIL / OPENOBSERVE_ADMIN_PASSWORD). "
+                            + "Observability cannot authenticate to OpenObserve without them.");
+        }
+    }
 
     private String getExternalO2Url() {
         return (o2ExternalUrl != null && !o2ExternalUrl.isBlank()) ? o2ExternalUrl : o2Url;
@@ -49,47 +72,63 @@ public class OpenObserveService {
 
     /**
      * Returns OpenObserve connection details for agent self-configuration.
-     * Resolves the correct org ID by looking up the provider account ID
-     * (e.g. AWS account number, GCP project ID) in the observability config.
-     * Falls back to "default" if the account has not been provisioned yet.
+     *
+     * The credential is the org-scoped ingestion service account, never the admin account.
+     * This endpoint previously answered with {@code adminEmail}/{@code adminPassword} — the
+     * OpenObserve root credential — to any caller holding the shared agent API key. Since root
+     * is global and the org is only a URL path segment, every agent host was handed the ability
+     * to read and write every tenant's telemetry. Throws when no scoped credential exists,
+     * because the alternative is re-introducing exactly that.
      */
     public Map<String, String> getAgentConfig(String providerAccountId) {
-        String orgId = resolveOrgIdForAccount(providerAccountId);
+        String[] resolved = resolveOrgCredentialForAccount(providerAccountId);
+        String orgId = resolved[0];
+        String[] basic = decodeBasic(requireIngestionCredential(orgId, resolved[1]));
+
         Map<String, String> cfg = new LinkedHashMap<>();
         cfg.put("url", getExternalO2Url());
         cfg.put("org", orgId);
-        cfg.put("username", adminEmail);
-        cfg.put("password", adminPassword);
+        cfg.put("username", basic[0]);
+        cfg.put("password", basic[1]);
         return cfg;
     }
 
-    private String resolveOrgIdForAccount(String providerAccountId) {
+    /**
+     * Resolves {orgId, ingestionKey} for a provider account.
+     *
+     * Returns nulls rather than defaulting to the {@code "default"} org when nothing is
+     * provisioned. The old {@code "default"} fallback meant an unprovisioned account's agent
+     * was pointed at a shared org — mixing one customer's logs into a namespace other
+     * customers also wrote to — and it made "not provisioned" indistinguishable from
+     * "provisioned as default".
+     */
+    private String[] resolveOrgCredentialForAccount(String providerAccountId) {
         if (providerAccountId == null || providerAccountId.isBlank()) {
-            return resolveClientLevelOrgId();
+            return resolveClientLevelOrgCredential();
         }
         try {
             Optional<CloudAccount> account = cloudAccountRepo.findByProviderAccountId(providerAccountId);
-            if (account.isEmpty()) return resolveClientLevelOrgId();
+            if (account.isEmpty()) return resolveClientLevelOrgCredential();
 
             CloudAccount ca = account.get();
             // Try account-scoped org first
             Optional<AccountObservabilityConfig> accountCfg =
                     accountConfigRepo.findByClientIdAndCloudAccountId(ca.getClient().getId(), ca.getId());
             if (accountCfg.isPresent() && accountCfg.get().getO2OrgId() != null) {
-                return accountCfg.get().getO2OrgId();
+                return new String[]{ accountCfg.get().getO2OrgId(), accountCfg.get().getO2IngestionKey() };
             }
             // Fall back to client-level org
             Optional<ObservabilityConfig> clientCfg = configRepo.findByClientId(ca.getClient().getId());
             if (clientCfg.isPresent() && clientCfg.get().getO2OrgId() != null) {
-                return clientCfg.get().getO2OrgId();
+                return new String[]{ clientCfg.get().getO2OrgId(), clientCfg.get().getO2IngestionKey() };
             }
         } catch (Exception e) {
             logger.warn("Could not resolve O2 org for account {}: {}", providerAccountId, e.getMessage());
         }
-        return "default";
+        return new String[]{ null, null };
     }
 
-    private String resolveClientLevelOrgId() {
+    private String[] resolveClientLevelOrgCredential() {
         // Single-tenant dev setup: if exactly one config row exists, use its org.
         //
         // Fetches two rows rather than findAll() — this runs on the agent-config path and
@@ -99,9 +138,9 @@ public class OpenObserveService {
         List<ObservabilityConfig> candidates =
                 configRepo.findAll(PageRequest.of(0, 2)).getContent();
         if (candidates.size() == 1 && candidates.get(0).getO2OrgId() != null) {
-            return candidates.get(0).getO2OrgId();
+            return new String[]{ candidates.get(0).getO2OrgId(), candidates.get(0).getO2IngestionKey() };
         }
-        return "default";
+        return new String[]{ null, null };
     }
 
     private final ObservabilityConfigRepository configRepo;
@@ -355,6 +394,16 @@ public class OpenObserveService {
         throw new RuntimeException("Could not resolve O2 org identifier for name: " + name);
     }
 
+    /**
+     * Creates an org-scoped service account ({@code role: member}) and returns its credential.
+     *
+     * Returns null when OpenObserve won't issue one. It used to fall back to
+     * {@code base64(adminEmail:adminPassword)}, which meant a single failed HTTP call silently
+     * turned a tenant-scoped ingestion key into the global root credential — and because the
+     * result is persisted as {@code o2_ingestion_key}, that downgrade was permanent and
+     * invisible. Provisioning now records the absence, and the generators refuse to issue a
+     * collector config rather than substituting root.
+     */
     private String createServiceAccount(String orgId, String email) {
         HttpHeaders headers = buildAdminHeaders();
         Map<String, String> body = Map.of(
@@ -370,12 +419,13 @@ public class OpenObserveService {
             if (resp.getBody() != null && resp.getBody().containsKey("token")) {
                 return (String) resp.getBody().get("token");
             }
+            logger.error("OpenObserve returned no token for service account {} in org {} — "
+                    + "collectors for this org cannot be configured until this succeeds", email, orgId);
         } catch (Exception e) {
-            logger.warn("Could not create service account {}: {}", email, e.getMessage());
+            logger.error("Could not create service account {} in org {}: {} — collectors for this "
+                    + "org cannot be configured until this succeeds", email, orgId, e.getMessage());
         }
-        // Fallback: use admin credentials (works for all O2 API calls)
-        String credentials = adminEmail + ":" + adminPassword;
-        return Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+        return null;
     }
 
     // ── Per-Account Provisioning ───────────────────────────────────────────────
@@ -494,7 +544,7 @@ public class OpenObserveService {
         String providerAccountId = (String) params.getOrDefault("providerAccountId", null);
         String orgId = getEffectiveOrgId(clientId, providerAccountId);
 
-        String stream = (String) params.getOrDefault("stream", "default");
+        String stream = sqlIdentifier((String) params.getOrDefault("stream", "default"));
         String keyword = (String) params.getOrDefault("keyword", null);
         String level = (String) params.getOrDefault("level", null);
         String sourceFilter = (String) params.getOrDefault("sourceFilter", null);
@@ -507,7 +557,7 @@ public class OpenObserveService {
         String rawSql = (String) params.getOrDefault("rawSql", null);
         String sqlStr;
         if (rawSql != null && !rawSql.isBlank()) {
-            sqlStr = rawSql;
+            sqlStr = requireReadOnlySelect(rawSql);
         } else {
             StringBuilder sql = new StringBuilder("SELECT * FROM \"").append(stream).append("\"");
             List<String> conditions = new ArrayList<>();
@@ -565,7 +615,7 @@ public class OpenObserveService {
         String providerAccountId = (String) params.getOrDefault("providerAccountId", null);
         String orgId = getEffectiveOrgId(clientId, providerAccountId);
 
-        String stream = (String) params.getOrDefault("stream", "default");
+        String stream = sqlIdentifier((String) params.getOrDefault("stream", "default"));
         long startTime = toLong(params.getOrDefault("startTime", System.currentTimeMillis() - 3600_000L));
         long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
 
@@ -616,7 +666,7 @@ public class OpenObserveService {
     public List<String> listLogHosts(Long clientId, Map<String, Object> params) {
         String providerAccountId = (String) params.getOrDefault("providerAccountId", null);
         String orgId = getEffectiveOrgId(clientId, providerAccountId);
-        String stream = (String) params.getOrDefault("stream", "default");
+        String stream = sqlIdentifier((String) params.getOrDefault("stream", "default"));
         long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
         long startTime = toLong(params.getOrDefault("startTime", endTime - 24 * 3600_000L));
 
@@ -739,6 +789,83 @@ public class OpenObserveService {
         return v.replace("'", "''");
     }
 
+    // ── SQL safety ────────────────────────────────────────────────────────────
+
+    /**
+     * Stream names arrive from the browser and are interpolated into SQL as a quoted
+     * identifier ({@code FROM "<stream>"}). Nothing escaped them, so a name containing a
+     * double quote closed the identifier early and the remainder was parsed as SQL.
+     *
+     * Validated rather than escaped: OpenObserve stream names are created by the agents from
+     * a restricted character set, so anything outside it is a malformed request and should be
+     * rejected outright instead of silently rewritten into a different stream name.
+     */
+    private static final java.util.regex.Pattern STREAM_NAME_RE =
+            java.util.regex.Pattern.compile("[A-Za-z0-9_][A-Za-z0-9_.:\\-]{0,127}");
+
+    static String sqlIdentifier(String stream) {
+        String s = (stream == null || stream.isBlank()) ? "default" : stream.trim();
+        if (!STREAM_NAME_RE.matcher(s).matches()) {
+            throw new IllegalArgumentException(
+                    "Invalid stream name. Stream names may contain letters, digits, '_', '.', ':' and '-' only.");
+        }
+        return s;
+    }
+
+    private static final int MAX_RAW_SQL_LEN = 4000;
+
+    /**
+     * Keywords that have no place in a console whose only job is reading log data.
+     * OpenObserve's search API is read-oriented, but this is the boundary we control and it
+     * turns "whatever O2 happens to reject" into an explicit, documented contract.
+     */
+    private static final java.util.regex.Pattern FORBIDDEN_SQL_RE = java.util.regex.Pattern.compile(
+            "(?i)\\b(insert|update|delete|drop|create|alter|truncate|grant|revoke|attach|detach|copy|merge|call|execute|vacuum|pragma)\\b");
+
+    /**
+     * Validates a user-supplied query from the Logs tab's SQL editor.
+     *
+     * The editor previously handed {@code rawSql} straight to OpenObserve untouched. This
+     * enforces three things: a single statement, a read-only one, and a bounded length.
+     *
+     * String literals are blanked before the keyword scan so that searching your logs for the
+     * word "delete" or "drop" — an entirely reasonable thing to do in a log console — is not
+     * mistaken for a destructive statement. Only keywords appearing as SQL are rejected.
+     */
+    static String requireReadOnlySelect(String rawSql) {
+        String sql = rawSql.trim();
+        // Tolerate a single trailing semicolon; anything else is statement chaining.
+        while (sql.endsWith(";")) {
+            sql = sql.substring(0, sql.length() - 1).trim();
+        }
+        if (sql.isEmpty()) {
+            throw new IllegalArgumentException("Query is empty.");
+        }
+        if (sql.length() > MAX_RAW_SQL_LEN) {
+            throw new IllegalArgumentException("Query is too long (limit " + MAX_RAW_SQL_LEN + " characters).");
+        }
+
+        // Blank out single-quoted literals so their contents are not scanned as SQL.
+        String scrubbed = sql.replaceAll("'([^']|'')*'", "''");
+
+        if (scrubbed.contains(";")) {
+            throw new IllegalArgumentException("Only a single statement is allowed.");
+        }
+        if (scrubbed.contains("--") || scrubbed.contains("/*")) {
+            throw new IllegalArgumentException("Comments are not allowed in queries.");
+        }
+        if (!scrubbed.regionMatches(true, 0, "SELECT", 0, 6)
+                && !scrubbed.regionMatches(true, 0, "WITH", 0, 4)) {
+            throw new IllegalArgumentException("Only SELECT queries are allowed.");
+        }
+        java.util.regex.Matcher forbidden = FORBIDDEN_SQL_RE.matcher(scrubbed);
+        if (forbidden.find()) {
+            throw new IllegalArgumentException(
+                    "'" + forbidden.group(1).toUpperCase() + "' is not allowed — the query editor is read-only.");
+        }
+        return sql;
+    }
+
     /** Runs a SQL query against the org's trace streams and returns the hits. */
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> o2TraceQuery(String orgId, String sql, long startMs, long endMs, int size) {
@@ -798,7 +925,7 @@ public class OpenObserveService {
      */
     public Map<String, Object> searchTraces(Long clientId, Map<String, Object> params) {
         String orgId = getEffectiveOrgId(clientId, (String) params.getOrDefault("providerAccountId", null));
-        String stream = (String) params.getOrDefault("stream", "default");
+        String stream = sqlIdentifier((String) params.getOrDefault("stream", "default"));
         long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
         long startTime = toLong(params.getOrDefault("startTime", endTime - 3600_000L));
         int size = (int) params.getOrDefault("size", 100);
@@ -856,7 +983,7 @@ public class OpenObserveService {
      */
     public Map<String, Object> getTraceStats(Long clientId, Map<String, Object> params) {
         String orgId = getEffectiveOrgId(clientId, (String) params.getOrDefault("providerAccountId", null));
-        String stream = (String) params.getOrDefault("stream", "default");
+        String stream = sqlIdentifier((String) params.getOrDefault("stream", "default"));
         long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
         long startTime = toLong(params.getOrDefault("startTime", endTime - 3600_000L));
 
@@ -921,7 +1048,7 @@ public class OpenObserveService {
      */
     public Map<String, Object> getTraceSpans(Long clientId, Map<String, Object> params) {
         String orgId = getEffectiveOrgId(clientId, (String) params.getOrDefault("providerAccountId", null));
-        String stream = (String) params.getOrDefault("stream", "default");
+        String stream = sqlIdentifier((String) params.getOrDefault("stream", "default"));
         String traceId = (String) params.getOrDefault("traceId", "");
         if (traceId.isBlank()) return Map.of("spans", Collections.emptyList(), "error", "traceId is required");
         long endTime = toLong(params.getOrDefault("endTime", System.currentTimeMillis()));
@@ -1022,7 +1149,10 @@ public class OpenObserveService {
     public String generateFluentBitConfig(Long clientId, String providerAccountId) {
         String[] creds = getEffectiveOrgCredentials(clientId, providerAccountId);
         String orgId = creds[0];
-        String ingestionKey = creds[1];
+        // Http_User and Http_Passwd must be the two halves of the same credential. This paired
+        // the admin email with the service account's password, a combination that cannot
+        // authenticate as either identity, so the generated config never shipped a single log.
+        String[] basic = decodeBasic(requireIngestionCredential(orgId, creds[1]));
 
         return "[SERVICE]\n" +
                 "    Flush        5\n" +
@@ -1049,8 +1179,8 @@ public class OpenObserveService {
                 "    Port            " + extractPort(o2Url) + "\n" +
                 "    URI             /api/" + orgId + "/kubernetes/_json\n" +
                 "    Format          json\n" +
-                "    Http_User       " + adminEmail + "\n" +
-                "    Http_Passwd     " + new String(Base64.getDecoder().decode(ingestionKey), StandardCharsets.UTF_8).split(":")[1] + "\n" +
+                "    Http_User       " + basic[0] + "\n" +
+                "    Http_Passwd     " + basic[1] + "\n" +
                 "    tls             Off\n" +
                 "    compress        gzip\n";
     }
@@ -1058,7 +1188,7 @@ public class OpenObserveService {
     public String generateHelmValues(Long clientId, String providerAccountId) {
         String[] creds = getEffectiveOrgCredentials(clientId, providerAccountId);
         String orgId = creds[0];
-        String ingestionKey = creds[1];
+        String[] basic = decodeBasic(requireIngestionCredential(orgId, creds[1]));
 
         return "# XamOps Observability — Fluent Bit Helm values\n" +
                 "# Deploy: helm repo add fluent https://fluent.github.io/helm-charts\n" +
@@ -1072,8 +1202,8 @@ public class OpenObserveService {
                 "        Port             " + extractPort(o2Url) + "\n" +
                 "        URI              /api/" + orgId + "/kubernetes/_json\n" +
                 "        Format           json\n" +
-                "        Http_User        " + adminEmail + "\n" +
-                "        Http_Passwd      " + extractPassword(ingestionKey) + "\n" +
+                "        Http_User        " + basic[0] + "\n" +
+                "        Http_Passwd      " + basic[1] + "\n" +
                 "        tls              Off\n" +
                 "        compress         gzip\n\n" +
                 "  filters: |\n" +
@@ -1091,7 +1221,7 @@ public class OpenObserveService {
     public String generateOtelCollectorConfig(Long clientId, String providerAccountId) {
         String[] creds = getEffectiveOrgCredentials(clientId, providerAccountId);
         String orgId = creds[0];
-        String ingestionKey = creds[1];
+        String ingestionKey = requireIngestionCredential(orgId, creds[1]);
 
         return "# XamOps Observability — OpenTelemetry Collector config\n\n" +
                 "receivers:\n" +
@@ -1137,8 +1267,8 @@ public class OpenObserveService {
     public String generateAgentSecret(Long clientId, String providerAccountId) {
         String[] creds = getEffectiveOrgCredentials(clientId, providerAccountId);
         String orgId = creds[0];
-        String authBase64 = Base64.getEncoder()
-                .encodeToString((adminEmail + ":" + adminPassword).getBytes(StandardCharsets.UTF_8));
+        String authBase64 = requireIngestionCredential(orgId, creds[1]);
+        String[] basic = decodeBasic(authBase64);
 
         // In-cluster OpenObserve URL (K8s service DNS — works once OpenObserve is deployed in EKS)
         String inClusterHost = "openobserve.xamops.svc.cluster.local";
@@ -1168,8 +1298,8 @@ public class OpenObserveService {
                 "  O2_TLS: \"Off\"\n" +
                 "  # Credentials\n" +
                 "  O2_ORG_ID: \"" + orgId + "\"\n" +
-                "  O2_EMAIL: \"" + adminEmail + "\"\n" +
-                "  O2_PASSWORD: \"" + adminPassword + "\"\n" +
+                "  O2_EMAIL: \"" + basic[0] + "\"\n" +
+                "  O2_PASSWORD: \"" + basic[1] + "\"\n" +
                 "  O2_AUTH_BASE64: \"" + authBase64 + "\"\n";
     }
 
@@ -1180,8 +1310,7 @@ public class OpenObserveService {
     public String generateHelmEksCommand(Long clientId, String providerAccountId) {
         String[] creds = getEffectiveOrgCredentials(clientId, providerAccountId);
         String orgId = creds[0];
-        String authBase64 = Base64.getEncoder()
-                .encodeToString((adminEmail + ":" + adminPassword).getBytes(StandardCharsets.UTF_8));
+        String authBase64 = requireIngestionCredential(orgId, creds[1]);
         // EKS Helm runs inside the cluster — prefer in-cluster URL, fall back to external
         String eksUrl = (o2ExternalUrl != null && !o2ExternalUrl.isBlank())
                 ? "http://openobserve.xamops.svc.cluster.local:5080"
@@ -1214,8 +1343,7 @@ public class OpenObserveService {
     public String generateEc2OtelConfig(Long clientId, String providerAccountId) {
         String[] creds = getEffectiveOrgCredentials(clientId, providerAccountId);
         String orgId = creds[0];
-        String authBase64 = Base64.getEncoder()
-                .encodeToString((adminEmail + ":" + adminPassword).getBytes(StandardCharsets.UTF_8));
+        String authBase64 = requireIngestionCredential(orgId, creds[1]);
         // Use external URL — customer EC2s may be in a different VPC than OpenObserve
         String o2Endpoint = getExternalO2Url() + "/api/" + orgId;
 
@@ -1451,6 +1579,17 @@ public class OpenObserveService {
                 "      processors: [memory_limiter, resourcedetection, resource, filter/tracenoise, batch]\n" +
                 "      exporters: [otlphttp]\n" +
                 "EOF\n\n" +
+                "# This file carries the OpenObserve Authorization header in cleartext, and `tee`\n" +
+                "# leaves it world-readable (0644) — any local user could read the credential out\n" +
+                "# of it. Lock it to the service account's group.\n" +
+                "#\n" +
+                "# NOT 0600 root:root: the collector runs as the unprivileged 'otelcol-contrib'\n" +
+                "# user, so a root-only config makes it fail to start with a permission error on\n" +
+                "# its own configuration. 0640 root:otelcol-contrib keeps it off-limits to other\n" +
+                "# local users while remaining readable by the process that needs it.\n" +
+                "sudo chown root:otelcol-contrib /etc/otelcol-contrib/config.yaml 2>/dev/null \\\n" +
+                "  || sudo chown root:root /etc/otelcol-contrib/config.yaml\n" +
+                "sudo chmod 640 /etc/otelcol-contrib/config.yaml\n\n" +
                 "# ── Step 4: Grant log file read access ──────────────────────────────────────\n" +
                 "# Nginx log access (if nginx is installed)\n" +
                 "if ! command -v setfacl &>/dev/null; then\n" +
@@ -1461,10 +1600,25 @@ public class OpenObserveService {
                 "  sudo setfacl -d -m u:otelcol-contrib:r  /var/log/nginx/ 2>/dev/null || true\n" +
                 "fi\n\n" +
                 "# Docker container logs (auto-applied if Docker is installed)\n" +
+                "#\n" +
+                "# An ACL on /var/lib/docker/containers alone is not enough: the parent\n" +
+                "# /var/lib/docker is mode 0710 root:root, so a non-root process cannot traverse\n" +
+                "# into it and the receiver fails with \"open .: permission denied\" even though the\n" +
+                "# ACL below applied cleanly. The traverse bit on the parent has to be granted too.\n" +
+                "# Failures are reported rather than swallowed — this previously printed\n" +
+                "# \"container log access granted\" whether or not anything had been granted.\n" +
                 "if command -v docker &>/dev/null; then\n" +
-                "  sudo setfacl -Rdm u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
-                "  sudo setfacl -Rm  u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
-                "  echo 'Docker detected — container log access granted'\n" +
+                "  docker_acl_ok=true\n" +
+                "  sudo setfacl -m  u:otelcol-contrib:x  /var/lib/docker           || docker_acl_ok=false\n" +
+                "  sudo setfacl -Rdm u:otelcol-contrib:rX /var/lib/docker/containers/ || docker_acl_ok=false\n" +
+                "  sudo setfacl -Rm  u:otelcol-contrib:rX /var/lib/docker/containers/ || docker_acl_ok=false\n" +
+                "  if [ \"$docker_acl_ok\" = true ]; then\n" +
+                "    echo 'Docker detected — container log access granted'\n" +
+                "  else\n" +
+                "    echo 'WARNING: Docker detected but log access could NOT be granted.'\n" +
+                "    echo '         Container logs will be missing. Check that the acl package is'\n" +
+                "    echo '         installed and that the filesystem is mounted with acl support.'\n" +
+                "  fi\n" +
                 "fi\n\n" +
                 "# ── Step 5: Configure auto-restart on failure ───────────────────────────────\n" +
                 "# Creates a systemd drop-in so the collector restarts automatically if it crashes\n" +
@@ -1495,8 +1649,21 @@ public class OpenObserveService {
                 "  \"https://github.com/grafana/beyla/releases/download/${BEYLA_VER}/beyla-linux-${BEYLA_ARCH}-${BEYLA_VER}.tar.gz\"\n" +
                 "sudo rm -rf /tmp/beyla-extract && sudo mkdir -p /tmp/beyla-extract\n" +
                 "sudo tar -xzf /tmp/beyla.tar.gz -C /tmp/beyla-extract\n" +
-                "sudo cp \"$(find /tmp/beyla-extract -type f -name beyla | head -1)\" /usr/local/bin/beyla\n" +
-                "sudo chmod +x /usr/local/bin/beyla\n\n" +
+                "# Stop the running Beyla first. Copying over a live executable fails with\n" +
+                "# \"Text file busy\", and because the copy is not checked the script carried on and\n" +
+                "# reported success while leaving the OLD binary in place — so re-running this to\n" +
+                "# pick up a new version silently did nothing.\n" +
+                "sudo systemctl stop beyla 2>/dev/null || true\n" +
+                "beyla_src=\"$(find /tmp/beyla-extract -type f -name beyla | head -1)\"\n" +
+                // No `exit` here: these steps are pasted into an interactive root shell, and an
+                // exit would close the operator's session rather than skipping a step.
+                "if [ -n \"$beyla_src\" ]; then\n" +
+                "  sudo cp \"$beyla_src\" /usr/local/bin/beyla\n" +
+                "  sudo chmod +x /usr/local/bin/beyla\n" +
+                "  echo \"Beyla installed from $beyla_src\"\n" +
+                "else\n" +
+                "  echo 'ERROR: beyla binary not found in the downloaded archive — traces will not work.'\n" +
+                "fi\n\n" +
                 "# Beyla config: instrument every service listening on any TCP port, export OTLP\n" +
                 "# to the local collector. host.name / EC2 metadata are added by the collector.\n" +
                 "sudo mkdir -p /etc/beyla\n" +
@@ -1546,8 +1713,7 @@ public class OpenObserveService {
     public String generateGceOtelConfig(Long clientId, String providerAccountId) {
         String[] creds = getEffectiveOrgCredentials(clientId, providerAccountId);
         String orgId = creds[0];
-        String authBase64 = Base64.getEncoder()
-                .encodeToString((adminEmail + ":" + adminPassword).getBytes(StandardCharsets.UTF_8));
+        String authBase64 = requireIngestionCredential(orgId, creds[1]);
         // Use external URL — customer GCE VMs may be in a different VPC/project than OpenObserve
         String o2Endpoint = getExternalO2Url() + "/api/" + orgId;
 
@@ -1763,6 +1929,12 @@ public class OpenObserveService {
                 "      processors: [memory_limiter, resourcedetection, resource, filter/tracenoise, batch]\n" +
                 "      exporters: [otlphttp]\n" +
                 "EOF\n\n" +
+                "# The config carries the OpenObserve Authorization header in cleartext and `tee`\n" +
+                "# leaves it world-readable. 0640 root:otelcol-contrib — not 0600 root:root, which\n" +
+                "# the unprivileged collector process could not read, so it would refuse to start.\n" +
+                "sudo chown root:otelcol-contrib /etc/otelcol-contrib/config.yaml 2>/dev/null \\\n" +
+                "  || sudo chown root:root /etc/otelcol-contrib/config.yaml\n" +
+                "sudo chmod 640 /etc/otelcol-contrib/config.yaml\n\n" +
                 "# ── Step 4: Grant log file read access ──────────────────────────────────────\n" +
                 "if ! command -v setfacl &>/dev/null; then\n" +
                 "  sudo apt-get install -y acl 2>/dev/null || sudo yum install -y acl 2>/dev/null || true\n" +
@@ -1771,9 +1943,18 @@ public class OpenObserveService {
                 "  sudo setfacl -Rm   u:otelcol-contrib:r  /var/log/nginx/ 2>/dev/null || true\n" +
                 "  sudo setfacl -d -m u:otelcol-contrib:r  /var/log/nginx/ 2>/dev/null || true\n" +
                 "fi\n" +
+                "# /var/lib/docker is 0710 root:root, so an ACL on containers/ alone leaves the\n" +
+                "# receiver unable to traverse into it (\"open .: permission denied\"). Grant the\n" +
+                "# traverse bit on the parent too, and say so when it could not be done.\n" +
                 "if command -v docker &>/dev/null; then\n" +
-                "  sudo setfacl -Rdm u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
-                "  sudo setfacl -Rm  u:otelcol-contrib:rX /var/lib/docker/containers/ 2>/dev/null || true\n" +
+                "  docker_acl_ok=true\n" +
+                "  sudo setfacl -m  u:otelcol-contrib:x  /var/lib/docker           || docker_acl_ok=false\n" +
+                "  sudo setfacl -Rdm u:otelcol-contrib:rX /var/lib/docker/containers/ || docker_acl_ok=false\n" +
+                "  sudo setfacl -Rm  u:otelcol-contrib:rX /var/lib/docker/containers/ || docker_acl_ok=false\n" +
+                "  if [ \"$docker_acl_ok\" != true ]; then\n" +
+                "    echo 'WARNING: Docker detected but log access could NOT be granted — container'\n" +
+                "    echo '         logs will be missing. Check the acl package and mount options.'\n" +
+                "  fi\n" +
                 "fi\n\n" +
                 "# ── Step 5: Configure auto-restart on failure ───────────────────────────────\n" +
                 "sudo mkdir -p /etc/systemd/system/otelcol-contrib.service.d\n" +
@@ -2096,12 +2277,86 @@ public class OpenObserveService {
     }
 
     private String extractPassword(String base64Token) {
+        return decodeBasic(base64Token)[1];
+    }
+
+    /**
+     * Splits a base64 {@code Basic} credential into {user, pass}.
+     *
+     * Ingestion keys are stored as {@code base64(identifier:token)} — the shape every collector
+     * runtime needs, whether it wants a whole header (OTel) or the halves separately
+     * (Fluent Bit's Http_User/Http_Passwd, the Go agent's username/password).
+     *
+     * Returns {@code {"", token}} for a value that isn't in that shape, so callers still fail
+     * on a missing username rather than silently pairing it with the wrong account.
+     */
+    private static String[] decodeBasic(String base64Token) {
         try {
             String decoded = new String(Base64.getDecoder().decode(base64Token), StandardCharsets.UTF_8);
-            return decoded.contains(":") ? decoded.split(":", 2)[1] : base64Token;
+            int sep = decoded.indexOf(':');
+            if (sep < 0) return new String[]{ "", decoded };
+            return new String[]{ decoded.substring(0, sep), decoded.substring(sep + 1) };
         } catch (Exception e) {
-            return base64Token;
+            return new String[]{ "", base64Token };
         }
+    }
+
+    /**
+     * The org-scoped ingestion credential for a tenant/account, or a hard failure.
+     *
+     * Every collector config handed to a customer used to embed
+     * {@code base64(adminEmail:adminPassword)} — the OpenObserve <em>root</em> credential. In
+     * OpenObserve the org is only a path segment and root is global, so any customer holding
+     * one of those configs could swap the org in the URL and read or write every other
+     * tenant's logs, metrics and traces.
+     *
+     * Per-org service accounts with {@code role: member} are already provisioned at tenant and
+     * account setup ({@code createServiceAccount}); this is the accessor that makes the
+     * generators use them. It throws rather than degrading, because the only fallback
+     * available is the credential this method exists to stop distributing.
+     */
+    private String requireIngestionCredential(Long clientId, String providerAccountId) {
+        String[] creds = getEffectiveOrgCredentials(clientId, providerAccountId);
+        return requireIngestionCredential(creds[0], creds[1]);
+    }
+
+    private String requireIngestionCredential(String orgId, String ingestionKey) {
+        if (orgId == null || orgId.isBlank()) {
+            throw new IllegalStateException(
+                    "Observability is not provisioned for this account yet, so no collector "
+                            + "configuration can be issued. Open the Observability tab to provision it, "
+                            + "then retry.");
+        }
+        if (ingestionKey == null || ingestionKey.isBlank()) {
+            throw new IllegalStateException(
+                    "No org-scoped ingestion credential exists for org '" + orgId + "'. A collector "
+                            + "configuration cannot be issued without one — issuing admin credentials "
+                            + "instead would grant this host access to every tenant's data. "
+                            + "Re-provision observability for this account to create the service account.");
+        }
+        // Rows provisioned before the admin fallback was removed have the *admin* credential
+        // stored in o2_ingestion_key: createServiceAccount used to return
+        // base64(adminEmail:adminPassword) on any failure, and the caller persisted it. Removing
+        // that fallback stopped new rows from being poisoned but left existing ones intact, so
+        // without this check every already-provisioned tenant would keep being issued collector
+        // configs containing the root credential — and the check above would report success.
+        //
+        // Treated as absent rather than repaired in place: minting a replacement needs a call to
+        // OpenObserve, which belongs in provisioning, not in a config generator.
+        if (isAdminCredential(ingestionKey)) {
+            throw new IllegalStateException(
+                    "The stored ingestion credential for org '" + orgId + "' is the OpenObserve admin "
+                            + "credential, left behind by an earlier provisioning fallback. Issuing it "
+                            + "would give this host access to every tenant's data. Re-provision "
+                            + "observability for this account to replace it with a scoped service account.");
+        }
+        return ingestionKey;
+    }
+
+    /** True when a stored credential is really the shared admin one wearing an ingestion key's clothes. */
+    private boolean isAdminCredential(String base64Token) {
+        String[] parts = decodeBasic(base64Token);
+        return adminEmail != null && adminEmail.equalsIgnoreCase(parts[0]);
     }
 
     private long toLong(Object val) {

@@ -10,6 +10,7 @@ import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestPayload.DataBatch;
 import com.xammer.cloud.dto.agent.AgentIngestResponse;
+import com.xammer.cloud.dto.agent.AgentPrincipal;
 import com.xammer.cloud.dto.agent.AgentIngestResponse.BatchResult;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
@@ -73,6 +74,16 @@ public class AgentIngestService {
     @Value("${xamops.agent.api-key:xamops_DEFAULT_KEY_CHANGE_IN_PRODUCTION}")
     private String globalAgentApiKey;
 
+    /**
+     * Whether the one shared global key still authenticates.
+     *
+     * Defaults to true so deploying this cannot take a customer's agents offline. Every use is
+     * logged with the caller's IP; once those log lines stop, set this false and the shared key
+     * — which is published in the install scripts and the frontend bundle — becomes inert.
+     */
+    @Value("${xamops.agent.legacy-global-key.enabled:true}")
+    private boolean legacyGlobalKeyEnabled;
+
     public AgentIngestService(
             KubernetesClusterConfigRepository clusterConfigRepository,
             AgentDataCacheRepository agentDataCacheRepository,
@@ -88,24 +99,113 @@ public class AgentIngestService {
     }
 
     /**
-     * Validate the global API key.
-     * All agents use the SAME key - they identify themselves by clusterName + cloudAccountId in payload.
+     * Resolves an agent API key to the identity it proves, or null when it authenticates nothing.
      *
-     * @param apiKey The API key from the Authorization header
-     * @return true if valid, false otherwise
+     * Order matters: scoped keys are checked before the shared one so that an agent which has
+     * been migrated is recognised as itself rather than as an anonymous legacy caller.
+     *
+     * Comparison against the global key uses a length-independent constant-time check. A plain
+     * {@code equals} on a secret leaks its length and its matching prefix through timing, which
+     * is worth avoiding on an endpoint anyone on the internet can call.
+     *
+     * @param apiKey the key from the Authorization header
+     * @param callerIp caller address, recorded only when the legacy key is used, so the
+     *                 remaining pre-migration agents can be located
+     * @return the authenticated principal, or null if the key is unknown
      */
-    public boolean validateApiKey(String apiKey) {
+    public AgentPrincipal authenticate(String apiKey, String callerIp) {
         if (apiKey == null || apiKey.isEmpty()) {
             logger.warn("Agent authentication failed: empty API key");
-            return false;
+            return null;
         }
 
-        if (!apiKey.equals(globalAgentApiKey)) {
-            logger.warn("Agent authentication failed: invalid API key");
-            return false;
+        // 1. Cluster-scoped key — the column has existed since V20260217 and is already handed
+        //    to customers in generated Helm values; it simply was never accepted here.
+        Optional<KubernetesClusterConfig> cluster = clusterConfigRepository.findByAgentApiKey(apiKey);
+        if (cluster.isPresent()) {
+            KubernetesClusterConfig cfg = cluster.get();
+            String providerAccountId = resolveProviderAccountId(cfg.getCloudAccountId());
+            if (providerAccountId == null) {
+                logger.warn("Agent key resolved to cluster {} whose cloud account {} no longer exists",
+                        cfg.getClusterName(), cfg.getCloudAccountId());
+                return null;
+            }
+            return AgentPrincipal.cluster(providerAccountId, cfg.getClusterName());
         }
 
-        return true;
+        // 2. Account-scoped key — VM agents (disk, database) that have no cluster row.
+        Optional<CloudAccount> account = cloudAccountRepository.findByAgentApiKey(apiKey);
+        if (account.isPresent()) {
+            return AgentPrincipal.account(providerAccountIdOf(account.get()));
+        }
+
+        // 3. Legacy shared key.
+        if (constantTimeEquals(apiKey, globalAgentApiKey)) {
+            if (!legacyGlobalKeyEnabled) {
+                logger.warn("Agent authentication rejected: shared global key is disabled "
+                        + "(xamops.agent.legacy-global-key.enabled=false), caller={}", callerIp);
+                return null;
+            }
+            logger.warn("Agent authenticated with the DEPRECATED shared global key, caller={}. "
+                    + "Issue this agent an account-scoped key; the shared key cannot prove which "
+                    + "account it belongs to.", callerIp);
+            return AgentPrincipal.legacyGlobal();
+        }
+
+        logger.warn("Agent authentication failed: unknown API key, caller={}", callerIp);
+        return null;
+    }
+
+    /**
+     * Kept so existing callers and tests that only need a yes/no keep working. Prefer
+     * {@link #authenticate} — a boolean cannot tell a handler which account the caller owns,
+     * which is what actually stops one tenant acting as another.
+     */
+    public boolean validateApiKey(String apiKey) {
+        return authenticate(apiKey, null) != null;
+    }
+
+    /**
+     * Rejects a request whose claimed identity is not covered by its key.
+     *
+     * This is the check that was missing: {@code clusterName} and {@code cloudAccountId} arrive
+     * in the request body, and every handler trusted them. Returns null when the request is
+     * allowed, or a message describing the refusal.
+     */
+    public String checkOwnership(AgentPrincipal principal, String claimedAccountId, String claimedClusterName) {
+        if (principal == null) return "Not authenticated";
+        if (claimedClusterName == null
+                ? principal.canAct(claimedAccountId)
+                : principal.canActOnCluster(claimedAccountId, claimedClusterName)) {
+            return null;
+        }
+        logger.warn("Agent {} attempted to act on account={} cluster={} — refused",
+                principal, claimedAccountId, claimedClusterName);
+        return "This agent key is not authorised for the requested account or cluster";
+    }
+
+    private String resolveProviderAccountId(Long cloudAccountId) {
+        if (cloudAccountId == null) return null;
+        return cloudAccountRepository.findById(cloudAccountId)
+                .map(this::providerAccountIdOf)
+                .orElse(null);
+    }
+
+    private String providerAccountIdOf(CloudAccount account) {
+        if (account.getAwsAccountId() != null && !account.getAwsAccountId().isBlank()) {
+            return account.getAwsAccountId();
+        }
+        if (account.getGcpProjectId() != null && !account.getGcpProjectId().isBlank()) {
+            return account.getGcpProjectId();
+        }
+        return account.getAzureSubscriptionId();
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null) return false;
+        return java.security.MessageDigest.isEqual(
+                a.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                b.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     /**

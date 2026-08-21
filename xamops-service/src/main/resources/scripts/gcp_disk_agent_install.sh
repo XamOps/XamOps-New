@@ -16,6 +16,9 @@
 #
 # Options:
 #   -t PROJECT_ID  Your GCP project ID (required, e.g. my-project-123)
+#   -k API_KEY     Account-scoped agent key from XamOps (recommended).
+#                  Without it the agent falls back to the shared legacy key, which
+#                  cannot prove which account it belongs to and is being retired.
 #   -b BASE_URL    XamOps API base URL (default: https://api.xamops.com)
 #   -v VERSION     Agent version to install (default: latest)
 # ---------------------------------------------------------------------------
@@ -27,17 +30,23 @@ info()  { echo -e "${GREEN}[xamops]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[xamops]${NC} $*"; }
 error() { echo -e "${RED}[xamops]${NC} $*"; exit 1; }
 
-# ── Baked-in XamOps connection ────────────────────────────────────────────────
-XAMOPS_API_KEY="xamops_SecureAgentKey2024XamOps"
+# ── Legacy shared key ─────────────────────────────────────────────────────────
+# Published in this public script, identical for every customer, and it proves
+# nothing about which account a request belongs to. Prefer -k with an
+# account-scoped key from XamOps; this fallback only keeps older documented
+# installs working.
+LEGACY_SHARED_KEY="xamops_SecureAgentKey2024XamOps"
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 GCP_PROJECT_ID=""
+XAMOPS_API_KEY=""
 BASE_URL="https://api.xamops.com"
 AGENT_VERSION="latest"
 
-while getopts "t:b:v:" opt; do
+while getopts "t:k:b:v:" opt; do
   case $opt in
     t) GCP_PROJECT_ID="$OPTARG" ;;
+    k) XAMOPS_API_KEY="$OPTARG" ;;
     b) BASE_URL="$OPTARG" ;;
     v) AGENT_VERSION="$OPTARG" ;;
     *) error "Unknown option: -$OPTARG" ;;
@@ -45,6 +54,14 @@ while getopts "t:b:v:" opt; do
 done
 
 [[ -z "$GCP_PROJECT_ID" ]] && error "-t <gcp-project-id> is required — your GCP project ID (e.g. my-project-123)"
+
+if [[ -z "$XAMOPS_API_KEY" ]]; then
+  XAMOPS_API_KEY="$LEGACY_SHARED_KEY"
+  warn "No -k <api-key> given — using the shared legacy key, which is being retired."
+  warn "Get an account-scoped key from XamOps and re-run with -k <api-key>."
+else
+  info "Using account-scoped agent key (${XAMOPS_API_KEY:0:12}...)"
+fi
 
 # ── Detect OS/arch ────────────────────────────────────────────────────────────
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

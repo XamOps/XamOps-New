@@ -88,6 +88,22 @@ public class CloudAccount {
     @Column(name = "azure_billing_rg")
     private String azureBillingRg;
 
+    /**
+     * Account-scoped agent credential, for agents that are not tied to a Kubernetes cluster
+     * (disk and database agents on VMs). Clusters keep their own key on
+     * {@code kubernetes_cluster_config.agent_api_key}.
+     *
+     * {@code @JsonIgnore} because this entity is serialised directly by several account
+     * endpoints — without it, a credential would be returned to the browser by any response
+     * that happens to include a CloudAccount.
+     */
+    @JsonIgnore
+    @Column(name = "agent_api_key", length = 64)
+    private String agentApiKey;
+
+    @Column(name = "agent_key_issued_at")
+    private Instant agentKeyIssuedAt;
+
     @Column(name = "azure_billing_storage_account")
     private String azureBillingStorageAccount;
 

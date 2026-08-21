@@ -425,6 +425,18 @@ service:
       exporters: [otlphttp]
 EOF
 
+  # This file embeds the OpenObserve Authorization header in cleartext. `cat >` leaves it
+  # 0644, so every local user on the customer's instance could read the platform credential
+  # out of it.
+  #
+  # 0640 root:otelcol-contrib rather than 0600 root:root: this script patches the unit to
+  # User=root, but that patch is best-effort and silently does nothing when the unit has no
+  # User= line — in which case the collector runs unprivileged and a root-only config stops
+  # it starting at all. Group-readable works under either outcome.
+  chown root:otelcol-contrib "$OTEL_CONFIG_DIR/config.yaml" 2>/dev/null \
+    || chown root:root "$OTEL_CONFIG_DIR/config.yaml" 2>/dev/null || true
+  chmod 640 "$OTEL_CONFIG_DIR/config.yaml"
+
   success "Config written to $OTEL_CONFIG_DIR/config.yaml"
 }
 

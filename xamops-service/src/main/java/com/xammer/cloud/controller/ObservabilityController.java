@@ -564,6 +564,23 @@ public class ObservabilityController {
      * sensible "temporarily unavailable" state, while the full detail stays in the logs.
      */
     private ResponseEntity<Map<String, Object>> errorResponse(String operation, Exception e) {
+        // Rejected input (bad stream name, non-SELECT query from the SQL editor). The message
+        // is written for the user and is the only actionable thing we can tell them, so it is
+        // returned as a 400 rather than being flattened into a generic 500.
+        if (e instanceof IllegalArgumentException) {
+            logger.debug("{} rejected invalid input: {}", operation, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", e.getMessage() != null ? e.getMessage() : "Invalid request",
+                    "retryable", false));
+        }
+        // Not-provisioned / no scoped ingestion credential. The message says what to do about
+        // it, so it goes to the user as 409 rather than being flattened into a generic 500.
+        if (e instanceof IllegalStateException) {
+            logger.warn("{} could not complete: {}", operation, e.getMessage());
+            return ResponseEntity.status(409).body(Map.of(
+                    "error", e.getMessage() != null ? e.getMessage() : "Not provisioned",
+                    "retryable", false));
+        }
         if (isInfrastructureFailure(e)) {
             logger.error("{} failed (infrastructure): {}", operation, e.toString());
             return ResponseEntity.status(503).body(Map.of(
@@ -576,8 +593,20 @@ public class ObservabilityController {
                 "retryable", false));
     }
 
-    /** Plain-text variant for the config/manifest generator endpoints. */
+    /**
+     * Plain-text variant for the config/manifest generator endpoints.
+     *
+     * These render into a code block the user is about to copy, so a generic
+     * "could not generate configuration" left them with nothing to act on. A refusal to issue
+     * credentials is explained inline instead — it is the difference between "this product is
+     * broken" and "provision this account first".
+     */
     private ResponseEntity<String> errorResponseText(String operation, Exception e) {
+        if (e instanceof IllegalStateException || e instanceof IllegalArgumentException) {
+            logger.warn("{} could not complete: {}", operation, e.getMessage());
+            return ResponseEntity.status(e instanceof IllegalStateException ? 409 : 400)
+                    .body("# Configuration was not generated.\n#\n# " + e.getMessage());
+        }
         if (isInfrastructureFailure(e)) {
             logger.error("{} failed (infrastructure): {}", operation, e.toString());
             return ResponseEntity.status(503)

@@ -45,6 +45,11 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     @Query("SELECT ca FROM CloudAccount ca WHERE ca.awsAccountId = :accountId OR ca.gcpProjectId = :accountId OR ca.azureSubscriptionId = :accountId")
     Optional<CloudAccount> findByProviderAccountId(@Param("accountId") String accountId);
 
+    /** Resolves an agent's account-scoped API key to the account that owns it. */
+    Optional<CloudAccount> findByAgentApiKey(String agentApiKey);
+
+    boolean existsByAgentApiKey(String agentApiKey);
+
     Optional<CloudAccount> findByAzureSubscriptionId(String subscriptionId);
 
     Optional<CloudAccount> findByGcpBillingAccountId(String gcpBillingAccountId);

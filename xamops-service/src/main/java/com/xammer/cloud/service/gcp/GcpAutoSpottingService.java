@@ -94,6 +94,26 @@ public class GcpAutoSpottingService {
         public int spotInstanceCount;
         public int ondemandInstanceCount;
         public String machineType; // Added to track machine type
+
+        /**
+         * Currency of every cost field above. Always USD.
+         *
+         * <p>Stated explicitly because these figures used to be INR while the rest of the GCP
+         * dashboard was USD, and the dashboard summed the two.
+         */
+        public String currency;
+
+        /** {@link GcpPricingService.PriceSource}, so the UI can distinguish a list price from an estimate. */
+        public String priceSource;
+
+        /** Why the price is estimated or missing. Null when it is a plain catalog list price. */
+        public String pricingNote;
+
+        /**
+         * True when this group could not be priced. The cost fields are zero in that case, and
+         * zero means "not counted" rather than "free".
+         */
+        public boolean savingsUnknown;
     }
 
     public List<GcpAutoSpottingGroupDto> listMigsAllRegionsWithCosts(String accountId) {
@@ -119,9 +139,10 @@ public class GcpAutoSpottingService {
 
         for (GcpAutoSpottingGroupDto mig : migs) {
             try {
-                enrichMigCostData(mig);
+                enrichMigCostData(mig, gcpProjectId);
             } catch (Exception e) {
                 log.warn("Failed to enrich cost data for MIG {}: {}", mig.name, e.getMessage());
+                markCostUnknown(mig, "Cost enrichment failed: " + e.getMessage());
             }
         }
 
@@ -132,13 +153,30 @@ public class GcpAutoSpottingService {
         return migs;
     }
 
-    private void enrichMigCostData(GcpAutoSpottingGroupDto mig) {
-        // Use real GCP pricing based on machine type and region
-        String machineType = mig.machineType != null ? mig.machineType : "n1-standard-1"; // fallback
+    private void enrichMigCostData(GcpAutoSpottingGroupDto mig, String gcpProjectId) {
         String region = extractRegionFromZone(mig.region);
 
+        // Substituting n1-standard-1 for an unknown machine type produced a confident cost for a
+        // machine whose shape nobody knew. An unpriced row is the honest answer.
+        if (mig.machineType == null || mig.machineType.isBlank()) {
+            markCostUnknown(mig, "Machine type unknown, so this group cannot be costed");
+            return;
+        }
+        String machineType = mig.machineType;
+
         try {
-            GcpPricingService.PricingInfo pricing = pricingService.getMachineTypePricing(machineType, region);
+            GcpPricingService.PricingInfo pricing =
+                    pricingService.getMachineTypePricing(machineType, region, gcpProjectId);
+
+            if (!pricing.isPriced()) {
+                markCostUnknown(mig, "No list price available for " + machineType + " in " + region
+                        + (pricing.getNote() == null ? "" : " (" + pricing.getNote() + ")"));
+                return;
+            }
+
+            mig.priceSource = pricing.getSource().name();
+            mig.currency = pricing.getCurrency();
+            mig.pricingNote = pricing.getNote();
 
             double onDemandPricePerInstance = pricing.getOnDemandPrice();
             double spotPricePerInstance = pricing.getSpotPrice();
@@ -160,24 +198,40 @@ public class GcpAutoSpottingService {
             // Calculate potential hourly savings (only for instances still on on-demand)
             mig.potentialHourlySavings = mig.ondemandInstanceCount * (onDemandPricePerInstance - spotPricePerInstance);
 
-            log.debug("Enriched cost data for MIG {}: machineType={}, onDemand=₹{}/hr, spot=₹{}/hr, savings=₹{}/hr",
+            log.debug("Enriched cost data for MIG {}: machineType={}, onDemand=${}/hr, spot=${}/hr, "
+                    + "savings=${}/hr, source={}",
                     mig.name, machineType,
-                    String.format("%.2f", onDemandPricePerInstance),
-                    String.format("%.2f", spotPricePerInstance),
-                    String.format("%.2f", mig.potentialHourlySavings));
+                    String.format("%.4f", onDemandPricePerInstance),
+                    String.format("%.4f", spotPricePerInstance),
+                    String.format("%.4f", mig.potentialHourlySavings),
+                    pricing.getSource());
 
         } catch (Exception e) {
-            log.warn("Failed to get pricing for machine type {}: {}. Using defaults.", machineType, e.getMessage());
-
-            // Fallback to conservative estimates
-            double fallbackOdPrice = 0.05;
-            double fallbackSpotPrice = 0.015;
-
-            mig.currentHourlyCost = (mig.ondemandInstanceCount * fallbackOdPrice) + (mig.spotInstanceCount * fallbackSpotPrice);
-            mig.potentialHourlyCost = mig.instanceCount * fallbackSpotPrice;
-            mig.actualHourlySavings = mig.isEnabled ? (mig.spotInstanceCount * (fallbackOdPrice - fallbackSpotPrice)) : 0.0;
-            mig.potentialHourlySavings = mig.ondemandInstanceCount * (fallbackOdPrice - fallbackSpotPrice);
+            // The previous fallback invented $0.05/hr on-demand and $0.015/hr spot for any machine
+            // type, which is both unrelated to the machine and denominated differently from the
+            // INR the pricing service returned at the time.
+            log.warn("Failed to get pricing for machine type {}: {}", machineType, e.getMessage());
+            markCostUnknown(mig, "Pricing lookup failed for " + machineType);
         }
+    }
+
+    /**
+     * Zeroes a group's cost fields and records why.
+     *
+     * <p>Zero here means "not counted", not "free". {@code savingsUnknown} is what the dashboard
+     * reads to keep the row out of the savings total instead of contributing a figure nobody can
+     * stand behind.
+     */
+    private void markCostUnknown(GcpAutoSpottingGroupDto mig, String reason) {
+        mig.currentHourlyCost = 0.0;
+        mig.potentialHourlyCost = 0.0;
+        mig.actualHourlySavings = 0.0;
+        mig.potentialHourlySavings = 0.0;
+        mig.savingsUnknown = true;
+        mig.currency = "USD";
+        mig.priceSource = GcpPricingService.PriceSource.UNAVAILABLE.name();
+        mig.pricingNote = reason;
+        log.debug("[GCP AutoSpotting] {} reported unpriced: {}", mig.name, reason);
     }
 
     /**
@@ -439,7 +493,7 @@ public class GcpAutoSpottingService {
 
         response.setSummary(summary);
 
-        log.info("✅ [GCP] Returning {} data points, total savings: ₹{}", dataPoints.size(), totalSaved);
+        log.info("✅ [GCP] Returning {} data points, total savings: ${}", dataPoints.size(), totalSaved);
         return response;
     }
 
@@ -498,7 +552,7 @@ public class GcpAutoSpottingService {
                     record.setNewInstanceType(event.getNewInstanceType());
                     record.setNewLifecycle("spot");
                     record.setReason(event.getDetails() != null ? event.getDetails()
-                        : "On-Demand instance replaced with Spot VM. Hourly savings: ₹"
+                        : "On-Demand instance replaced with Spot VM. Hourly savings: $"
                         + String.format("%.4f", event.getHourlySavings() != null ? event.getHourlySavings() : 0.0));
                 } else if ("INTERRUPTED".equals(evStatus)) {
                     record.setEventType("spot_interruption");
@@ -546,7 +600,7 @@ public class GcpAutoSpottingService {
             // Debug: Log each event's savings
             eventRecords.stream()
                 .filter(e -> e.getEstimatedSavings() != null)
-                .forEach(e -> log.info("🔍 [GCP Events Debug] Event savings: ₹{}",
+                .forEach(e -> log.info("🔍 [GCP Events Debug] Event savings: ${}",
                     String.format("%.4f", e.getEstimatedSavings())));
 
             double totalSavings = eventRecords.stream()
@@ -554,7 +608,7 @@ public class GcpAutoSpottingService {
                 .mapToDouble(com.xammer.cloud.dto.autospotting.EventRecord::getEstimatedSavings)
                 .sum();
 
-            log.info("🔍 [GCP Events Debug] Calculated total savings: ₹{}", String.format("%.4f", totalSavings));
+            log.info("🔍 [GCP Events Debug] Calculated total savings: ${}", String.format("%.4f", totalSavings));
             
             // Build response
             com.xammer.cloud.dto.autospotting.EventsResponse response = new com.xammer.cloud.dto.autospotting.EventsResponse();
@@ -570,7 +624,7 @@ public class GcpAutoSpottingService {
             summary.setTotalEstimatedSavings(totalSavings);
             response.setSummary(summary);
             
-            log.info("✅ [GCP] Retrieved {} events with {} replacements, {} interruptions, ₹{} total savings",
+            log.info("✅ [GCP] Retrieved {} events with {} replacements, {} interruptions, ${} total savings",
                 eventRecords.size(), totalReplacements, totalInterruptions, String.format("%.2f", totalSavings));
             
             return response;
@@ -816,9 +870,16 @@ public class GcpAutoSpottingService {
                         : "n1-standard-1";
 
                     GcpPricingService.PricingInfo pricing = pricingService.getMachineTypePricing(
-                        machineTypeName, extractRegionFromZone(region));
-                    double savingsPerInstance = pricing.getOnDemandPrice() - pricing.getSpotPrice();
-                    recordSavingsEvent(account, igmName, region, instanceCount, savingsPerInstance, true);
+                        machineTypeName, extractRegionFromZone(region), projectId);
+                    if (!pricing.isPriced()) {
+                        // Recording a savings event with a fabricated rate would put a wrong number
+                        // into the persisted daily-savings history, where it is never revisited.
+                        log.warn("⚠️ [GCP] Spot enabled for {} but {} could not be priced ({}); no "
+                                + "savings event recorded", igmName, machineTypeName, pricing.getNote());
+                    } else {
+                        double savingsPerInstance = pricing.getOnDemandPrice() - pricing.getSpotPrice();
+                        recordSavingsEvent(account, igmName, region, instanceCount, savingsPerInstance, true);
+                    }
                 } catch (Exception e) {
                     log.warn("⚠️ [GCP] Could not record savings event: {}", e.getMessage());
                 }
@@ -1221,7 +1282,7 @@ public class GcpAutoSpottingService {
                                     int instanceCount, double hourlySavingsPerInstance, boolean enabled) {
         try {
             double totalHourlySavings = instanceCount * hourlySavingsPerInstance;
-            log.info("🔍 [GCP Event Record Debug] instanceCount={}, savingsPerInstance=₹{}, total=₹{}",
+            log.info("🔍 [GCP Event Record Debug] instanceCount={}, savingsPerInstance=${}, total=${}",
                 instanceCount,
                 String.format("%.4f", hourlySavingsPerInstance),
                 String.format("%.4f", totalHourlySavings));
@@ -1238,7 +1299,7 @@ public class GcpAutoSpottingService {
             event.setEventTime(java.time.Instant.now());
 
             eventRepository.save(event);
-            log.info("📊 [GCP] Recorded savings event for MIG: {} (₹{}/hr)", migName,
+            log.info("📊 [GCP] Recorded savings event for MIG: {} (${}/hr)", migName,
                 String.format("%.2f", event.getHourlySavings()));
 
             // Update daily savings
@@ -1272,7 +1333,7 @@ public class GcpAutoSpottingService {
             }
 
             savingsRepository.save(dailySavings);
-            log.info("📈 [GCP] Updated daily savings: ₹{} total for {}",
+            log.info("📈 [GCP] Updated daily savings: ${} total for {}",
                 String.format("%.2f", dailySavings.getAmountSaved()), today);
 
         } catch (Exception e) {
@@ -1324,28 +1385,29 @@ public class GcpAutoSpottingService {
         int totalSpotInstances = 0;
         
         for (GcpAutoSpottingGroupDto mig : migs) {
-            if (mig.isEnabled && mig.spotInstanceCount > 0) {
-                // Calculate hourly savings per instance
-                try {
-                    GcpPricingService.PricingInfo pricing = pricingService.getMachineTypePricing(
-                        mig.machineType != null ? mig.machineType : "n1-standard-1",
-                        mig.region
-                    );
-                    
-                    double hourlySavingsPerInstance = pricing.getOnDemandPrice() - pricing.getSpotPrice();
-                    // Daily savings = hourly savings × 24 hours × number of spot instances
-                    double dailySavingsForMig = hourlySavingsPerInstance * 24 * mig.spotInstanceCount;
-                    
-                    totalDailySavings += dailySavingsForMig;
-                    totalSpotInstances += mig.spotInstanceCount;
-                    
-                    log.debug("💰 [GCP] MIG {} has {} spot instances, daily savings: ₹{}", 
-                        mig.name, mig.spotInstanceCount, String.format("%.2f", dailySavingsForMig));
-                        
-                } catch (Exception e) {
-                    log.warn("⚠️ [GCP] Failed to calculate savings for MIG {}: {}", mig.name, e.getMessage());
-                }
+            if (!mig.isEnabled || mig.spotInstanceCount <= 0) {
+                continue;
             }
+
+            // A group that could not be priced contributes nothing. It used to be costed as an
+            // n1-standard-1 regardless of what it actually was, and the result was written to the
+            // persisted savings history where nothing ever corrects it.
+            if (mig.savingsUnknown) {
+                log.warn("⚠️ [GCP] MIG {} has {} spot instance(s) but no usable price ({}); excluded "
+                        + "from today's recorded savings",
+                        mig.name, mig.spotInstanceCount, mig.pricingNote);
+                continue;
+            }
+
+            // actualHourlySavings already accounts for the spot instance count, so multiplying by
+            // it again would have squared the figure.
+            double dailySavingsForMig = mig.actualHourlySavings * 24;
+
+            totalDailySavings += dailySavingsForMig;
+            totalSpotInstances += mig.spotInstanceCount;
+
+            log.debug("💰 [GCP] MIG {} has {} spot instances, daily savings: ${}",
+                mig.name, mig.spotInstanceCount, String.format("%.4f", dailySavingsForMig));
         }
         
         // Only record if there are actual spot instances running
@@ -1368,7 +1430,7 @@ public class GcpAutoSpottingService {
             }
             
             savingsRepository.save(dailySavings);
-            log.info("💾 [GCP] Recorded daily savings for {}: ₹{} from {} spot instances", 
+            log.info("💾 [GCP] Recorded daily savings for {}: ${} from {} spot instances", 
                 gcpProjectId, String.format("%.2f", totalDailySavings), totalSpotInstances);
         } else {
             log.debug("ℹ️ [GCP] No spot instances running for account: {}", gcpProjectId);

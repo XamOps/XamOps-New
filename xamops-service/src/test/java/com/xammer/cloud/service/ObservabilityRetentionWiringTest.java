@@ -11,6 +11,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
+import org.springframework.mock.env.MockPropertySource;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
@@ -52,6 +53,11 @@ class ObservabilityRetentionWiringTest {
     /** Builds the real beans through their real constructors, as Spring does at startup. */
     private AnnotationConfigApplicationContext newContext() {
         AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
+        // OpenObserveService refuses to start without admin credentials, so a context that
+        // stands in for startup has to supply them the way a real deployment does.
+        ctx.getEnvironment().getPropertySources().addFirst(new MockPropertySource()
+                .withProperty("openobserve.admin.email", "test@example.invalid")
+                .withProperty("openobserve.admin.password", "test-password"));
         ctx.register(Deps.class, OpenObserveService.class, ObservabilityRetentionReconciler.class);
         ctx.refresh();
         return ctx;

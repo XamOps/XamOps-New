@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpDiskRightsizingData, GcpDisk } from '../hooks/useGcpDiskRightsizingData';
+import { useAgentInstallConfig } from '../hooks/useAgentInstallConfig';
 import { useTopbarActions } from '../contexts/TopbarContext';
 
 const PAGE_SIZE = 20;
@@ -57,7 +58,10 @@ const GcpAgentSetupGuide: React.FC<{ count: number; gcpProjectId: string | null;
   const projectArg   = gcpProjectId ?? '<gcp-project-id>';
   const isNgrok      = serverUrl.includes('ngrok');
   const curlHeaders  = isNgrok ? ' -H "ngrok-skip-browser-warning: true"' : '';
-  const AGENT_CMD    = `curl -fsSL${curlHeaders} ${serverUrl}/agentinstall/gcp_disk_agent_install.sh | sudo bash -s -- -b ${serverUrl} -t ${projectArg}`;
+  // Scoped agent key embedded automatically — see the EBS guide for why.
+  const { config: agentConfig } = useAgentInstallConfig(expanded);
+  const keyArg       = agentConfig.apiKey ? ` -k ${agentConfig.apiKey}` : '';
+  const AGENT_CMD    = `curl -fsSL${curlHeaders} ${serverUrl}/agentinstall/gcp_disk_agent_install.sh | sudo bash -s -- -b ${serverUrl} -t ${projectArg}${keyArg}`;
 
   const copy = () => {
     navigator.clipboard.writeText(AGENT_CMD).then(() => {

@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { DialogRoot, DialogPanel } from '../ui';
+import { useAgentInstallConfig } from '../../hooks/useAgentInstallConfig';
 
 interface GkeHelpModalProps {
   isOpen: boolean;
@@ -106,6 +107,10 @@ const VariableNote: React.FC<{ variables: string[] }> = ({ variables }) => (
 const GkeHelpModal: React.FC<GkeHelpModalProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'part1' | 'part2' | 'part3' | 'part4'>('overview');
 
+  // Supplies an agent key scoped to the selected GCP project so the manifest below is
+  // copy-paste ready. This guide previously hardcoded the shared key as a literal string.
+  const { config: agentConfig } = useAgentInstallConfig(isOpen);
+
   useEffect(() => {
     const mainContent = document.getElementById('main-content');
     if (isOpen) {
@@ -166,7 +171,7 @@ const GkeHelpModal: React.FC<GkeHelpModalProps> = ({ isOpen, onClose }) => {
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'part1'    && <Part1Tab />}
           {activeTab === 'part2'    && <Part2Tab />}
-          {activeTab === 'part3'    && <Part3Tab />}
+          {activeTab === 'part3'    && <Part3Tab apiKey={agentConfig.apiKey} />}
           {activeTab === 'part4'    && <Part4Tab />}
         </div>
       </DialogPanel>
@@ -704,7 +709,7 @@ kubectl get configurationscansummaries -A --no-headers | head -10`} />
 );
 
 // ─── Part 3: XamOps Agent ─────────────────────────────────────────────────────
-const Part3Tab: React.FC = () => (
+const Part3Tab: React.FC<{ apiKey: string }> = ({ apiKey }) => (
   <div className="space-y-6">
     <h3 className="text-xl font-bold text-gray-800 mb-2">Part 3: XamOps Observability Agent</h3>
     <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded-r-lg">
@@ -858,12 +863,14 @@ metadata:
   namespace: xamops-system
 type: Opaque
 stringData:
-  XAMOPS_API_KEY: "xamops_SecureAgentKey2024XamOps"
+  XAMOPS_API_KEY: "${apiKey || '<paste-your-agent-key>'}"
 EOF`}
       />
       <div className="bg-indigo-50 border border-indigo-200 rounded p-3 text-sm text-indigo-800 mt-2">
         <i className="fas fa-lock mr-2"></i>
-        The API key is a global shared key pre-configured for all clusters. Your cluster is identified by CLUSTER_NAME + CLOUD_ACCOUNT_ID (GCP Project ID).
+        This key is scoped to the selected cloud account and is filled in for you. It only
+        authorises data for that account, so it cannot be used to read or write another
+        account's data.
       </div>
     </CollapsibleSection>
 

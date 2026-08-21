@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import apiClient from '../../utils/apiClient';
 import { useAccounts } from '../../contexts/AccountContext';
+import { useAgentInstallConfig } from '../../hooks/useAgentInstallConfig';
 import { QueryPlanViewer } from './QueryPlanViewer';
 import { useExplainQuery } from '../../hooks/useExplainQuery';
 import { useMongoData } from '../../hooks/useMongoData';
@@ -374,12 +375,11 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
     // Default to empty so the user fills in the tunnel/public URL.
     return origin.includes('localhost') ? '' : origin;
   });
-  const [apiKey, setApiKey] = useState('xamops_SecureAgentKey2024XamOps');
+  const [apiKey, setApiKey] = useState('');
   const [cloudAccountId, setCloudAccountId] = useState(selectedAccountIds[0] ?? '');
   const [clusterName, setClusterName] = useState(instanceId);
   const [queryLimit, setQueryLimit] = useState(200);
-
-  const FALLBACK_KEY = 'xamops_SecureAgentKey2024XamOps';
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
 
   // View mode: loading → wizard | connected | disconnected
   const [viewMode, setViewMode] = useState<'loading' | 'wizard' | 'connected' | 'disconnected'>('loading');
@@ -398,11 +398,21 @@ function AgentSetupWizard({ engine, instanceId, endpoint, onConnected }: { engin
       .catch(() => setDisconnecting(false));
   };
 
+  // The install command embeds an agent key scoped to this cloud account, fetched through the
+  // same hook every other install guide uses so there is one code path for issuing keys.
+  //
+  // There is deliberately no hardcoded fallback: the old one shipped the shared global key in
+  // the frontend bundle, which is how that key stopped being a secret. If it cannot be fetched
+  // the command renders a visible placeholder rather than a credential that would grant this
+  // agent access beyond its own account.
+  const { config: agentConfig, usedFallback: agentKeyFailed } = useAgentInstallConfig(true);
+
   useEffect(() => {
-    apiClient.get<{ apiKey: string }>('/api/v1/agent/install-info')
-      .then(res => setApiKey(res.apiKey || FALLBACK_KEY))
-      .catch(() => setApiKey(FALLBACK_KEY));
-  }, []);
+    setApiKey(agentConfig.apiKey || '');
+    setApiKeyError(agentKeyFailed || !agentConfig.apiKey
+      ? 'Could not issue an agent key for this account. Refresh to retry.'
+      : null);
+  }, [agentConfig.apiKey, agentKeyFailed]);
 
   // On mount: load config + check status to decide view mode
   useEffect(() => {
@@ -1067,6 +1077,11 @@ db.grantRolesToUser("xamops_reader", [
         <p className="text-[10px] font-bold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1">
           2. Start the agent
         </p>
+        {apiKeyError && (
+          <div role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800">
+            {apiKeyError} The command below is missing its API key until then.
+          </div>
+        )}
         <div className="relative">
           <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed whitespace-pre-wrap break-all">
             {runCmd}
