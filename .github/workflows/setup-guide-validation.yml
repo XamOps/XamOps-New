@@ -80,19 +80,25 @@ jobs:
           EKS_TAG=$(grep -oE "AGENT_IMAGE_TAG = '[^']+'" \
             frontend-app/src/components/EksDetails/EksIntegrationModal.tsx \
             | head -1 | sed "s/.*'\(.*\)'/\1/")
+          # GKE was omitted from this check and had silently drifted to v2.0.0 while the
+          # installer and the other two guides moved to v2.1.0.
+          GKE_TAG=$(grep -oE "AGENT_IMAGE_TAG = '[^']+'" \
+            frontend-app/src/components/GkeDetails/GkeHelpModal.tsx \
+            | head -1 | sed "s/.*'\(.*\)'/\1/")
           SCRIPT_TAG=$(grep -oE 'AGENT_IMAGE="docker\.io/xamops/agent:[^"]+"' \
             xamops-service/src/main/resources/agent-install/install-k8s.sh \
             | head -1 | sed 's/.*agent://; s/"$//')
-          echo "guide=$GUIDE_TAG script=$SCRIPT_TAG"
-          if [ -z "$GUIDE_TAG" ] || [ -z "$SCRIPT_TAG" ]; then
-            echo "::error::Could not extract the agent image tag from both sources"
+          echo "aks=$GUIDE_TAG eks=$EKS_TAG gke=$GKE_TAG installer=$SCRIPT_TAG"
+          if [ -z "$GUIDE_TAG" ] || [ -z "$EKS_TAG" ] || [ -z "$GKE_TAG" ] || [ -z "$SCRIPT_TAG" ]; then
+            echo "::error::Could not extract the agent image tag from every source"
             exit 1
           fi
-          if [ "$GUIDE_TAG" != "$SCRIPT_TAG" ] || [ "$EKS_TAG" != "$SCRIPT_TAG" ]; then
-            echo "::error::Agent image tag mismatch — aks guide=$GUIDE_TAG eks guide=$EKS_TAG installer=$SCRIPT_TAG"
+          if [ "$GUIDE_TAG" != "$SCRIPT_TAG" ] || [ "$EKS_TAG" != "$SCRIPT_TAG" ] \
+             || [ "$GKE_TAG" != "$SCRIPT_TAG" ]; then
+            echo "::error::Agent image tag mismatch — aks=$GUIDE_TAG eks=$EKS_TAG gke=$GKE_TAG installer=$SCRIPT_TAG"
             exit 1
           fi
-          echo "ok  both deploy agent:$GUIDE_TAG"
+          echo "ok  all guides and the installer deploy agent:$SCRIPT_TAG"
 
       - name: Reject unescaped commas in --set values
         run: |
