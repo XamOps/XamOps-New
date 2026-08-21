@@ -45,6 +45,16 @@ public class ComplianceOpsService {
     private final ComplianceControlOwnerRepository ownerRepo;
     private final ComplianceRemediationRepository remediationRepo;
 
+    /**
+     * Optional, so the page is unchanged when live findings are disabled. Field-injected rather than
+     * added to a seven-argument constructor.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.security.SecurityFindingProjectionService liveFindings;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository;
+
     public ComplianceOpsService(ComplianceScanRepository scanRepo,
             ComplianceControlResultRepository resultRepo,
             ComplianceControlFrameworkRepository frameworkRepo,
@@ -155,7 +165,122 @@ public class ComplianceOpsService {
         report.setProgram(buildProgramHealth(accountId, results, effectiveStatus, owners, now));
 
         addNotes(report, scan, results, effectiveStatus);
+        stampLiveDrift(report, accountId, controls);
         return report;
+    }
+
+    /**
+     * Adds what the event stream has seen since the scan started.
+     *
+     * <p>
+     * This is the difference between a compliance page that reflects last Saturday and one that
+     * reflects today. AWS Config reports a control transitioning to NON_COMPLIANT within minutes of
+     * the change, and back to COMPLIANT when it is fixed — the only source in the platform that
+     * closes its own findings — so a control can flip both ways here without a rescan.
+     *
+     * <p>
+     * The scan's own {@code status} is left untouched. The two are different kinds of evidence with
+     * different scope: the scan evaluated every resource, an event describes one. A control marked
+     * PASS by the scan and drifted by an event is an accurate description of both, whereas
+     * overwriting the status would destroy the scan's history and make the trend line lie.
+     *
+     * <p>
+     * Never throws. A compliance report that fails to load because a supplementary section could
+     * not be computed would be a considerably worse outcome than a missing banner.
+     */
+    private void stampLiveDrift(ComplianceReport report, String accountId,
+            List<ComplianceReport.ControlView> controls) {
+
+        ComplianceReport.LiveDrift drift = new ComplianceReport.LiveDrift();
+        report.setLiveDrift(drift);
+
+        if (liveFindings == null || !liveFindings.isEnabled()) {
+            return;
+        }
+        try {
+            Long cloudAccountId = cloudAccountRepository.findByProviderAccountId(accountId)
+                    .map(a -> a.getId()).orElse(null);
+            if (cloudAccountId == null) {
+                return;
+            }
+            drift.setAvailable(true);
+
+            if (report.getScannedAt() != null) {
+                drift.setFindingsSinceScan(
+                        (int) liveFindings.countSince(cloudAccountId, report.getScannedAt()));
+            }
+
+            Map<String, String> failing = liveFindings.failingControlIds(cloudAccountId);
+            if (failing.isEmpty()) {
+                return;
+            }
+
+            // Marked on the control rows so the table can show the flip inline, which is where a
+            // user looking at a specific control will actually look.
+            for (ComplianceReport.ControlView control : controls) {
+                String severity = matchControl(failing, control.getCheckId());
+                if (severity != null) {
+                    control.setDriftedSinceScan(true);
+                    control.setDriftSeverity(severity);
+                }
+            }
+
+            List<ComplianceReport.DriftedControl> drifted = new ArrayList<>();
+            for (com.xammer.cloud.domain.CloudSecurityFinding f : liveFindings.active(cloudAccountId)) {
+                if (f.getControlId() == null || f.getControlId().isBlank()) {
+                    continue;
+                }
+                ComplianceReport.DriftedControl item = new ComplianceReport.DriftedControl();
+                item.setControlId(f.getControlId());
+                item.setSeverity(f.getSeverity());
+                item.setTitle(f.getTitle());
+                item.setResource(f.getResourceArn());
+                item.setDetectedAt(f.getFirstSeenAt());
+                item.setSource(f.getSource());
+                drifted.add(item);
+            }
+            drift.setControls(drifted);
+            drift.setControlsAffected(failing.size());
+            drift.setWorstSeverity(com.xammer.cloud.service.security.SecuritySeverity
+                    .worstOf(failing.values()));
+
+            if (drift.getFindingsSinceScan() > 0) {
+                report.getNotes().add(drift.getFindingsSinceScan() + " finding(s) have arrived from "
+                        + "the event stream since this scan ran, affecting " + failing.size()
+                        + " control(s). The score reflects the scan, not these.");
+            }
+        } catch (Exception e) {
+            logger.warn("[ComplianceOps] Could not compute live drift for {}: {}",
+                    accountId, e.getMessage());
+        }
+    }
+
+    /**
+     * Matches a scan check id against a live control id.
+     *
+     * <p>
+     * Exact match first, then a containment check in both directions, because the two vocabularies
+     * are related but not identical: Prowler emits {@code s3_bucket_public_read_prohibited} while
+     * Config names the same rule {@code s3-bucket-public-read-prohibited} and Security Hub calls it
+     * {@code S3.2}. Normalising separators catches the first pair; the rest is left unmatched rather
+     * than guessed, because a wrong match would mark the wrong control as drifted.
+     */
+    private static String matchControl(Map<String, String> failing, String checkId) {
+        if (checkId == null || checkId.isBlank()) {
+            return null;
+        }
+        String direct = failing.get(checkId);
+        if (direct != null) {
+            return direct;
+        }
+        String normalised = checkId.toLowerCase(java.util.Locale.ROOT).replace('-', '_');
+        for (Map.Entry<String, String> entry : failing.entrySet()) {
+            String candidate = entry.getKey().toLowerCase(java.util.Locale.ROOT).replace('-', '_');
+            if (candidate.equals(normalised)) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     // ── Waivers ─────────────────────────────────────────────────────────────

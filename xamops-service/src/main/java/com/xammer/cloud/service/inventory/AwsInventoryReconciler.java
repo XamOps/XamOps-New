@@ -509,12 +509,12 @@ public class AwsInventoryReconciler {
         // reporting "apparent connection leak" — a describe taking seconds pins a
         // connection for that whole time, which under a few accounts would exhaust the
         // pool and stall unrelated requests.
-        Map<String, String> liveStates = fetchLiveStates(account, resources);
+        LiveFacts liveFacts = fetchLiveStates(account, resources);
 
         // Wrapped explicitly rather than annotated: see transactionTemplate above for why
         // @Transactional does nothing on this self-invoked method.
         return transactionTemplate.execute(status -> persistInTransaction(
-                account, resources, indexInfo, startMs, liveStates));
+                account, resources, indexInfo, startMs, liveFacts));
     }
 
     /**
@@ -540,9 +540,11 @@ public class AwsInventoryReconciler {
      * A stale state column is a far smaller problem than an aborted sync that leaves the
      * entire inventory unrefreshed.
      *
-     * @return state by {@link #stateKey}, empty when nothing needed resolving
+     * @return states and describe-derived attributes, both keyed by {@link #stateKey}
      */
-    private Map<String, String> fetchLiveStates(CloudAccount account, List<Resource> resources) {
+    private LiveFacts fetchLiveStates(CloudAccount account, List<Resource> resources) {
+        LiveFacts facts = new LiveFacts();
+
         // Which (type, region) pairs actually occur, so no call is made speculatively.
         Map<String, Set<String>> regionsByType = new HashMap<>();
         for (Resource re : resources) {
@@ -553,17 +555,18 @@ public class AwsInventoryReconciler {
             regionsByType.computeIfAbsent(type, t -> new LinkedHashSet<>()).add(re.region());
         }
         if (regionsByType.isEmpty()) {
-            return Map.of();
+            return facts;
         }
 
-        Map<String, String> states = new HashMap<>();
         int calls = 0;
         for (Map.Entry<String, Set<String>> entry : regionsByType.entrySet()) {
             String type = entry.getKey();
             for (String region : entry.getValue()) {
                 try {
-                    fetchStates(account, type, region)
-                            .forEach((id, state) -> states.put(stateKey(type, id), state));
+                    Map<String, Map<String, String>> detailsById = new HashMap<>();
+                    fetchStates(account, type, region, detailsById)
+                            .forEach((id, state) -> facts.states.put(stateKey(type, id), state));
+                    detailsById.forEach((id, det) -> facts.details.put(stateKey(type, id), det));
                     calls++;
                 } catch (Exception e) {
                     log.debug("[Inventory] State lookup failed for {} in {} ({}): {}",
@@ -571,9 +574,25 @@ public class AwsInventoryReconciler {
                 }
             }
         }
-        log.debug("[Inventory] State enrichment for {}: {} call(s), {} state(s) resolved",
-                account.getAwsAccountId(), calls, states.size());
-        return states;
+        log.debug("[Inventory] State enrichment for {}: {} call(s), {} state(s), {} detail set(s)",
+                account.getAwsAccountId(), calls, facts.states.size(), facts.details.size());
+        return facts;
+    }
+
+    /**
+     * State plus attributes, harvested from the same bulk describe.
+     *
+     * <p>
+     * Two maps rather than one because they are populated for different reasons and to
+     * different depths: every {@link #STATEFUL_TYPES} entry yields a state, while only the
+     * types whose describe response happens to carry attributes a consumer needs yield
+     * details. Keeping them separate means a type can contribute one without the other.
+     */
+    static final class LiveFacts {
+        /** Resource state by {@link #stateKey}. */
+        final Map<String, String> states = new HashMap<>();
+        /** Describe-derived attributes by {@link #stateKey}. */
+        final Map<String, Map<String, String>> details = new HashMap<>();
     }
 
     /** Type-qualified, because a resource id is only unique within its type. */
@@ -581,15 +600,24 @@ public class AwsInventoryReconciler {
         return nativeType + "|" + resourceId;
     }
 
-    /** One bulk describe, returning resourceId to state. */
-    private Map<String, String> fetchStates(CloudAccount account, String nativeType, String region) {
+    /**
+     * One bulk describe, returning resourceId to state.
+     *
+     * @param detailsOut populated with attributes for the types that carry them; the same
+     *                   API response already holds these, so filling it costs nothing extra
+     */
+    private Map<String, String> fetchStates(CloudAccount account, String nativeType, String region,
+            Map<String, Map<String, String>> detailsOut) {
         Map<String, String> states = new HashMap<>();
         switch (nativeType) {
             case "ec2:instance":
                 awsClientProvider.getEc2Client(account, region).describeInstancesPaginator()
                         .reservations().stream()
                         .flatMap(r -> r.instances().stream())
-                        .forEach(i -> states.put(i.instanceId(), i.state().nameAsString()));
+                        .forEach(i -> {
+                            states.put(i.instanceId(), i.state().nameAsString());
+                            detailsOut.put(i.instanceId(), instanceDetails(i));
+                        });
                 break;
             case "ec2:volume":
                 awsClientProvider.getEc2Client(account, region).describeVolumesPaginator()
@@ -656,8 +684,48 @@ public class AwsInventoryReconciler {
         return states;
     }
 
+    /**
+     * EC2 instance attributes, using the describe path's exact key names.
+     *
+     * <p>
+     * The keys are copied verbatim from {@code CloudListService.fetchEc2InstancesForCloudlist}
+     * for the same reason {@link AwsResourceTypeMapper} pins the display strings: consumers
+     * read them by literal name. {@code XamOpsRightsizingService} reads {@code "Type"} and
+     * skips any instance where it is null, and {@code CloudMapService} groups nodes by
+     * {@code "VPC ID"}. Before this existed the plane wrote {@code "{}"} for every row, so
+     * turning the plane on emptied the Rightsizing page and flattened the Cloud Map graph —
+     * with no error anywhere, because both treat a missing attribute as "nothing to show".
+     *
+     * <p>
+     * Nulls are dropped rather than stored as empty strings: an instance genuinely outside a
+     * VPC has no VPC id, and {@code "VPC ID" -> ""} would read as membership of a VPC named
+     * empty-string, which is how the global/VPC split in Cloud Map goes wrong.
+     */
+    // Package-private rather than private so the key names can be pinned by a test; they
+    // are a contract with consumers that read them by literal string.
+    static Map<String, String> instanceDetails(software.amazon.awssdk.services.ec2.model.Instance i) {
+        Map<String, String> details = new HashMap<>();
+        putIfPresent(details, "Type", i.instanceTypeAsString());
+        putIfPresent(details, "Image ID", i.imageId());
+        putIfPresent(details, "VPC ID", i.vpcId());
+        putIfPresent(details, "Subnet ID", i.subnetId());
+        putIfPresent(details, "Private IP", i.privateIpAddress());
+        if (i.hasSecurityGroups() && !i.securityGroups().isEmpty()) {
+            details.put("Security Groups", i.securityGroups().stream()
+                    .map(software.amazon.awssdk.services.ec2.model.GroupIdentifier::groupId)
+                    .collect(Collectors.joining(", ")));
+        }
+        return details;
+    }
+
+    private static void putIfPresent(Map<String, String> target, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            target.put(key, value);
+        }
+    }
+
     private SyncResult persistInTransaction(CloudAccount account, List<Resource> resources,
-            IndexInfo indexInfo, long startMs, Map<String, String> liveStates) {
+            IndexInfo indexInfo, long startMs, LiveFacts liveFacts) {
 
         String awsAccountId = account.getAwsAccountId();
         Long cloudAccountId = account.getId();
@@ -719,7 +787,8 @@ public class AwsInventoryReconciler {
             // not know it either and used a literal, so reproduce that; the types with real
             // state come from fetchLiveStates, resolved before this transaction opened.
             // Without either, every row is null and the whole cloud list reads "Unknown".
-            String liveState = liveStates.get(stateKey(nativeType, row.getResourceId()));
+            String facts = stateKey(nativeType, row.getResourceId());
+            String liveState = liveFacts.states.get(facts);
             if (liveState != null) {
                 row.setState(liveState);
             } else {
@@ -736,7 +805,13 @@ public class AwsInventoryReconciler {
             row.setLastSeenAt(now);
             row.setSyncGeneration(generation);
             row.setSource(AwsCloudResource.SOURCE_RESOURCE_EXPLORER);
-            if (row.getDetails() == null) {
+            // Same reasoning as state: overwrite only when this pass actually resolved
+            // attributes, so a failed describe keeps the last known values instead of
+            // blanking details that consumers filter on.
+            Map<String, String> liveDetails = liveFacts.details.get(facts);
+            if (liveDetails != null && !liveDetails.isEmpty()) {
+                row.setDetails(writeJson(liveDetails));
+            } else if (row.getDetails() == null) {
                 row.setDetails("{}");
             }
             // Resource Explorer reports when it last saw the resource, not when AWS

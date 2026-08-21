@@ -43,6 +43,13 @@ public class CallSignal {
     private String roomName;
     private Long ticketId;
     private String ticketSubject;
+    /**
+     * Ticket category and severity, carried so the person being rung can judge a
+     * call before answering it. Everyone in the BillOps pool is rung either way, so
+     * this is context rather than routing.
+     */
+    private String ticketCategory;
+    private String ticketSeverity;
     private String direction;
     private String mediaKind;
 

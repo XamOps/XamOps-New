@@ -6,6 +6,8 @@ import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.repository.AwsCloudResourceRepository;
 import com.xammer.cloud.repository.AwsInventorySyncStateRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.CloudSecurityFindingRepository;
+import com.xammer.cloud.repository.SecurityNotificationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,9 +49,17 @@ public class AwsInventoryScheduler {
     private final AwsCloudResourceRepository resourceRepository;
     private final AwsInventorySyncStateRepository syncStateRepository;
     private final InventoryChangeNotifier notifier;
+    private final CloudSecurityFindingRepository findingRepository;
+    private final SecurityNotificationRepository notificationRepository;
 
     @Value("${xamops.inventory.enabled:false}")
     private boolean enabled;
+
+    @Value("${xamops.security.live-findings.retention-days:90}")
+    private long findingRetentionDays;
+
+    @Value("${xamops.security.notify.inbox-retention-days:30}")
+    private long inboxRetentionDays;
 
     /**
      * Guard against overlap. Spring's scheduler is single-threaded per task, but a sync
@@ -63,13 +73,17 @@ public class AwsInventoryScheduler {
             SchedulingEnvironmentConfig envConfig,
             AwsCloudResourceRepository resourceRepository,
             AwsInventorySyncStateRepository syncStateRepository,
-            InventoryChangeNotifier notifier) {
+            InventoryChangeNotifier notifier,
+            CloudSecurityFindingRepository findingRepository,
+            SecurityNotificationRepository notificationRepository) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.reconciler = reconciler;
         this.envConfig = envConfig;
         this.resourceRepository = resourceRepository;
         this.syncStateRepository = syncStateRepository;
         this.notifier = notifier;
+        this.findingRepository = findingRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     /**
@@ -97,6 +111,26 @@ public class AwsInventoryScheduler {
                 if (rows > 0 || states > 0) {
                     log.info("[Inventory] Purged {} orphaned resource row(s) and {} sync state(s) "
                             + "from disconnected accounts", rows, states);
+                }
+
+                // Security findings share the orphan problem exactly — same cause, same
+                // invisibility, same unbounded growth — so they are reclaimed on the same
+                // pass rather than in a second scheduler that could drift out of step.
+                int orphanedFindings = findingRepository.deleteOrphanedByMissingAccount();
+                int purgedFindings = findingRepository.purgeResolvedBefore(
+                        java.time.Instant.now().minus(findingRetentionDays, java.time.temporal.ChronoUnit.DAYS));
+                if (orphanedFindings > 0 || purgedFindings > 0) {
+                    log.info("[SecFinding] Purged {} orphaned and {} resolved finding(s) older "
+                            + "than {} days", orphanedFindings, purgedFindings, findingRetentionDays);
+                }
+
+                // The inbox has a shorter retention than the findings themselves: it is a feed,
+                // and the findings table is the durable record something can be looked up in.
+                int purgedNotifications = notificationRepository.purgeBefore(
+                        java.time.Instant.now().minus(inboxRetentionDays, java.time.temporal.ChronoUnit.DAYS));
+                if (purgedNotifications > 0) {
+                    log.info("[SecNotify] Purged {} notification(s) older than {} days",
+                            purgedNotifications, inboxRetentionDays);
                 }
             } finally {
                 TenantContext.clear();

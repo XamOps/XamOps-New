@@ -3,6 +3,7 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.inventory.InventoryProjectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,9 +34,25 @@ public class CloudMapService {
     @Autowired
     private AwsClientProvider awsClientProvider;
 
+    /**
+     * Optional: absent when the inventory plane is disabled, in which case every read below
+     * keeps its previous behaviour unchanged.
+     */
+    @Autowired(required = false)
+    private InventoryProjectionService inventoryProjection;
+
     public CompletableFuture<List<ResourceDto>> getVpcListForCloudmap(String accountId, boolean forceRefresh) {
         try {
             CloudAccount account = getAccount(accountId);
+
+            // One indexed query for the VPCs instead of materialising the account to keep a
+            // handful of rows. getAllResources already reads the plane, so the describes were
+            // not the cost here — deserialising ~1650 resources to filter down to ~5 was.
+            List<ResourceDto> planeVpcs = vpcsFromPlane(account);
+            if (planeVpcs != null) {
+                return CompletableFuture.completedFuture(planeVpcs);
+            }
+
             logger.info("Fetching all resources for account {} to filter VPCs", accountId);
 
             return cloudListService.getAllResources(account, forceRefresh)
@@ -60,6 +77,40 @@ public class CloudMapService {
         } catch (Exception ex) {
             logger.error("Failed to initialize VPC fetch for account {}: {}", accountId, ex.getMessage(), ex);
             return CompletableFuture.completedFuture(new ArrayList<ResourceDto>());
+        }
+    }
+
+    /**
+     * VPCs straight from the inventory plane, or null when it cannot answer.
+     *
+     * <p>
+     * Safe to serve from the plane because this list only needs id, name, region and type —
+     * all of which the plane derives from the ARN. The graph below is deliberately left on
+     * {@code getAllResources}: it groups nodes by the {@code "VPC ID"} detail, which the
+     * plane only carries for the types it describes.
+     */
+    private List<ResourceDto> vpcsFromPlane(CloudAccount account) {
+        if (inventoryProjection == null || account.getId() == null) {
+            return null;
+        }
+        try {
+            if (!inventoryProjection.isFresh(account.getId())) {
+                return null;
+            }
+            List<ResourceDto> vpcs = inventoryProjection.byType(account.getId(), "VPC");
+            if (vpcs.isEmpty()) {
+                // An account with no VPCs is possible but rare, and indistinguishable from a
+                // plane that has not indexed them yet. Falling through costs one slow read
+                // and cannot render an empty picker on a customer who has VPCs.
+                return null;
+            }
+            logger.info("✅ VPC list served from inventory plane for account {} ({} VPCs, 0 AWS calls)",
+                    account.getAwsAccountId(), vpcs.size());
+            return vpcs;
+        } catch (Exception e) {
+            logger.warn("[Inventory] VPC plane read failed for account {} — falling back: {}",
+                    account.getAwsAccountId(), e.getMessage());
+            return null;
         }
     }
 

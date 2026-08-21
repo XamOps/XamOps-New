@@ -43,6 +43,43 @@ const createRingtone = (): Ringtone => {
     }
   };
 
+  /**
+   * Unlocks audio on the first user gesture, long before any call arrives.
+   *
+   * "By the time a call arrives the user has almost always clicked something" was
+   * an assumption, not a guarantee. An agent who opens the app in a background tab
+   * and leaves it there has produced no gesture at all, so the first ring of the
+   * day was the one most likely to be silent — precisely the ring that matters,
+   * since a silent ring is indistinguishable from no call.
+   *
+   * Creating and resuming the context inside a real gesture handler is what
+   * browsers require; once unlocked it stays unlocked for the page's lifetime, so
+   * this runs once and then removes itself.
+   */
+  const primeOnFirstGesture = () => {
+    if (typeof window === 'undefined') return;
+
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart'];
+    const unlock = () => {
+      events.forEach(evt => window.removeEventListener(evt, unlock));
+      const ctx = ensureContext();
+      if (!ctx) return;
+      // Resumed then suspended again: this leaves the context in the "already
+      // unlocked" state without leaving an oscillator-free context running and
+      // burning a little battery until the first call.
+      void ctx
+        .resume()
+        .then(() => {
+          if (!playing && ctx.state === 'running') void ctx.suspend().catch(() => undefined);
+        })
+        .catch(() => undefined);
+    };
+    // Passive: this must never delay or interfere with the gesture it observes.
+    events.forEach(evt => window.addEventListener(evt, unlock, { once: true, passive: true }));
+  };
+
+  primeOnFirstGesture();
+
   /** One ring burst: two detuned tones with a soft attack and release. */
   const ringOnce = () => {
     const ctx = context;

@@ -8,6 +8,7 @@ import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +40,10 @@ public class CallRecipientResolver {
     private final CloudAccountRepository cloudAccountRepository;
     private final UserCloudAccountAccessRepository accessRepository;
 
+    /** Upper bound on how many people one call may ring. */
+    @Value("${xamops.calls.max-ring-fanout:25}")
+    private int maxFanout = 25;
+
     public CallRecipientResolver(UserRepository userRepository,
             CloudAccountRepository cloudAccountRepository,
             UserCloudAccountAccessRepository accessRepository) {
@@ -50,13 +55,52 @@ public class CallRecipientResolver {
     /**
      * The BillOps admin pool. Everyone is rung; the first to accept wins and the
      * rest are offered a join instead.
+     *
+     * The admin already assigned to the ticket is put first. Ordering is not just
+     * cosmetic: the fan-out is capped, so ordering decides who is still in the set
+     * when the cap bites. Ringing the whole pool rather than only the assignee is
+     * intentional — a support call that goes unanswered because one person stepped
+     * away is worse than a call several people see.
      */
     @Transactional(readOnly = true)
-    public List<User> resolveAdminPool(Long excludeUserId) {
-        List<User> admins = userRepository.findByRoleContainingIgnoreCase(ADMIN_ROLE_FRAGMENT);
-        return admins.stream()
+    public List<User> resolveAdminPool(Ticket ticket, Long excludeUserId) {
+        List<User> admins = userRepository.findByRoleContainingIgnoreCase(ADMIN_ROLE_FRAGMENT).stream()
                 .filter(u -> !Objects.equals(u.getId(), excludeUserId))
                 .collect(Collectors.toList());
+
+        Long assignedId = ticket != null ? ticket.getAssignedToId() : null;
+        if (assignedId == null) {
+            return cap(admins);
+        }
+        List<User> ordered = new ArrayList<>(admins.size());
+        admins.stream()
+                .filter(u -> Objects.equals(u.getId(), assignedId))
+                .findFirst()
+                .ifPresent(ordered::add);
+        for (User u : admins) {
+            if (!Objects.equals(u.getId(), assignedId)) {
+                ordered.add(u);
+            }
+        }
+        return cap(ordered);
+    }
+
+    /**
+     * Bounds the ring set.
+     *
+     * The admin pool is a single global list with no upper bound, and every ring
+     * writes a participant row, costs a presence lookup, and — when the call goes
+     * unanswered — sends a missed-call email. Left uncapped that turns one ignored
+     * call into an inbox-wide event as the team grows. The cap is generous enough
+     * that a realistically sized support rota is never truncated.
+     */
+    private List<User> cap(List<User> candidates) {
+        if (candidates.size() <= maxFanout) {
+            return candidates;
+        }
+        log.warn("Ring set of {} exceeds the {} recipient cap; ringing the first {}",
+                candidates.size(), maxFanout, maxFanout);
+        return candidates.subList(0, maxFanout);
     }
 
     /**
@@ -87,7 +131,7 @@ public class CallRecipientResolver {
         if (matchedAccountIds.isEmpty()) {
             log.warn("Ticket {} account '{}' matched no cloud account for client {}; "
                     + "ringing all client users", ticket.getId(), ticket.getAccountId(), clientId);
-            return clientUsers;
+            return cap(prioritiseCreator(ticket, clientUsers));
         }
 
         Set<Long> grantedUserIds = new HashSet<>(accessRepository.findUserIdsByCloudAccountIdIn(matchedAccountIds));
@@ -99,7 +143,33 @@ public class CallRecipientResolver {
                 audience.add(u);
             }
         }
-        return audience;
+        return cap(prioritiseCreator(ticket, audience));
+    }
+
+    /**
+     * Puts whoever raised the ticket at the front of the ring set.
+     *
+     * They are the one person guaranteed to know what the call is about, and — as
+     * with the admin pool — ordering decides who survives the fan-out cap.
+     */
+    private List<User> prioritiseCreator(Ticket ticket, List<User> audience) {
+        Long creatorId = (ticket != null && ticket.getCreator() != null)
+                ? ticket.getCreator().getId()
+                : null;
+        if (creatorId == null || audience.size() < 2) {
+            return audience;
+        }
+        List<User> ordered = new ArrayList<>(audience.size());
+        audience.stream()
+                .filter(u -> Objects.equals(u.getId(), creatorId))
+                .findFirst()
+                .ifPresent(ordered::add);
+        for (User u : audience) {
+            if (!Objects.equals(u.getId(), creatorId)) {
+                ordered.add(u);
+            }
+        }
+        return ordered;
     }
 
     /**

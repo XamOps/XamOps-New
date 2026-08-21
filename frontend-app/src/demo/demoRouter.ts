@@ -454,6 +454,11 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse([]);
   if (url.includes('/api/xamops/calls/ticket/'))
     return makeResponse([]);
+  // 204 = "not on a call", which is what reload recovery must see in a demo.
+  // Answering {} here would look like a live session and send the UI hunting for
+  // a token that does not exist.
+  if (url.includes('/api/xamops/calls/active'))
+    return new Response(null, { status: 204 });
   if (url.includes('/api/xamops/calls/') && url.includes('/invitable-users'))
     return makeResponse([]);
   if (url.includes('/api/xamops/calls'))

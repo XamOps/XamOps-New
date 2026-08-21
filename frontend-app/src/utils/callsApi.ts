@@ -85,6 +85,13 @@ export const acceptCall = async (callId: number): Promise<AcceptOutcome> => {
     return { won: false, joinable };
   }
 
+  // 410 means the ring expired or was cancelled between the sheet appearing and the
+  // button being pressed. Not an error to report as a failure — the call is simply
+  // gone, so there is nothing to join either.
+  if (response.status === 410) {
+    return { won: false, joinable: false };
+  }
+
   throw new Error(`Failed to accept call (HTTP ${response.status})`);
 };
 
@@ -121,3 +128,78 @@ export const fetchTicketCallHistory = async (ticketId: number): Promise<CallSess
 
 export const fetchMissedCalls = async (): Promise<MissedCallEntry[]> =>
   apiClient.get(`${BASE}/missed`);
+
+/**
+ * The call this user is currently in, if any.
+ *
+ * Lets a reload put someone back where they were. The browser used to hold the
+ * only record of "I am on a call", so refreshing mid-conversation dropped the UI
+ * while the server still counted the user as occupying the room — they were
+ * present, silent, and unable to see or leave it.
+ *
+ * 204 means "not on a call", which is the common case and not an error.
+ */
+export const fetchActiveCall = async (): Promise<CallSessionDto | null> => {
+  const response = await apiClient.fetch(`${BASE}/active`, { method: 'GET' });
+  if (response.status === 204 || !response.ok) return null;
+  try {
+    return (await response.json()) as CallSessionDto;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Tells the server we are still in the room.
+ *
+ * The server cannot otherwise distinguish a live conversation from a browser that
+ * died, and without that distinction an abandoned call stays open forever and
+ * blocks every future call on the same ticket.
+ *
+ * @returns false once the server no longer considers us present — the client's cue
+ *          to stop beating and reconcile, rather than pinning a call open
+ */
+export const sendHeartbeat = async (callId: number): Promise<boolean> => {
+  try {
+    const response = await apiClient.fetch(`${BASE}/${callId}/heartbeat`, { method: 'POST' });
+    // Only an explicit 409 means "you are not in this call". A network blip or a 5xx
+    // must not be read as eviction, or a momentary outage would end live calls.
+    return response.status !== 409;
+  } catch {
+    return true;
+  }
+};
+
+/**
+ * Best-effort "I'm gone" as the page unloads.
+ *
+ * A normal fetch is abandoned when the document goes away, so closing a tab left
+ * the server believing the user was still in the room. sendBeacon survives
+ * unload — the browser hands the request to the network stack and keeps it alive
+ * independently of the page.
+ *
+ * Cookies ride along on same-origin beacons and CSRF is disabled on this service,
+ * so no headers are needed — which is just as well, since sendBeacon cannot set
+ * any. The heartbeat sweeper is still the authority; this only makes teardown
+ * immediate in the common case instead of taking a couple of minutes.
+ */
+export const beaconLeaveCall = (callId: number): void => {
+  // Always /leave; the server works out whether that cancels an unanswered call or
+  // simply removes us, which it is better placed to decide than an unloading page.
+  const path = `${BASE}/${callId}/leave`;
+  try {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(path);
+      return;
+    }
+  } catch {
+    /* fall through to keepalive fetch */
+  }
+  try {
+    // Older Safari has no sendBeacon; keepalive gives fetch the same survive-unload
+    // property, and failing silently is correct here either way.
+    void fetch(path, { method: 'POST', credentials: 'include', keepalive: true });
+  } catch {
+    /* nothing further we can do as the page dies */
+  }
+};

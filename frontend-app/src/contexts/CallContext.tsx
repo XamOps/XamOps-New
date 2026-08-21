@@ -26,8 +26,9 @@ import { ringtone } from '../utils/ringtone';
 import { showNotification, initNotificationService } from '../utils/notificationService';
 import {
   acceptCall,
-  cancelCall,
+  beaconLeaveCall,
   declineCall,
+  fetchActiveCall,
   fetchMissedCalls,
   fetchWsToken,
   initiateCall,
@@ -35,6 +36,7 @@ import {
   leaveCall,
   readableCallError,
   refreshCallToken,
+  sendHeartbeat,
 } from '../utils/callsApi';
 import type {
   CallMediaKind,
@@ -44,8 +46,25 @@ import type {
   MissedCallEntry,
 } from '../types/calls';
 
-/** Keep well inside the server's presence TTL (default 900s) so we never lapse. */
-const PRESENCE_PING_MS = 4 * 60 * 1000;
+/**
+ * Presence refresh, kept well inside the server's TTL (default 300s).
+ *
+ * The server TTL was reduced from 900s because a hard browser kill produces no
+ * clean disconnect, and until it lapses a dead tab still looks ringable — a
+ * customer could wait out an entire ring window on a ghost while real agents were
+ * free. 120s here leaves room for one dropped ping plus a reconnect.
+ */
+const PRESENCE_PING_MS = 2 * 60 * 1000;
+
+/**
+ * Liveness while in a call.
+ *
+ * This is what lets the server tell an ongoing conversation from a browser that
+ * died. It must stay far below the server's staleness window (default 120s) so
+ * that a socket reconnect or a slow request never reads as an abandoned room.
+ */
+const HEARTBEAT_MS = 15 * 1000;
+
 const RECONNECT_BASE_MS = 3000;
 const RECONNECT_MAX_MS = 30000;
 
@@ -168,6 +187,15 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // from inside a socket callback, and an unanswered outgoing call needs a
   // different ending than a call that rang at us and we missed.
   const outgoingIdRef = useRef<number | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Reload recovery runs once per session; without this guard a re-render that
+  // changes the auth object would re-enter a call the user had just hung up.
+  const recoveryAttemptedRef = useRef(false);
+  // Reload recovery is declared above `enterRoom` so it can run as early as
+  // possible after auth settles, so it reaches the function through a ref.
+  const enterRoomRef = useRef<
+    (token: CallTokenResponse, signal: CallSignal | null, mediaKind: CallMediaKind) => void
+  >(() => undefined);
 
   const isAuthenticated = authReady && userRoles.length > 0;
 
@@ -472,6 +500,122 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, [isAuthenticated, connect, disconnect]);
 
+  // ─── In-call liveness ──────────────────────────────────────────────────────
+
+  /**
+   * Reports that we are still in the room, for as long as we are in one.
+   *
+   * The server has no other way to tell a live conversation from a browser that
+   * stopped existing. Without this signal a call whose participants vanished stayed
+   * ACTIVE indefinitely, and because a new call always defers to a live session on
+   * the same ticket, that ticket could never host another call again.
+   *
+   * Prefers the already-open socket and falls back to REST while it is
+   * reconnecting, so a signalling blip mid-conversation never looks like an
+   * abandoned room.
+   */
+  const activeCallId = activeToken?.callId ?? null;
+  useEffect(() => {
+    if (activeCallId == null) return;
+
+    let stopped = false;
+
+    const beat = async () => {
+      if (stopped || !mountedRef.current) return;
+
+      const client = stompRef.current;
+      if (client) {
+        try {
+          client.send('/app/calls/heartbeat', {}, String(activeCallId));
+          return;
+        } catch {
+          // Socket is dead but has not reported it yet — fall through to REST.
+        }
+      }
+
+      const stillIn = await sendHeartbeat(activeCallId);
+      if (stopped || !mountedRef.current || stillIn) return;
+
+      // The server no longer counts us as present, so there is nothing left to
+      // beat for. Reconcile rather than keep reporting into a closed call.
+      if (activeCallIdRef.current === activeCallId) {
+        clearCall();
+        gooeyToast.info('The call has ended');
+      }
+    };
+
+    void beat();
+    heartbeatRef.current = setInterval(() => void beat(), HEARTBEAT_MS);
+
+    return () => {
+      stopped = true;
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+    };
+  }, [activeCallId, clearCall]);
+
+  /**
+   * Leaves the call when the page goes away.
+   *
+   * A normal request is abandoned the moment the document unloads, so closing a
+   * tab mid-call told the server nothing and left the room occupied. `pagehide`
+   * rather than `beforeunload` alone: iOS Safari frequently skips `beforeunload`
+   * entirely, and mobile is exactly where a tab gets discarded without warning.
+   *
+   * The heartbeat sweeper remains the authority — this just makes the common case
+   * instant instead of taking a couple of minutes, so the ticket is immediately
+   * free to be called again.
+   */
+  useEffect(() => {
+    const teardown = () => {
+      const callId = activeCallIdRef.current;
+      if (callId == null) return;
+      beaconLeaveCall(callId);
+    };
+
+    window.addEventListener('pagehide', teardown);
+    window.addEventListener('beforeunload', teardown);
+    return () => {
+      window.removeEventListener('pagehide', teardown);
+      window.removeEventListener('beforeunload', teardown);
+    };
+  }, []);
+
+  /**
+   * Puts the user back into a call they were in before the page reloaded.
+   *
+   * Refreshing used to strand someone: the browser held the only record of being
+   * on a call, so the UI vanished while the server still had them occupying the
+   * room — present, inaudible, and with no control to leave. Recovery reads the
+   * live call from the server instead, which is the copy that actually decides.
+   */
+  useEffect(() => {
+    if (!isAuthenticated || recoveryAttemptedRef.current) return;
+    recoveryAttemptedRef.current = true;
+
+    (async () => {
+      try {
+        const session = await fetchActiveCall();
+        // Only recover a call that is genuinely still up, and never trample a call
+        // the user has already started in the meantime.
+        if (!session || session.state !== 'ACTIVE') return;
+        if (!mountedRef.current || activeCallIdRef.current !== null) return;
+
+        const token = await refreshCallToken(session.id);
+        if (!mountedRef.current || activeCallIdRef.current !== null) return;
+
+        enterRoomRef.current(token, null, session.mediaKind ?? 'AUDIO');
+        setPhase('in-call');
+        gooeyToast.info('Rejoined your call in progress');
+      } catch {
+        // A call that ended while we were reloading is the expected case, not a
+        // failure worth reporting.
+      }
+    })();
+  }, [isAuthenticated]);
+
   // ─── Missed calls ────────────────────────────────────────────────────────
 
   const refreshMissedCalls = useCallback(async () => {
@@ -537,6 +681,7 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     },
     []
   );
+  enterRoomRef.current = enterRoom;
 
   const startCall = useCallback(
     async (ticketId: number, mediaKind: CallMediaKind = 'AUDIO') => {
@@ -658,17 +803,20 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const hangUp = useCallback(async () => {
     const callId = activeCallIdRef.current;
-    const wasRingingOut = phase === 'outgoing';
     clearCall();
     if (callId == null) return;
     try {
-      // Hanging up an unanswered outgoing call cancels it for everyone; hanging
-      // up a live one only removes us.
-      await (wasRingingOut ? cancelCall(callId) : leaveCall(callId));
+      // Always /leave. The server decides whether that means cancelling an
+      // unanswered call for everyone or just removing us, because only it knows both
+      // the session state and who placed the call. Choosing here from the local
+      // phase was wrong whenever we had joined a call that was still ringing: the
+      // client would call /cancel without being the initiator, take a 403, and leave
+      // itself recorded as still in the room.
+      await leaveCall(callId);
     } catch {
       /* the local UI is already reset; the server sweeper will reconcile */
     }
-  }, [phase, clearCall]);
+  }, [clearCall]);
 
   const dismissJoinable = useCallback((callId: number) => {
     setJoinable(prev => prev.filter(c => c.callId !== callId));

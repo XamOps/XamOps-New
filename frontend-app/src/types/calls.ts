@@ -35,6 +35,14 @@ export interface CallSignal {
   roomName?: string;
   ticketId?: number;
   ticketSubject?: string;
+  /**
+   * Ticket category and severity, so whoever is being rung can judge the call
+   * before answering. Routing is unaffected — the whole pool is rung either way —
+   * but a Sev-1 production incident and a billing question should not look
+   * identical on the ring sheet.
+   */
+  ticketCategory?: string;
+  ticketSeverity?: string;
   direction?: CallDirection;
   mediaKind?: CallMediaKind;
   initiatorUserId?: number;

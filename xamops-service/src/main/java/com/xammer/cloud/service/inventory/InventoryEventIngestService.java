@@ -236,6 +236,25 @@ public class InventoryEventIngestService {
     /** Records that events are flowing, so /status can show event liveness. */
     @Transactional
     public void markEventReceived(CloudAccount account) {
+        markEventReceived(account, 0);
+    }
+
+    /**
+     * Records event liveness and the forwarder's envelope version.
+     *
+     * <p>
+     * The version matters because capability is not otherwise observable. Exposure detectors need
+     * the slimmed CloudTrail detail that only a version 2 forwarder attaches, and an account whose
+     * stack predates that looks exactly like an account where nothing dangerous has happened —
+     * both produce no findings. Recording the highest version seen lets the product say "your
+     * stack is missing these detectors" instead of implying the account is clean.
+     *
+     * <p>
+     * Highest-seen rather than last-seen, deliberately: during a stack update both versions are
+     * briefly in flight, and taking the last would flap the customer's status back and forth.
+     */
+    @Transactional
+    public void markEventReceived(CloudAccount account, int schemaVersion) {
         AwsInventorySyncState state = syncStateRepository.findById(account.getId())
                 .orElseGet(() -> {
                     AwsInventorySyncState s = new AwsInventorySyncState();
@@ -245,6 +264,12 @@ public class InventoryEventIngestService {
                 });
         Instant now = Instant.now();
         state.setLastEventAt(now);
+        if (schemaVersion > 0) {
+            Integer seen = state.getEventSchemaVersion();
+            if (seen == null || schemaVersion > seen) {
+                state.setEventSchemaVersion(schemaVersion);
+            }
+        }
         state.setUpdatedAt(now);
         syncStateRepository.save(state);
     }

@@ -46,6 +46,23 @@ const IncomingCallSheet: React.FC<IncomingCallSheetProps> = ({
   const initial = caller.charAt(0).toUpperCase();
   const isVideo = call.mediaKind === 'VIDEO';
 
+  /**
+   * Only urgent severities earn colour. Tinting every badge would flatten the
+   * distinction the badge exists to make, so anything routine stays neutral and is
+   * carried by the category chip instead.
+   */
+  const severityTone = ((): string | null => {
+    const raw = call.ticketSeverity?.toLowerCase();
+    if (!raw) return null;
+    if (raw.includes('critical') || raw.includes('urgent') || raw.includes('1')) {
+      return 'bg-rose-500/15 text-rose-600 dark:text-rose-400';
+    }
+    if (raw.includes('high') || raw.includes('2')) {
+      return 'bg-amber-500/15 text-amber-600 dark:text-amber-400';
+    }
+    return 'bg-slate-500/10 text-slate-600 dark:text-slate-300';
+  })();
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 24, scale: 0.96 }}
@@ -83,6 +100,26 @@ const IncomingCallSheet: React.FC<IncomingCallSheetProps> = ({
             <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
               Ticket #{call.ticketId}
               {call.ticketSubject ? ` — ${call.ticketSubject}` : ''}
+            </div>
+          )}
+          {/* Category and severity, because the ring set does not distinguish them.
+              Every BillOps admin is rung for every ticket, so the only chance to
+              tell a Sev-1 production incident from a billing question is here, in
+              the seconds before deciding to pick up. */}
+          {(call.ticketCategory || severityTone) && (
+            <div className="flex items-center gap-1 mt-1">
+              {severityTone && (
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide ${severityTone}`}
+                >
+                  {call.ticketSeverity}
+                </span>
+              )}
+              {call.ticketCategory && (
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-500/10 text-slate-600 dark:text-slate-300 truncate">
+                  {call.ticketCategory}
+                </span>
+              )}
             </div>
           )}
         </div>

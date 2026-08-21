@@ -94,6 +94,22 @@ public class AwsInventorySyncState {
     @Column(name = "uncovered_regions", length = 1024)
     private String uncoveredRegions;
 
+    /**
+     * Highest envelope version seen from this account's forwarder, or null if never.
+     *
+     * <p>
+     * Version 1 forwards resource changes only. Version 2 also attaches a slimmed CloudTrail
+     * detail, which is what the exposure detectors need to tell a port opened to the office from
+     * one opened to the internet.
+     *
+     * <p>
+     * Recorded because capability is otherwise invisible. An account on version 1 produces no
+     * exposure findings, and so does a perfectly secure account on version 2 — without this the
+     * product cannot distinguish them, and would quietly imply an unmonitored account is clean.
+     */
+    @Column(name = "event_schema_version")
+    private Integer eventSchemaVersion;
+
     @Column(name = "resource_count", nullable = false)
     private Integer resourceCount = 0;
 

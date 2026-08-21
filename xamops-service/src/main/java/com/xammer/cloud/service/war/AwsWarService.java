@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -74,6 +75,13 @@ public class AwsWarService {
     private final ObjectMapper objectMapper;
     private final Executor executor;
 
+    /**
+     * Optional so the WAR page keeps working with the live-findings feature disabled, in which case
+     * the staleness banner simply never appears.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.security.SecurityFindingProjectionService liveFindings;
+
     public AwsWarService(AwsWarIdentityChecks identityChecks,
             AwsWarNetworkChecks networkChecks,
             AwsWarDataChecks dataChecks,
@@ -112,7 +120,7 @@ public class AwsWarService {
             });
             if (cached.isPresent()) {
                 log.info("[WAR] Redis hit for account {}", accountId);
-                return CompletableFuture.completedFuture(cached.get());
+                return CompletableFuture.completedFuture(withStaleness(account, cached.get()));
             }
 
             Optional<CachedData> snapshot = cachedDataRepository.findById(dbKeyLatest);
@@ -121,8 +129,10 @@ public class AwsWarService {
                     WarReport report = objectMapper.readValue(
                             snapshot.get().getJsonData(), WarReport.class);
                     log.info("[WAR] DB snapshot hit for account {} — re-warming Redis", accountId);
+                    // Re-warmed before the staleness stamp so the cached copy stays free of a
+                    // value that is only valid at the instant it is read.
                     redisCache.put(redisKey, report, REDIS_TTL_MINUTES);
-                    return CompletableFuture.completedFuture(report);
+                    return CompletableFuture.completedFuture(withStaleness(account, report));
                 } catch (Exception e) {
                     log.warn("[WAR] Could not parse DB snapshot for {}: {}", accountId, e.getMessage());
                 }
@@ -153,8 +163,61 @@ public class AwsWarService {
                     accountId, report.getWarScore(), report.getRiskLevel(),
                     report.getStatusCounts().getOrDefault("FAIL", 0),
                     System.currentTimeMillis() - startMs);
-            return report;
+            // A freshly computed report has nothing newer than itself by definition, but the stamp
+            // is applied anyway: a finding can land during the scan, which takes minutes.
+            return withStaleness(account, report);
         }, executor);
+    }
+
+    /**
+     * Stamps how many event-driven findings arrived after this report was generated.
+     *
+     * <p>
+     * Applied on every return path, including the freshly-scanned one, and never persisted. Never
+     * throws: a WAR report that fails to load because a supplementary count could not be computed
+     * would be a worse outcome than a missing banner.
+     */
+    private WarReport withStaleness(CloudAccount account, WarReport report) {
+        if (report == null || liveFindings == null || account.getId() == null) {
+            return report;
+        }
+        try {
+            Instant generatedAt = parseGeneratedAt(report.getGeneratedAt());
+            if (generatedAt != null) {
+                report.setFindingsSinceScan(
+                        (int) liveFindings.countSince(account.getId(), generatedAt));
+            }
+        } catch (Exception e) {
+            log.debug("[WAR] Could not compute findings-since-scan for {}: {}",
+                    account.getAwsAccountId(), e.getMessage());
+        }
+        return report;
+    }
+
+    /**
+     * Parses the report's timestamp.
+     *
+     * <p>
+     * {@code generatedAt} is a formatted string rather than an instant, so both the ISO form and a
+     * local date-time are accepted. Returning null on an unparseable value leaves the count at zero
+     * and hides the banner, which is the right failure: a banner claiming "0 new findings" is
+     * honest, one claiming a number derived from a misread timestamp is not.
+     */
+    private static Instant parseGeneratedAt(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(value);
+        } catch (Exception ignored) {
+            // Not ISO-instant; try a local date-time in the JVM zone.
+        }
+        try {
+            return java.time.LocalDateTime.parse(value)
+                    .atZone(java.time.ZoneId.systemDefault()).toInstant();
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private void runGroup(String name, Runnable group) {

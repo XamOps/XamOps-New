@@ -27,7 +27,20 @@ import { gooeyToast } from 'goey-toast';
 import { AnimatePresence } from 'framer-motion';
 import CallDeviceMenu from './CallDeviceMenu';
 import CallInvitePicker from './CallInvitePicker';
+import { refreshCallToken } from '../../utils/callsApi';
 import type { CallSignal, CallTokenResponse } from '../../types/calls';
+
+/**
+ * How many times a dropped room is rebuilt before giving up.
+ *
+ * LiveKit already retries internally, so reaching our handler means it has
+ * exhausted its own attempts — usually a network change (wifi to cellular) or a
+ * token that expired while the connection was down. A small number of tries with
+ * a fresh token covers those; beyond that the call is genuinely gone and pretending
+ * otherwise just leaves a dead panel on screen.
+ */
+const MAX_REJOIN_ATTEMPTS = 3;
+const REJOIN_DELAY_MS = 1500;
 
 /**
  * Only bad news is worth pixels. A green "excellent" badge on every tile is
@@ -311,6 +324,87 @@ const CallRoom: React.FC<CallRoomProps> = ({
   const [connectionState, setConnectionState] = useState<ConnectionState>(
     ConnectionState.Connecting
   );
+  /**
+   * The credentials the room is currently built from.
+   *
+   * Held in state rather than read straight from the prop so a dropped connection
+   * can be rebuilt with a *fresh* token. Reusing the original is what made this
+   * unrecoverable before: LiveKit hands the same token back on reconnect, so once
+   * it had expired — which any call longer than the token TTL guaranteed — a
+   * momentary network blip ended the call for good, leaving a panel that said
+   * "Disconnected" and did nothing else.
+   */
+  const [liveToken, setLiveToken] = useState<CallTokenResponse>(token);
+  const rejoinAttemptsRef = useRef(0);
+  const rejoinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [rejoining, setRejoining] = useState(false);
+  const mountedRef = useRef(true);
+
+  // Reached through refs by the room lifecycle effect below, which deliberately
+  // does not list them as dependencies: both change identity on every parent
+  // render, and re-running that effect means tearing down a live room.
+  const attemptRejoinRef = useRef<() => void>(() => undefined);
+  const onHangUpRef = useRef(onHangUp);
+  onHangUpRef.current = onHangUp;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (rejoinTimerRef.current) clearTimeout(rejoinTimerRef.current);
+    };
+  }, []);
+
+  // A new call replaces the credentials outright and resets the retry budget.
+  useEffect(() => {
+    setLiveToken(token);
+    rejoinAttemptsRef.current = 0;
+    setRejoining(false);
+  }, [token]);
+
+  /**
+   * Rebuilds a dropped room with freshly issued credentials.
+   *
+   * Asking the server for a new token is the whole point: it both sidesteps an
+   * expired one and re-runs the authorization check, so a call that ended while we
+   * were disconnected fails here rather than silently reconnecting us to a room we
+   * are no longer entitled to. A rejected token means the call is over, which is a
+   * hang-up rather than a retry.
+   */
+  const attemptRejoin = useCallback(() => {
+    if (!mountedRef.current || rejoinTimerRef.current) return;
+
+    if (rejoinAttemptsRef.current >= MAX_REJOIN_ATTEMPTS) {
+      gooeyToast.error('Call disconnected', {
+        description: 'The connection could not be restored.',
+      });
+      onHangUpRef.current();
+      return;
+    }
+
+    rejoinAttemptsRef.current += 1;
+    setRejoining(true);
+
+    rejoinTimerRef.current = setTimeout(async () => {
+      rejoinTimerRef.current = null;
+      if (!mountedRef.current) return;
+      try {
+        const fresh = await refreshCallToken(token.callId);
+        if (!mountedRef.current) return;
+        // Changing the token re-runs the room lifecycle effect, which is what
+        // performs the actual reconnect.
+        setLiveToken(fresh);
+      } catch {
+        // No token means the call is genuinely gone — the server declined to let us
+        // back in. Retrying would only delay telling the user.
+        if (!mountedRef.current) return;
+        setRejoining(false);
+        gooeyToast.info('The call has ended');
+        onHangUpRef.current();
+      }
+    }, REJOIN_DELAY_MS * rejoinAttemptsRef.current);
+  }, [token.callId]);
+  attemptRejoinRef.current = attemptRejoin;
   const [localParticipant, setLocalParticipant] = useState<LocalParticipant | null>(null);
   const [remotes, setRemotes] = useState<RemoteParticipant[]>([]);
   const [micOn, setMicOn] = useState(true);
@@ -354,16 +448,26 @@ const CallRoom: React.FC<CallRoomProps> = ({
         if (!cancelled) setConnectionState(state);
       })
       .on(RoomEvent.Disconnected, () => {
-        if (!cancelled) setConnectionState(ConnectionState.Disconnected);
+        // `cancelled` is set by this effect's own cleanup before it disconnects, so a
+        // teardown we initiated — hang up, unmount, or a token swap — never looks
+        // like a failure and never triggers a reconnect.
+        if (cancelled) return;
+        setConnectionState(ConnectionState.Disconnected);
+        // LiveKit has already given up on its own retries by this point, so this
+        // is the level at which a fresh token can help.
+        attemptRejoinRef.current();
       });
 
     (async () => {
       try {
-        await room.connect(token.livekitUrl, token.token);
+        await room.connect(liveToken.livekitUrl, liveToken.token);
         if (cancelled) {
           await room.disconnect();
           return;
         }
+        // Connected, so the retry budget is spent and reset for any future drop.
+        rejoinAttemptsRef.current = 0;
+        setRejoining(false);
         // A refused or missing microphone must not end the call. Joining muted
         // still lets you hear the other side and watch a screen share, which is
         // far more useful than being dropped — and the user can grant permission
@@ -392,22 +496,30 @@ const CallRoom: React.FC<CallRoomProps> = ({
       } catch (err) {
         if (cancelled) return;
         console.error('[calls] Failed to join room', err);
+        // A failure on a retry is not worth its own toast — attemptRejoin reports
+        // the outcome once it runs out of tries.
+        if (rejoinAttemptsRef.current > 0) {
+          attemptRejoinRef.current();
+          return;
+        }
         gooeyToast.error('Could not connect to the call', {
           description: err instanceof Error ? err.message : undefined,
         });
-        onHangUp();
+        onHangUpRef.current();
       }
     })();
 
     return () => {
+      // Set before disconnecting: the Disconnected handler above reads this to tell a
+      // deliberate teardown from a dropped connection.
       cancelled = true;
       void room.disconnect();
       roomRef.current = null;
     };
-    // onHangUp is intentionally excluded: it changes identity on every parent
-    // render and would tear the room down mid-call.
+    // onHangUp and attemptRejoin are intentionally excluded: both change identity
+    // on every parent render and would tear the room down mid-call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token.token, token.livekitUrl, startWithVideo]);
+  }, [liveToken.token, liveToken.livekitUrl, startWithVideo]);
 
   // Call timer starts when someone else is actually present, not at connect —
   // counting while it still rings would misreport the call length.
@@ -547,20 +659,26 @@ const CallRoom: React.FC<CallRoomProps> = ({
 
   const connecting =
     connectionState === ConnectionState.Connecting ||
-    connectionState === ConnectionState.Reconnecting;
+    connectionState === ConnectionState.Reconnecting ||
+    rejoining;
   const isRingingState = (ringing && !hasPeer) || (connecting && !hasPeer);
 
+  // `rejoining` is our own rebuild attempt after LiveKit gave up entirely, which
+  // is a different state from its internal Reconnecting — and the one that used
+  // to show a frozen panel reading "Disconnected" with nothing happening.
   const statusLabel = inQueue
     ? `In queue · ${mmss(waited)}`
-    : ringing && !hasPeer
-      ? 'Ringing…'
-      : connectionState === ConnectionState.Connecting
-        ? 'Connecting…'
-        : connectionState === ConnectionState.Reconnecting
-          ? 'Reconnecting…'
-          : hasPeer
-            ? timeLabel
-            : 'Waiting for others…';
+    : rejoining
+      ? 'Reconnecting…'
+      : ringing && !hasPeer
+        ? 'Ringing…'
+        : connectionState === ConnectionState.Connecting
+          ? 'Connecting…'
+          : connectionState === ConnectionState.Reconnecting
+            ? 'Reconnecting…'
+            : hasPeer
+              ? timeLabel
+              : 'Waiting for others…';
 
   const title = call?.ticketId ? `Ticket #${call.ticketId}` : 'Support call';
 
@@ -657,11 +775,15 @@ const CallRoom: React.FC<CallRoomProps> = ({
       </div>
 
       {/* Reconnection is silent otherwise — the picture freezes and people
-          assume the other side went quiet rather than that the network dropped. */}
-      {connectionState === ConnectionState.Reconnecting && (
+          assume the other side went quiet rather than that the network dropped.
+          Covers both LiveKit's own retry and our rebuild-with-a-fresh-token pass,
+          which is what a dropped connection now ends in rather than a dead panel. */}
+      {(connectionState === ConnectionState.Reconnecting || rejoining) && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/15 border-b border-amber-500/30 text-amber-300 text-[11px]">
           <Icon icon="mdi:loading" width={13} className="animate-spin flex-shrink-0" />
-          Reconnecting — hold on
+          {rejoining
+            ? `Reconnecting — attempt ${rejoinAttemptsRef.current} of ${MAX_REJOIN_ATTEMPTS}`
+            : 'Reconnecting — hold on'}
         </div>
       )}
 

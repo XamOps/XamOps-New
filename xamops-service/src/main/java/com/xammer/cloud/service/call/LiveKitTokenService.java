@@ -39,7 +39,17 @@ public class LiveKitTokenService {
     @Value("${xamops.calls.livekit.url:}")
     private String livekitUrl;
 
-    @Value("${xamops.calls.livekit.token-ttl-seconds:900}")
+    /**
+     * Default kept in step with application.properties.
+     *
+     * A LiveKit token is presented on join and reused by the client on its automatic
+     * reconnect, so a short TTL is not the safety win it looks like: at 900s any call
+     * longer than fifteen minutes could not survive a network blip, because the
+     * reconnect retried with an expired token and stranded the participant.
+     * Authorization is re-checked whenever a token is issued and a token is worthless
+     * without a live session, so the longer lifetime widens no meaningful window.
+     */
+    @Value("${xamops.calls.livekit.token-ttl-seconds:14400}")
     private long tokenTtlSeconds;
 
     public boolean isConfigured() {

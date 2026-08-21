@@ -66,6 +66,23 @@ public class WarReport {
     /** Non-fatal problems from the scan (region timeouts, partial results). */
     private List<String> scanWarnings;
 
+    /**
+     * Event-driven findings that arrived after this report was generated.
+     *
+     * <p>
+     * Stamped at read time and deliberately never persisted with the report — it describes the gap
+     * between the report and now, so a cached value would be wrong the moment it was written.
+     *
+     * <p>
+     * The point is honesty about a number that is expensive to recompute. A full WAR scan is heavy
+     * enough to cache for twelve hours, so invalidating it on every finding would trade a stale
+     * score for a slow page. Instead the page keeps showing the score it actually computed and says
+     * how much has happened since, which lets the user decide whether to pay for a rescan. Silently
+     * recalculating part of the score would be worse: the number would look current without being
+     * so.
+     */
+    private int findingsSinceScan;
+
     @Data
     @Builder
     @NoArgsConstructor

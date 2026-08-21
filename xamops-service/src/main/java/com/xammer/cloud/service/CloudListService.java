@@ -641,6 +641,24 @@ public class CloudListService {
         String cacheKey = "regionStatus-" + accountId;
         String dbCacheKey = "REGION_STATUS::" + accountId;
 
+        // Tier 0 — regions derived from what the plane actually holds.
+        //
+        // Ahead of the cache reads and ahead of forceRefresh, for the same reason
+        // getGranularInventory reads the plane first: this is one indexed DISTINCT, so
+        // there is nothing worth caching in front of it, and not caching removes the
+        // staleness rather than adding another key to an eviction list.
+        //
+        // Coverage is not a concern here even though the discovery pass below also probes
+        // S3: isFresh() refuses to answer for an account with unindexed regions, so a fresh
+        // plane has seen every region. It is in fact a wider net than the pass it replaces,
+        // which infers activity from five services — the plane counts every type Resource
+        // Explorer indexes. Regions with no coordinate mapping drop out exactly as they do
+        // in mapRegionToStatus.
+        List<DashboardData.RegionStatus> planeRegions = regionStatusFromPlane(account);
+        if (planeRegions != null) {
+            return CompletableFuture.completedFuture(planeRegions);
+        }
+
         if (!forceRefresh) {
             // 1. Redis first — fast, no DB connection consumed
             Optional<List<DashboardData.RegionStatus>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
@@ -830,6 +848,63 @@ public class CloudListService {
                             ex.getMessage());
                     return false;
                 });
+    }
+
+    /**
+     * Active regions from the inventory plane, or null when it cannot answer.
+     *
+     * <p>
+     * Null rather than an empty list, matching {@link #tryInventoryPlane}: empty is a valid
+     * answer meaning "this account has resources in no mappable region", and conflating the
+     * two would let a cold plane report an account as having no regions — which does not
+     * render as an error, it renders as every region-scoped page being silently empty.
+     */
+    private List<DashboardData.RegionStatus> regionStatusFromPlane(CloudAccount account) {
+        if (inventoryProjection == null || account.getId() == null) {
+            return null;
+        }
+        try {
+            if (!inventoryProjection.isFresh(account.getId())) {
+                return null;
+            }
+            List<DashboardData.RegionStatus> statuses = inventoryProjection
+                    .activeRegions(account.getId()).stream()
+                    .map(this::mapRegionIdToStatus)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            if (statuses.isEmpty()) {
+                return null;
+            }
+            logger.info("✅ Region status served from inventory plane for account {} ({} regions, 0 AWS calls)",
+                    account.getAwsAccountId(), statuses.size());
+            return statuses;
+        } catch (Exception e) {
+            // Never let the new path break the old one.
+            logger.warn("[Inventory] Region plane read failed for account {} — falling back to discovery: {}",
+                    account.getAwsAccountId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Region id to {@link DashboardData.RegionStatus}, for callers holding a bare id.
+     *
+     * <p>
+     * Shares {@code regionCoordinates} and {@code SUSTAINABLE_REGIONS} with
+     * {@link #mapRegionToStatus} rather than duplicating them, so the plane path and the
+     * discovery path cannot disagree about where a region is or whether it is green.
+     */
+    private DashboardData.RegionStatus mapRegionIdToStatus(String regionId) {
+        if (regionId == null || !this.regionCoordinates.containsKey(regionId)) {
+            // Not a warning: the plane also stores pseudo-regions such as "global" for
+            // resources whose ARN carries no region, and those legitimately never appear
+            // on the map.
+            logger.debug("No coordinates for region {} — omitting from region status", regionId);
+            return null;
+        }
+        double[] geo = this.regionCoordinates.get(regionId);
+        String status = SUSTAINABLE_REGIONS.contains(regionId) ? "SUSTAINABLE" : "ACTIVE";
+        return new DashboardData.RegionStatus(regionId, regionId, status, geo[0], geo[1]);
     }
 
     private DashboardData.RegionStatus mapRegionToStatus(Region region) {

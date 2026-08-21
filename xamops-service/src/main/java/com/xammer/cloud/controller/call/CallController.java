@@ -94,9 +94,13 @@ public class CallController {
         try {
             CallSession session = callService.initiate(me, request.getTicketId(), request.getMediaKind());
             return ResponseEntity.ok(CallSessionDto.from(session));
+        } catch (CallService.CallAccessDeniedException e) {
+            return denied(e, "You do not have access to calls on this ticket");
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Ticket not found"));
         } catch (IllegalStateException e) {
+            // Safe to pass through: this is the "LiveKit is not configured" case, which
+            // the caller genuinely needs to read.
             return ResponseEntity.status(HttpStatus.CONFLICT).body(error(e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to initiate call on ticket {}", request.getTicketId(), e);
@@ -122,10 +126,15 @@ public class CallController {
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
             }
             return ResponseEntity.ok(callService.issueToken(me, callId));
+        } catch (CallService.CallAccessDeniedException e) {
+            return denied(e, "You were not invited to this call");
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Call not found"));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error(e.getMessage()));
+            // The ring is gone — expired or cancelled between the sheet appearing and
+            // the button being pressed. Not joinable, so the client must stand down.
+            return ResponseEntity.status(HttpStatus.GONE)
+                    .body(error("That call has already ended"));
         }
     }
 
@@ -140,10 +149,12 @@ public class CallController {
             callService.join(me, callId);
             CallTokenResponse token = callService.issueToken(me, callId);
             return ResponseEntity.ok(token);
+        } catch (CallService.CallAccessDeniedException e) {
+            return denied(e, "You were not invited to this call");
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Call not found"));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(error("That call is no longer active"));
         }
     }
 
@@ -156,10 +167,12 @@ public class CallController {
         }
         try {
             return ResponseEntity.ok(callService.issueToken(me, callId));
+        } catch (CallService.CallAccessDeniedException e) {
+            return denied(e, "You are not in this call");
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Call not found"));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(error("That call has already ended"));
         }
     }
 
@@ -172,8 +185,10 @@ public class CallController {
         try {
             callService.decline(me, callId);
             return ResponseEntity.noContent().build();
+        } catch (CallService.CallAccessDeniedException e) {
+            return denied(e, "You were not invited to this call");
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Call not found"));
         }
     }
 
@@ -186,10 +201,13 @@ public class CallController {
         try {
             callService.cancel(me, callId);
             return ResponseEntity.noContent().build();
+        } catch (CallService.CallAccessDeniedException e) {
+            return denied(e, "Only the caller can cancel this call");
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Call not found"));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(error("Only the caller can cancel this call"));
         }
     }
 
@@ -202,8 +220,14 @@ public class CallController {
         try {
             callService.leave(me, callId);
             return ResponseEntity.noContent().build();
+        } catch (CallService.CallAccessDeniedException e) {
+            // Leaving a call you are not in is already the desired end state, so this is
+            // reported as success. Anything else would surface an error on a page the
+            // user is simply navigating away from.
+            log.debug("Ignoring leave from non-participant: {}", e.getMessage());
+            return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Call not found"));
         }
     }
 
@@ -219,10 +243,12 @@ public class CallController {
                     .map(InvitableUserDto::from)
                     .collect(Collectors.toList());
             return ResponseEntity.ok(users);
+        } catch (CallService.CallAccessDeniedException e) {
+            return denied(e, "You are not part of this call");
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Call not found"));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(error("That call has already ended"));
         }
     }
 
@@ -237,10 +263,13 @@ public class CallController {
         try {
             callService.invite(me, callId, request.getUserIds());
             return ResponseEntity.noContent().build();
+        } catch (CallService.CallAccessDeniedException e) {
+            return denied(e, "You cannot add those people to this call");
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Call not found"));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error(e.getMessage()));
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(error("That call has already ended"));
         }
     }
 
@@ -251,10 +280,59 @@ public class CallController {
         if (me == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        List<CallSessionDto> history = callService.historyForTicket(ticketId).stream()
-                .map(CallSessionDto::from)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(history);
+        try {
+            List<CallSessionDto> history = callService.historyForTicket(me, ticketId).stream()
+                    .map(CallSessionDto::from)
+                    .collect(Collectors.toList());
+            return ResponseEntity.ok(history);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("Ticket not found"));
+        } catch (CallService.CallAccessDeniedException e) {
+            // An empty list rather than a 403: the call strip is one panel on a page the
+            // caller may legitimately be allowed to see in other respects, and a hard
+            // error there would break the whole view over a supplementary section.
+            log.debug("Denied call history for ticket {}: {}", ticketId, e.getMessage());
+            return ResponseEntity.ok(List.of());
+        }
+    }
+
+    /**
+     * The call this user is currently in, if any.
+     *
+     * Lets the UI put someone back into their call after a page reload. Without it
+     * the browser's copy of "I am on a call" was the only one, so a refresh left the
+     * user still occupying the room server-side with no way to see or hear it.
+     */
+    @GetMapping("/active")
+    public ResponseEntity<?> active(Authentication authentication) {
+        CallUserPrincipal me = principalFactory.fromAuthentication(authentication);
+        if (me == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return callService.activeCallFor(me.getUserId())
+                .map(session -> ResponseEntity.ok((Object) CallSessionDto.from(session)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /**
+     * Liveness ping from a client that is in a room.
+     *
+     * Also exposed over REST, not only STOMP, so that a browser whose signalling
+     * socket is mid-reconnect does not look abandoned and get its call swept.
+     *
+     * @return 204 while the heartbeat is accepted, 409 once the server no longer
+     *         considers this user present — the client's cue to stop and reconcile
+     */
+    @PostMapping("/{callId}/heartbeat")
+    public ResponseEntity<?> heartbeat(@PathVariable Long callId, Authentication authentication) {
+        CallUserPrincipal me = principalFactory.fromAuthentication(authentication);
+        if (me == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        boolean stillIn = callService.heartbeat(me, callId);
+        return stillIn
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.status(HttpStatus.CONFLICT).body(error("You are no longer in this call"));
     }
 
     /** This user's missed calls, for the badge on the tickets page. */
@@ -289,5 +367,18 @@ public class CallController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("message", message);
         return body;
+    }
+
+    /**
+     * 403 with a message a person can read.
+     *
+     * The internal detail is logged, never returned. The frontend renders the
+     * {@code message} field of an error body directly into a toast, so the previous
+     * behaviour of passing authorization failures through verbatim put strings like
+     * "User 42 was not invited to call 137" in front of customers.
+     */
+    private ResponseEntity<?> denied(CallService.CallAccessDeniedException e, String userFacing) {
+        log.debug("Call access denied: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error(userFacing));
     }
 }

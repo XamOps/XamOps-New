@@ -107,9 +107,18 @@ Resources:
             Version: '2012-10-17'
             Statement:
               # Scoped to the one XamOps queue, not a wildcard.
+              # Scoped to the one queue this stack was told to send to, not a wildcard
+              # and not a hardcoded name. Derived from XamOpsSQSQueueUrl by taking the
+              # last path segment, so an environment with its own queue
+              # (xamops-inventory-events-uat.fifo) grants send on that queue rather
+              # than on a name that does not exist for it — which would fail every
+              # forward with AccessDenied, visible only in the customer's own Lambda
+              # logs and indistinguishable from a quiet account on our side.
               - Effect: Allow
                 Action: ['sqs:SendMessage', 'sqs:GetQueueUrl']
-                Resource: !Sub 'arn:aws:sqs:${XamOpsRegion}:${XamOpsAccountId}:xamops-inventory-events.fifo'
+                Resource: !Sub
+                  - 'arn:aws:sqs:${XamOpsRegion}:${XamOpsAccountId}:${QueueName}'
+                  - QueueName: !Select [4, !Split ['/', !Ref XamOpsSQSQueueUrl]]
 
   ForwarderFunction:
     Type: AWS::Lambda::Function
@@ -301,6 +310,104 @@ Resources:
                                               account=ACCOUNT_ID)]
               return []
 
+          # ------------------------------------------------------------------
+          # How much requestParameters we are willing to carry, in bytes of JSON.
+          #
+          # Bounded because a few CloudTrail events embed something enormous: a
+          # CreateStack carries the whole CloudFormation template, and a PutBucketPolicy
+          # carries a policy document that AWS allows up to 20KB. SQS caps a message at
+          # 256KB, and exceeding it fails the send - which would lose the event entirely
+          # rather than degrading it. Truncating keeps the fields a detector reads
+          # (they are small and near the top) and drops the bulk.
+          # ------------------------------------------------------------------
+          MAX_PARAMS_BYTES = 8192
+
+          # Per-string cap applied when the whole block was already too large. Comfortably
+          # above any identifier (an ARN, a bucket name, a security group id) and well
+          # below a policy document or a CloudFormation template.
+          MAX_SCALAR_BYTES = 512
+
+
+          def slim_detail(detail):
+              """
+              The parts of a CloudTrail detail a security detector needs.
+
+              Passed through for every CloudTrail event, not just the exposure ones, and
+              deliberately so. Without it a detector knows only that
+              AuthorizeSecurityGroupIngress happened - not whether the source was
+              0.0.0.0/0 or the office VPN, which is the entire difference between a
+              critical finding and normal operations. Alerting identically on both is how
+              a security feature gets muted within a week.
+
+              It also fixes the existing Delete* detectors: DeleteTrail's parameters name
+              the trail, so findings can finally say which resource rather than only which
+              region.
+
+              responseElements is dropped. It is the largest part of a typical detail and
+              nothing reads it - ARN extraction already ran against the full detail before
+              this is called.
+
+              Not duplicating EXPOSURE_EVENTS here is intentional. That list lives in the
+              fan-out Lambda, and keeping a second copy in this one would let the two
+              drift silently - a name added to one and not the other either produces no
+              finding or produces one with no detail to judge it by. Slimming everything
+              costs a kilobyte or two per message and no extra SQS requests, since billing
+              is per 64KB chunk.
+              """
+              if not isinstance(detail, dict):
+                  return None
+
+              out = {
+                  'eventName': detail.get('eventName'),
+                  'eventSource': detail.get('eventSource'),
+                  'awsRegion': detail.get('awsRegion'),
+                  'eventTime': detail.get('eventTime'),
+              }
+
+              # Who did it. Only the identifying fields: the full userIdentity block
+              # carries session keys and other material there is no reason to move across
+              # an account boundary.
+              identity = detail.get('userIdentity')
+              if isinstance(identity, dict):
+                  session = identity.get('sessionContext') or {}
+                  issuer = session.get('sessionIssuer') or {} if isinstance(session, dict) else {}
+                  out['actor'] = {
+                      'type': identity.get('type'),
+                      'arn': identity.get('arn'),
+                      'userName': identity.get('userName') or issuer.get('userName'),
+                  }
+
+              params = detail.get('requestParameters')
+              if params is not None:
+                  encoded = json.dumps(params, default=str)
+                  if len(encoded) <= MAX_PARAMS_BYTES:
+                      out['requestParameters'] = params
+                  elif isinstance(params, dict):
+                      # Keep the small scalar values, drop the large ones, and say so. A
+                      # detector that finds its field still works; one that does not can
+                      # report honestly that the detail was truncated instead of concluding
+                      # the condition was absent.
+                      #
+                      # Strings are capped individually, not just collectively. Keeping
+                      # every scalar regardless of length defeats the whole purpose here:
+                      # the fields that blow the budget - templateBody, a policy document -
+                      # ARE strings, so an unbounded scalar rule carries the 20KB payload
+                      # through and the message can still exceed the SQS limit.
+                      kept = {}
+                      for key, value in params.items():
+                          if isinstance(value, str):
+                              if len(value) <= MAX_SCALAR_BYTES:
+                                  kept[key] = value
+                          elif isinstance(value, (int, float, bool)) or value is None:
+                              kept[key] = value
+                      out['requestParameters'] = kept
+                      out['requestParametersTruncated'] = True
+                  else:
+                      out['requestParametersTruncated'] = True
+
+              return out
+
+
           def lambda_handler(event, context):
               detail = event.get('detail') or {}
               detail_type = event.get('detail-type', '')
@@ -323,7 +430,13 @@ Resources:
                       action = 'CHANGED'
 
               envelope = {
-                  'schemaVersion': 1,
+                  # 2 = this forwarder attaches slimmed CloudTrail detail, so the backend's
+                  # exposure detectors can run. The backend records the highest version it has
+                  # seen per account and uses it to tell a customer their stack predates those
+                  # detectors — otherwise an out-of-date stack is indistinguishable from an
+                  # account where nothing bad has happened, and the customer is told they are
+                  # secure when they are simply unmonitored.
+                  'schemaVersion': 2,
                   'eventId': event.get('id'),
                   'account': ACCOUNT_ID,
                   'region': event.get('region'),
@@ -333,8 +446,18 @@ Resources:
                   'eventName': event_name,
                   'action': action,
                   'arns': arns,
+                  # Findings from AWS carry their whole detail: the backend parses ASFF,
+                  # GuardDuty and Config shapes directly and needs every field.
+                  #
+                  # CloudTrail calls carry a slimmed detail instead. XamOps derives its own
+                  # findings from these, and deriving them needs the request parameters -
+                  # a security group event without its CIDR cannot distinguish 0.0.0.0/0
+                  # from a single office IP. See slim_detail for what is kept and why the
+                  # rest is not.
                   'detail': detail if source in (
-                      'aws.securityhub', 'aws.guardduty', 'aws.config') else None,
+                      'aws.securityhub', 'aws.guardduty', 'aws.config')
+                      else (slim_detail(detail)
+                            if detail_type == 'AWS API Call via CloudTrail' else None),
               }
               # Event id doubles as the dedup key, making EventBridge retries idempotent.
               sqs.send_message(
@@ -471,6 +594,44 @@ Resources:
 
           SECURITY_SOURCES = ['aws.securityhub', 'aws.guardduty', 'aws.config']
 
+          # ------------------------------------------------------------------
+          # Calls that can expose a resource without creating or deleting anything.
+          #
+          # These are the highest-signal security events available, and none of them
+          # match LIFECYCLE_PREFIXES: a bucket created by CreateBucket is private, and
+          # publicness arrives later via PutBucketPolicy or PutBucketAcl. The same holds
+          # for a security group opened after the fact, or an RDS instance flipped to
+          # publicly accessible. Without this rule, the more common half of real-world
+          # exposure is invisible.
+          #
+          # Listed by exact name rather than by prefix, deliberately. A 'Put' or 'Modify'
+          # prefix would match a very large share of all API activity in the account and
+          # invoke the forwarder for each one - the LIFECYCLE_PREFIXES allow-list is the
+          # cost control for this pipeline, and a broad prefix here would undo it. Twenty
+          # exact names cost effectively nothing and are auditable at a glance.
+          #
+          # Keep this list short and keep every entry actionable. Anything added here
+          # produces a finding a human is expected to read.
+          # ------------------------------------------------------------------
+          EXPOSURE_EVENTS = [
+              # S3: the classic "made public after creation" path.
+              'PutBucketPolicy', 'PutBucketAcl', 'PutBucketPublicAccessBlock',
+              'PutAccountPublicAccessBlock',
+              # Network: a rule opened to the world.
+              'AuthorizeSecurityGroupIngress', 'ModifySecurityGroupRules',
+              # Databases and compute reachable from the internet.
+              'ModifyDBInstance', 'ModifyDBCluster', 'CreateDBInstance',
+              # Identity: policy attached, trust relationship widened, keys issued.
+              'AttachUserPolicy', 'AttachRolePolicy', 'PutUserPolicy', 'PutRolePolicy',
+              'UpdateAssumeRolePolicy',
+              # Encryption and secrets policy loosened.
+              'PutKeyPolicy', 'DisableKey',
+              # Resource policy opened up (Lambda, SNS, SQS all use AddPermission).
+              'AddPermission',
+              # Snapshot sharing is a quiet data-exfiltration path.
+              'ModifySnapshotAttribute', 'ModifyDBSnapshotAttribute', 'ModifyImageAttribute',
+          ]
+
 
           def rules(include_security):
               defs = [
@@ -485,6 +646,19 @@ Resources:
                       # CloudTrail events also carry source=aws.ec2, so without this
                       # they would match both rules and be forwarded twice.
                       'detail-type': [{'anything-but': 'AWS API Call via CloudTrail'}],
+                  }),
+                  # Separate rule rather than more names on the lifecycle rule, so the two
+                  # can be reasoned about and disabled independently: this one exists for
+                  # security findings, that one for inventory.
+                  #
+                  # CreateDBInstance appears in both patterns (it matches the 'Create'
+                  # prefix), which is intended - the inventory path needs it to add the
+                  # resource and the exposure path needs its detail to judge whether it was
+                  # created public. The forwarder deduplicates on EventBridge's event id,
+                  # so the second delivery updates rather than doubles.
+                  ('xamops-inventory-exposure', {
+                      'detail-type': ['AWS API Call via CloudTrail'],
+                      'detail': {'eventName': EXPOSURE_EVENTS},
                   }),
               ]
               if include_security:

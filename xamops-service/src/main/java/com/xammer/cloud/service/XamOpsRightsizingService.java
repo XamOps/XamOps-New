@@ -56,6 +56,13 @@ public class XamOpsRightsizingService {
     // API calls
     private final Map<String, Set<String>> regionAvailabilityCache = new ConcurrentHashMap<>();
 
+    /**
+     * Optional: absent when the inventory plane is disabled, in which case the candidate
+     * list keeps coming from {@code getAllResources} unchanged.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.inventory.InventoryProjectionService inventoryProjection;
+
     public XamOpsRightsizingService(
             CloudListService cloudListService,
             MetricsService metricsService,
@@ -115,11 +122,14 @@ public class XamOpsRightsizingService {
         // Get the account object once
         CloudAccount account = cloudListService.getAccount(accountId);
 
-        List<ResourceDto> ec2Instances = cloudListService.getAllResources(account, false)
-                .join()
-                .stream()
-                .filter(r -> "EC2 Instance".equalsIgnoreCase(r.getType()))
-                .collect(Collectors.toList());
+        List<ResourceDto> ec2Instances = ec2InstancesFromPlane(account);
+        if (ec2Instances == null) {
+            ec2Instances = cloudListService.getAllResources(account, false)
+                    .join()
+                    .stream()
+                    .filter(r -> "EC2 Instance".equalsIgnoreCase(r.getType()))
+                    .collect(Collectors.toList());
+        }
 
         if (ec2Instances.isEmpty()) {
             logger.info("No running EC2 instances found for account {}. No XamOps recommendations to generate.",
@@ -225,6 +235,57 @@ public class XamOpsRightsizingService {
         }
 
         return uniqueRecommendations;
+    }
+
+    /**
+     * EC2 instances from the inventory plane, or null when it cannot answer.
+     *
+     * <p>
+     * One indexed query instead of materialising the whole account to filter it down to
+     * instances. Requires {@code "Type"} to be present in the details map, because the loop
+     * below skips any instance whose type is unknown — an instance-type-less list is not a
+     * short list, it is an empty Rightsizing page. The reconciler harvests that attribute
+     * from the {@code describeInstances} call it already makes for instance state, so a plane
+     * that is fresh has it; the check below is a guard against that changing silently rather
+     * than an expected condition.
+     *
+     * <p>
+     * Event-created rows are a deliberate exception: they carry no attributes until the next
+     * reconcile, so a just-launched instance is briefly absent here. That costs nothing real,
+     * since a resize needs {@value #MIN_METRIC_DAYS} days of CPU history before it can be
+     * recommended at all.
+     */
+    private List<ResourceDto> ec2InstancesFromPlane(CloudAccount account) {
+        if (inventoryProjection == null || account.getId() == null) {
+            return null;
+        }
+        try {
+            if (!inventoryProjection.isFresh(account.getId())) {
+                return null;
+            }
+            List<ResourceDto> instances = inventoryProjection.byType(account.getId(), "EC2 Instance");
+            if (instances.isEmpty()) {
+                return null;
+            }
+            long withType = instances.stream()
+                    .filter(r -> r.getDetails() != null && r.getDetails().get("Type") != null)
+                    .count();
+            if (withType == 0) {
+                logger.warn("[Inventory] Plane returned {} EC2 instance(s) for account {} but none carry a "
+                        + "\"Type\" detail — falling back to describes so recommendations are not silently "
+                        + "dropped. Check AwsInventoryReconciler's instance attribute capture.",
+                        instances.size(), account.getAwsAccountId());
+                return null;
+            }
+            logger.info("✅ Rightsizing candidates served from inventory plane for account {} "
+                    + "({} instances, {} with instance type, 0 AWS calls)",
+                    account.getAwsAccountId(), instances.size(), withType);
+            return instances;
+        } catch (Exception e) {
+            logger.warn("[Inventory] EC2 plane read failed for account {} — falling back: {}",
+                    account.getAwsAccountId(), e.getMessage());
+            return null;
+        }
     }
 
     /**

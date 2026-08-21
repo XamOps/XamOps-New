@@ -7,6 +7,7 @@ import com.xammer.cloud.config.SchedulingEnvironmentConfig;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.security.SecurityFindingIngestService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -59,6 +60,7 @@ public class InventoryEventListener {
     private final InventoryChangeNotifier notifier;
     private final SchedulingEnvironmentConfig envConfig;
     private final ObjectMapper objectMapper;
+    private final SecurityFindingIngestService securityIngest;
 
     @Value("${xamops.inventory.events.enabled:false}")
     private boolean enabled;
@@ -121,7 +123,8 @@ public class InventoryEventListener {
             RedisCacheService redisCache,
             InventoryChangeNotifier notifier,
             SchedulingEnvironmentConfig envConfig,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            SecurityFindingIngestService securityIngest) {
         this.sqsClient = sqsClient;
         this.cloudAccountRepository = cloudAccountRepository;
         this.ingestService = ingestService;
@@ -129,6 +132,7 @@ public class InventoryEventListener {
         this.notifier = notifier;
         this.envConfig = envConfig;
         this.objectMapper = objectMapper;
+        this.securityIngest = securityIngest;
     }
 
     /**
@@ -178,11 +182,15 @@ public class InventoryEventListener {
         // Keyed by AWS account id but holding the resolved connection: the dashboard push
         // needs cloud_account.id, and handleMessage has already looked it up.
         Map<String, CloudAccount> accountsTouched = new HashMap<>();
+        // Security findings accumulated per account as {created, updated, resolved}. Kept
+        // separate from changesByAccount because the two drive different follow-up: a finding
+        // does not invalidate an inventory projection, and a new resource is not a finding.
+        Map<String, int[]> findingsByAccount = new HashMap<>();
         List<DeleteMessageBatchRequestEntry> toDelete = new ArrayList<>();
 
         for (Message message : messages) {
             try {
-                CloudAccount touched = handleMessage(message.body(), changesByAccount);
+                CloudAccount touched = handleMessage(message.body(), changesByAccount, findingsByAccount);
                 if (touched != null) {
                     accountsTouched.put(touched.getAwsAccountId(), touched);
                 }
@@ -222,6 +230,25 @@ public class InventoryEventListener {
                 invalidateProjections(entry.getKey());
                 notifyUi(entry.getValue(), counts[0], counts[1]);
             }
+            int[] findings = findingsByAccount.get(entry.getKey());
+            // Logged when security events arrived even if none became a finding, so the
+            // "events in, findings out" ratio is visible in one place.
+            if (findings != null && findings.length > 3 && findings[3] > 0
+                    && findings[0] == 0 && findings[2] == 0) {
+                log.info("[SecFinding] Account {} — {} security event(s) evaluated, no new or "
+                        + "resolved findings", entry.getKey(), findings[3]);
+            }
+            if (findings != null && (findings[0] > 0 || findings[2] > 0)) {
+                // Deliberately no cache eviction here. The obvious move would be to evict
+                // securityFindings-{account}, but that key is rebuilt by
+                // SecurityService.getComprehensiveSecurityFindings, which fans out live
+                // CloudTrail, Flow Log, IAM, KMS, RDS and S3 describes across every active
+                // region — so evicting on each finding would schedule a multi-region scan per
+                // event. The pages read SecurityFindingProjectionService ahead of their caches
+                // instead, which needs no invalidation at all.
+                log.info("[SecFinding] Account {} — {} new, {} updated, {} resolved finding(s)",
+                        entry.getKey(), findings[0], findings[1], findings[2]);
+            }
         }
     }
 
@@ -230,8 +257,8 @@ public class InventoryEventListener {
      *
      * @return the connection touched, or null if the message was not actionable
      */
-    private CloudAccount handleMessage(String body, Map<String, int[]> changesByAccount)
-            throws Exception {
+    private CloudAccount handleMessage(String body, Map<String, int[]> changesByAccount,
+            Map<String, int[]> findingsByAccount) throws Exception {
         JsonNode root = objectMapper.readTree(body);
 
         String awsAccountId = root.path("account").asText(null);
@@ -251,6 +278,63 @@ public class InventoryEventListener {
 
         String action = root.path("action").asText(InventoryEventIngestService.ACTION_CHANGED);
         String region = root.path("region").asText(null);
+        String source = root.path("source").asText("");
+        // Tracked so the product can tell an account whose stack predates the exposure
+        // detectors from one where nothing dangerous has happened. Both produce no findings.
+        int schemaVersion = root.path("schemaVersion").asInt(0);
+
+        // Security findings, before the ARN check below.
+        //
+        // Ordering is the whole fix. The xamops-inventory-security rule has forwarded
+        // Security Hub, GuardDuty and Config events with their detail attached since the
+        // stack shipped, but those events carry no resource ARNs — so they reached the
+        // "no ARN, leave it to the reconciler" branch, were logged at debug and deleted
+        // from the queue. Every finding AWS produced for every customer was being received
+        // and discarded.
+        if (SecurityFindingIngestService.isSecuritySource(source)) {
+            SecurityFindingIngestService.Result result = securityIngest.ingest(account, root);
+            int[] counts = findingsByAccount.computeIfAbsent(awsAccountId, k -> new int[4]);
+            // Counted whether or not it produced a finding. Without this, "the security rule
+            // fired 16 times and no finding exists" is indistinguishable from "the rule never
+            // fired" — both look like silence, and telling them apart meant correlating
+            // CloudWatch rule metrics against the database by hand.
+            counts[3]++;
+            counts[0] += result.created;
+            counts[1] += result.updated;
+            counts[2] += result.resolved;
+            if (!result.changed()) {
+                // The common benign reasons are an already-archived or already-resolved
+                // finding, and a Config event that is a configuration snapshot rather than a
+                // compliance transition. Named at debug so a quiet page can be explained
+                // without adding noise to a healthy one.
+                log.debug("[SecFinding] {} event ({}) for {} produced no finding — already "
+                        + "resolved, suppressed, or not a finding-bearing detail shape",
+                        source, root.path("detailType").asText(""), awsAccountId);
+            }
+            ingestService.markEventReceived(account, schemaVersion);
+            return account;
+        }
+
+        // XamOps-derived findings run alongside the inventory upsert rather than instead of
+        // it: DeleteTrail both removes a resource from the inventory and is a finding, and
+        // returning early here would lose the first.
+        try {
+            SecurityFindingIngestService.Result detected = securityIngest.ingestDetected(account, root);
+            if (detected.changed()) {
+                // Same width as the security branch above: a detector finding and a
+                // Security Hub finding land in the same counter array, and a shorter array
+                // here would make the batch summary read past its end.
+                int[] counts = findingsByAccount.computeIfAbsent(awsAccountId, k -> new int[4]);
+                counts[0] += detected.created;
+                counts[1] += detected.updated;
+                counts[2] += detected.resolved;
+            }
+        } catch (Exception e) {
+            // Detector failure must not cost us the inventory update, which is the older and
+            // more load-bearing half of this listener.
+            log.warn("[InventoryEvent] Detector failed for {} on account {}: {}",
+                    root.path("eventName").asText(""), awsAccountId, e.getMessage());
+        }
 
         JsonNode arns = root.path("arns");
         if (!arns.isArray() || arns.isEmpty()) {
@@ -259,8 +343,10 @@ public class InventoryEventListener {
             // account scan per unattributable event, is how this becomes expensive.
             log.debug("[InventoryEvent] {} event for {} carried no ARN; leaving to reconciler",
                     root.path("eventName").asText(""), awsAccountId);
-            ingestService.markEventReceived(account);
-            return null;
+            ingestService.markEventReceived(account, schemaVersion);
+            // Still returned as touched, because a detector above may have produced a finding
+            // from this event even though it named no resource the inventory can hold.
+            return account;
         }
 
         int created = 0;
@@ -279,7 +365,7 @@ public class InventoryEventListener {
             }
         }
 
-        ingestService.markEventReceived(account);
+        ingestService.markEventReceived(account, schemaVersion);
 
         int[] counts = changesByAccount.computeIfAbsent(awsAccountId, k -> new int[2]);
         counts[0] += created;

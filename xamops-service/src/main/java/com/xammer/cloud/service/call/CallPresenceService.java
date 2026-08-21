@@ -32,8 +32,18 @@ public class CallPresenceService {
 
     private final StringRedisTemplate redis;
 
-    /** Must exceed the client ping interval with margin, or live users flicker offline. */
-    @Value("${xamops.calls.presence.ttl-seconds:900}")
+    /**
+     * Must exceed the client ping interval with margin, or live users flicker
+     * offline.
+     *
+     * Kept deliberately modest. On a hard browser kill there is no clean STOMP
+     * disconnect, so this is how long a dead tab keeps looking ringable — and a ring
+     * that lands on a ghost consumes the whole ring window before failing. At the
+     * previous 900s a customer could sit through a full unanswered ring while real
+     * agents were free. The client pings every 2 minutes, so this tolerates a
+     * dropped ping plus a reconnect.
+     */
+    @Value("${xamops.calls.presence.ttl-seconds:300}")
     private long ttlSeconds;
 
     public CallPresenceService(StringRedisTemplate redis) {

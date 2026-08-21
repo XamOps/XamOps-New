@@ -6,6 +6,8 @@ import com.xammer.cloud.dto.*;
 import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserRepository;
+import com.xammer.cloud.service.inventory.InventoryProjectionService;
+import com.xammer.cloud.service.security.SecurityFindingProjectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,6 +51,20 @@ public class CloudGuardService {
     private final AlertEmailBuilder alertEmailBuilder;
     private final UserRepository userRepository;
     private final AlertNotificationDeduplicator deduplicator;
+
+    /**
+     * Optional: absent when the inventory plane is disabled, in which case the quota
+     * counts below keep using their per-region describes unchanged.
+     */
+    @Autowired(required = false)
+    private InventoryProjectionService inventoryProjection;
+
+    /**
+     * Live event-driven findings. Field-injected to keep the constructor from growing a
+     * twelfth parameter; the projection is a no-op when the feature flag is off.
+     */
+    @Autowired
+    private SecurityFindingProjectionService liveFindings;
 
     @Autowired
     public CloudGuardService(
@@ -119,15 +135,17 @@ public class CloudGuardService {
                 return CompletableFuture.completedFuture(Collections.emptyList());
             }
 
-            CompletableFuture<List<ResourceDto>> vpcResourcesFuture = cloudListService.fetchVpcsForCloudlist(account,
-                    activeRegions);
+            // Resource counts come from the plane when it can answer; the quota limits below
+            // still come from Service Quotas, which is not inventory and has no event source.
+            Map<String, Long> planeVpcCounts = regionCountsFromPlane(account, "VPC");
+            CompletableFuture<Map<String, Long>> vpcCountsFuture = planeVpcCounts != null
+                    ? CompletableFuture.completedFuture(planeVpcCounts)
+                    : cloudListService.fetchVpcsForCloudlist(account, activeRegions)
+                            .thenApply(CloudGuardService::countByRegion);
 
             // Use thenApply (not Async) to avoid creating extra thread
-            return vpcResourcesFuture.thenApply(vpcResources -> {
+            return vpcCountsFuture.thenApply(vpcCountsByRegion -> {
                 try {
-                    Map<String, Long> vpcCountsByRegion = vpcResources.stream()
-                            .collect(Collectors.groupingBy(ResourceDto::getRegion, Collectors.counting()));
-
                     // Process regions sequentially (we're already in async context)
                     // This prevents thread exhaustion from CompletableFuture.supplyAsync() creating
                     // unbounded threads
@@ -211,12 +229,22 @@ public class CloudGuardService {
 
             List<DashboardData.ServiceQuotaInfo> allQuotaInfo = new ArrayList<>();
 
+            // Resolved once for the whole account rather than per region: one indexed query
+            // each, replacing three describes per region.
+            Map<String, Long> planeIgw = regionCountsFromPlane(account, "Internet Gateway");
+            Map<String, Long> planeNat = regionCountsFromPlane(account, "NAT Gateway");
+            Map<String, Long> planeEip = regionCountsFromPlane(account, "Elastic IP");
+
             for (DashboardData.RegionStatus region : activeRegions) {
                 try {
                     // Count resources in this region
-                    long igwCount = countInternetGateways(account, region.getRegionId());
-                    long natCount = countNatGateways(account, region.getRegionId());
-                    long eipCount = countElasticIps(account, region.getRegionId());
+                    String regionId = region.getRegionId();
+                    long igwCount = planeIgw != null ? planeIgw.getOrDefault(regionId, 0L)
+                            : countInternetGateways(account, regionId);
+                    long natCount = planeNat != null ? planeNat.getOrDefault(regionId, 0L)
+                            : countNatGateways(account, regionId);
+                    long eipCount = planeEip != null ? planeEip.getOrDefault(regionId, 0L)
+                            : countElasticIps(account, regionId);
 
                     // Check quotas
                     checkAndAddQuota(account, region.getRegionId(), QUOTA_INTERNET_GATEWAY,
@@ -236,6 +264,51 @@ public class CloudGuardService {
             redisCache.put(cacheKey, allQuotaInfo, 60);
             return allQuotaInfo;
         });
+    }
+
+    /**
+     * Per-region counts of one resource type from the inventory plane, or null when the
+     * plane cannot answer and the caller should fall back to describes.
+     *
+     * <p>
+     * An empty result is treated as "cannot answer" rather than "none exist", which is the
+     * conservative choice for a quota alert specifically. Reading zero when the true count is
+     * non-zero does not surface as an error — it suppresses the alert, so the customer hears
+     * nothing right up to the point they hit the limit. Confirming a genuine zero costs one
+     * describe per region and is the cheaper mistake.
+     *
+     * <p>
+     * Deleted resources are excluded by construction: the plane tombstones them and every
+     * projection read filters on ACTIVE, which is also what the old
+     * {@code countNatGateways} achieved by filtering out {@code NatGatewayState.DELETED}.
+     */
+    private Map<String, Long> regionCountsFromPlane(CloudAccount account, String displayType) {
+        if (inventoryProjection == null || account.getId() == null) {
+            return null;
+        }
+        try {
+            if (!inventoryProjection.isFresh(account.getId())) {
+                return null;
+            }
+            Map<String, Long> counts = countByRegion(inventoryProjection.byType(account.getId(), displayType));
+            if (counts.isEmpty()) {
+                return null;
+            }
+            logger.debug("[Inventory] {} counts for account {} served from plane ({} regions, 0 AWS calls)",
+                    displayType, account.getAwsAccountId(), counts.size());
+            return counts;
+        } catch (Exception e) {
+            logger.warn("[Inventory] {} plane count failed for account {} — falling back: {}",
+                    displayType, account.getAwsAccountId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /** Groups resources by region, skipping the region-less ones so the key is never null. */
+    private static Map<String, Long> countByRegion(List<ResourceDto> resources) {
+        return resources.stream()
+                .filter(r -> r != null && r.getRegion() != null && !r.getRegion().isBlank())
+                .collect(Collectors.groupingBy(ResourceDto::getRegion, Collectors.counting()));
     }
 
     /**
@@ -510,6 +583,35 @@ public class CloudGuardService {
                                 .timestamp(Instant.now().toString())
                                 .build());
                     }
+
+                    // Process live event-driven findings
+                    //
+                    // Read straight from the table rather than joined off a future, because
+                    // unlike every source above this one costs no AWS call — it is one indexed
+                    // query. Added last so it sorts after the quota and anomaly rows the page
+                    // was built around, and filtered to CRITICAL/HIGH inside the projection so
+                    // low-severity config drift does not bury them.
+                    int liveFindingCount = 0;
+                    try {
+                        List<AlertDto> findingAlerts = liveFindings.asAlerts(account.getId());
+                        if (!findingAlerts.isEmpty()) {
+                            alerts.addAll(findingAlerts);
+                            liveFindingCount = findingAlerts.size();
+                            logger.info("Added {} live security finding alerts for account {}",
+                                    liveFindingCount, accountId);
+                        }
+                    } catch (Exception e) {
+                        // Never let a new source break the four that already worked.
+                        logger.error("Error reading live security findings for {}: {}",
+                                accountId, e.getMessage());
+                        errors.add(AlertErrorDto.builder()
+                                .service("LiveFindings")
+                                .errorType("FETCH_ERROR")
+                                .message(e.getMessage())
+                                .timestamp(Instant.now().toString())
+                                .build());
+                    }
+                    securityCount += liveFindingCount;
 
                     // Send HTML email digest only when alert content changes
                     if (!recipients.isEmpty() && !alerts.isEmpty()) {

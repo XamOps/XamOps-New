@@ -79,6 +79,13 @@ public class EbsDiskRightsizingService {
     private final EbsExpandExecutorService expandExecutorService;
     private final EbsAsgHelper ebsAsgHelper;
 
+    /**
+     * Optional, and non-final so Lombok leaves it out of the generated constructor: absent
+     * when the inventory plane is disabled, in which case region discovery is unchanged.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.xammer.cloud.service.inventory.InventoryProjectionService inventoryProjection;
+
     // ─── Volume Scanning ────────────────────────────────────────────────────────
 
     public List<Map<String, Object>> getVolumes(String accountId, boolean forceRefresh) {
@@ -916,7 +923,40 @@ public class EbsDiskRightsizingService {
                 .orElseThrow(() -> new RuntimeException("Account not found: " + providerAccountId));
     }
 
+    /**
+     * Regions worth scanning for volumes.
+     *
+     * <p>
+     * The plane narrows this from "every region the account has enabled" to "every region
+     * the account actually has resources in", which on a typical account is a handful rather
+     * than ~18. That matters more here than the one {@code describeRegions} call it saves:
+     * each region returned costs a paginated {@code describeVolumes} plus CloudWatch,
+     * Compute Optimizer and ASG enrichment, all of which returned nothing for an empty
+     * region.
+     *
+     * <p>
+     * Narrowing is safe rather than lossy because a region with no resources cannot hold a
+     * volume — a volume is itself a resource the plane indexes. And {@code isFresh()} already
+     * refuses to answer for accounts with unindexed regions, so a region is never dropped for
+     * a coverage reason.
+     */
     private List<String> getEnabledRegions(CloudAccount account) {
+        if (inventoryProjection != null && account.getId() != null) {
+            try {
+                if (inventoryProjection.isFresh(account.getId())) {
+                    List<String> planeRegions = inventoryProjection.activeRegions(account.getId());
+                    if (!planeRegions.isEmpty()) {
+                        logger.info("[EBS] Region list from inventory plane for account {} ({} regions, 0 AWS calls)",
+                                account.getAwsAccountId(), planeRegions.size());
+                        return planeRegions;
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("[EBS] Region plane read failed for account {} — falling back to describeRegions: {}",
+                        account.getAwsAccountId(), e.getMessage());
+            }
+        }
+
         try {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, "us-east-1");
             DescribeRegionsResponse resp = ec2.describeRegions(

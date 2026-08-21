@@ -74,4 +74,22 @@ public class CallParticipant {
 
     @Column(name = "left_at")
     private LocalDateTime leftAt;
+
+    /**
+     * Last heartbeat received while this participant was in the room.
+     *
+     * The browser is the only thing that knows it is still on a call, and it does
+     * not always get to say goodbye — a killed tab or a dead network produces no
+     * leave request at all. Without a liveness signal the session stays ACTIVE
+     * forever and blocks every future call on the ticket, so the sweeper uses this
+     * to decide when a room has actually emptied. Seeded on join so a call that
+     * has not heartbeat yet is never mistaken for an abandoned one.
+     */
+    @Column(name = "last_seen_at")
+    private LocalDateTime lastSeenAt;
+
+    /** True when this row represents someone currently occupying the room. */
+    public boolean isInRoom() {
+        return outcome == Outcome.JOINED && leftAt == null;
+    }
 }

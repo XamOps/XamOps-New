@@ -33,6 +33,26 @@ public interface CallSessionRepository extends JpaRepository<CallSession, Long> 
     List<CallSession> findByTicketIdOrderByCreatedAtDesc(Long ticketId);
 
     /**
+     * Answered calls old enough to be worth checking for abandonment.
+     *
+     * Only a candidate list — the sweeper still confirms via participant
+     * heartbeats before closing anything, because a long call that is genuinely in
+     * progress looks identical to an abandoned one from the session row alone.
+     */
+    List<CallSession> findByStateAndAnsweredAtBefore(CallSession.State state, LocalDateTime cutoff);
+
+    /**
+     * Live sessions past an absolute age cap, regardless of heartbeats.
+     *
+     * Backstop for the case the heartbeat mechanism itself is what failed — a
+     * client version that never sends one, or a bug in this service. Without it a
+     * single such session would block its ticket forever, which is the exact
+     * failure this whole mechanism exists to prevent.
+     */
+    List<CallSession> findByStateInAndCreatedAtBefore(Collection<CallSession.State> states,
+            LocalDateTime cutoff);
+
+    /**
      * First-answer-wins, decided by the database.
      *
      * Two admins hitting Accept in the same instant both reach this statement; the

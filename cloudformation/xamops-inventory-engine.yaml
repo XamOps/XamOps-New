@@ -31,6 +31,28 @@ Parameters:
       delete on the queue. Matches the pattern used by autospotting-engine.yaml.
     Default: 'arn:aws:iam::605134457560:role/XamOps-App-EC2-Role'
 
+  QueueBaseName:
+    Type: String
+    Default: 'xamops-inventory-events'
+    Description: >
+      Base name for the queue pair. Exists so a second environment can have its
+      OWN queue instead of sharing one.
+
+      SQS delivers each message to exactly one consumer, so two backends polling
+      the same queue steal each other's events - and the theft is silent: the
+      environment that wins finds no matching account in its own database, logs
+      "unknown AWS account", and discards the message. The other environment
+      simply never sees that resource change.
+
+      Deploy this stack once per environment that needs events, giving each a
+      distinct base name (xamops-inventory-events, xamops-inventory-events-uat),
+      then point that environment's xamops.inventory.events.queue-url and its
+      onboarding template's XamOpsInventoryQueueUrl at the matching queue.
+
+      The default reproduces the original hardcoded name, so an existing stack
+      updates in place without replacing its queue.
+    AllowedPattern: '^[A-Za-z0-9_-]{1,70}$'
+
 Resources:
 
   # ===========================================================================
@@ -39,7 +61,7 @@ Resources:
   InventoryEventQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: xamops-inventory-events.fifo
+      QueueName: !Sub '${QueueBaseName}.fifo'
       FifoQueue: true
       # Explicitly FALSE. The forwarder Lambda sets MessageDeduplicationId to the
       # EventBridge event id, which is a far better dedup key than a content hash:
@@ -71,7 +93,7 @@ Resources:
   InventoryEventDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: xamops-inventory-events-dlq.fifo
+      QueueName: !Sub '${QueueBaseName}-dlq.fifo'
       FifoQueue: true
       MessageRetentionPeriod: 1209600
       Tags:
@@ -130,7 +152,10 @@ Resources:
   DLQNotEmptyAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: xamops-inventory-dlq-not-empty
+      # Derived from the queue base name, not hardcoded: alarm names are unique per
+      # account, so a second environment's engine stack in the same account would
+      # fail with AlreadyExists on a fixed name.
+      AlarmName: !Sub '${QueueBaseName}-dlq-not-empty'
       AlarmDescription: >
         Inventory events are failing permanently. Inventory still self-heals via
         the Resource Explorer reconcile, but near-real-time updates are degraded.
@@ -151,7 +176,7 @@ Resources:
   QueueBacklogAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: xamops-inventory-queue-backlog
+      AlarmName: !Sub '${QueueBaseName}-queue-backlog'
       AlarmDescription: >
         Inventory event backlog is growing — InventoryEventListener may be down
         or xamops.inventory.events.enabled may be false while customers forward.
@@ -172,7 +197,7 @@ Resources:
   QueueStaleMessageAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: xamops-inventory-queue-stale
+      AlarmName: !Sub '${QueueBaseName}-queue-stale'
       AlarmDescription: Inventory events are sitting unprocessed for over 15 minutes
       Namespace: AWS/SQS
       MetricName: ApproximateAgeOfOldestMessage
