@@ -87,7 +87,13 @@ const AccountManagerPage: React.FC = () => {
 
   // Handle remove account
   const handleRemoveAccount = useCallback(async (account: CloudAccount) => {
-    if (!confirm(`Are you sure you want to remove the account "${account.name}"?`)) {
+    // Removal now cascades into billing: the backend deletes this account's invoices
+    // and agreements along with it, finalized ones included. Say so here — it is the
+    // only point where the action can still be called off.
+    if (!confirm(
+      `Remove the account "${account.name}"?\n\n` +
+      'This permanently deletes its invoices and agreements too, including finalized ones. This cannot be undone.'
+    )) {
       return;
     }
 

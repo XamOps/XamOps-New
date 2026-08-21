@@ -8,7 +8,6 @@ import com.xammer.cloud.domain.User;
 import com.xammer.cloud.domain.UserCloudAccountAccess;
 import com.xammer.cloud.dto.*;
 import com.xammer.cloud.event.CloudAccountConnectedEvent;
-import com.xammer.cloud.exception.AccountDeletionBlockedException;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
@@ -245,10 +244,6 @@ public class AccountManagerController {
         try {
             awsAccountService.deleteAccountById(id);
             return ResponseEntity.ok(Map.of("message", "Account " + accountName + " removed successfully."));
-        } catch (AccountDeletionBlockedException e) {
-            logger.warn("Deletion of account {} ({}) blocked: {}", id, accountName, e.getMessage());
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("message", "Cannot delete " + accountName + ". " + e.getMessage()));
         } catch (DataIntegrityViolationException e) {
             // A dependent table we do not clean up yet. Surface the table/constraint the
             // database named so the gap is diagnosable instead of an opaque failure.
