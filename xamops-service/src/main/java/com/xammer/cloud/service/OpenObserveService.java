@@ -258,8 +258,17 @@ public class OpenObserveService {
         Optional<ObservabilityConfig> existing = configRepo.findByClientId(client.getId());
         if (existing.isPresent()) {
             ObservabilityConfig cfg = existing.get();
-            // Return immediately if already fully provisioned
-            if (cfg.getO2OrgId() != null) return cfg;
+            if (cfg.getO2OrgId() != null) {
+                // The org exists, but its ingestion key may be unusable: either never created,
+                // or the admin credential the old fallback persisted. Mint replacements against
+                // the existing org rather than returning a row whose key every generator will
+                // then refuse. Without this the only remedy was a manual UPDATE, because this
+                // method returned early on a non-null orgId.
+                if (needsIngestionKeyRepair(cfg.getO2IngestionKey())) {
+                    return repairIngestionKeys(cfg, client.getId());
+                }
+                return cfg;
+            }
             // Previous provisioning attempt saved the record but failed to create the O2 org —
             // re-attempt org creation and update the existing row in-place, but not on
             // every request: back off so a down O2 can't be hammered by page loads.
@@ -428,6 +437,81 @@ public class OpenObserveService {
         return null;
     }
 
+    /**
+     * Replaces an existing org's unusable ingestion/api credentials with fresh scoped service
+     * accounts, leaving the org and its data alone.
+     *
+     * Backed off like the other provisioning paths: this runs from GET /config, which the
+     * Observability page calls on every mount, so a failing OpenObserve must not be retried on
+     * each page load. When it cannot succeed the row is returned unchanged and the generators
+     * keep refusing — a visible failure with an actionable message, rather than a silent
+     * downgrade back to admin credentials.
+     */
+    /** Per-account equivalent of {@link #repairIngestionKeys}. */
+    private AccountObservabilityConfig repairAccountIngestionKey(
+            AccountObservabilityConfig acc, Long clientId, String providerAccountId) {
+        String backoffKey = "repair-account:" + clientId + ":" + providerAccountId;
+        if (inProvisionBackoff(backoffKey)) {
+            logger.debug("Skipping ingestion key repair for account {} — in backoff window", providerAccountId);
+            return acc;
+        }
+        logger.warn("Ingestion credential for account {} org {} is missing or is the admin "
+                + "credential; minting a scoped service account to replace it",
+                providerAccountId, acc.getO2OrgId());
+        try {
+            String ingestionKey = createServiceAccount(
+                    acc.getO2OrgId(), "ingest-acc-" + acc.getCloudAccountId());
+            if (ingestionKey == null) {
+                recordProvisionFailure(backoffKey);
+                logger.error("Could not mint a scoped ingestion credential for account {} org {}",
+                        providerAccountId, acc.getO2OrgId());
+                return acc;
+            }
+            acc.setO2IngestionKey(ingestionKey);
+            AccountObservabilityConfig saved = accountConfigRepo.save(acc);
+            invalidateOrgIdCache(clientId);
+            logger.info("Replaced ingestion credential for account {} org {}",
+                    providerAccountId, acc.getO2OrgId());
+            return saved;
+        } catch (Exception e) {
+            recordProvisionFailure(backoffKey);
+            logger.error("Ingestion key repair failed for account {}: {}", providerAccountId, e.getMessage());
+            return acc;
+        }
+    }
+
+    private ObservabilityConfig repairIngestionKeys(ObservabilityConfig cfg, Long clientId) {
+        String backoffKey = "repair-client:" + clientId;
+        if (inProvisionBackoff(backoffKey)) {
+            logger.debug("Skipping ingestion key repair for client {} — in backoff window", clientId);
+            return cfg;
+        }
+        logger.warn("Ingestion credential for client {} org {} is missing or is the admin "
+                + "credential; minting scoped service accounts to replace it",
+                clientId, cfg.getO2OrgId());
+        try {
+            String ingestionKey = createServiceAccount(cfg.getO2OrgId(), "ingest-" + clientId);
+            String apiKey       = createServiceAccount(cfg.getO2OrgId(), "api-" + clientId);
+            if (ingestionKey == null) {
+                recordProvisionFailure(backoffKey);
+                logger.error("Could not mint a scoped ingestion credential for client {} org {} — "
+                        + "collector configs stay unavailable until OpenObserve accepts the "
+                        + "service account request", clientId, cfg.getO2OrgId());
+                return cfg;
+            }
+            cfg.setO2IngestionKey(ingestionKey);
+            if (apiKey != null) cfg.setO2ApiKey(apiKey);
+            ObservabilityConfig saved = configRepo.save(cfg);
+            invalidateOrgIdCache(clientId);
+            logger.info("Replaced ingestion credential for client {} org {}", clientId, cfg.getO2OrgId());
+            return saved;
+        } catch (Exception e) {
+            recordProvisionFailure(backoffKey);
+            logger.error("Ingestion key repair failed for client {}: {}", clientId, e.getMessage());
+            return cfg;
+        }
+    }
+
     // ── Per-Account Provisioning ───────────────────────────────────────────────
 
     /**
@@ -440,7 +524,17 @@ public class OpenObserveService {
         // Return existing config if already fully provisioned
         Optional<AccountObservabilityConfig> existing =
                 accountConfigRepo.findByClientIdAndProviderAccountId(client.getId(), providerAccountId);
-        if (existing.isPresent() && existing.get().getO2OrgId() != null) return existing.get();
+        if (existing.isPresent() && existing.get().getO2OrgId() != null) {
+            // Same repair as the client-level path: an existing org whose ingestion key is
+            // missing, or is the admin credential left by the old fallback, is fixed here so
+            // opening the Observability tab is enough. Otherwise this returned early and the
+            // only remedy was editing the database by hand.
+            AccountObservabilityConfig acc = existing.get();
+            if (needsIngestionKeyRepair(acc.getO2IngestionKey())) {
+                return repairAccountIngestionKey(acc, client.getId(), providerAccountId);
+            }
+            return acc;
+        }
 
         // Don't re-attempt O2 provisioning on every page load when it just failed.
         String backoffKey = "account:" + client.getId() + ":" + providerAccountId;
@@ -2357,6 +2451,17 @@ public class OpenObserveService {
     private boolean isAdminCredential(String base64Token) {
         String[] parts = decodeBasic(base64Token);
         return adminEmail != null && adminEmail.equalsIgnoreCase(parts[0]);
+    }
+
+    /**
+     * True when a stored ingestion key cannot be issued and must be replaced.
+     *
+     * Covers both a key that was never created and one that is the admin credential persisted by
+     * the old provisioning fallback. Provisioning uses this to repair an existing row, which is
+     * what makes the problem fixable from the UI instead of requiring a manual database update.
+     */
+    private boolean needsIngestionKeyRepair(String ingestionKey) {
+        return ingestionKey == null || ingestionKey.isBlank() || isAdminCredential(ingestionKey);
     }
 
     private long toLong(Object val) {
