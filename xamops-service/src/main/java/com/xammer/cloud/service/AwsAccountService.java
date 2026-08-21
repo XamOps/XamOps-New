@@ -4,7 +4,6 @@ import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.VerifyAccountRequest;
 import com.xammer.cloud.event.CloudAccountConnectedEvent;
-import com.xammer.cloud.exception.AccountDeletionBlockedException;
 import com.xammer.cloud.repository.AsgSpotConfigRepository;
 import com.xammer.cloud.repository.AutoSpottingSettingsRepository;
 import com.xammer.cloud.repository.ClientRepository;
@@ -36,7 +35,6 @@ import software.amazon.awssdk.services.sts.StsClient;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 import java.net.URL;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -249,26 +247,14 @@ public class AwsAccountService {
     @Autowired private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
     @Autowired private DiskAlertStateRepository diskAlertStateRepository;
     @Autowired private SreInvestigationRepository sreInvestigationRepository;
+    @Autowired private RedisCacheService redisCacheService;
 
     @PersistenceContext
     private EntityManager entityManager;
 
-    /**
-     * Tables owned by billops (separate service, same database) that hold financial
-     * records. billops runs ddl-auto=update, so it creates NOT NULL foreign keys to
-     * cloud_account with no cascade — an account carrying these rows cannot be
-     * deleted, and we refuse rather than destroy billing history behind the user's back.
-     */
-    private static final List<String> FINANCIAL_DEPENDENTS = List.of("invoice", "agreement");
-
     @Transactional
     public void deleteAccountById(Long accountId) {
-        List<String> blockers = findFinancialDependents(accountId);
-        if (!blockers.isEmpty()) {
-            throw new AccountDeletionBlockedException(
-                    "This account still has " + String.join(" and ", blockers)
-                            + ". Financial records are not deleted automatically — remove or reassign them first.");
-        }
+        deleteFinancialDependents(accountId);
 
         resourceLabelAssignmentRepository.deleteByCloudAccountId(accountId);
         ebsVolumeActionRepository.deleteByAccountId(accountId);
@@ -297,33 +283,119 @@ public class AwsAccountService {
     }
 
     /**
-     * Counts the financial rows still pointing at this account, as human-readable
-     * phrases ("3 invoices"). Each table is checked against information_schema first:
-     * billops may never have run against this database, in which case the table is
-     * simply absent. That probe is deliberately a lookup rather than a try/catch —
-     * a failed statement aborts the surrounding Postgres transaction, which would
-     * poison the deletes below even though Java caught the exception.
+     * Destroys the billops-owned financial records belonging to this account so the
+     * cloud_account row can be deleted.
+     *
+     * <p>
+     * billops lives in a separate service against the same database and runs
+     * ddl-auto=update, so its invoice and agreement tables carry NOT NULL foreign keys
+     * to cloud_account with no ON DELETE rule — Postgres rejects the account DELETE
+     * while any of these rows exist. Product decision is that removing an account
+     * removes its billing history with it, so we clear them here.
+     *
+     * <p>
+     * This is irreversible and applies to FINALIZED invoices too, which the billops
+     * admin API refuses to delete on its own. Every removal is logged at WARN so the
+     * destruction is at least reconstructible from the application log.
      */
-    private List<String> findFinancialDependents(Long accountId) {
-        List<String> found = new ArrayList<>();
-        for (String table : FINANCIAL_DEPENDENTS) {
-            Number linkable = (Number) entityManager.createNativeQuery(
-                    "SELECT COUNT(*) FROM information_schema.columns "
-                            + "WHERE table_name = :table AND column_name = 'cloud_account_id' "
-                            + "AND table_schema = ANY (current_schemas(false))")
-                    .setParameter("table", table)
-                    .getSingleResult();
-            if (linkable.longValue() == 0) {
-                continue;
-            }
-            long count = ((Number) entityManager
-                    .createNativeQuery("SELECT COUNT(*) FROM " + table + " WHERE cloud_account_id = :id")
-                    .setParameter("id", accountId)
-                    .getSingleResult()).longValue();
-            if (count > 0) {
-                found.add(count + " " + table + (count == 1 ? "" : "s"));
+    private void deleteFinancialDependents(Long accountId) {
+        logOrphanedAgreementFiles(accountId);
+
+        // Children first: invoice_line_item and discount both hold a NOT NULL
+        // invoice_id, so the invoice rows cannot go until these do.
+        int lineItems = deleteInvoiceChildren("invoice_line_item", accountId);
+        int discounts = deleteInvoiceChildren("discount", accountId);
+        int invoices = deleteByCloudAccount("invoice", accountId);
+        int agreements = deleteByCloudAccount("agreement", accountId);
+
+        if (invoices > 0 || agreements > 0) {
+            logger.warn(
+                    "Account {} deleted along with its financial records: {} invoice(s) "
+                            + "({} line item(s), {} discount(s)) and {} agreement(s). This is not recoverable.",
+                    accountId, invoices, lineItems, discounts, agreements);
+            evictBillopsInvoiceCaches();
+        }
+    }
+
+    /**
+     * Clears the invoice caches billops keeps in the shared Redis.
+     *
+     * <p>
+     * Deleting the rows with native SQL from this service never runs billops'
+     * {@code @CacheEvict}, so its lists would keep serving invoices whose rows are gone.
+     * The names below mirror the cache names and manual key billops uses; keep them in
+     * sync with InvoiceManagementService if either changes.
+     */
+    private void evictBillopsInvoiceCaches() {
+        for (String pattern : List.of("invoices::*", "invoiceDtos::*", "billops:invoices:list:admin*")) {
+            try {
+                redisCacheService.evictByPattern(pattern);
+            } catch (Exception e) {
+                // A stale cache entry is a display problem, not a reason to fail a
+                // deletion whose rows are already gone.
+                logger.warn("Could not evict billops invoice cache '{}': {}", pattern, e.getMessage());
             }
         }
-        return found;
+    }
+
+    /**
+     * Records the S3 keys of the agreements about to be removed. The objects themselves
+     * live in a bucket owned by billops, which this service has no client for, so they
+     * are left in place — the log is what makes them findable for later cleanup.
+     */
+    private void logOrphanedAgreementFiles(Long accountId) {
+        if (!linksToCloudAccount("agreement")) {
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        List<Object> keys = entityManager
+                .createNativeQuery("SELECT s3_key FROM agreement WHERE cloud_account_id = :id")
+                .setParameter("id", accountId)
+                .getResultList();
+        if (!keys.isEmpty()) {
+            logger.warn("Deleting account {} orphans {} agreement file(s) in S3, keys: {}",
+                    accountId, keys.size(), keys);
+        }
+    }
+
+    private int deleteByCloudAccount(String table, Long accountId) {
+        if (!linksToCloudAccount(table)) {
+            return 0;
+        }
+        return entityManager.createNativeQuery("DELETE FROM " + table + " WHERE cloud_account_id = :id")
+                .setParameter("id", accountId)
+                .executeUpdate();
+    }
+
+    private int deleteInvoiceChildren(String table, Long accountId) {
+        if (!linksToCloudAccount("invoice") || !hasColumn(table, "invoice_id")) {
+            return 0;
+        }
+        return entityManager.createNativeQuery("DELETE FROM " + table
+                + " WHERE invoice_id IN (SELECT id FROM invoice WHERE cloud_account_id = :id)")
+                .setParameter("id", accountId)
+                .executeUpdate();
+    }
+
+    private boolean linksToCloudAccount(String table) {
+        return hasColumn(table, "cloud_account_id");
+    }
+
+    /**
+     * billops may never have run against this database, leaving its tables absent, so
+     * every statement above is gated on the column actually existing. The probe is
+     * deliberately an information_schema lookup rather than a try/catch — a failed
+     * statement aborts the surrounding Postgres transaction, which would poison the
+     * account deletes that follow even though Java caught the exception.
+     */
+    private boolean hasColumn(String table, String column) {
+        Number found = (Number) entityManager.createNativeQuery(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                        + "WHERE table_name = :table AND column_name = :column "
+                        + "AND table_schema = ANY (current_schemas(false))")
+                .setParameter("table", table)
+                .setParameter("column", column)
+                .getSingleResult();
+        return found.longValue() > 0;
     }
 }
