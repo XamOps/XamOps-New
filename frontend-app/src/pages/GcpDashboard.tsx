@@ -101,7 +101,13 @@ const GcpDashboard: React.FC = () => {
     try {
       setIsLoadingAutoSpotting(true);
       const migsData = await apiClient.get(`/api/gcp/autospotting/migs/all-regions/${accountId}`);
+      // These are USD per hour, matching optimizationSavings below. They used to be INR, converted
+      // from USD at a hardcoded 83.0 inside GcpPricingService, and were then added straight to the
+      // USD optimization figure — so the autospotting share of "potential savings" was counted
+      // about 83 times over. A group the pricing service could not price is skipped rather than
+      // contributing a zero that looks like a real measurement.
       const totalPotentialSavings = migsData.reduce((sum: number, mig: any) => {
+        if (mig.savingsUnknown) return sum;
         return sum + ((mig.potentialHourlySavings || 0) * 730);
       }, 0);
       setAutoSpottingSavings(totalPotentialSavings);

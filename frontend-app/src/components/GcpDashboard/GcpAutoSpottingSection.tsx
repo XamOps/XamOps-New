@@ -125,9 +125,28 @@ const GcpAutoSpottingSection: React.FC<GcpAutoSpottingSectionProps> = ({ account
                                     </div>
                                 </td>
                                 <td className="py-4 text-right">
-                                    <div className="text-sm font-bold text-green-600">
-                                        +₹{mig.potentialHourlySavings ? mig.potentialHourlySavings.toFixed(2) : '0.00'}/hr
-                                    </div>
+                                    {mig.savingsUnknown ? (
+                                        <div
+                                            className="text-sm font-bold text-gray-400"
+                                            title={mig.pricingNote || 'No list price available for this machine type'}
+                                        >
+                                            Not priced
+                                        </div>
+                                    ) : (
+                                        <div className="text-sm font-bold text-green-600">
+                                            {/* USD. This read ₹ while the value was INR from a hardcoded
+                                                83.0 rate, and the dashboard added it to USD figures. */}
+                                            +${mig.potentialHourlySavings ? mig.potentialHourlySavings.toFixed(4) : '0.0000'}/hr
+                                            {mig.priceSource === 'ESTIMATE_TABLE' && (
+                                                <span
+                                                    className="ml-1 text-[10px] font-bold text-amber-600"
+                                                    title={mig.pricingNote || 'Estimated, not a catalog list price'}
+                                                >
+                                                    EST
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
                                 </td>
                                 <td className="py-4 text-center">
                                     {mig.isEnabled ? (
