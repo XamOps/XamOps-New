@@ -506,13 +506,20 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
     );
   }
 
+  // Lambda is an AWS service. On the Azure and GCP dashboards this card rendered
+  // "No Lambda waste" against a provider that has no Lambda, which reads as a
+  // verified all-clear for something that was never checked.
+  const showLambdaCard = !provider || provider.toUpperCase() === 'AWS';
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div className={`grid grid-cols-2 md:grid-cols-3 gap-4 ${showLambdaCard ? 'lg:grid-cols-6' : 'lg:grid-cols-5'}`}>
       <AlertsCard     summary={alertSummary}     loading={alertLoading} provider={provider} />
       <SecurityCard   accountId={accountId} apiBase={apiBase} />
       <WasteCard      summary={wasteSummary}      loading={wasteLoading} provider={provider} />
       <RightsizingCard summary={rightsizeSummary} loading={rightsizeLoading} provider={provider} />
-      <LambdaCard     wasteSummary={wasteSummary} loading={wasteLoading} provider={provider} />
+      {showLambdaCard && (
+        <LambdaCard   wasteSummary={wasteSummary} loading={wasteLoading} provider={provider} />
+      )}
       <TicketsCard    summary={ticketSummary}     loading={ticketLoading} />
     </div>
   );

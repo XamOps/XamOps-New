@@ -77,6 +77,27 @@ public class AzureRightsizingService {
      * @param size current size, e.g. {@code Standard_D8as_v5}
      * @return the next smaller size, or empty when there is no smaller step
      */
+    /**
+     * Converts an amount into {@link #BASE_CURRENCY} so every row in the response is comparable.
+     *
+     * <p>Leaves the amount untouched for an unsupported currency rather than guessing a rate,
+     * and logs it — a wrong conversion is worse than an unconverted figure, because it looks
+     * plausible.
+     */
+    private double toBaseCurrency(double amount, String fromCurrency) {
+        if (amount == 0.0) {
+            return 0.0;
+        }
+        try {
+            return currencyConversionService.convert(amount, fromCurrency, BASE_CURRENCY);
+        } catch (IllegalArgumentException e) {
+            log.warn("Azure Advisor reported savings in {}, which cannot be converted to {}. "
+                    + "Leaving the amount as-is; it is not comparable with the other rows.",
+                    fromCurrency, BASE_CURRENCY);
+            return amount;
+        }
+    }
+
     static Optional<String> nextSmallerSku(String size) {
         if (size == null || !size.startsWith("Standard_")) {
             return Optional.empty();
@@ -90,13 +111,37 @@ public class AzureRightsizingService {
         String modifiers = m.group(3) == null ? "" : m.group(3);
         String version = m.group(4) == null ? "" : m.group(4);
 
-        // Azure sizes step in powers of two; 1 vCPU is the floor.
-        if (vcpus <= 1) {
+        // Azure sizes step in powers of two; 2 vCPUs is the smallest step that has a smaller
+        // neighbour in the general-purpose families.
+        if (vcpus <= 2) {
             return Optional.empty();
         }
+
         int smaller = vcpus / 2;
+
+        // Halving arithmetically is not enough: Azure does not publish every result. There is no
+        // Standard_D1s_v5 or Standard_E1s_v5, and an odd vCPU count halves to a size that never
+        // existed. Emitting one produced a recommendation whose resize call fails at apply time,
+        // so only vCPU counts Azure actually offers are returned.
+        if (!AZURE_VCPU_STEPS.contains(smaller)) {
+            return Optional.empty();
+        }
+        // The v-series general-purpose and memory-optimised families start at 2 vCPUs.
+        if (smaller < 2) {
+            return Optional.empty();
+        }
         return Optional.of("Standard_" + family + smaller + modifiers + version);
     }
+
+    /**
+     * vCPU counts Azure publishes for the mainstream families.
+     *
+     * <p>Sizes step in powers of two from 2, with 96 and 128 at the top end. A halving that
+     * lands outside this set does not exist as a purchasable size, so no recommendation is made
+     * rather than one that cannot be applied.
+     */
+    private static final java.util.Set<Integer> AZURE_VCPU_STEPS =
+            java.util.Set.of(2, 4, 8, 16, 20, 32, 48, 64, 80, 96, 128);
 
     /**
      * Matches an Azure VM size: family letters, vCPU count, optional modifier letters
@@ -112,6 +157,7 @@ public class AzureRightsizingService {
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
     private final CachedDataRepository cachedDataRepository;
+    private final com.xammer.cloud.service.CurrencyConversionService currencyConversionService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final SnapshotFreshnessService snapshotFreshnessService;
@@ -123,13 +169,15 @@ public class AzureRightsizingService {
                                    CachedDataRepository cachedDataRepository,
                                    SnapshotFreshnessService snapshotFreshnessService,
                                    AzureRetailPricingService retailPricingService,
-                                   AzureArmClient armClient) {
+                                   AzureArmClient armClient,
+                                   com.xammer.cloud.service.CurrencyConversionService currencyConversionService) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
         this.snapshotFreshnessService = snapshotFreshnessService;
         this.retailPricingService = retailPricingService;
         this.armClient = armClient;
+        this.currencyConversionService = currencyConversionService;
     }
 
     /**
@@ -244,6 +292,12 @@ public class AzureRightsizingService {
         }
 
         recommendations.sort(Comparator.comparingDouble(AzureRightsizingRecommendation::getMonthlySavings).reversed());
+        int beforeDedupe = recommendations.size();
+        recommendations = keepBestCommitmentPerResource(recommendations);
+        if (recommendations.size() != beforeDedupe) {
+            log.info("Azure rightsizing: collapsed {} mutually exclusive commitment options for {}",
+                    beforeDedupe - recommendations.size(), subscriptionId);
+        }
         log.info("Azure rightsizing: {} total recommendations for {}", recommendations.size(), subscriptionId);
 
         AzureRightsizingResponse.Status status;
@@ -255,6 +309,67 @@ public class AzureRightsizingService {
             status = AzureRightsizingResponse.Status.NO_DATA;
         }
         return new AzureRightsizingResponse(status, recommendations);
+    }
+
+    /**
+     * Collapses mutually exclusive commitment options so each resource contributes once.
+     *
+     * <p>Azure Advisor returns a separate recommendation per commitment term, so the same VM
+     * arrives as "Reserved (1yr)" and "Reserved (3yr)", and a subscription arrives as both a
+     * 1-year and a 3-year Savings Plan. You can only buy one of each pair, but the UI summed
+     * them all: in UAT a single {@code Standard_D4s_v5} contributed ₹252 for 3 years and ₹158
+     * for 1 year, and the six rows totalled ₹1,058 — roughly double what is achievable.
+     *
+     * <p>Keeps the highest-saving option per resource-and-commitment-family. Resize
+     * recommendations are left alone: a resize and a reservation are not alternatives in the
+     * same sense, and resizes are already deduplicated upstream by resource id.
+     *
+     * <p>The input must already be sorted by savings descending.
+     */
+    private List<AzureRightsizingRecommendation> keepBestCommitmentPerResource(
+            List<AzureRightsizingRecommendation> sortedBySavingsDesc) {
+
+        Map<String, AzureRightsizingRecommendation> bestByKey = new java.util.LinkedHashMap<>();
+        List<AzureRightsizingRecommendation> passthrough = new ArrayList<>();
+
+        for (AzureRightsizingRecommendation rec : sortedBySavingsDesc) {
+            String family = commitmentFamily(rec.getTargetSku());
+            if (family == null) {
+                // Not a commitment purchase — keep as-is.
+                passthrough.add(rec);
+                continue;
+            }
+            // Group by resource plus commitment family, so a VM's 1yr and 3yr reservations
+            // collide but its reservation and a separate savings plan do not.
+            String key = (rec.getResourceName() == null ? "" : rec.getResourceName().toLowerCase())
+                    + "|" + (rec.getCurrentSku() == null ? "" : rec.getCurrentSku().toLowerCase())
+                    + "|" + family;
+            bestByKey.putIfAbsent(key, rec);
+        }
+
+        List<AzureRightsizingRecommendation> result = new ArrayList<>(passthrough);
+        result.addAll(bestByKey.values());
+        result.sort(Comparator.comparingDouble(AzureRightsizingRecommendation::getMonthlySavings).reversed());
+        return result;
+    }
+
+    /**
+     * Classifies a target SKU as a commitment purchase.
+     *
+     * @return {@code "reserved"}, {@code "savings-plan"}, or null when the target is a resize
+     */
+    private String commitmentFamily(String targetSku) {
+        if (targetSku == null || targetSku.isBlank()) {
+            return null;
+        }
+        String sku = targetSku.toLowerCase();
+        if (sku.startsWith("reserved")) {
+            return "reserved";
+        }
+        if (sku.startsWith("savings plan")) {
+            return "savings-plan";
+        }
+        return null;
     }
 
     /**
@@ -564,12 +679,19 @@ public class AzureRightsizingService {
                 }
                 rec.setTargetSku(targetSku);
 
-                // Advisor reports savings in the billing currency. Defaulting a missing value
-                // to INR previously relabelled USD amounts, which were then sorted and summed
-                // against genuinely-INR metric-based rows.
-                rec.setMonthlySavings(parseDouble(extProps.path("savingsAmount").asText(null)));
-                rec.setAnnualSavings(parseDouble(extProps.path("annualSavingsAmount").asText(null)));
-                rec.setCurrency(extProps.path("savingsCurrency").asText(BASE_CURRENCY));
+                // Advisor reports savings in the subscription's billing currency, which for an
+                // India-billed subscription is INR. The metric-based rows produced elsewhere in
+                // this service are always USD, and both sets are then sorted together, deduped by
+                // "highest saving", and summed by the UI — so a mixed list made the ordering and
+                // the total meaningless. Normalise to the service's base currency here so every
+                // row downstream is comparable.
+                String advisorCurrency = extProps.path("savingsCurrency").asText(BASE_CURRENCY);
+                double monthly = parseDouble(extProps.path("savingsAmount").asText(null));
+                double annual = parseDouble(extProps.path("annualSavingsAmount").asText(null));
+
+                rec.setMonthlySavings(toBaseCurrency(monthly, advisorCurrency));
+                rec.setAnnualSavings(toBaseCurrency(annual, advisorCurrency));
+                rec.setCurrency(BASE_CURRENCY);
                 rec.setMaxCpuObserved(extProps.path("maxCpuP95").asText(
                         extProps.path("avgCpuUtilization").asText("")));
                 rec.setMaxMemoryObserved(extProps.path("maxMemoryP95").asText(""));

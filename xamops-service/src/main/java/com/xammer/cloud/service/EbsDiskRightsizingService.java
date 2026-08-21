@@ -82,6 +82,15 @@ public class EbsDiskRightsizingService {
     /** Region assumed by the ROI calculator when the caller does not supply one. */
     private static final String DEFAULT_ROI_REGION = "us-east-1";
 
+    /** IOPS a gp3 volume provides without being asked. */
+    private static final int GP3_BASELINE_IOPS = 3000;
+
+    /** Highest IOPS a gp3 volume can be provisioned with. */
+    private static final int GP3_MAX_IOPS = 16000;
+
+    /** gp2 delivers 3 IOPS per GiB, capped at 16,000. */
+    private static final int GP2_IOPS_PER_GB = 3;
+
     private final AwsClientProvider awsClientProvider;
     private final PricingService pricingService;
     private final CloudAccountRepository cloudAccountRepository;
@@ -206,10 +215,24 @@ public class EbsDiskRightsizingService {
                     ec2, awsClientProvider.getAutoScalingClient(account, region), asgName, device, targetType);
         }
 
-        ec2.modifyVolume(ModifyVolumeRequest.builder()
+        // Carry the volume's performance across the conversion. gp3 defaults to 3,000 IOPS and
+        // 125 MB/s, so converting a large gp2 volume with only a volumeType change silently cut
+        // its performance: gp2 scales at 3 IOPS/GB up to 16,000, so a 5,334 GiB gp2 was running
+        // at 16,000 IOPS and landed on 3,000. That is a performance regression sold as a saving.
+        ModifyVolumeRequest.Builder modify = ModifyVolumeRequest.builder()
                 .volumeId(volumeId)
-                .volumeType(VolumeType.fromValue(targetType))
-                .build());
+                .volumeType(VolumeType.fromValue(targetType));
+
+        if ("gp3".equalsIgnoreCase(targetType)) {
+            int preservedIops = gp3IopsToPreserve(vol);
+            if (preservedIops > GP3_BASELINE_IOPS) {
+                modify.iops(preservedIops);
+                logger.info("Preserving {} IOPS on the gp2 → gp3 conversion of {} (gp3 would "
+                        + "otherwise default to {})", preservedIops, volumeId, GP3_BASELINE_IOPS);
+            }
+        }
+
+        ec2.modifyVolume(modify.build());
 
         if (isAsg) {
             ebsAsgHelper.startInstanceRefresh(
@@ -224,6 +247,27 @@ public class EbsDiskRightsizingService {
         return Map.of("success", true, "message",
                 "Volume type changed from " + action.getOldType() + " to " + targetType
                         + (isAsg ? ". Instance refresh started for ASG " + asgName + "." : "."));
+    }
+
+    /**
+     * IOPS to request so a gp3 conversion does not reduce the volume's performance.
+     *
+     * <p>gp2 does not report provisioned IOPS in its {@code iops()} field in a way that can be
+     * relied on for the baseline tiers, so the effective rate is derived from size: 3 IOPS per
+     * GiB, floored at gp2's own 100 IOPS minimum and capped at gp3's 16,000 maximum.
+     *
+     * @return IOPS to set, or {@link #GP3_BASELINE_IOPS} when the default already suffices
+     */
+    static int gp3IopsToPreserve(Volume vol) {
+        if (vol == null) {
+            return GP3_BASELINE_IOPS;
+        }
+        // Prefer the reported value when present; it is authoritative for io1/io2 and for gp2
+        // volumes above the baseline tier.
+        int reported = vol.iops() == null ? 0 : vol.iops();
+        int derived = vol.size() == null ? 0 : vol.size() * GP2_IOPS_PER_GB;
+        int effective = Math.max(reported, derived);
+        return Math.min(Math.max(effective, GP3_BASELINE_IOPS), GP3_MAX_IOPS);
     }
 
     private Map<String, Object> applyResize(Ec2Client ec2, EbsVolumeAction action,
@@ -1386,13 +1430,78 @@ public class EbsDiskRightsizingService {
         return dto;
     }
 
+    /** Minimum time a volume must sit unattached before deletion is suggested. */
+    private static final int UNATTACHED_MIN_AGE_DAYS = 7;
+
+    /**
+     * Why an unattached volume must not be recommended for deletion, or null when it may be.
+     *
+     * <p>This path previously had no guard at all — unlike the GCP and Azure equivalents — so it
+     * would recommend deleting:
+     * <ul>
+     *   <li>a volume detached moments ago during maintenance or an instance-type change;</li>
+     *   <li>a Kubernetes PersistentVolume, which reads as available while its pod reschedules;</li>
+     *   <li>this service's own shrink rollback volumes, tagged {@code XamOps-PendingDeletion},
+     *       which exist precisely so a customer can roll a shrink back within 7 days.</li>
+     * </ul>
+     */
+    private String describeDeleteBlocker(Volume vol) {
+        List<Tag> tags = vol.tags() == null ? List.of() : vol.tags();
+
+        boolean pendingDeletion = tags.stream()
+                .anyMatch(t -> "XamOps-PendingDeletion".equals(t.key()) && "true".equals(t.value()));
+        if (pendingDeletion) {
+            return "This is a shrink rollback copy retained by XamOps. Use the pending-deletion "
+                    + "screen to release it, so the rollback window is not lost by accident.";
+        }
+
+        boolean k8sVolume = tags.stream().anyMatch(t -> {
+            String key = t.key() == null ? "" : t.key().toLowerCase();
+            return key.startsWith("kubernetes.io/")
+                    || key.startsWith("k8s.io/")
+                    || key.contains("kubernetes.io/cluster")
+                    || key.equals("kubernetes.io/created-for/pvc/name");
+        });
+        if (k8sVolume) {
+            return "Provisioned by Kubernetes for a PersistentVolume — it reads as available while "
+                    + "its pod is rescheduled, and deleting it destroys the volume's data.";
+        }
+
+        boolean retained = tags.stream().anyMatch(t -> {
+            String key = t.key() == null ? "" : t.key().toLowerCase();
+            return key.contains("donotdelete") || key.contains("do-not-delete")
+                    || key.contains("retain") || key.contains("backup");
+        });
+        if (retained) {
+            return "Carries a retention or do-not-delete tag.";
+        }
+
+        if (vol.createTime() != null
+                && vol.createTime().isAfter(
+                        Instant.now().minus(java.time.temporal.ChronoUnit.DAYS.getDuration()
+                                .multipliedBy(UNATTACHED_MIN_AGE_DAYS)))) {
+            return "Created within the last " + UNATTACHED_MIN_AGE_DAYS + " days — it may be part of "
+                    + "an in-progress migration or maintenance.";
+        }
+        return null;
+    }
+
     private void buildRecommendation(Map<String, Object> dto, Volume vol, String region) {
         String volumeType = vol.volumeTypeAsString();
         String state = vol.stateAsString();
         int sizeGb = vol.size();
 
-        // 1. Unattached volume → delete
+        // 1. Unattached volume → delete, subject to guards
         if ("available".equals(state)) {
+            String blocked = describeDeleteBlocker(vol);
+            if (blocked != null) {
+                dto.put("recommendation", "NONE");
+                dto.put("recommendationReason", blocked);
+                dto.put("estimatedSavings", 0.0);
+                dto.put("recommendedType", volumeType);
+                dto.put("recommendedSizeGb", sizeGb);
+                return;
+            }
             dto.put("recommendation", "DELETE_UNATTACHED");
             dto.put("recommendationReason", "Volume is not attached to any instance");
             dto.put("estimatedSavings", Math.round(calcMonthlyCost(volumeType, sizeGb, region) * 100.0) / 100.0);
@@ -1414,7 +1523,9 @@ public class EbsDiskRightsizingService {
 
         // 3. io1 volumes — recommend downgrade to gp3 if IOPS are low
         // (Without CloudWatch data here, we flag io1 volumes under 100GB as likely candidates)
-        if ("io1".equals(volumeType) && sizeGb <= 100) {
+        // gp3 does not support Multi-Attach, so the conversion would be rejected by the API.
+        boolean multiAttach = Boolean.TRUE.equals(vol.multiAttachEnabled());
+        if ("io1".equals(volumeType) && sizeGb <= 100 && !multiAttach) {
             double savings = (gbMonthPrice("io1", region) - gbMonthPrice("gp3", region)) * sizeGb;
             dto.put("recommendation", "UPGRADE_TYPE");
             dto.put("recommendationReason", "io1 volume may be over-provisioned for workload size; consider gp3");

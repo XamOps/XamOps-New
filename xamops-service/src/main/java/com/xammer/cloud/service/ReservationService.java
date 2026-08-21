@@ -751,13 +751,13 @@ public class ReservationService {
             // largest single savings available on a database-heavy account.
             List<DashboardData.ReservationPurchaseRecommendation> result = new ArrayList<>();
             List<String> failedServices = new ArrayList<>();
-            for (String serviceName : RESERVABLE_SERVICES) {
-                ServiceFetchResult fetched = fetchPurchaseRecommendationsForService(
-                        ce, serviceName, term, paymentOption, lookback, offeringClass,
+            for (ReservableService service : RESERVABLE_SERVICES) {
+                ServiceFetchResult fetched = fetchWithNameResolution(
+                        ce, service, term, paymentOption, lookback, offeringClass,
                         account.getAwsAccountId());
                 result.addAll(fetched.recommendations());
                 if (!fetched.succeeded()) {
-                    failedServices.add(serviceName);
+                    failedServices.add(service.label());
                 }
             }
 
@@ -818,34 +818,85 @@ public class ReservationService {
      *                         "this account has no opportunities here"
      */
     private record ServiceFetchResult(
-            List<DashboardData.ReservationPurchaseRecommendation> recommendations, boolean succeeded) {
+            List<DashboardData.ReservationPurchaseRecommendation> recommendations,
+            boolean succeeded,
+            boolean nameRejected) {
 
         static ServiceFetchResult ok(List<DashboardData.ReservationPurchaseRecommendation> recs) {
-            return new ServiceFetchResult(recs, true);
+            return new ServiceFetchResult(recs, true, false);
         }
 
         /** The account genuinely has nothing to reserve for this service. */
         static ServiceFetchResult emptyButValid() {
-            return new ServiceFetchResult(Collections.emptyList(), true);
+            return new ServiceFetchResult(Collections.emptyList(), true, false);
         }
 
         static ServiceFetchResult failed() {
-            return new ServiceFetchResult(Collections.emptyList(), false);
+            return new ServiceFetchResult(Collections.emptyList(), false, false);
+        }
+
+        /**
+         * Cost Explorer did not recognise the service string. Not a failure of the account or
+         * the API — the caller should try the next candidate name.
+         */
+        static ServiceFetchResult unknownServiceName() {
+            return new ServiceFetchResult(Collections.emptyList(), false, true);
         }
     }
 
     /**
-     * Services for which AWS offers reservations via
-     * {@code GetReservationPurchaseRecommendation}. Names must match Cost Explorer's
-     * service strings exactly.
+     * A reservable service and the Cost Explorer {@code Service} strings to try for it.
+     *
+     * <p>AWS documents <em>which</em> services support reservation recommendations but has
+     * never published the accepted values for the API's {@code Service} parameter, and at
+     * least one service has been renamed (Elasticsearch to OpenSearch) while Cost Explorer
+     * kept the old string for historical data. Betting on a single spelling means a silent
+     * gap: a rejected name looks identical to "this account has nothing to reserve".
+     *
+     * <p>So each service carries candidate names tried in order. The first that is accepted
+     * wins and is remembered for the process lifetime, and the resolved name is logged, which
+     * turns an untestable assumption into something a production log line confirms.
+     *
+     * @param label      name for logs and for the recommendation's service column
+     * @param candidates Cost Explorer service strings, most likely first
      */
-    private static final List<String> RESERVABLE_SERVICES = List.of(
-            "Amazon Elastic Compute Cloud - Compute",
-            "Amazon Relational Database Service",
-            "Amazon ElastiCache",
-            "Amazon OpenSearch Service",
-            "Amazon Redshift",
-            "Amazon MemoryDB");
+    private record ReservableService(String label, List<String> candidates) {
+    }
+
+    /**
+     * Services for which Cost Explorer offers reservation recommendations, per
+     * <a href="https://docs.aws.amazon.com/cost-management/latest/userguide/ri-recommendations.html">
+     * Accessing reservation recommendations</a>: EC2, RDS, ElastiCache, OpenSearch, Redshift,
+     * MemoryDB and DynamoDB.
+     *
+     * <p>DynamoDB was missing from the original list, so reserved-capacity opportunities on a
+     * DynamoDB-heavy account were never surfaced at all.
+     */
+    private static final List<ReservableService> RESERVABLE_SERVICES = List.of(
+            new ReservableService("Amazon EC2", List.of(
+                    "Amazon Elastic Compute Cloud - Compute",
+                    "Amazon Elastic Compute Cloud")),
+            new ReservableService("Amazon RDS", List.of(
+                    "Amazon Relational Database Service")),
+            new ReservableService("Amazon ElastiCache", List.of(
+                    "Amazon ElastiCache")),
+            new ReservableService("Amazon OpenSearch Service", List.of(
+                    "Amazon OpenSearch Service",
+                    // Cost Explorer retained the pre-rename string for a long period.
+                    "Amazon Elasticsearch Service")),
+            new ReservableService("Amazon Redshift", List.of(
+                    "Amazon Redshift")),
+            new ReservableService("Amazon MemoryDB", List.of(
+                    "Amazon MemoryDB",
+                    "Amazon MemoryDB for Redis")),
+            new ReservableService("Amazon DynamoDB", List.of(
+                    "Amazon DynamoDB")));
+
+    /**
+     * Service label to the candidate string that Cost Explorer accepted, so the alias probe
+     * runs at most once per service per process rather than on every request.
+     */
+    private final Map<String, String> resolvedServiceNames = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * Fetches reservation purchase recommendations for one service.
@@ -856,6 +907,49 @@ public class ReservationService {
      *
      * @param offeringClass only meaningful for EC2; ignored by the other services
      */
+    /**
+     * Queries one service, probing its candidate names until Cost Explorer accepts one.
+     *
+     * <p>Only a name rejection advances to the next candidate. A throttle or permission error
+     * is a failure of that service, not evidence the name is wrong, so it stops the probe and
+     * is reported — otherwise a throttled EC2 lookup would silently retry under a wrong alias
+     * and then report success with no data.
+     */
+    private ServiceFetchResult fetchWithNameResolution(
+            CostExplorerClient ce, ReservableService service, String term, String paymentOption,
+            String lookback, String offeringClass, String accountId) {
+
+        String remembered = resolvedServiceNames.get(service.label());
+        if (remembered != null) {
+            return fetchPurchaseRecommendationsForService(
+                    ce, remembered, term, paymentOption, lookback, offeringClass, accountId);
+        }
+
+        ServiceFetchResult lastResult = ServiceFetchResult.failed();
+        for (String candidate : service.candidates()) {
+            ServiceFetchResult attempt = fetchPurchaseRecommendationsForService(
+                    ce, candidate, term, paymentOption, lookback, offeringClass, accountId);
+
+            if (attempt.nameRejected()) {
+                logger.debug("Cost Explorer rejected the service name '{}' for {}; trying the next candidate",
+                        candidate, service.label());
+                lastResult = attempt;
+                continue;
+            }
+
+            if (attempt.succeeded()) {
+                resolvedServiceNames.put(service.label(), candidate);
+                logger.info("Resolved Cost Explorer service name for {}: '{}'", service.label(), candidate);
+            }
+            return attempt;
+        }
+
+        logger.warn("No Cost Explorer service name worked for {} (tried {}). Reservation "
+                        + "opportunities for this service cannot be reported.",
+                service.label(), service.candidates());
+        return lastResult;
+    }
+
     private ServiceFetchResult fetchPurchaseRecommendationsForService(
             CostExplorerClient ce, String serviceName, String term, String paymentOption,
             String lookback, String offeringClass, String accountId) {
@@ -913,9 +1007,9 @@ public class ReservationService {
             // one catch that logged at DEBUG and returned empty, so a hard failure was
             // indistinguishable from "fully optimized" both in the UI and in the logs.
             if (isUnsupportedService(e)) {
-                logger.debug("Cost Explorer does not offer reservations for {} in account {}: {}",
-                        serviceName, accountId, e.getMessage());
-                return ServiceFetchResult.emptyButValid();
+                // Reported separately so the caller can try an alternative spelling rather
+                // than concluding the account has nothing to reserve here.
+                return ServiceFetchResult.unknownServiceName();
             }
             logger.warn("Reservation recommendation lookup FAILED for {} in account {} [{}]: {}",
                     serviceName, accountId, e.getClass().getSimpleName(), e.getMessage());

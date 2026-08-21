@@ -123,7 +123,8 @@ public class AzureSecurityService {
 
             HttpClient httpClient = HttpClient.newHttpClient();
 
-            double secureScore = fetchSecureScore(subscriptionId, bearerToken, httpClient);
+            SecureScore score = fetchSecureScore(subscriptionId, bearerToken, httpClient);
+            double secureScore = score.current();
             List<AzureSecurityAlert> alerts = fetchAlerts(subscriptionId, bearerToken, httpClient);
             List<AzureSecurityAssessment> assessments = fetchAssessments(subscriptionId, bearerToken, httpClient);
             List<AzureSecureScoreControl> scoreControls = fetchSecureScoreControls(subscriptionId, bearerToken, httpClient);
@@ -136,7 +137,21 @@ public class AzureSecurityService {
             log.info("Azure Security: score={}, alerts={}, assessments(unhealthy)={}, controls={} for {}",
                     secureScore, alerts.size(), assessments.size(), scoreControls.size(), subscriptionId);
 
-            return new AzureSecurityResponse(status, secureScore, 100, alerts, assessments, scoreControls);
+            // Prefer Defender's own maximum. If the score endpoint did not report one, derive it
+            // from the per-control breakdown rather than falling back to a misleading 100.
+            int maxScore = score.max();
+            if (maxScore <= 0) {
+                maxScore = (int) Math.round(scoreControls.stream()
+                        .mapToDouble(AzureSecureScoreControl::getMaxScore)
+                        .sum());
+            }
+            if (maxScore <= 0) {
+                maxScore = 100;
+                log.warn("Azure Security: no secure-score maximum available for {} — falling back to 100, "
+                        + "so the displayed percentage may understate posture", subscriptionId);
+            }
+
+            return new AzureSecurityResponse(status, secureScore, maxScore, alerts, assessments, scoreControls);
 
         } catch (PermissionException e) {
             log.warn("SP lacks Security Reader role for subscription {}. " +
@@ -152,22 +167,42 @@ public class AzureSecurityService {
 
     // ── Secure Score ──────────────────────────────────────────────────────────
 
-    private double fetchSecureScore(String subscriptionId, String bearerToken,
-                                    HttpClient httpClient) throws Exception {
+    /**
+     * The subscription's secure score and the maximum it is measured against.
+     *
+     * @param current points earned
+     * @param max     points available; Defender scales this to the controls in scope, so it is
+     *                rarely 100
+     */
+    private record SecureScore(double current, int max) {
+        static final SecureScore UNKNOWN = new SecureScore(0, 0);
+    }
+
+    /**
+     * Reads the subscription secure score, including its real denominator.
+     *
+     * <p>The denominator used to be hardcoded to 100, so a subscription scoring 8 of 13
+     * available points was displayed as "8.0 Out of 100 (8%)" instead of 61%. Defender scales
+     * the maximum to the controls actually in scope, so 100 is almost never right.
+     */
+    private SecureScore fetchSecureScore(String subscriptionId, String bearerToken,
+                                         HttpClient httpClient) throws Exception {
         String uri = BASE_URL + subscriptionId
                 + "/providers/Microsoft.Security/secureScores"
                 + "?api-version=2020-01-01-preview";
 
         String body = doGet(uri, bearerToken, httpClient, subscriptionId, "secureScores");
-        if (body == null) return 0;
+        if (body == null) return SecureScore.UNKNOWN;
 
         JsonNode root = objectMapper.readTree(body);
         JsonNode value = root.path("value");
-        if (!value.isArray() || value.isEmpty()) return 0;
+        if (!value.isArray() || value.isEmpty()) return SecureScore.UNKNOWN;
 
         // Take the first score entry (typically "ascScore" — the overall subscription score)
         JsonNode scoreNode = value.get(0).path("properties").path("score");
-        return scoreNode.path("current").asDouble(0);
+        double current = scoreNode.path("current").asDouble(0);
+        int max = scoreNode.path("max").asInt(0);
+        return new SecureScore(current, max);
     }
 
     // ── Secure Score Controls (per-control breakdown) ──────────────────────────

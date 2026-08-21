@@ -39,6 +39,50 @@ public class AzureDashboardData {
     // Cache metadata - shows when data was last refreshed
     private String lastUpdated;
 
+    /**
+     * False when at least one section could not be populated, so the zeros in this payload are
+     * placeholders rather than measurements.
+     *
+     * <p>Cost figures are read from a Redis cache filled by a separate billing-ingestion job.
+     * When that cache is cold the dashboard builder previously set month-to-date and forecast
+     * spend to {@code 0.0} and carried on, and the result was written straight over the good
+     * database snapshot — so pressing Refresh replaced a populated dashboard with an
+     * all-zero one that looked authoritative.
+     */
+    private boolean dataComplete = true;
+
+    /** Human-readable reasons why {@link #dataComplete} is false. */
+    private java.util.List<String> dataWarnings = new java.util.ArrayList<>();
+
+    public boolean isDataComplete() { return dataComplete; }
+    public void setDataComplete(boolean dataComplete) { this.dataComplete = dataComplete; }
+
+    public java.util.List<String> getDataWarnings() { return dataWarnings; }
+    public void setDataWarnings(java.util.List<String> dataWarnings) { this.dataWarnings = dataWarnings; }
+
+    /** Records a reason this payload is incomplete. */
+    public void addDataWarning(String warning) {
+        this.dataComplete = false;
+        if (this.dataWarnings == null) {
+            this.dataWarnings = new java.util.ArrayList<>();
+        }
+        this.dataWarnings.add(warning);
+    }
+
+    /**
+     * True when this payload carries no spend and no inventory, i.e. it conveys nothing.
+     *
+     * <p>Used to refuse overwriting a populated snapshot with an empty one.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isMateriallyEmpty() {
+        boolean noSpend = monthToDateSpend == 0.0 && forecastedSpend == 0.0 && lastMonthSpend == 0.0;
+        boolean noHistory = costHistory == null || costHistory.getCosts() == null
+                || costHistory.getCosts().isEmpty();
+        boolean noBilling = billingSummary == null || billingSummary.isEmpty();
+        return noSpend && noHistory && noBilling;
+    }
+
     // --- Getters and Setters ---
 
     public ResourceInventory getResourceInventory() {

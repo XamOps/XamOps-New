@@ -170,11 +170,11 @@ class ReservationPurchaseRecommendationTest {
         ReservationService.PurchaseRecommendationSet result = fetch("PARTIAL_UPFRONT");
 
         // The single throttle hits the first service, which then succeeds on retry; the
-        // remaining five succeed first time. Seven calls for six services proves the retry
+        // remaining six succeed first time. Eight calls for seven services proves the retry
         // happened, and the set is still complete — previously that first service would have
         // silently dropped out.
         assertThat(result.complete()).isTrue();
-        verify(costExplorerClient, times(7)).getReservationPurchaseRecommendation(
+        verify(costExplorerClient, times(8)).getReservationPurchaseRecommendation(
                 any(GetReservationPurchaseRecommendationRequest.class));
         assertThat(recordedWaits).containsExactly(500L);
     }
@@ -188,10 +188,12 @@ class ReservationPurchaseRecommendationTest {
 
         fetch("PARTIAL_UPFRONT");
 
-        // Four attempts per service means three waits: 500ms, 1s, 2s. Six services.
-        assertThat(recordedWaits).hasSize(18);
+        // Four attempts per service means three waits: 500ms, 1s, 2s. Seven services.
+        // A throttle is not a name rejection, so the alias probe does not advance — each
+        // service is attempted under its first candidate only.
+        assertThat(recordedWaits).hasSize(21);
         assertThat(recordedWaits.subList(0, 3)).containsExactly(500L, 1000L, 2000L);
-        verify(costExplorerClient, times(24)).getReservationPurchaseRecommendation(
+        verify(costExplorerClient, times(28)).getReservationPurchaseRecommendation(
                 any(GetReservationPurchaseRecommendationRequest.class));
     }
 
@@ -209,7 +211,7 @@ class ReservationPurchaseRecommendationTest {
         fetch("ALL_UPFRONT");
 
         // Falls through to a live query rather than serving the empty snapshot forever.
-        verify(costExplorerClient, times(6)).getReservationPurchaseRecommendation(
+        verify(costExplorerClient, times(7)).getReservationPurchaseRecommendation(
                 any(GetReservationPurchaseRecommendationRequest.class));
     }
 
@@ -222,8 +224,10 @@ class ReservationPurchaseRecommendationTest {
 
         fetch("NO_UPFRONT");
 
-        // EC2, RDS, ElastiCache, OpenSearch, Redshift, MemoryDB.
-        verify(costExplorerClient, times(6)).getReservationPurchaseRecommendation(
+        // The seven services AWS documents as supporting reservation recommendations:
+        // EC2, RDS, ElastiCache, OpenSearch, Redshift, MemoryDB and DynamoDB. DynamoDB was
+        // previously absent, so reserved-capacity opportunities were never surfaced.
+        verify(costExplorerClient, times(7)).getReservationPurchaseRecommendation(
                 any(GetReservationPurchaseRecommendationRequest.class));
     }
 
@@ -239,7 +243,7 @@ class ReservationPurchaseRecommendationTest {
 
         org.mockito.ArgumentCaptor<GetReservationPurchaseRecommendationRequest> captor =
                 org.mockito.ArgumentCaptor.forClass(GetReservationPurchaseRecommendationRequest.class);
-        verify(costExplorerClient, times(6)).getReservationPurchaseRecommendation(captor.capture());
+        verify(costExplorerClient, times(7)).getReservationPurchaseRecommendation(captor.capture());
 
         GetReservationPurchaseRecommendationRequest ec2Request = captor.getAllValues().stream()
                 .filter(r -> r.service().startsWith("Amazon Elastic Compute Cloud"))

@@ -68,7 +68,8 @@ import java.util.Optional;
 public class AzureWasteService {
 
     private static final Logger log = LoggerFactory.getLogger(AzureWasteService.class);
-    private static final String CACHE_PREFIX = "azure:waste:";
+    /** Redis key prefix for a subscription's waste scan. Shared so readers cannot drift. */
+    public static final String CACHE_PREFIX = "azure:waste:";
     private static final String DB_CACHE_PREFIX = "AZURE_WASTE::";
     private static final int CACHE_TTL_MINUTES = 60;
 
@@ -248,6 +249,12 @@ public class AzureWasteService {
                     // Disks retained by Azure Backup or Site Recovery are managed elsewhere.
                     if (hasProtectedTag(disk.tags())) {
                         log.debug("Skipping disk {} — carries a retention/protection tag", disk.name());
+                        continue;
+                    }
+                    // A pvc- disk backs a Kubernetes PersistentVolume. It can read as unattached
+                    // while its pod is rescheduled, and deleting it destroys the volume's data.
+                    if (isKubernetesManaged(disk.id(), disk.name(), disk.resourceGroupName(), disk.tags())) {
+                        log.debug("Skipping AKS-managed disk {} — backs a PersistentVolume", disk.name());
                         continue;
                     }
 
@@ -495,8 +502,9 @@ public class AzureWasteService {
         try {
             for (NetworkInterface nic : azure.networkInterfaces().list()) {
                 try {
+                    // NICs carry no charge in Azure.
                     if (nic.innerModel().virtualMachine() == null) {
-                        result.add(AzureWasteItem.withUnknownSavings(
+                        result.add(AzureWasteItem.withNoCostImpact(
                                 nic.id(),
                                 nic.name(),
                                 "Unattached NIC",
@@ -558,6 +566,11 @@ public class AzureWasteService {
                         log.debug("Skipping Basic-SKU load balancer {} — no standing charge", lb.name());
                         continue;
                     }
+                    if (isKubernetesManaged(lb.id(), lb.name(), lb.resourceGroupName(), lb.tags())) {
+                        log.debug("Skipping AKS-managed load balancer {} — recreated by the cluster",
+                                lb.name());
+                        continue;
+                    }
                     result.add(new AzureWasteItem(
                             lb.id(),
                             lb.name(),
@@ -576,6 +589,56 @@ public class AzureWasteService {
         }
     }
 
+    /**
+     * Whether a resource is managed by AKS, and therefore must not be recommended for deletion.
+     *
+     * <p>AKS provisions load balancers, public IPs and disks into a node resource group and its
+     * cloud-controller reconciles them continuously. Deleting one is at best futile — the
+     * controller recreates it within minutes — and at worst breaks the cluster: a
+     * {@code pvc-} disk backs a live PersistentVolume, and removing the cluster's load
+     * balancer drops all ingress.
+     *
+     * <p>UAT showed three "Empty Load Balancer" findings all named {@code kubernetes} worth
+     * ₹1,800/month each, and an "Unattached Disk" named {@code pvc-51120e77-…}. All four were
+     * AKS-managed. This mirrors the Auto Scaling Group guard on the AWS side.
+     *
+     * @param resourceId    full ARM resource id, used to spot the {@code MC_} node resource group
+     * @param name          resource name
+     * @param resourceGroup owning resource group, may be null
+     * @param tags          resource tags, may be null
+     */
+    private boolean isKubernetesManaged(String resourceId, String name, String resourceGroup,
+                                        Map<String, String> tags) {
+        // AKS names its cluster load balancers exactly "kubernetes" / "kubernetes-internal",
+        // and dynamically provisioned disks "pvc-<uuid>".
+        if (name != null) {
+            String n = name.toLowerCase();
+            if (n.equals("kubernetes") || n.equals("kubernetes-internal") || n.startsWith("pvc-")) {
+                return true;
+            }
+        }
+        // AKS places managed infrastructure in a node resource group named MC_<rg>_<cluster>_<region>.
+        if (resourceGroup != null && resourceGroup.toUpperCase().startsWith("MC_")) {
+            return true;
+        }
+        if (resourceId != null && resourceId.toUpperCase().contains("/RESOURCEGROUPS/MC_")) {
+            return true;
+        }
+        // Kubernetes writes ownership tags on resources it provisions.
+        if (tags != null) {
+            for (Map.Entry<String, String> tag : tags.entrySet()) {
+                String key = tag.getKey() == null ? "" : tag.getKey().toLowerCase();
+                if (key.startsWith("kubernetes.io/")
+                        || key.startsWith("k8s.io/")
+                        || key.equals("aks-managed-cluster-name")
+                        || key.startsWith("aks-managed")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** Network security groups not associated with any subnet or NIC — orphaned config. */
     private void detectUnusedNetworkSecurityGroups(AzureResourceManager azure, List<AzureWasteItem> result) {
         try {
@@ -584,7 +647,8 @@ public class AzureWasteService {
                     boolean noSubnets = nsg.listAssociatedSubnets() == null || nsg.listAssociatedSubnets().isEmpty();
                     boolean noNics = nsg.networkInterfaceIds() == null || nsg.networkInterfaceIds().isEmpty();
                     if (noSubnets && noNics) {
-                        result.add(AzureWasteItem.withUnknownSavings(
+                        // NSGs carry no charge; this is a blast-radius finding.
+                        result.add(AzureWasteItem.withNoCostImpact(
                                 nsg.id(),
                                 nsg.name(),
                                 "Unused NSG",
@@ -607,7 +671,8 @@ public class AzureWasteService {
             for (AvailabilitySet as : azure.availabilitySets().list()) {
                 try {
                     if (as.virtualMachineIds() == null || as.virtualMachineIds().isEmpty()) {
-                        result.add(AzureWasteItem.withUnknownSavings(
+                        // Availability sets are free.
+                        result.add(AzureWasteItem.withNoCostImpact(
                                 as.id(),
                                 as.name(),
                                 "Empty Availability Set",
@@ -630,7 +695,8 @@ public class AzureWasteService {
             for (RouteTable rt : azure.routeTables().list()) {
                 try {
                     if (rt.listAssociatedSubnets() == null || rt.listAssociatedSubnets().isEmpty()) {
-                        result.add(AzureWasteItem.withUnknownSavings(
+                        // Route tables are free.
+                        result.add(AzureWasteItem.withNoCostImpact(
                                 rt.id(),
                                 rt.name(),
                                 "Orphaned Route Table",
@@ -971,8 +1037,9 @@ public class AzureWasteService {
                 if (rgName.isEmpty()) continue;
                 String resUrl = ARM_BASE + "/subscriptions/" + subscriptionId
                         + "/resourceGroups/" + rgName + "/resources?api-version=2021-04-01";
+                // An empty resource group is a free container.
                 if (armList(resUrl, token).isEmpty()) {
-                    result.add(AzureWasteItem.withUnknownSavings(
+                    result.add(AzureWasteItem.withNoCostImpact(
                             rg.path("id").asText(""),
                             rgName,
                             "Empty Resource Group",

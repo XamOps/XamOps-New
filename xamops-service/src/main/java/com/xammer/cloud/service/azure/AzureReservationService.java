@@ -38,6 +38,60 @@ public class AzureReservationService {
     private static final double RECOMMENDATION_COST_THRESHOLD = 100.0;
     private static final double SAVINGS_PERCENTAGE = 20.0;
 
+    /**
+     * Lower-cased fragments of billing service names for which Azure actually sells
+     * reservations or reserved capacity.
+     *
+     * <p>Without this the recommendation builder walked every line on the bill and proposed
+     * "reserving" each one, so a subscription was told it could save 20% on Bandwidth, Virtual
+     * Network and Load Balancer — none of which Azure offers any reservation for. Those cards
+     * could never be acted on, and their invented savings inflated the headline total.
+     *
+     * <p>Kept as fragments because Cost Management service names vary in form
+     * ({@code Virtual Machines}, {@code Azure Database for PostgreSQL}).
+     */
+    private static final List<String> RESERVABLE_SERVICE_FRAGMENTS = List.of(
+            "virtual machine",
+            "sql database",
+            "sql managed instance",
+            "cosmos db",
+            "cache for redis",
+            "redis cache",
+            "database for mysql",
+            "database for postgresql",
+            "database for mariadb",
+            "app service",
+            "data explorer",
+            "databricks",
+            "synapse",
+            "netapp",
+            "dedicated host",
+            "vmware",
+            // Blob and Files both sell reserved capacity, so a generic Storage line qualifies.
+            "storage");
+
+    /**
+     * Services that contain a reservable fragment but are explicitly not reservable, checked
+     * before {@link #RESERVABLE_SERVICE_FRAGMENTS} so a broad fragment cannot admit them.
+     */
+    private static final List<String> NON_RESERVABLE_SERVICE_FRAGMENTS = List.of(
+            "storage sync",
+            "storage explorer");
+
+    /**
+     * Whether Azure sells a reservation for this billing service line.
+     */
+    private static boolean isReservable(String serviceName) {
+        if (serviceName == null || serviceName.isBlank()) {
+            return false;
+        }
+        String name = serviceName.toLowerCase();
+        if (NON_RESERVABLE_SERVICE_FRAGMENTS.stream().anyMatch(name::contains)) {
+            return false;
+        }
+        return RESERVABLE_SERVICE_FRAGMENTS.stream().anyMatch(name::contains);
+    }
+
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -282,17 +336,31 @@ public class AzureReservationService {
 
             for (AzureDashboardData.BillingSummary billing : billingOpt.get()) {
                 double cost = billing.getCost();
-                if (cost > RECOMMENDATION_COST_THRESHOLD) {
-                    AzureReservationData.ReservationRecommendation rec =
-                            new AzureReservationData.ReservationRecommendation();
-                    rec.setServiceName(billing.getService());
-                    rec.setCurrentMonthlyCost(cost);
-                    rec.setEstimatedSavingsPercentage(SAVINGS_PERCENTAGE);
-                    rec.setEstimatedMonthlySavings(cost * SAVINGS_PERCENTAGE / 100.0);
-                    rec.setRecommendedTerm("1 Year");
-                    rec.setReason("High monthly spend — reserved pricing typically saves ~20%");
-                    recommendations.add(rec);
+                if (cost <= RECOMMENDATION_COST_THRESHOLD) {
+                    continue;
                 }
+                if (!isReservable(billing.getService())) {
+                    log.debug("Skipping reservation suggestion for {} — Azure sells no reservation "
+                            + "for this service", billing.getService());
+                    continue;
+                }
+                AzureReservationData.ReservationRecommendation rec =
+                        new AzureReservationData.ReservationRecommendation();
+                rec.setServiceName(billing.getService());
+                rec.setCurrentMonthlyCost(cost);
+                rec.setEstimatedSavingsPercentage(SAVINGS_PERCENTAGE);
+                rec.setEstimatedMonthlySavings(cost * SAVINGS_PERCENTAGE / 100.0);
+                rec.setRecommendedTerm("1 Year");
+                // Flagged as indicative so the figure is not summed into a headline total or
+                // shown with the authority of a priced recommendation. It is a flat percentage
+                // of current spend, not a computed difference between on-demand and reserved
+                // rates for a specific SKU — Azure's own Consumption reservationRecommendations
+                // API would be needed for that.
+                rec.setIndicativeOnly(true);
+                rec.setReason("Indicative only: a flat ~" + (int) SAVINGS_PERCENTAGE
+                        + "% of current spend, not a per-SKU quote. Review in Azure "
+                        + "before purchasing.");
+                recommendations.add(rec);
             }
 
         } catch (Exception e) {

@@ -244,6 +244,7 @@ const GcpCostPage: React.FC = () => {
                 <CostBudgetDashboard
                   budgets={budgets}
                   costData={costData}
+                  currency="INR"
                   onCreateBudget={() => setIsBudgetModalOpen(true)}
                   onDeleteBudget={handleDeleteBudget}
                 />

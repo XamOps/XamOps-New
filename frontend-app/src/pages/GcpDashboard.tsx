@@ -406,6 +406,7 @@ const GcpDashboard: React.FC = () => {
         <KPISection
           kpiData={dashboardData.kpi as any}
           costHistory={gcpCostHistory}
+          totalResourcesOverride={totalResources}
           isLoading={loading.kpi}
           provider="GCP"
           accountId={accountId}

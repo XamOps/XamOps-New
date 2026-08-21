@@ -195,6 +195,27 @@ public class GcpDiskRightsizingService {
         return result;
     }
 
+    /**
+     * Whether a disk was provisioned by GKE for a PersistentVolume. GKE names these
+     * {@code pvc-<uuid>} and labels them {@code goog-gke-volume}; such a disk reports no users
+     * while its pod is rescheduled, so an unattached check alone is not safe.
+     */
+    private boolean isGkeVolume(String diskName, Map<String, String> labels) {
+        if (diskName != null && diskName.toLowerCase().startsWith("pvc-")) {
+            return true;
+        }
+        if (labels != null) {
+            for (String key : labels.keySet()) {
+                if (key == null) continue;
+                String k = key.toLowerCase();
+                if (k.startsWith("goog-gke-") || k.startsWith("kubernetes.io/") || k.startsWith("k8s-")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private Map<String, Object> buildDiskDto(Disk disk) {
         String zoneUrl = disk.getZone();
         String zone = zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1);
@@ -215,6 +236,8 @@ public class GcpDiskRightsizingService {
         double monthlyCostUsd = sizeGb * PD_COST_PER_GB.getOrDefault(diskType, DEFAULT_PD_COST_PER_GB);
 
         Map<String, Object> dto = new LinkedHashMap<>();
+        // GKE-provisioned PersistentVolume disks must never be offered for deletion.
+        dto.put("gkeVolume",            isGkeVolume(disk.getName(), disk.getLabelsMap()));
         dto.put("diskName",             disk.getName());
         dto.put("zone",                 zone);
         dto.put("region",               region);
@@ -303,6 +326,15 @@ public class GcpDiskRightsizingService {
         double costPerGbUsd = PD_COST_PER_GB.getOrDefault(diskType, DEFAULT_PD_COST_PER_GB);
 
         if (!attached) {
+            // A GKE PersistentVolume disk shows no users while its pod is rescheduled, so
+            // deleting it destroys live data. This path previously had no guard of any kind.
+            if (Boolean.TRUE.equals(dto.get("gkeVolume"))) {
+                dto.put("recommendation", "NONE");
+                dto.put("recommendationReason", "Managed by GKE — backs a PersistentVolume and "
+                        + "shows no users while its pod is rescheduled");
+                dto.put("estimatedSavings", 0.0);
+                return;
+            }
             dto.put("recommendation", "DELETE_UNATTACHED");
             dto.put("recommendationReason", "Disk is not attached to any instance");
             dto.put("estimatedSavings", (double) dto.get("monthlyCost"));

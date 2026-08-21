@@ -193,6 +193,7 @@ const AzureDashboard: React.FC = () => {
         <KPISection
           kpiData={dashboardData.kpi as any}
           costHistory={azureCostHistory}
+          totalResourcesOverride={totalResources}
           isLoading={loading.kpi}
           provider="Azure"
           accountId={accountId}

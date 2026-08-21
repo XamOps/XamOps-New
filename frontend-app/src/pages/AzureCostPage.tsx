@@ -157,6 +157,8 @@ const AzureCostPage: React.FC = () => {
                 <CostBudgetDashboard
                   budgets={budgets}
                   costData={costDataForBudget}
+                  costHistory={costHistory}
+                  currency="INR"
                   onCreateBudget={() => setIsBudgetModalOpen(true)}
                   onDeleteBudget={handleDeleteBudget}
                 />

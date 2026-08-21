@@ -118,9 +118,12 @@ public class AzureRetailPricingService {
         // Operations"). Only the first is the monthly capacity price. Taking the cheapest
         // across all of them — as a generic min would — returns the $0.0005/10K operations
         // rate instead.
-        Optional<Double> monthly = lowestPriceForMeter(filter, tierSku + " Disk");
-        cache.put(cacheKey, new CachedPrice(monthly, Instant.now()));
-        return monthly;
+        PriceLookup monthly = lowestPriceForMeter(filter, tierSku + " Disk");
+        // Never cache a failed call for the 24h TTL — see hourlyPrice.
+        if (monthly.succeeded()) {
+            cache.put(cacheKey, new CachedPrice(monthly.price(), Instant.now()));
+        }
+        return monthly.price();
     }
 
     /**
@@ -151,7 +154,7 @@ public class AzureRetailPricingService {
      *
      * @return catalog SKU name such as {@code P15 LRS}, or null for an unmapped family
      */
-    String managedDiskTier(String skuName, int sizeGb) {
+    public String managedDiskTier(String skuName, int sizeGb) {
         String prefix;
         String redundancy = skuName.contains("ZRS") ? "ZRS" : "LRS";
         if (skuName.startsWith("Premium_LRS") || skuName.startsWith("Premium_ZRS")) {
@@ -183,11 +186,11 @@ public class AzureRetailPricingService {
      * <p>Needed because one SKU exposes several meters and only one of them is the charge
      * being asked about.
      */
-    private Optional<Double> lowestPriceForMeter(String filter, String meterName) {
+    private PriceLookup lowestPriceForMeter(String filter, String meterName) {
         try {
             JsonNode items = fetchItems(filter);
             if (items == null) {
-                return Optional.empty();
+                return PriceLookup.failed();
             }
             OptionalDouble lowest = java.util.stream.StreamSupport
                     .stream(items.spliterator(), false)
@@ -195,10 +198,11 @@ public class AzureRetailPricingService {
                     .mapToDouble(item -> item.path("retailPrice").asDouble(0.0))
                     .filter(price -> price > 0)
                     .min();
-            return lowest.isPresent() ? Optional.of(lowest.getAsDouble()) : Optional.empty();
+            return PriceLookup.answered(
+                    lowest.isPresent() ? Optional.of(lowest.getAsDouble()) : Optional.empty());
         } catch (Exception e) {
             logger.warn("Azure Retail Prices meter lookup failed for '{}': {}", meterName, e.getMessage());
-            return Optional.empty();
+            return PriceLookup.failed();
         }
     }
 
@@ -215,16 +219,40 @@ public class AzureRetailPricingService {
             return cached.price();
         }
 
-        Optional<Double> result = queryLowestPrice(filter, excludeWindows);
-        cache.put(cacheKey, new CachedPrice(result, Instant.now()));
-        return result;
+        PriceLookup result = queryLowestPrice(filter, excludeWindows);
+        // Only remember an answer the API actually gave. Caching a failure for the full 24h TTL
+        // meant a single HTTP 429 during a scan pinned the FALLBACK_* constants for a whole day,
+        // with nothing but one warn line to show the figures were not live.
+        if (result.succeeded()) {
+            cache.put(cacheKey, new CachedPrice(result.price(), Instant.now()));
+        }
+        return result.price();
     }
 
-    private Optional<Double> queryLowestPrice(String filter, boolean excludeWindows) {
+    /**
+     * Outcome of a Retail Prices query.
+     *
+     * <p>{@code succeeded} separates "the API answered and there is no matching SKU" — a real
+     * answer worth caching — from "the call failed", which must not be cached as though it
+     * were a priced result.
+     */
+    private record PriceLookup(Optional<Double> price, boolean succeeded) {
+        static PriceLookup answered(Optional<Double> price) {
+            return new PriceLookup(price, true);
+        }
+
+        static PriceLookup failed() {
+            return new PriceLookup(Optional.empty(), false);
+        }
+    }
+
+    private PriceLookup queryLowestPrice(String filter, boolean excludeWindows) {
         try {
             JsonNode items = fetchItems(filter);
             if (items == null) {
-                return Optional.empty();
+                // fetchItems logs and returns null on a non-2xx, which is a failure rather
+                // than an empty result set.
+                return PriceLookup.failed();
             }
 
             OptionalDouble lowest = java.util.stream.StreamSupport
@@ -238,11 +266,12 @@ public class AzureRetailPricingService {
                     .filter(price -> price > 0)
                     .min();
 
-            return lowest.isPresent() ? Optional.of(lowest.getAsDouble()) : Optional.empty();
+            return PriceLookup.answered(
+                    lowest.isPresent() ? Optional.of(lowest.getAsDouble()) : Optional.empty());
 
         } catch (Exception e) {
             logger.warn("Azure Retail Prices lookup failed for filter '{}': {}", filter, e.getMessage());
-            return Optional.empty();
+            return PriceLookup.failed();
         }
     }
 

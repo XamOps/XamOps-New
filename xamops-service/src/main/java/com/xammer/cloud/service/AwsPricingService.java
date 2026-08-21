@@ -340,17 +340,92 @@ public class AwsPricingService {
      * @return The hourly cost in USD, or 0.0 if pricing is not available
      */
     public double getRdsHourlyCost(String dbInstanceClass, String region) {
+        return getRdsHourlyCost(dbInstanceClass, region, "MySQL");
+    }
+
+    /**
+     * Hourly cost of an RDS instance class in a region, for a given engine.
+     *
+     * <p>Resolution order mirrors {@link #getHourlyCost}: cache, then the live Price List API,
+     * then the static table, then a size-pattern estimate. The live step was previously absent
+     * altogether — this method went straight to a 2024 us-east-1 table scaled by a
+     * 16-entry multiplier map, so every region outside that map was priced as N. Virginia and
+     * no RDS price was ever current. EC2 was fixed to query live first; RDS was not.
+     *
+     * @param engine RDS engine as the Price List API names it, e.g. {@code MySQL},
+     *               {@code PostgreSQL}, {@code Aurora MySQL}
+     */
+    public double getRdsHourlyCost(String dbInstanceClass, String region, String engine) {
         if (dbInstanceClass == null || region == null) {
             logger.warn("Cannot calculate RDS pricing: dbInstanceClass={}, region={}", dbInstanceClass, region);
             return 0.0;
         }
+
+        String resolvedEngine = (engine == null || engine.isBlank()) ? "MySQL" : engine;
+        String cacheKey = "rds:" + dbInstanceClass.toLowerCase() + ":" + region + ":" + resolvedEngine;
+
+        CachedPrice cached = livePriceCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            return cached.pricePerHour();
+        }
+
+        try {
+            double livePrice = fetchLiveRdsHourlyCost(dbInstanceClass, region, resolvedEngine);
+            if (livePrice > 0.0) {
+                livePriceCache.put(cacheKey, CachedPrice.of(livePrice));
+                logger.debug("Live RDS pricing for {} ({}) in {}: ${}/hour",
+                        dbInstanceClass, resolvedEngine, region, livePrice);
+                return livePrice;
+            }
+        } catch (Exception e) {
+            logger.warn("Live RDS pricing lookup failed for {} in {}: {}",
+                    dbInstanceClass, region, e.getMessage());
+        }
+
         Double basePrice = RDS_US_EAST_1_PRICING.get(dbInstanceClass.toLowerCase());
         if (basePrice == null) {
             logger.warn("No RDS pricing data for instance class: {} — using size-based estimate", dbInstanceClass);
             return estimateRdsPricing(dbInstanceClass);
         }
-        double multiplier = REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
-        return basePrice * multiplier;
+        double finalPrice = basePrice * REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
+        livePriceCache.put(cacheKey, CachedPrice.of(finalPrice));
+        logger.warn("Using static 2024 fallback RDS price for {} in {}: ${}/hour. "
+                + "This figure is not authoritative.", dbInstanceClass, region, finalPrice);
+        return finalPrice;
+    }
+
+    /**
+     * Queries the Price List API for an RDS instance's on-demand hourly rate.
+     *
+     * <p>{@code deploymentOption} is pinned to Single-AZ so the figure is comparable with the
+     * static table it replaces; Multi-AZ is roughly double and would otherwise be returned
+     * non-deterministically depending on price-list ordering.
+     */
+    private double fetchLiveRdsHourlyCost(String dbInstanceClass, String region, String engine) {
+        PricingClient pricingClient = awsClientProvider.getPricingClient();
+        List<Filter> filters = List.of(
+                Filter.builder().field("serviceCode").type(FilterType.TERM_MATCH).value("AmazonRDS").build(),
+                Filter.builder().field("regionCode").type(FilterType.TERM_MATCH).value(region).build(),
+                Filter.builder().field("instanceType").type(FilterType.TERM_MATCH).value(dbInstanceClass).build(),
+                Filter.builder().field("databaseEngine").type(FilterType.TERM_MATCH).value(engine).build(),
+                Filter.builder().field("deploymentOption").type(FilterType.TERM_MATCH).value("Single-AZ").build()
+        );
+
+        GetProductsResponse response = pricingClient.getProducts(
+                GetProductsRequest.builder()
+                        .serviceCode("AmazonRDS")
+                        .filters(filters)
+                        .formatVersion("aws_v1")
+                        .maxResults(1)
+                        .build());
+
+        for (String priceJson : response.priceList()) {
+            Map<String, Object> parsed = simplifyEc2PriceJson(priceJson);
+            if (parsed != null && parsed.get("pricePerHour") instanceof Double) {
+                return (Double) parsed.get("pricePerHour");
+            }
+        }
+        return 0.0;
     }
 
     private double estimateRdsPricing(String dbInstanceClass) {

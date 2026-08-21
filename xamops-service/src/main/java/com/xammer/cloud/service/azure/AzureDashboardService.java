@@ -9,6 +9,7 @@ import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.dto.azure.AzureWasteItem;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.azure.AzureBillingDataIngestionService;
 import org.slf4j.Logger;
@@ -157,14 +158,49 @@ public class AzureDashboardService {
      */
     public void saveDashboardToDatabase(String cacheKey, AzureDashboardData data) {
         try {
-            CachedData cachedData = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+            Optional<CachedData> existing = cachedDataRepository.findById(cacheKey);
+
+            // Refuse to replace a populated snapshot with an empty one. The refresh path reads
+            // cost figures from a Redis cache filled by a separate ingestion job; when that
+            // cache is cold the builder produces zero spend and an empty cost history, and this
+            // method used to write that straight over good data. The visible effect was that
+            // pressing Refresh turned a dashboard showing real spend into an all-zero one,
+            // permanently, because the database snapshot has no TTL.
+            if (data != null && !data.isDataComplete() && data.isMateriallyEmpty() && existing.isPresent()) {
+                AzureDashboardData previous = readSnapshot(existing.get());
+                if (previous != null && !previous.isMateriallyEmpty()) {
+                    log.error("❌ Refusing to overwrite the Azure dashboard snapshot {} with an empty "
+                                    + "result. Warnings: {}. Keeping the previous snapshot so the UI does "
+                                    + "not show zero spend for a subscription that has spend.",
+                            cacheKey, data.getDataWarnings());
+                    return;
+                }
+            }
+
+            CachedData cachedData = existing.orElse(new CachedData());
             cachedData.setCacheKey(cacheKey);
             cachedData.setJsonData(objectMapper.writeValueAsString(data));
             cachedData.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
             cachedDataRepository.save(cachedData);
-            log.info("✅ Saved Azure dashboard snapshot to DATABASE: {}", cacheKey);
+            if (data != null && !data.isDataComplete()) {
+                log.warn("⚠️ Saved an INCOMPLETE Azure dashboard snapshot {}: {}",
+                        cacheKey, data.getDataWarnings());
+            } else {
+                log.info("✅ Saved Azure dashboard snapshot to DATABASE: {}", cacheKey);
+            }
         } catch (Exception e) {
             log.error("❌ Failed to save Azure dashboard snapshot to database: {}", cacheKey, e);
+        }
+    }
+
+    /** Deserialises a stored snapshot, returning null when it cannot be read. */
+    private AzureDashboardData readSnapshot(CachedData cached) {
+        try {
+            return objectMapper.readValue(cached.getJsonData(), AzureDashboardData.class);
+        } catch (Exception e) {
+            log.warn("Could not read existing Azure dashboard snapshot {}: {}",
+                    cached.getCacheKey(), e.getMessage());
+            return null;
         }
     }
 
@@ -255,6 +291,7 @@ public class AzureDashboardService {
             dashboardData.setResourceInventory(inventory);
         } catch (Exception e) {
             log.error("Error fetching resource inventory: {}", e.getMessage());
+            dashboardData.addDataWarning("Resource inventory unavailable: " + e.getMessage());
             dashboardData.setResourceInventory(new AzureDashboardData.ResourceInventory());
         }
     }
@@ -350,7 +387,11 @@ public class AzureDashboardService {
                 dashboardData.setLastMonthSpend(0.0);
             }
         } else {
+            // These zeros are placeholders, not measurements. Flagging that here is what stops
+            // saveDashboardToDatabase from writing them over a populated snapshot.
             log.warn("No cached cost history found for {}. Data will be missing until next ingestion.", accountId);
+            dashboardData.addDataWarning("Cost history and month-to-date spend unavailable: the billing "
+                    + "ingestion cache is empty for this subscription.");
             dashboardData.setCostHistory(new AzureDashboardData.CostHistory());
             dashboardData.setMonthToDateSpend(0.0);
             dashboardData.setForecastedSpend(0.0);
@@ -446,16 +487,49 @@ public class AzureDashboardService {
         }
     }
 
+    /**
+     * Sets the dashboard's optimization summary from the cached waste scan.
+     *
+     * <p>This previously hardcoded {@code 0.0}, so the Azure dashboard asserted "Potential
+     * Savings ₹0.00 — available to reclaim" and "No waste detected" while the Waste page for
+     * the same subscription showed seven findings worth ₹6,020 and the FinOps page showed
+     * ₹7,078. A hardcoded zero is worse than an absent figure: it reads as a verified
+     * all-clear.
+     *
+     * <p>Reads only from the waste cache so the dashboard does not trigger a live scan. When
+     * the cache is cold the summary is left unset rather than zeroed, so the UI can show
+     * "not yet scanned" instead of a false zero.
+     */
     private void getAndSetOptimizationSummary(AzureResourceManager azure, AzureDashboardData dashboardData,
             String accountId) {
         try {
+            Optional<List<AzureWasteItem>> cachedWaste = redisCache.get(
+                    AzureWasteService.CACHE_PREFIX + accountId,
+                    new TypeReference<List<AzureWasteItem>>() {});
+
+            if (cachedWaste.isEmpty()) {
+                log.debug("No cached Azure waste for {} — leaving optimization summary unset "
+                        + "rather than reporting zero savings", accountId);
+                dashboardData.setOptimizationSummary(null);
+                return;
+            }
+
+            List<AzureWasteItem> waste = cachedWaste.get();
+            double reclaimable = waste.stream()
+                    .filter(AzureWasteItem::isBillableWaste)
+                    .mapToDouble(AzureWasteItem::getMonthlySavings)
+                    .sum();
+            long billableCount = waste.stream().filter(AzureWasteItem::isBillableWaste).count();
+
             DashboardData.OptimizationSummary summary = new DashboardData.OptimizationSummary();
-            summary.setTotalPotentialSavings(0.0);
-            summary.setCriticalAlertsCount(0);
+            summary.setTotalPotentialSavings(Math.round(reclaimable * 100.0) / 100.0);
+            summary.setCriticalAlertsCount(billableCount);
             dashboardData.setOptimizationSummary(summary);
+            log.info("Azure optimization summary for {}: {} reclaimable across {} billable findings",
+                    accountId, reclaimable, billableCount);
         } catch (Exception e) {
             log.error("Error fetching optimization summary for account {}: {}", accountId, e.getMessage());
-            dashboardData.setOptimizationSummary(new DashboardData.OptimizationSummary());
+            dashboardData.setOptimizationSummary(null);
         }
     }
 

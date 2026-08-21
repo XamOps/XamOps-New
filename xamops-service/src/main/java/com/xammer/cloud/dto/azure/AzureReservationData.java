@@ -144,6 +144,15 @@ public class AzureReservationData {
         private double estimatedMonthlySavings;
         private String recommendedTerm;
         private String reason;
+        /**
+         * True when {@link #estimatedMonthlySavings} is a flat percentage of current spend
+         * rather than a per-SKU quote. Consumers must not sum these into a headline savings
+         * total or present them as priced recommendations.
+         */
+        private boolean indicativeOnly;
+
+        public boolean isIndicativeOnly() { return indicativeOnly; }
+        public void setIndicativeOnly(boolean indicativeOnly) { this.indicativeOnly = indicativeOnly; }
 
         public String getServiceName() { return serviceName; }
         public void setServiceName(String serviceName) { this.serviceName = serviceName; }

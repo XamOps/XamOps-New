@@ -444,7 +444,92 @@ public class CloudsitterService {
      * {@code Live}, {@code prod-web} and keys like {@code tier} were previously missed, so
      * production instances passed the check.
      */
-    private boolean isProductionTagged(Instance inst) {
+    /**
+     * Reasons a running instance must not be stopped, evaluated from the instance itself.
+     *
+     * <p>Complements {@link #checkSchedulingEligibility}, which runs once at assignment and
+     * needs an API call. This runs on every enforcement pass using the description already
+     * fetched, so an instance that changes character after enrolment stops being stopped.
+     *
+     * <p>Adds two cases the assignment-time check does not cover, both of which lose data
+     * rather than merely being inconvenient:
+     * <ul>
+     *   <li>An instance-store-backed instance cannot be stopped at all.</li>
+     *   <li>Instance-store (ephemeral NVMe) volumes are wiped on stop, so any data on them is
+     *       gone with no warning.</li>
+     * </ul>
+     *
+     * @return the reason to refuse, or null when the instance may be stopped
+     */
+    private String describeStopIneligibility(Instance inst) {
+        if (inst.tags() != null
+                && inst.tags().stream().anyMatch(t -> "aws:autoscaling:groupName".equals(t.key()))) {
+            return "it has joined an Auto Scaling Group since being scheduled, which would replace "
+                    + "it after a stop";
+        }
+        if (isProductionTagged(inst)) {
+            return "it is now tagged as production";
+        }
+        if (inst.tags() != null && inst.tags().stream().anyMatch(t -> {
+            String key = t.key() == null ? "" : t.key().toLowerCase();
+            return key.startsWith("aws:elasticmapreduce")
+                    || key.contains("kubernetes")
+                    || key.startsWith("k8s.io/")
+                    || key.startsWith("kubernetes.io/");
+        })) {
+            return "it is managed by EMR or Kubernetes and is required by its cluster";
+        }
+        // Instance-store-backed roots cannot be stopped; the API rejects the call.
+        if (inst.rootDeviceTypeAsString() != null
+                && inst.rootDeviceTypeAsString().contains("instance-store")) {
+            return "its root device is instance-store, which cannot be stopped";
+        }
+        // Stopping wipes instance-store (ephemeral NVMe) volumes. A running instance's
+        // blockDeviceMappings only lists EBS volumes, so the instance type is the available
+        // signal: these families always ship local NVMe storage.
+        if (hasInstanceStoreVolumes(inst.instanceTypeAsString())) {
+            return "its instance type (" + inst.instanceTypeAsString() + ") includes instance-store "
+                    + "volumes whose contents are destroyed by a stop";
+        }
+        // A Spot instance's capacity is not guaranteed to be available again on restart.
+        if (inst.instanceLifecycleAsString() != null
+                && inst.instanceLifecycleAsString().contains("spot")) {
+            return "it is a Spot instance and its capacity may not be reclaimable after a stop";
+        }
+        return null;
+    }
+
+    /**
+     * Instance families whose local NVMe storage is wiped by a stop.
+     *
+     * <p>Two groups: storage-optimised families that always include instance store, and any
+     * family carrying the {@code d} modifier ({@code m5d}, {@code c6gd}, {@code r5dn}).
+     * Package-private so the classification can be tested directly.
+     *
+     * @param instanceType e.g. {@code m5d.xlarge}; null or unparseable yields false
+     */
+    static boolean hasInstanceStoreVolumes(String instanceType) {
+        if (instanceType == null || instanceType.isBlank() || !instanceType.contains(".")) {
+            return false;
+        }
+        String family = instanceType.substring(0, instanceType.indexOf('.')).toLowerCase();
+
+        // Storage-optimised families: local NVMe is the whole point of them.
+        java.util.Set<String> alwaysInstanceStore = java.util.Set.of(
+                "i3", "i3en", "i4i", "i4g", "im4gn", "is4gen",
+                "d2", "d3", "d3en", "h1", "x1", "x1e");
+        if (alwaysInstanceStore.contains(family)) {
+            return true;
+        }
+
+        // The "d" modifier after the generation digit denotes local NVMe, e.g. m5d, c6gd, r5dn.
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^([a-z]+)(\\d+)([a-z]*)$").matcher(family);
+        return m.matches() && m.group(3).contains("d");
+    }
+
+    // Package-private for testing: this matcher is the last guard before an automated stop.
+    boolean isProductionTagged(Instance inst) {
         return inst.tags().stream().anyMatch(t -> {
             String key = t.key() == null ? "" : t.key().toLowerCase();
             String value = t.value() == null ? "" : t.value().toLowerCase();
@@ -1053,6 +1138,19 @@ public class CloudsitterService {
 
         logger.debug("CloudSitter: Instance {} current state: {}", instanceId, currentState);
 
+        // Re-check eligibility at enforcement time, not just at assignment. An instance can join
+        // an Auto Scaling Group, be gaind a production tag, or be re-provisioned as a Kubernetes
+        // node long after the policy was attached, and the scheduler would keep stopping it every
+        // night. Only stops are gated: starting an instance is always safe.
+        if (!shouldBeRunning && "running".equals(currentState)) {
+            String rejection = describeStopIneligibility(instance);
+            if (rejection != null) {
+                logger.warn("CloudSitter: refusing to stop {} — {}", instanceId, rejection);
+                writeAudit("STOP_SKIPPED", assignment, currentState, "SKIPPED", rejection);
+                return false;
+            }
+        }
+
         if (shouldBeRunning && "stopped".equals(currentState)) {
             logger.info("⚡ CloudSitter: STARTING instance {} (Policy: '{}', Timezone: {})",
                     instanceId, policy.getName(), timezone);
@@ -1154,7 +1252,14 @@ public class CloudsitterService {
         }
     }
 
-    private boolean checkScheduleState(CloudsitterPolicy policy, ZonedDateTime now) {
+    /**
+     * Whether the policy says the instance should be running at {@code now}.
+     *
+     * <p>Package-private so the timezone semantics can be tested directly: the same instant
+     * evaluated in two zones must give different answers, which is the whole point of
+     * evaluating in the policy's zone rather than UTC.
+     */
+    boolean checkScheduleState(CloudsitterPolicy policy, ZonedDateTime now) {
         String currentDay = now.getDayOfWeek().toString().toUpperCase();
         int currentHour = now.getHour();
 

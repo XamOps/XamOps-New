@@ -613,6 +613,10 @@ public class OptimizationService {
             double monthlyCost = pricingService.getElasticIpMonthlyPrice(regionId);
             return ec2.describeAddresses().addresses().stream()
                     .filter(address -> address.associationId() == null)
+                    // An address held deliberately for an allowlist, or provisioned by
+                    // CloudFormation/Terraform, is not waste: releasing it loses the address, and
+                    // the stack recreates it on the next apply with a different one.
+                    .filter(address -> !isManagedOrRetained(address.tags()))
                     .map(address -> new DashboardData.WastedResource(address.allocationId(), address.publicIp(),
                             "Elastic IP", regionId, monthlyCost, "Unassociated EIP"))
                     .collect(Collectors.toList());
@@ -626,6 +630,9 @@ public class OptimizationService {
             Instant ninetyDaysAgo = Instant.now().minus(90, ChronoUnit.DAYS);
             return ec2.describeSnapshots(r -> r.ownerIds("self")).snapshots().stream()
                     .filter(s -> s.startTime().isBefore(ninetyDaysAgo))
+                    // A snapshot kept by a lifecycle policy, AWS Backup or an explicit retention
+                    // tag is deliberately old — age alone is not evidence it is unwanted.
+                    .filter(s -> !isManagedOrRetained(s.tags()))
                     .map(snapshot -> new DashboardData.WastedResource(snapshot.snapshotId(),
                             getTagName(snapshot.tags(), snapshot.snapshotId()), "Snapshot", regionId,
                             calculateSnapshotMonthlyCost(snapshot, regionId), "Older than 90 days"))
@@ -640,7 +647,13 @@ public class OptimizationService {
             double snapshotGbMonthPrice = pricingService.getEbsSnapshotGbMonthPrice(regionId);
             DescribeImagesRequest imagesRequest = DescribeImagesRequest.builder().owners("self").build();
             return ec2.describeImages(imagesRequest).images().stream()
-                    .filter(image -> image.state() != ImageState.AVAILABLE)
+                    // Only terminal failure states. Filtering on "not AVAILABLE" also caught
+                    // PENDING — an AMI mid-build — and reported it as "Deregistered or Failed",
+                    // so an in-flight image bake appeared in the waste report.
+                    .filter(image -> image.state() == ImageState.FAILED
+                            || image.state() == ImageState.ERROR
+                            || image.state() == ImageState.INVALID
+                            || image.state() == ImageState.DEREGISTERED)
                     .map(image -> {
                         double monthlyCost = image.blockDeviceMappings().stream()
                                 .filter(bdm -> bdm.ebs() != null && bdm.ebs().volumeSize() != null)
@@ -834,6 +847,45 @@ public class OptimizationService {
         }, "Old DB Snapshots");
     }
 
+    /**
+     * Whether a resource is provisioned by infrastructure-as-code or explicitly retained.
+     *
+     * <p>Deleting a stack-managed resource is at best undone by the next apply and at worst
+     * leaves the stack in a drifted state that fails to update. A retention tag is an explicit
+     * instruction from the owner that the resource is deliberately idle — a warm standby, a
+     * reserved allowlist entry, a compliance copy.
+     */
+    private boolean isManagedOrRetained(List<software.amazon.awssdk.services.ec2.model.Tag> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return false;
+        }
+        for (software.amazon.awssdk.services.ec2.model.Tag tag : tags) {
+            String key = tag.key() == null ? "" : tag.key().toLowerCase();
+            String value = tag.value() == null ? "" : tag.value().toLowerCase();
+
+            // CloudFormation, CDK, Terraform, Elastic Beanstalk and Service Catalog markers.
+            if (key.startsWith("aws:cloudformation:")
+                    || key.startsWith("aws:elasticbeanstalk:")
+                    || key.startsWith("aws:servicecatalog:")
+                    || key.equals("aws:cdk:path")
+                    || key.startsWith("terraform")
+                    || key.equals("managedby") || key.equals("managed-by")
+                    || key.equals("provisioner")) {
+                return true;
+            }
+            if (value.equals("terraform") || value.equals("cloudformation") || value.equals("pulumi")) {
+                return true;
+            }
+            // Explicit retention instructions.
+            if (key.contains("donotdelete") || key.contains("do-not-delete")
+                    || key.contains("retain") || key.contains("preserve")
+                    || key.contains("allowlist") || key.contains("whitelist")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** CloudWatch Logs GB-month rate for a region, never negative. */
     private double logsStorageGbMonthPrice(String regionId) {
         try {
@@ -893,7 +945,9 @@ public class OptimizationService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeSecurityGroups().securityGroups().stream()
-                    .filter(sg -> sg.vpcId() != null && isSecurityGroupUnused(account, sg.groupId(), regionId))
+                    // A VPC's default group cannot be deleted, so reporting it is pure noise.
+                    .filter(sg -> sg.vpcId() != null && !"default".equals(sg.groupName()))
+                    .filter(sg -> isSecurityGroupUnused(account, sg.groupId(), regionId))
                     // Security groups are free; this is a blast-radius/hygiene finding only.
                     .map(sg -> DashboardData.WastedResource.withNoCostImpact(sg.groupId(), sg.groupName(),
                             "Security Group", regionId, "Unused Security Group"))
@@ -901,6 +955,14 @@ public class OptimizationService {
         }, "Unused Security Groups");
     }
 
+    /**
+     * Whether a security group is genuinely unreferenced.
+     *
+     * <p>An ENI check alone is not sufficient. A group can be referenced by the ingress or
+     * egress rules of another group, in which case {@code DeleteSecurityGroup} fails with
+     * {@code DependencyViolation}; and a VPC's {@code default} group cannot be deleted at all.
+     * Reporting either as removable produced advice that could not be carried out.
+     */
     private boolean isSecurityGroupUnused(CloudAccount account, String groupId, String regionId) {
         try {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
@@ -908,12 +970,39 @@ public class OptimizationService {
                     .filters(software.amazon.awssdk.services.ec2.model.Filter.builder().name("group-id").values(groupId)
                             .build())
                     .build();
-            return ec2.describeNetworkInterfaces(request).networkInterfaces().isEmpty();
+            if (!ec2.describeNetworkInterfaces(request).networkInterfaces().isEmpty()) {
+                return false;
+            }
+
+            // Referenced by another group's rules — deletion would be rejected.
+            boolean referencedByAnotherGroup = ec2.describeSecurityGroups().securityGroups().stream()
+                    .filter(other -> !groupId.equals(other.groupId()))
+                    .anyMatch(other -> referencesGroup(other, groupId));
+            if (referencedByAnotherGroup) {
+                logger.debug("[Waste] Security group {} is referenced by another group's rules — "
+                        + "not reporting it as unused", groupId);
+                return false;
+            }
+            return true;
         } catch (Exception e) {
             logger.error("Could not check usage for security group {} in account {}: {}", groupId,
                     account.getAwsAccountId(), e.getMessage());
         }
         return false;
+    }
+
+    /** Whether any ingress or egress rule of {@code group} references {@code groupId}. */
+    private boolean referencesGroup(software.amazon.awssdk.services.ec2.model.SecurityGroup group,
+                                    String groupId) {
+        java.util.stream.Stream<software.amazon.awssdk.services.ec2.model.IpPermission> rules =
+                java.util.stream.Stream.concat(
+                        group.ipPermissions() == null ? java.util.stream.Stream.empty()
+                                : group.ipPermissions().stream(),
+                        group.ipPermissionsEgress() == null ? java.util.stream.Stream.empty()
+                                : group.ipPermissionsEgress().stream());
+        return rules.anyMatch(rule -> rule.userIdGroupPairs() != null
+                && rule.userIdGroupPairs().stream()
+                        .anyMatch(pair -> groupId.equals(pair.groupId())));
     }
 
     private CompletableFuture<List<DashboardData.WastedResource>> findIdleEc2Instances(CloudAccount account,
@@ -1055,6 +1144,7 @@ public class OptimizationService {
                             req -> req.filters(List.of(software.amazon.awssdk.services.ec2.model.Filter.builder()
                                     .name("status").values("available").build())))
                     .networkInterfaces().stream()
+                    .filter(eni -> !isManagedOrRetained(eni.tagSet()))
                     // An available ENI is free. Kept as a hygiene finding, but flagged so it
                     // does not inflate a count shown next to a reclaimable-spend figure.
                     .map(eni -> DashboardData.WastedResource.withNoCostImpact(eni.networkInterfaceId(),
@@ -1099,6 +1189,29 @@ public class OptimizationService {
      * a map of query ID → list of metric values. Replaces individual
      * GetMetricStatistics calls.
      */
+    /**
+     * Whether CloudWatch returned no datapoints at all for these series.
+     *
+     * <p>An empty series is not evidence of zero activity. It means one of: the metric is an
+     * opt-in that the customer has not enabled (S3 request metrics, API Gateway detailed
+     * metrics), the resource is newer than the window, the resource is not publishing, or the
+     * call was throttled. Summing an empty list gives {@code 0.0}, and several detectors read
+     * that as "idle" and recommended deleting a resource in active use.
+     *
+     * <p>Use this only for metrics that a healthy resource publishes continuously. Counter
+     * metrics such as {@code Invocations}, {@code NumberOfMessagesPublished} and
+     * {@code NumberOfMessagesSent} genuinely do not publish when the count is zero, so absence
+     * there really does mean zero and those detectors are left as they are.
+     */
+    private static boolean noDatapoints(List<Double> series) {
+        return series == null || series.isEmpty();
+    }
+
+    /** True when neither series carried any datapoint. See {@link #noDatapoints(List)}. */
+    private static boolean noDatapoints(List<Double> first, List<Double> second) {
+        return noDatapoints(first) && noDatapoints(second);
+    }
+
     private Map<String, List<Double>> batchGetMetrics(CloudWatchClient cw, List<MetricDataQuery> queries,
             Instant start, Instant end) {
         Map<String, List<Double>> results = new HashMap<>();
@@ -1251,8 +1364,15 @@ public class OptimizationService {
 
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             for (int i = 0; i < fileSystems.size(); i++) {
-                double totalIo = results.getOrDefault("efs" + i, List.of()).stream()
-                        .mapToDouble(Double::doubleValue).sum();
+                List<Double> ioSeries = results.getOrDefault("efs" + i, List.of());
+                // A healthy file system publishes TotalIOBytes continuously, so no datapoints
+                // means the metric is unavailable rather than that the file system is idle.
+                if (noDatapoints(ioSeries)) {
+                    logger.debug("[Waste] Skipping EFS {} — no TotalIOBytes datapoints in the window",
+                            fileSystems.get(i).fileSystemId());
+                    continue;
+                }
+                double totalIo = ioSeries.stream().mapToDouble(Double::doubleValue).sum();
                 if (totalIo == 0.0) {
                     var fs = fileSystems.get(i);
                     double sizeGb = fs.sizeInBytes().value() / (1024.0 * 1024 * 1024);
@@ -1295,7 +1415,15 @@ public class OptimizationService {
 
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             for (int i = 0; i < clusters.size(); i++) {
-                double maxConnections = results.getOrDefault("ecache" + i, List.of()).stream()
+                List<Double> connSeries = results.getOrDefault("ecache" + i, List.of());
+                // CurrConnections is a gauge that an existing cluster always publishes, so an
+                // empty series means the cluster is not reporting, not that nobody is connected.
+                if (noDatapoints(connSeries)) {
+                    logger.debug("[Waste] Skipping ElastiCache cluster {} — no CurrConnections datapoints",
+                            clusters.get(i).cacheClusterId());
+                    continue;
+                }
+                double maxConnections = connSeries.stream()
                         .mapToDouble(Double::doubleValue).max().orElse(0.0);
                 if (maxConnections == 0.0) {
                     var cluster = clusters.get(i);
@@ -1343,10 +1471,17 @@ public class OptimizationService {
 
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             for (int i = 0; i < tableNames.size(); i++) {
-                double reads = results.getOrDefault("ddbr" + i, List.of()).stream().mapToDouble(Double::doubleValue)
-                        .sum();
-                double writes = results.getOrDefault("ddbw" + i, List.of()).stream().mapToDouble(Double::doubleValue)
-                        .sum();
+                List<Double> readSeries = results.getOrDefault("ddbr" + i, List.of());
+                List<Double> writeSeries = results.getOrDefault("ddbw" + i, List.of());
+                // A provisioned table publishes consumed-capacity continuously; an on-demand
+                // table may not. Either way an empty series is not proof the table is unused.
+                if (noDatapoints(readSeries, writeSeries)) {
+                    logger.debug("[Waste] Skipping DynamoDB table {} — no consumed-capacity datapoints",
+                            tableNames.get(i));
+                    continue;
+                }
+                double reads = readSeries.stream().mapToDouble(Double::doubleValue).sum();
+                double writes = writeSeries.stream().mapToDouble(Double::doubleValue).sum();
                 if (reads == 0.0 && writes == 0.0) {
                     String tableName = tableNames.get(i);
                     double sizeGb;
@@ -1689,8 +1824,16 @@ public class OptimizationService {
 
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             for (int i = 0; i < gateways.size(); i++) {
-                double totalBytes = results.getOrDefault("nat" + i, List.of())
-                        .stream().mapToDouble(Double::doubleValue).sum();
+                List<Double> natSeries = results.getOrDefault("nat" + i, List.of());
+                // An active NAT gateway publishes byte counters continuously. No datapoints means
+                // the metric is unavailable, and deleting a NAT gateway blackholes every route
+                // that points at it — too destructive to act on an absent metric.
+                if (noDatapoints(natSeries)) {
+                    logger.debug("[Waste] Skipping NAT gateway {} — no traffic datapoints in the window",
+                            gateways.get(i).natGatewayId());
+                    continue;
+                }
+                double totalBytes = natSeries.stream().mapToDouble(Double::doubleValue).sum();
                 // Flag if less than 1 MB of outbound traffic in 30 days
                 if (totalBytes < 1_048_576) {
                     var gw = gateways.get(i);
@@ -1707,45 +1850,92 @@ public class OptimizationService {
         }, "Idle NAT Gateways");
     }
 
+    /**
+     * The region a bucket lives in, so its CloudWatch metrics are queried in the right place.
+     *
+     * @return the region, or null when it cannot be determined
+     */
+    private String resolveBucketRegion(S3Client s3, String bucketName) {
+        try {
+            String loc = s3.getBucketLocation(req -> req.bucket(bucketName)).locationConstraintAsString();
+            // An empty location constraint means us-east-1.
+            return (loc == null || loc.isEmpty()) ? "us-east-1" : loc;
+        } catch (Exception e) {
+            logger.debug("[Waste] Could not resolve region for bucket {}: {}", bucketName, e.getMessage());
+            return null;
+        }
+    }
+
     // S3 buckets with no GET requests in 90 days — data sitting cold without
     // Glacier pricing.
     private CompletableFuture<List<DashboardData.WastedResource>> findS3BucketsWithNoReads(CloudAccount account) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 S3Client s3 = awsClientProvider.getS3Client(account, "us-east-1");
-                CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, "us-east-1");
                 List<software.amazon.awssdk.services.s3.model.Bucket> buckets = s3.listBuckets().buckets();
                 if (buckets.isEmpty())
                     return List.of();
 
+                // A bucket's metrics live in the bucket's own region. This previously queried
+                // us-east-1 CloudWatch for every bucket in the account, so buckets outside
+                // us-east-1 returned nothing and were all reported as never read. The sibling
+                // findS3StorageClassWaste already groups by region; this now does the same.
+                Map<String, List<String>> bucketsByRegion = new HashMap<>();
+                for (var bucket : buckets) {
+                    String bucketRegion = resolveBucketRegion(s3, bucket.name());
+                    if (bucketRegion == null) {
+                        continue;
+                    }
+                    bucketsByRegion.computeIfAbsent(bucketRegion, k -> new ArrayList<>()).add(bucket.name());
+                }
+
                 Instant end = Instant.now();
                 Instant start = end.minus(90, ChronoUnit.DAYS);
-                List<MetricDataQuery> queries = new ArrayList<>();
-                for (int i = 0; i < buckets.size(); i++) {
-                    queries.add(MetricDataQuery.builder().id("s3r" + i)
-                            .metricStat(MetricStat.builder()
-                                    .metric(Metric.builder().namespace("AWS/S3")
-                                            .metricName("GetRequests")
-                                            .dimensions(
-                                                    Dimension.builder().name("BucketName")
-                                                            .value(buckets.get(i).name()).build(),
-                                                    Dimension.builder().name("FilterId")
-                                                            .value("EntireBucket").build())
-                                            .build())
-                                    .period(2592000).stat("Sum").build())
-                            .returnData(true).build());
-                }
-                Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
-
                 List<DashboardData.WastedResource> findings = new ArrayList<>();
-                for (int i = 0; i < buckets.size(); i++) {
-                    double gets = results.getOrDefault("s3r" + i, List.of())
-                            .stream().mapToDouble(Double::doubleValue).sum();
-                    if (gets == 0.0) {
-                        String bucketName = buckets.get(i).name();
-                        findings.add(new DashboardData.WastedResource(bucketName, bucketName,
-                                "S3 Bucket", "global", 0.0,
-                                "No GET requests in 90 days — consider Glacier or deletion"));
+
+                for (Map.Entry<String, List<String>> entry : bucketsByRegion.entrySet()) {
+                    String bucketRegion = entry.getKey();
+                    List<String> names = entry.getValue();
+                    try {
+                        CloudWatchClient cw = awsClientProvider.getCloudWatchClient(account, bucketRegion);
+                        List<MetricDataQuery> queries = new ArrayList<>();
+                        for (int i = 0; i < names.size(); i++) {
+                            queries.add(MetricDataQuery.builder().id("s3r" + i)
+                                    .metricStat(MetricStat.builder()
+                                            .metric(Metric.builder().namespace("AWS/S3")
+                                                    .metricName("GetRequests")
+                                                    .dimensions(
+                                                            Dimension.builder().name("BucketName")
+                                                                    .value(names.get(i)).build(),
+                                                            Dimension.builder().name("FilterId")
+                                                                    .value("EntireBucket").build())
+                                                    .build())
+                                            .period(2592000).stat("Sum").build())
+                                    .returnData(true).build());
+                        }
+                        Map<String, List<Double>> results = batchGetMetrics(cw, queries, start, end);
+
+                        for (int i = 0; i < names.size(); i++) {
+                            List<Double> getSeries = results.getOrDefault("s3r" + i, List.of());
+                            // AWS/S3 GetRequests belongs to request metrics, an opt-in paid feature
+                            // configured per bucket. Where they are not enabled the series is empty
+                            // for EVERY bucket, so this used to report the whole account as unread.
+                            if (noDatapoints(getSeries)) {
+                                logger.debug("[Waste] Skipping S3 bucket {} — no GetRequests datapoints; "
+                                        + "request metrics are likely not enabled on this bucket", names.get(i));
+                                continue;
+                            }
+                            double gets = getSeries.stream().mapToDouble(Double::doubleValue).sum();
+                            if (gets == 0.0) {
+                                // The storage cost is real but is not priced here, so report it as
+                                // unpriced rather than as a zero that reads like "free to keep".
+                                findings.add(DashboardData.WastedResource.withUnknownSavings(
+                                        names.get(i), names.get(i), "S3 Bucket", bucketRegion,
+                                        "No GET requests in 90 days — consider Glacier or deletion"));
+                            }
+                        }
+                    } catch (Exception e) {
+                        logger.warn("S3 no-read scan failed for region {}: {}", bucketRegion, e.getMessage());
                     }
                 }
                 return findings;
@@ -1814,16 +2004,28 @@ public class OptimizationService {
 
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             for (int i = 0; i < volumes.size(); i++) {
-                double reads = readResults.getOrDefault("ebsr" + i, List.of())
-                        .stream().mapToDouble(Double::doubleValue).sum();
-                double writes = writeResults.getOrDefault("ebsw" + i, List.of())
-                        .stream().mapToDouble(Double::doubleValue).sum();
+                List<Double> readSeries = readResults.getOrDefault("ebsr" + i, List.of());
+                List<Double> writeSeries = writeResults.getOrDefault("ebsw" + i, List.of());
+
+                // No datapoints is not the same as no I/O. CloudWatch returns an empty series
+                // when a volume is attached to a stopped instance, when the volume is newer than
+                // the window, or when the metric simply did not publish — and this used to sum
+                // that empty list to 0.0 and recommend deleting an attached, in-use volume.
+                // findIdleEc2Instances already guards this way; this detector did not.
+                if (readSeries.isEmpty() && writeSeries.isEmpty()) {
+                    logger.debug("[Waste] Skipping volume {} — no EBS I/O datapoints in the window, "
+                            + "which is not evidence of idleness", volumes.get(i).volumeId());
+                    continue;
+                }
+
+                double reads = readSeries.stream().mapToDouble(Double::doubleValue).sum();
+                double writes = writeSeries.stream().mapToDouble(Double::doubleValue).sum();
                 if (reads == 0.0 && writes == 0.0) {
                     Volume v = volumes.get(i);
                     double cost = calculateEbsMonthlyCost(v, regionId);
                     findings.add(new DashboardData.WastedResource(v.volumeId(),
                             getTagName(v.tags(), v.volumeId()), "EBS Volume", regionId, cost,
-                            "Attached but 0 read/write ops in 14 days"));
+                            "Attached but 0 read/write ops in 30 days"));
                 }
             }
             return findings;
@@ -2041,8 +2243,18 @@ public class OptimizationService {
 
             List<DashboardData.WastedResource> findings = new ArrayList<>();
             for (int i = 0; i < apis.size(); i++) {
-                double count = results.getOrDefault("apigw" + i, List.of())
-                        .stream().mapToDouble(Double::doubleValue).sum();
+                List<Double> countSeries = results.getOrDefault("apigw" + i, List.of());
+                // AWS/ApiGateway Count is published per stage only when detailed CloudWatch
+                // metrics are enabled on that stage. With them off the series is empty for EVERY
+                // API, so this detector reported every REST API in the account as receiving no
+                // traffic.
+                if (noDatapoints(countSeries)) {
+                    logger.debug("[Waste] Skipping API Gateway {} — no Count datapoints; detailed "
+                            + "CloudWatch metrics are likely not enabled on its stages",
+                            apis.get(i).name());
+                    continue;
+                }
+                double count = countSeries.stream().mapToDouble(Double::doubleValue).sum();
                 if (count == 0.0) {
                     var api = apis.get(i);
                     // API Gateway bills per request; an API with no traffic accrues nothing.
