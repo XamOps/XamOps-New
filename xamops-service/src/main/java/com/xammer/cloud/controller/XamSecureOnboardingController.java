@@ -58,6 +58,33 @@ public class XamSecureOnboardingController {
     }
 
     /**
+     * Customer-facing: the host sensor install command.
+     *
+     * <p>On demand rather than in {@code /status}, for the same reason the CloudFormation launch
+     * URL is: the script embeds Xammer's shared sensor client secret, and {@code /status} is a
+     * cacheable GET. POST plus {@code no-store} keeps it out of browser history and caches.
+     *
+     * <p>Not account-scoped, deliberately. Upwind's host script is identical for every host in
+     * the organization — there is nothing in it keyed by cloud account — so it is returned once
+     * rather than per account, where it would imply a scoping that does not exist.
+     */
+    @PostMapping("/sensor-command")
+    public ResponseEntity<?> sensorCommand(@AuthenticationPrincipal ClientUserDetails user) {
+        if (!onboardingService.isAllowedForClient(user.getClientId())) {
+            return ResponseEntity.status(403).body(Map.of("error",
+                    "Security monitoring is not enabled for this account."));
+        }
+        if (!onboardingService.isSensorConfigured()) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "Sensor deployment is not configured. Contact your XamOps administrator."));
+        }
+        return ResponseEntity.ok()
+                .header("Cache-Control", "no-store")
+                .body(Map.of("command", onboardingService.renderSensorInstallCommand(),
+                             "target", "host"));
+    }
+
+    /**
      * Customer-facing: disconnect one account from XamSecure.
      *
      * Deregisters upstream, then tells the customer to delete their stack. Deleting the stack on

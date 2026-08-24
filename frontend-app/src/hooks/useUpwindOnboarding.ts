@@ -95,3 +95,14 @@ export function useUpwindOnboarding(onChanged?: () => void) {
 export async function fetchOnboardingAccounts(): Promise<OnboardingAccount[]> {
   return apiClient.get<OnboardingAccount[]>('/api/xamsecure/onboarding/status');
 }
+
+/**
+ * Fetches the host sensor install command.
+ *
+ * On demand, and POST, because the script embeds a shared credential — same handling as the
+ * CloudFormation launch URL. Not held in module state for the same reason.
+ */
+export async function fetchSensorCommand(): Promise<{ command: string; target: string }> {
+  return apiClient.post<{ command: string; target: string }>(
+    '/api/xamsecure/onboarding/sensor-command');
+}

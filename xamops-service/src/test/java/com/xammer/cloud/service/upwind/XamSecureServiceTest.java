@@ -1412,7 +1412,7 @@ class XamSecureServiceTest {
     // ── Onboarding status: sensor command rendering ──
 
     @Test
-    void rendersTheSensorCommandWhenNoneWasPasted() {
+    void doesNotLeakTheSharedSensorCommandIntoTheStatusList() {
         CloudAccount a = aws("605134457560");
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(a));
         when(connectionRepo.findByCloudAccountIdIn(any())).thenReturn(List.of());
@@ -1421,11 +1421,13 @@ class XamSecureServiceTest {
 
         var out = service.getOnboardingStatus(1L);
 
-        assertEquals("rendered-command", out.get(0).get("sensorInstallCommand"));
+        // The shared host script must NOT appear in this list: it embeds a credential and this
+        // is a cacheable GET, and it is org-wide so per-account rows would imply false scoping.
+        assertNull(out.get(0).get("sensorInstallCommand"));
+        verify(onboardingService, never()).renderSensorInstallCommand();
     }
 
-    /** An admin-pasted command (the older console-minted flow) must win over the rendered one —
-     *  it may carry a per-account credential the shared one does not represent. */
+    /** An admin-pasted command is genuinely per-account, so it does still belong in the list. */
     @Test
     void prefersAnAdminPastedSensorCommandOverTheRenderedOne() {
         CloudAccount a = aws("605134457560");
