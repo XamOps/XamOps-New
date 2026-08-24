@@ -510,9 +510,17 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    * ACTIVE indefinitely, and because a new call always defers to a live session on
    * the same ticket, that ticket could never host another call again.
    *
-   * Prefers the already-open socket and falls back to REST while it is
-   * reconnecting, so a signalling blip mid-conversation never looks like an
-   * abandoned room.
+   * Deliberately over REST rather than the already-open socket, even though the
+   * socket would be cheaper. The reply is the point: REST answers 409 once the
+   * server no longer considers us present, and that is the only thing that
+   * recovers a client which missed the ENDED signal — a call that closed while our
+   * socket happened to be down would otherwise leave the UI showing a
+   * conversation that no longer exists, with no event coming to correct it. It
+   * also keeps working while the socket is reconnecting, which is exactly when a
+   * live call must not be mistaken for an abandoned room.
+   *
+   * The cost is four small requests a minute per person actually in a call, which
+   * for support-call volumes is nothing next to the failure it rules out.
    */
   const activeCallId = activeToken?.callId ?? null;
   useEffect(() => {
@@ -522,16 +530,6 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const beat = async () => {
       if (stopped || !mountedRef.current) return;
-
-      const client = stompRef.current;
-      if (client) {
-        try {
-          client.send('/app/calls/heartbeat', {}, String(activeCallId));
-          return;
-        } catch {
-          // Socket is dead but has not reported it yet — fall through to REST.
-        }
-      }
 
       const stillIn = await sendHeartbeat(activeCallId);
       if (stopped || !mountedRef.current || stillIn) return;
