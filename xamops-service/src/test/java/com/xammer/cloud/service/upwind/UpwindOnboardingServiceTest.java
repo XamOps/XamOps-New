@@ -420,6 +420,66 @@ class UpwindOnboardingServiceTest {
         verifyNoInteractions(integrationClient);
     }
 
+    // ── Reconciliation with accounts connected outside XamOps ──
+
+    /**
+     * The Xammer account was connected in the Upwind console long before this feature, so it has
+     * no local row — and it displayed "Not protected" for ever, because the pending sweep only
+     * reads rows that already exist and the UI mapped a missing row to NOT_CONNECTED.
+     */
+    @Test
+    void adoptsARegistrationThatHasNoLocalRow() {
+        when(integrationClient.isConfigured()).thenReturn(true);
+        when(integrationClient.listCloudCredentials()).thenReturn(List.of(
+                new UpwindIntegrationClient.CloudCredential(
+                        "cred-x", "sahil127", "connected", ACCT, true, true)));
+        when(connectionRepo.findByCloudAccountId(ACCT)).thenReturn(Optional.empty());
+
+        assertEquals(1, service.reconcileFromUpwind());
+        verify(connectionRepo).save(argThat(c ->
+                ACCT.equals(c.getCloudAccountId())
+                        && "CONNECTED".equals(c.getStatus())
+                        && "cred-x".equals(c.getUpwindCredentialId())
+                        && c.getConnectionVerifiedAt() != null));
+    }
+
+    /** Idempotent: a row already matching the registration must not be rewritten every 2 minutes. */
+    @Test
+    void reconcileLeavesAlreadyCurrentRowsAlone() {
+        when(integrationClient.isConfigured()).thenReturn(true);
+        when(integrationClient.listCloudCredentials()).thenReturn(List.of(
+                new UpwindIntegrationClient.CloudCredential(
+                        "cred-x", "n", "connected", ACCT, true, true)));
+        UpwindAccountConnection current = connected("cred-x");
+        when(connectionRepo.findByCloudAccountId(ACCT)).thenReturn(Optional.of(current));
+
+        assertEquals(0, service.reconcileFromUpwind());
+        verify(connectionRepo, never()).save(any());
+    }
+
+    /** A registration Upwind reports as not connected must not be adopted as connected. */
+    @Test
+    void reconcileIgnoresRegistrationsThatAreNotConnected() {
+        when(integrationClient.isConfigured()).thenReturn(true);
+        when(integrationClient.listCloudCredentials()).thenReturn(List.of(
+                new UpwindIntegrationClient.CloudCredential(
+                        "cred-x", "n", "pending", ACCT, true, true)));
+
+        assertEquals(0, service.reconcileFromUpwind());
+        verify(connectionRepo, never()).save(any());
+    }
+
+    /** A failed list must change nothing rather than clearing local state. */
+    @Test
+    void reconcileIsANoOpWhenUpwindCannotBeRead() {
+        when(integrationClient.isConfigured()).thenReturn(true);
+        when(integrationClient.listCloudCredentials())
+                .thenThrow(new IllegalStateException("upstream down"));
+
+        assertEquals(0, service.reconcileFromUpwind());
+        verify(connectionRepo, never()).save(any());
+    }
+
     // ── Authoritative status ──
 
     /** Registration is authoritative and available before the first scan, so it wins over assets. */

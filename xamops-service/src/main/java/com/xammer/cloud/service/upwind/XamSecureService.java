@@ -2947,6 +2947,12 @@ public class XamSecureService {
     public List<Map<String, Object>> getOnboardingStatus(Long clientId) {
         boolean onboardingAllowed = onboardingService.isAllowedForClient(clientId);
         List<CloudAccount> accounts = cloudAccountRepository.findByClientId(clientId);
+        // Upwind's registrations, so an account connected outside XamOps shows correctly on this
+        // request rather than after the reconciler's next pass. Read-only here: persisting is the
+        // poller's job, and a GET should not write. Empty on failure, which degrades to the
+        // locally-known status rather than blanking the page.
+        Map<String, com.xammer.cloud.service.upwind.UpwindIntegrationClient.CloudCredential>
+                registrations = onboardingService.registrationsByAccountId();
         List<String> ids = accounts.stream()
                 .map(CloudAccount::getProviderAccountId)
                 .filter(Objects::nonNull)
@@ -2962,7 +2968,14 @@ public class XamSecureService {
                     m.put("accountName", a.getAccountName());
                     m.put("cloudAccountId", a.getProviderAccountId());
                     m.put("provider", a.getProvider());
-                    m.put("status", c == null ? "NOT_CONNECTED" : c.getStatus());
+                    // Upwind's verdict wins where it has one: it is authoritative, and a local
+                    // row can be absent (connected outside XamOps) or stale. Only ever upgrades
+                    // to CONNECTED — never downgrades, so a transient read that misses a
+                    // registration cannot flip a working account to "not protected".
+                    boolean registered = registrations.containsKey(a.getProviderAccountId())
+                            && registrations.get(a.getProviderAccountId()).connected();
+                    m.put("status", registered ? "CONNECTED"
+                            : c == null ? "NOT_CONNECTED" : c.getStatus());
                     m.put("sensorInstallCommand", c == null ? null : c.getSensorInstallCommand());
                     // Self-service onboarding state. The launch URL itself is NOT here: it
                     // embeds Xammer's shared Upwind client secret, so it is minted on demand by

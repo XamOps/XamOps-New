@@ -217,6 +217,26 @@ public class UpwindOnboardingService {
     }
 
     /**
+     * Every Upwind registration, keyed by AWS account id, for callers that need several at once.
+     *
+     * Empty map on failure or when the integration credential is unset — callers must treat that
+     * as "no information", not as "nothing is connected".
+     */
+    public Map<String, UpwindIntegrationClient.CloudCredential> registrationsByAccountId() {
+        if (!integrationClient.isConfigured()) return Map.of();
+        try {
+            Map<String, UpwindIntegrationClient.CloudCredential> out = new LinkedHashMap<>();
+            for (UpwindIntegrationClient.CloudCredential c : integrationClient.listCloudCredentials()) {
+                if (c.cloudAccountId() != null) out.put(c.cloudAccountId(), c);
+            }
+            return out;
+        } catch (Exception e) {
+            log.warn("[Upwind] could not list registrations: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /**
      * Upwind's own registration record for an account, when it has one.
      *
      * This is the authoritative connection state and is preferred over
@@ -359,6 +379,66 @@ public class UpwindOnboardingService {
      *
      * @return how many connections were promoted
      */
+    /**
+     * Adopts every account Upwind reports as connected, creating the local row if absent.
+     *
+     * Without this, an account connected OUTSIDE XamOps is invisible: {@link
+     * #verifyPendingConnections} reads {@code findByStatusNot("CONNECTED")}, which only returns
+     * rows that already exist, and {@link XamSecureService#getOnboardingStatus} maps a missing row
+     * to NOT_CONNECTED. So every account onboarded through the Upwind console before this feature
+     * existed — Xammer's own included — displayed as "Not protected" for ever, with no way to
+     * correct it: the UI only offers "Check status" for PENDING rows, so a NOT_CONNECTED account
+     * had no button that would re-check it.
+     *
+     * Upwind's registration list is the authoritative source and is keyed on the AWS account id,
+     * so it needs nothing from us to match. Reconciling from it also removes the assumption that
+     * XamOps is the only thing that ever creates connections.
+     *
+     * @return how many rows were created or promoted
+     */
+    @Transactional
+    public int reconcileFromUpwind() {
+        if (!integrationClient.isConfigured()) return 0;
+        List<UpwindIntegrationClient.CloudCredential> registrations;
+        try {
+            registrations = integrationClient.listCloudCredentials();
+        } catch (Exception e) {
+            log.warn("[Upwind] could not list registrations to reconcile: {}", e.getMessage());
+            return 0;
+        }
+
+        int changed = 0;
+        for (UpwindIntegrationClient.CloudCredential reg : registrations) {
+            if (reg.cloudAccountId() == null || reg.cloudAccountId().isBlank()) continue;
+            if (!reg.connected()) continue;
+
+            UpwindAccountConnection conn = connectionRepo.findByCloudAccountId(reg.cloudAccountId())
+                    .orElseGet(() -> {
+                        UpwindAccountConnection n = new UpwindAccountConnection();
+                        n.setCloudAccountId(reg.cloudAccountId());
+                        return n;
+                    });
+            boolean alreadyCurrent = "CONNECTED".equals(conn.getStatus())
+                    && reg.id().equals(conn.getUpwindCredentialId());
+            if (alreadyCurrent) continue;
+
+            conn.setStatus("CONNECTED");
+            conn.setUpwindCredentialId(reg.id());
+            if (conn.getConnectionVerifiedAt() == null) conn.setConnectionVerifiedAt(Instant.now());
+            // Upwind still holding a registration means the account IS connected, whatever we
+            // recorded earlier — either a disconnect's DELETE failed, or it was re-onboarded.
+            // Unlike the asset-based signal, this one cannot lag behind a successful disconnect,
+            // because a successful disconnect removes the registration being read here.
+            conn.setDisconnectedAt(null);
+            conn.setUpdatedAt(Instant.now());
+            connectionRepo.save(conn);
+            changed++;
+            log.info("[Upwind] adopted registration for account {} (credential {})",
+                    reg.cloudAccountId(), reg.id());
+        }
+        return changed;
+    }
+
     @Transactional
     public int verifyPendingConnections() {
         List<UpwindAccountConnection> pending = connectionRepo.findByStatusNot("CONNECTED");

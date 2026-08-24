@@ -70,12 +70,12 @@ const OnboardingTab: React.FC<Props> = ({ accounts, isLoading, onRefresh }) => {
                             className="px-3 py-1.5 rounded-md text-[11px] font-semibold bg-[rgba(0,0,0,0.88)] text-white hover:bg-black disabled:opacity-50 transition-colors">
                       {a.status === 'PENDING' ? 'Re-open stack' : 'Connect account'}
                     </button>
-                    {a.status === 'PENDING' && (
-                      <button type="button" onClick={() => check(a)} disabled={busy}
-                              className="px-3 py-1.5 rounded-md text-[11px] font-semibold border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-50 transition-colors">
-                        {busy ? 'Checking…' : 'Check connection'}
-                      </button>
-                    )}
+                    {/* Offered for NOT_CONNECTED too: an account connected outside XamOps starts
+                        there, and without this it had no button that could re-check it. */}
+                    <button type="button" onClick={() => check(a)} disabled={busy}
+                            className="px-3 py-1.5 rounded-md text-[11px] font-semibold border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      {busy ? 'Checking…' : 'Check connection'}
+                    </button>
                   </>
                 )}
                 {a.selfServiceSupported && (connected || a.status === 'PENDING') && (
