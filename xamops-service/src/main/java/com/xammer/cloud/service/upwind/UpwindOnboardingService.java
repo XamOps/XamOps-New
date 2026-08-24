@@ -87,6 +87,18 @@ public class UpwindOnboardingService {
     @Value("${upwind.onboarding.client-secret:}")
     private String onboardingClientSecret;
 
+    /**
+     * Sensor-type ("agent") client id, for {@link #renderSensorInstallCommand()}. Verified live
+     * 2026-08-24: zero permissions on both the integration and data hosts, so sharing it is the
+     * same call as sharing the Cloud account credential — a leak risks a rogue sensor enrolling,
+     * not data exposure.
+     */
+    @Value("${upwind.sensor.client-id:}")
+    private String sensorClientId;
+
+    @Value("${upwind.sensor.client-secret:}")
+    private String sensorClientSecret;
+
     @Value("${upwind.org-id:}")
     private String orgId;
 
@@ -131,6 +143,43 @@ public class UpwindOnboardingService {
     /** Whether a launch URL can be produced at all, i.e. whether the shared credential is set. */
     public boolean isConfigured() {
         return notBlank(onboardingClientId) && notBlank(onboardingClientSecret) && notBlank(orgId);
+    }
+
+    /** Whether the shared Sensor credential is set, so a host/cluster install command can be rendered. */
+    public boolean isSensorConfigured() {
+        return notBlank(sensorClientId) && notBlank(sensorClientSecret);
+    }
+
+    /**
+     * Renders Upwind's own host sensor install command, with the shared Sensor credential
+     * filled in.
+     *
+     * <p>Copied verbatim from the Upwind console ("Connect a host" -> Step 3), not reverse
+     * engineered: the flag names, the {@code scanner-v2=true} extra config and the pipe-to-bash
+     * shape are Upwind's, not ours to invent. It is NOT parameterized per account or cluster —
+     * unlike the CloudFormation stack, the same script is correct for every host, so there is
+     * nothing here to key by cloud account id. Kubernetes/ECS sensor deployment uses a different
+     * (Helm) command this does not cover.
+     *
+     * <p>The credential is embedded directly rather than exported once and referenced, matching
+     * what the console itself renders — Upwind's own template exports {@code CLIENT_SECRET} as a
+     * literal in the script, so following their shape exactly is what "copied verbatim" means
+     * here.
+     */
+    public String renderSensorInstallCommand() {
+        if (!isSensorConfigured()) {
+            throw new IllegalStateException(
+                    "Sensor deployment is not configured: set upwind.sensor.client-id and "
+                    + "upwind.sensor.client-secret (type 'Sensor' credentials from the Upwind "
+                    + "console — not the Cloud account or API credentials).");
+        }
+        return "export CLIENT_ID=\"" + sensorClientId + "\"\n"
+                + "export CLIENT_SECRET=\"" + sensorClientSecret + "\"\n\n"
+                + "curl -s https://get.upwind.io/sensor.sh | \\\n"
+                + "UPWIND_CLIENT_ID=\"$CLIENT_ID\" \\\n"
+                + "UPWIND_CLIENT_SECRET=\"$CLIENT_SECRET\" \\\n"
+                + "UPWIND_AGENT_EXTRA_CONFIG=\"scanner-v2=true\" \\\n"
+                + "bash -s";
     }
 
     /**

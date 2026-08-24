@@ -1408,4 +1408,51 @@ class XamSecureServiceTest {
         assertNull(pci.get("score"), "a null v2 score stays null rather than becoming 0");
         assertEquals("no_finding_resources", pci.get("state"));
     }
+
+    // ── Onboarding status: sensor command rendering ──
+
+    @Test
+    void rendersTheSensorCommandWhenNoneWasPasted() {
+        CloudAccount a = aws("605134457560");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(a));
+        when(connectionRepo.findByCloudAccountIdIn(any())).thenReturn(List.of());
+        when(onboardingService.isSensorConfigured()).thenReturn(true);
+        when(onboardingService.renderSensorInstallCommand()).thenReturn("rendered-command");
+
+        var out = service.getOnboardingStatus(1L);
+
+        assertEquals("rendered-command", out.get(0).get("sensorInstallCommand"));
+    }
+
+    /** An admin-pasted command (the older console-minted flow) must win over the rendered one —
+     *  it may carry a per-account credential the shared one does not represent. */
+    @Test
+    void prefersAnAdminPastedSensorCommandOverTheRenderedOne() {
+        CloudAccount a = aws("605134457560");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(a));
+        com.xammer.cloud.domain.UpwindAccountConnection conn =
+                new com.xammer.cloud.domain.UpwindAccountConnection();
+        conn.setCloudAccountId("605134457560");
+        conn.setSensorInstallCommand("admin-pasted-command");
+        when(connectionRepo.findByCloudAccountIdIn(any())).thenReturn(List.of(conn));
+
+        var out = service.getOnboardingStatus(1L);
+
+        assertEquals("admin-pasted-command", out.get(0).get("sensorInstallCommand"));
+        // Rendering must not even be attempted once a pasted command exists.
+        verify(onboardingService, never()).renderSensorInstallCommand();
+    }
+
+    /** Neither a pasted command nor the shared credential: null, not a rendering error. */
+    @Test
+    void sensorCommandIsNullWhenNothingIsConfigured() {
+        CloudAccount a = aws("605134457560");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(a));
+        when(connectionRepo.findByCloudAccountIdIn(any())).thenReturn(List.of());
+        when(onboardingService.isSensorConfigured()).thenReturn(false);
+
+        var out = service.getOnboardingStatus(1L);
+
+        assertNull(out.get(0).get("sensorInstallCommand"));
+    }
 }

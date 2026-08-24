@@ -293,6 +293,36 @@ class UpwindOnboardingServiceTest {
                 () -> service.checkConnection(CLIENT, "999999999999"));
     }
 
+    // ── Sensor install command ──
+
+    @Test
+    void sensorNotConfiguredByDefault() {
+        assertFalse(service.isSensorConfigured());
+        assertThrows(IllegalStateException.class, service::renderSensorInstallCommand);
+    }
+
+    /**
+     * Copied verbatim from Upwind's "Connect a host" console flow (Step 3), not reverse
+     * engineered — the flag names, scanner-v2 extra config and pipe-to-bash shape are Upwind's.
+     * This pins that shape so an edit here has to be a deliberate change, not a typo.
+     */
+    @Test
+    void rendersUpwindsOwnSensorScriptWithTheSharedCredentialFilledIn() {
+        ReflectionTestUtils.setField(service, "sensorClientId", "512eba83-7fb5-4ded-b5e0-2b09f9d6af02");
+        ReflectionTestUtils.setField(service, "sensorClientSecret", "sensor-secret-value");
+
+        assertTrue(service.isSensorConfigured());
+        String cmd = service.renderSensorInstallCommand();
+
+        assertTrue(cmd.contains("export CLIENT_ID=\"512eba83-7fb5-4ded-b5e0-2b09f9d6af02\""), cmd);
+        assertTrue(cmd.contains("export CLIENT_SECRET=\"sensor-secret-value\""), cmd);
+        assertTrue(cmd.contains("curl -s https://get.upwind.io/sensor.sh"), cmd);
+        assertTrue(cmd.contains("UPWIND_CLIENT_ID=\"$CLIENT_ID\""), cmd);
+        assertTrue(cmd.contains("UPWIND_CLIENT_SECRET=\"$CLIENT_SECRET\""), cmd);
+        assertTrue(cmd.contains("UPWIND_AGENT_EXTRA_CONFIG=\"scanner-v2=true\""), cmd);
+        assertTrue(cmd.contains("bash -s"), cmd);
+    }
+
     // ── BillOps per-client entitlement ──
 
     /** Missing client row reads as allowed, matching the column default: a lookup miss must not

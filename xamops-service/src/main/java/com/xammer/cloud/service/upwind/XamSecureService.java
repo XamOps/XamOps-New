@@ -2976,7 +2976,15 @@ public class XamSecureService {
                             && registrations.get(a.getProviderAccountId()).connected();
                     m.put("status", registered ? "CONNECTED"
                             : c == null ? "NOT_CONNECTED" : c.getStatus());
-                    m.put("sensorInstallCommand", c == null ? null : c.getSensorInstallCommand());
+                    // Prefer an admin-pasted command (the old console-minted flow) where one was
+                    // explicitly set; otherwise render from the shared Sensor credential so no
+                    // admin step is needed. Null, not a rendering error, when neither is
+                    // available — the tab already treats null as "no command yet".
+                    String sensorCommand = c != null && c.getSensorInstallCommand() != null
+                            ? c.getSensorInstallCommand()
+                            : onboardingService.isSensorConfigured()
+                                    ? onboardingService.renderSensorInstallCommand() : null;
+                    m.put("sensorInstallCommand", sensorCommand);
                     // Self-service onboarding state. The launch URL itself is NOT here: it
                     // embeds Xammer's shared Upwind client secret, so it is minted on demand by
                     // POST /onboarding/aws/launch-url rather than shipped in a list payload that
