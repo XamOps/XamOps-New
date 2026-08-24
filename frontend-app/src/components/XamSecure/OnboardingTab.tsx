@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
 import { useUpwindOnboarding } from '../../hooks/useUpwindOnboarding';
+import SensorDeployPanel from './SensorDeployPanel';
 import type { OnboardingAccount } from '../../types/xamsecure';
 
 interface Props {
@@ -45,6 +46,9 @@ const OnboardingTab: React.FC<Props> = ({ accounts, isLoading, onRefresh }) => {
 
   return (
     <div className="space-y-4">
+      {/* Once, above the accounts: the sensor script is org-wide, so it is not a per-account
+          artifact. Only rendered when there is at least one account to monitor. */}
+      {rows.length > 0 && <SensorDeployPanel />}
       {rows.map((a) => {
         const busy = busyId === a.cloudAccountId;
         const result = checks[a.cloudAccountId];
@@ -70,12 +74,12 @@ const OnboardingTab: React.FC<Props> = ({ accounts, isLoading, onRefresh }) => {
                             className="px-3 py-1.5 rounded-md text-[11px] font-semibold bg-[rgba(0,0,0,0.88)] text-white hover:bg-black disabled:opacity-50 transition-colors">
                       {a.status === 'PENDING' ? 'Re-open stack' : 'Connect account'}
                     </button>
-                    {a.status === 'PENDING' && (
-                      <button type="button" onClick={() => check(a)} disabled={busy}
-                              className="px-3 py-1.5 rounded-md text-[11px] font-semibold border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-50 transition-colors">
-                        {busy ? 'Checking…' : 'Check connection'}
-                      </button>
-                    )}
+                    {/* Offered for NOT_CONNECTED too: an account connected outside XamOps starts
+                        there, and without this it had no button that could re-check it. */}
+                    <button type="button" onClick={() => check(a)} disabled={busy}
+                            className="px-3 py-1.5 rounded-md text-[11px] font-semibold border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      {busy ? 'Checking…' : 'Check connection'}
+                    </button>
                   </>
                 )}
                 {a.selfServiceSupported && (connected || a.status === 'PENDING') && (
@@ -178,7 +182,7 @@ const OnboardingTab: React.FC<Props> = ({ accounts, isLoading, onRefresh }) => {
             {a.sensorInstallCommand && (
               <div className="mt-4">
                 <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                  Sensor install command (run on your cluster)
+                  Sensor install command for this account
                 </p>
                 <div className="flex items-start gap-2">
                   <pre className="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-3 text-[11px] text-gray-700 overflow-x-auto">

@@ -65,8 +65,12 @@ public class UpwindSyncScheduler {
     @Scheduled(fixedDelayString = "${upwind.onboarding.verify-interval-ms:120000}",
                initialDelayString = "45000")
     public void verifyOnboarding() {
-        lease.runIfLeader("ONBOARDING", Duration.ofMinutes(5),
-                () -> onboardingService.verifyPendingConnections());
+        lease.runIfLeader("ONBOARDING", Duration.ofMinutes(5), () -> {
+            // Reconcile FIRST: it discovers accounts connected outside XamOps, which have no
+            // local row at all and are therefore invisible to the pending sweep below.
+            onboardingService.reconcileFromUpwind();
+            onboardingService.verifyPendingConnections();
+        });
     }
 
     // 6h, not 1h: a full run measures ~73 minutes of API time, so an hourly cadence left the

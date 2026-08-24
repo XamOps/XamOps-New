@@ -16,7 +16,7 @@ import { isDemoMode } from '../../demo/demoConfig';
 
 const Topbar: React.FC = () => {
     useLocation(); // subscribe to route changes so Topbar re-renders on navigation
-    const { title: contextTitle, subtitle: contextSubtitle, actions, onHelpClick } = useTopbar();
+    const { title: contextTitle, subtitle: contextSubtitle, titleAdornment, actions, onHelpClick } = useTopbar();
     const { userProfile, logout, hasAnyRole } = useAuth();
     const { selectedAccountIds, selectedAccountDisplay } = useAccounts();
     const { theme } = useTheme();
@@ -150,12 +150,18 @@ const Topbar: React.FC = () => {
                 <div className="flex items-center gap-4 min-w-0">
                     {pageTitle && (
                         <div className="flex flex-col min-w-0">
+                            <div className="flex items-baseline gap-2.5 min-w-0">
                             <h1
                                 className="text-[24px] font-semibold leading-8 truncate text-nowrap transition-colors duration-200"
                                 style={{ fontFamily: "'Barlow Condensed', 'Inter', sans-serif", letterSpacing: '0px', color: theme === 'dark' ? 'rgb(255,255,255)' : 'rgb(17,24,39)', fontStretch: '100%' }}
                             >
                                 {pageTitle}
                             </h1>
+                            {/* Set per page via setTitleAdornment; nothing renders for pages
+                                that do not use it. Kept inside the title row so it tracks the
+                                title rather than floating among the action buttons. */}
+                            {titleAdornment}
+                            </div>
                             {contextSubtitle && (
                                 <p className={`text-[11px] truncate leading-tight transition-colors duration-200 ${theme === 'dark' ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.4)]'}`}>
                                     {contextSubtitle}

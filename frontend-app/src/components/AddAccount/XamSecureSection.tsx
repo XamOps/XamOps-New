@@ -142,12 +142,14 @@ const XamSecureSection: React.FC = () => {
                                 className="px-3 py-1.5 rounded-md text-[11px] font-semibold bg-[rgba(0,0,0,0.88)] text-white hover:bg-black disabled:opacity-50 transition-colors">
                           {a.status === 'PENDING' ? 'Re-open stack' : 'Deploy stack'}
                         </button>
-                        {a.status === 'PENDING' && (
-                          <button type="button" onClick={() => check(a)} disabled={busy}
-                                  className="px-3 py-1.5 rounded-md text-[11px] font-semibold border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-50 transition-colors">
-                            {busy ? 'Checking…' : 'Check status'}
-                          </button>
-                        )}
+                        {/* Offered for NOT_CONNECTED too, not just PENDING. An account connected
+                            outside XamOps starts as NOT_CONNECTED, and with no button here it
+                            had no way to be re-checked — it simply read "Not protected" for
+                            ever. */}
+                        <button type="button" onClick={() => check(a)} disabled={busy}
+                                className="px-3 py-1.5 rounded-md text-[11px] font-semibold border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-50 transition-colors">
+                          {busy ? 'Checking…' : 'Check status'}
+                        </button>
                       </>
                     )}
                     {a.selfServiceSupported && (connected || a.status === 'PENDING') && (

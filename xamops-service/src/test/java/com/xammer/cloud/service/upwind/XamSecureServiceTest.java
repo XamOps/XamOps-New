@@ -1408,4 +1408,53 @@ class XamSecureServiceTest {
         assertNull(pci.get("score"), "a null v2 score stays null rather than becoming 0");
         assertEquals("no_finding_resources", pci.get("state"));
     }
+
+    // ── Onboarding status: sensor command rendering ──
+
+    @Test
+    void doesNotLeakTheSharedSensorCommandIntoTheStatusList() {
+        CloudAccount a = aws("605134457560");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(a));
+        when(connectionRepo.findByCloudAccountIdIn(any())).thenReturn(List.of());
+        when(onboardingService.isSensorConfigured()).thenReturn(true);
+        when(onboardingService.renderSensorInstallCommand()).thenReturn("rendered-command");
+
+        var out = service.getOnboardingStatus(1L);
+
+        // The shared host script must NOT appear in this list: it embeds a credential and this
+        // is a cacheable GET, and it is org-wide so per-account rows would imply false scoping.
+        assertNull(out.get(0).get("sensorInstallCommand"));
+        verify(onboardingService, never()).renderSensorInstallCommand();
+    }
+
+    /** An admin-pasted command is genuinely per-account, so it does still belong in the list. */
+    @Test
+    void prefersAnAdminPastedSensorCommandOverTheRenderedOne() {
+        CloudAccount a = aws("605134457560");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(a));
+        com.xammer.cloud.domain.UpwindAccountConnection conn =
+                new com.xammer.cloud.domain.UpwindAccountConnection();
+        conn.setCloudAccountId("605134457560");
+        conn.setSensorInstallCommand("admin-pasted-command");
+        when(connectionRepo.findByCloudAccountIdIn(any())).thenReturn(List.of(conn));
+
+        var out = service.getOnboardingStatus(1L);
+
+        assertEquals("admin-pasted-command", out.get(0).get("sensorInstallCommand"));
+        // Rendering must not even be attempted once a pasted command exists.
+        verify(onboardingService, never()).renderSensorInstallCommand();
+    }
+
+    /** Neither a pasted command nor the shared credential: null, not a rendering error. */
+    @Test
+    void sensorCommandIsNullWhenNothingIsConfigured() {
+        CloudAccount a = aws("605134457560");
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(a));
+        when(connectionRepo.findByCloudAccountIdIn(any())).thenReturn(List.of());
+        when(onboardingService.isSensorConfigured()).thenReturn(false);
+
+        var out = service.getOnboardingStatus(1L);
+
+        assertNull(out.get(0).get("sensorInstallCommand"));
+    }
 }

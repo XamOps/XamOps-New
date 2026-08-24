@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../../contexts/TopbarContext';
+import PoweredByProvider from './PoweredByProvider';
 
 interface Props {
   isLoading: boolean;
@@ -8,10 +9,13 @@ interface Props {
 }
 
 const XamSecureHeader: React.FC<Props> = ({ isLoading, onRefresh }) => {
-  const { setTitle, setActions, clearActions } = useTopbar();
+  const { setTitle, setTitleAdornment, setActions, clearActions } = useTopbar();
 
   useEffect(() => {
     setTitle('XamSecure');
+    // Beside the title, so the attribution covers the whole section rather than appearing to
+    // belong to whichever tab happens to be open.
+    setTitleAdornment(<PoweredByProvider />);
     setActions(
       <button
         onClick={onRefresh}
@@ -22,8 +26,10 @@ const XamSecureHeader: React.FC<Props> = ({ isLoading, onRefresh }) => {
         <span>{isLoading ? 'Loading...' : 'Refresh'}</span>
       </button>
     );
-    return () => { clearActions(); setTitle(null); };
-  }, [isLoading, onRefresh, setTitle, setActions, clearActions]);
+    // Adornment must be cleared with the title, or it persists into the next page's topbar and
+    // credits the provider for something it has nothing to do with.
+    return () => { clearActions(); setTitle(null); setTitleAdornment(null); };
+  }, [isLoading, onRefresh, setTitle, setTitleAdornment, setActions, clearActions]);
 
   return null;
 };
