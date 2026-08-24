@@ -54,6 +54,18 @@ const SensorDeployPanel: React.FC = () => {
             sensor on a host to also get live threat detections, API security and runtime
             vulnerability context. The same command works on any host in your environment.
           </p>
+          {/* Stated up front because the installer does NOT fail when it cannot meet this — it
+              logs "Skipping scanner installation, requires 7000000 kB", finishes with exit 0 and
+              prints "Upwind Agent installed". Observed on a ~1 GB instance: runtime sensor
+              present, vulnerability scanner silently absent. Without this note a customer reads
+              that as full coverage. */}
+          <p className="mt-2 text-[11px] text-gray-500 max-w-2xl">
+            <span className="font-semibold">Before you run it:</span> the vulnerability scanner
+            needs roughly 7 GB of memory on the host. On smaller hosts the sensor still installs
+            and runtime detections still work, but the scanner is skipped — the installer only
+            warns, it does not fail. Check the output for
+            {' '}<span className="font-mono">Skipping scanner installation</span>.
+          </p>
         </div>
         {!command && (
           <button type="button" onClick={reveal} disabled={loading}
