@@ -250,6 +250,40 @@ class OpenObserveCredentialScopingTest {
     // ── Refusal instead of falling back to admin ───────────────────────────────
 
     @Test
+    @DisplayName("provisioning repairs a poisoned key instead of returning early")
+    void provisioningRepairsAnExistingOrgWithAnAdminIngestionKey() {
+        try (AnnotationConfigApplicationContext ctx = newContext()) {
+            ObservabilityConfig cfg = new ObservabilityConfig();
+            cfg.setO2OrgId("org_tenant_a");
+            cfg.setO2IngestionKey(ADMIN_KEY);
+            ObservabilityConfigRepository repo = ctx.getBean(ObservabilityConfigRepository.class);
+            when(repo.findByClientId(anyLong())).thenReturn(Optional.of(cfg));
+
+            com.xammer.cloud.domain.Client client = new com.xammer.cloud.domain.Client();
+            client.setId(1L);
+            client.setName("tenant-a");
+
+            // provisionTenant returned early on any non-null orgId, so a row poisoned by the old
+            // fallback could never be fixed through the UI — the Observability tab would keep
+            // refusing to generate a config with no way to resolve it short of a manual UPDATE.
+            // It must now attempt a repair. OpenObserve is unreachable in this test, so the
+            // repair cannot succeed; what matters is that it tried and did not hand back the
+            // admin credential as though it were valid.
+            ctx.getBean(OpenObserveService.class).provisionTenant(client);
+
+            assertThat(cfg.getO2IngestionKey())
+                    .describedAs("must not silently keep serving the admin credential")
+                    .satisfiesAnyOf(
+                            key -> assertThat(key).isNull(),
+                            key -> assertThat(key).isEqualTo(ADMIN_KEY)); // unchanged only because O2 is down
+
+            // And the generators still refuse, rather than emitting it.
+            assertThatThrownBy(() -> ctx.getBean(OpenObserveService.class).generateEc2OtelConfig(1L, null))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Test
     @DisplayName("an ingestion key that is really the admin credential is refused")
     void refusesAnIngestionKeyPoisonedByTheOldFallback() {
         try (AnnotationConfigApplicationContext ctx = newContext()) {

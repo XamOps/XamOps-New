@@ -662,13 +662,30 @@ export const useObservabilityData = () => {
 
   // ── Setup configs ─────────────────────────────────────────────────────────────
 
-  const fetchSetupConfig = useCallback(async (type: 'fluent-bit' | 'helm' | 'otel' | 'agent-secret' | 'agents/rbac' | 'agents/xamops-agent' | 'agents/fluent-bit' | 'agents/otel-collector' | 'helm-eks' | 'ec2-otel' | 'gce-otel') => {
+  /**
+   * Fetches a generated collector config.
+   *
+   * Returns the reason on failure rather than an empty string. The backend refuses to issue a
+   * config when the account has no org-scoped ingestion credential, and explains what to do
+   * about it — but that was swallowed here, so the Setup tab showed "try restarting the
+   * backend", which is advice that cannot possibly help and hides the actual fix.
+   */
+  const fetchSetupConfig = useCallback(async (type: 'fluent-bit' | 'helm' | 'otel' | 'agent-secret' | 'agents/rbac' | 'agents/xamops-agent' | 'agents/fluent-bit' | 'agents/otel-collector' | 'helm-eks' | 'ec2-otel' | 'gce-otel'): Promise<QueryResult<string>> => {
     try {
       const data = await apiClient.get(`/api/observability/setup/${type}${accountParam}`);
       setSetupConfig(data);
-      return data as string;
-    } catch {
-      return '';
+      return { data: data as string };
+    } catch (e: unknown) {
+      const { message, retryable } = extractApiError(e, 'Could not generate the configuration');
+      // The plain-text generators answer with a `#`-commented explanation so it reads correctly
+      // inside a shell script. Strip the comment markers for display in the UI.
+      const cleaned = message
+        .split('\n')
+        .map(line => line.replace(/^#\s?/, '').trim())
+        .filter(line => line.length > 0 && !/^Configuration was not generated\.?$/i.test(line))
+        .join(' ')
+        .trim();
+      return { data: '', error: cleaned || message, retryable };
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId]);
