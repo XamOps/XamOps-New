@@ -61,10 +61,65 @@ jobs:
           helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
           helm repo update
 
+      - name: Installer must not fetch and execute a remote binary
+        run: |
+          # This file is served unauthenticated from /api/v1/agent/install/{aks,eks,gke}.sh and
+          # the guides tell customers to pipe it straight into bash. In Aug 2026 it was replaced
+          # wholesale with 22 lines that downloaded a binary from a hardcoded IP into /tmp/.svc
+          # and ran a mass port scanner. It sat on main for two days; nothing here noticed,
+          # because shellcheck is perfectly happy with malware that is valid shell.
+          #
+          # Two independent signals, either of which should stop a merge.
+          F=xamops-service/src/main/resources/agent-install/install-k8s.sh
+          FAILED=0
+
+          # 1. Size. The real installer is ~1550 lines. A swap replaces it entirely, so any
+          #    drastic shrink means the file is no longer the installer.
+          LINES=$(wc -l < "$F")
+          echo "installer is $LINES lines"
+          if [ "$LINES" -lt 800 ]; then
+            echo "::error file=$F::Installer collapsed to $LINES lines (expected ~1550). A customer-facing script does not shrink by half; treat this as a supply-chain swap until proven otherwise."
+            FAILED=1
+          fi
+
+          # 2. Remote-code-execution shapes. The installer legitimately curls Helm charts and
+          #    kubectl manifests; it must never download something and mark it executable, or
+          #    pipe a download into a shell.
+          #
+          #    Comment lines are blanked first: the file explains in prose why `curl | bash` has
+          #    to keep working for Cloud Shell users, and matching that sentence would fail the
+          #    build on the legitimate installer. sed preserves line numbering.
+          CODE=$(mktemp)
+          sed 's/^[[:space:]]*#.*//' "$F" > "$CODE"
+
+          if grep -nE 'chmod[[:space:]]+(\+x|[0-7]{3,4})[[:space:]]+/tmp/' "$CODE"; then
+            echo "::error file=$F::Installer makes a file in /tmp executable — that is how a dropper stages a payload."
+            FAILED=1
+          fi
+          if grep -nE '(curl|wget)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh([[:space:]]|$)' "$CODE"; then
+            echo "::error file=$F::Installer pipes a download directly into a shell."
+            FAILED=1
+          fi
+          if grep -nE '(curl|wget).*https?://[0-9]{1,3}(\.[0-9]{1,3}){3}' "$CODE"; then
+            echo "::error file=$F::Installer downloads from a bare IP address rather than a named host."
+            FAILED=1
+          fi
+          rm -f "$CODE"
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "If this is a legitimate change, say so explicitly in the PR and update this check."
+            exit 1
+          fi
+          echo "ok  installer shows no dropper patterns"
+
       - name: Lint the installer script
         run: |
           # The installer is what customers actually run, so a shell bug in it is worse than a
           # wrong command in the guide: it fails mid-way through a cluster.
+          #
+          # Note this is a correctness gate, not a safety one -- the malicious replacement above
+          # passed shellcheck cleanly. Both checks are needed.
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck xamops-service/src/main/resources/agent-install/install-k8s.sh
           bash -n xamops-service/src/main/resources/agent-install/install-k8s.sh
