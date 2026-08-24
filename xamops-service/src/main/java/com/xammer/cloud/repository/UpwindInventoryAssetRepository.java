@@ -63,11 +63,16 @@ public interface UpwindInventoryAssetRepository extends JpaRepository<UpwindInve
     int markResolvedNotSyncedSince(@Param("runStart") Instant runStart);
 
     /**
-     * Distinct cloud accounts Upwind has assets for. Endpoint and SBOM fetches are
+     * Distinct cloud accounts Upwind has LIVE assets for. Endpoint and SBOM fetches are
      * per-account query-parameter calls, so the sync needs the account list.
+     *
+     * Excludes RESOLVED rows. Without that filter a disconnected account never left the sync
+     * loop: its archived assets kept it in this list for ever, so every 6-hourly run spent an
+     * inventory search and an endpoint walk on an account Upwind no longer reports anything
+     * for — permanently, and once per account ever disconnected.
      */
     @Query("SELECT DISTINCT a.cloudAccountId FROM UpwindInventoryAsset a " +
-           "WHERE a.cloudAccountId IS NOT NULL")
+           "WHERE a.cloudAccountId IS NOT NULL AND a.status <> 'RESOLVED'")
     List<String> findDistinctCloudAccountIds();
 
     /**

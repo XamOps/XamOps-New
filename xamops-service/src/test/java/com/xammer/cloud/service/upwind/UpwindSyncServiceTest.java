@@ -516,6 +516,30 @@ class UpwindSyncServiceTest {
         verify(apiClient).searchInventory(anyList(), anyInt());
     }
 
+    /**
+     * A disconnected account must drop out of the per-account walks.
+     *
+     * Its connection row survives (status NOT_CONNECTED, disconnectedAt set) and its inventory
+     * rows are archived rather than deleted, so without this filter it stayed in the account list
+     * for ever and every 6-hourly run spent an inventory search and an endpoint walk on an
+     * account Upwind reports nothing for — once per account ever disconnected, permanently.
+     */
+    @Test
+    void syncInventorySkipsDisconnectedAccounts() {
+        when(apiClient.isConfigured()).thenReturn(true);
+        when(inventoryRepo.findDistinctCloudAccountIds()).thenReturn(Collections.emptyList());
+        com.xammer.cloud.domain.UpwindAccountConnection gone =
+                new com.xammer.cloud.domain.UpwindAccountConnection();
+        gone.setCloudAccountId("598515435126");
+        gone.setStatus("NOT_CONNECTED");
+        gone.setDisconnectedAt(java.time.Instant.now());
+        when(connectionRepo.findAll()).thenReturn(List.of(gone));
+
+        service.syncInventory();
+
+        verify(apiClient, never()).searchInventory(anyList(), anyInt());
+    }
+
     @Test
     void syncInventoryNoOpsWithoutKnownAccounts() {
         when(apiClient.isConfigured()).thenReturn(true);

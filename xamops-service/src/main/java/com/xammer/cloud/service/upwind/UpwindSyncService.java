@@ -523,12 +523,28 @@ public class UpwindSyncService {
      * source: on a fresh database the inventory table is empty, so keying only off previously
      * synced assets would never start.
      */
+    /**
+     * Accounts the per-account syncs should walk.
+     *
+     * Skips connections that have been explicitly DISCONNECTED, keyed on
+     * {@code disconnectedAt} rather than on status. Both sources used to be unfiltered, so a
+     * disconnected account stayed here for ever — from its connection row AND from its archived
+     * inventory rows — and every run burned an inventory search plus an endpoint walk on an
+     * account Upwind reports nothing for. Harmless per account, but it accumulated permanently
+     * with each disconnect.
+     *
+     * Filtering on {@code status != NOT_CONNECTED} instead looks equivalent and is not: the
+     * admin registration flow leaves status at its NOT_CONNECTED default when the caller omits
+     * it, and those rows exist precisely so a newly registered account gets synced before it has
+     * any assets. That is the bootstrap path, and excluding them broke it. PENDING is included
+     * for the same reason — an account mid-onboarding has nothing to list yet.
+     */
     private List<String> knownCloudAccountIds() {
         java.util.Set<String> ids = new java.util.LinkedHashSet<>();
         for (UpwindAccountConnection c : connectionRepo.findAll()) {
-            if (c.getCloudAccountId() != null && !c.getCloudAccountId().isBlank()) {
-                ids.add(c.getCloudAccountId());
-            }
+            if (c.getCloudAccountId() == null || c.getCloudAccountId().isBlank()) continue;
+            if (c.getDisconnectedAt() != null) continue;
+            ids.add(c.getCloudAccountId());
         }
         ids.addAll(inventoryRepo.findDistinctCloudAccountIds());
         ids.remove(null);
