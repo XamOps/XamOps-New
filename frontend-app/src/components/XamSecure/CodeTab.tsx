@@ -186,6 +186,21 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
 
   return (
     <div className="space-y-4">
+      {/* Organization-wide, and said so explicitly.
+          Every other XamSecure tab is scoped to the account picker; this one cannot be. Upwind's
+          CI scan events carry no cloud_account_id at all — they belong to a source repository,
+          not a cloud account — so the stream is the whole organization's or nothing. Without this
+          notice, seeing repositories while a single account is selected reads as a data leak. */}
+      <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+        <Icon icon="mdi:office-building-outline" width={14}
+              className="text-gray-400 mt-0.5 flex-shrink-0" />
+        <p className="text-[11px] text-gray-600">
+          <span className="font-semibold">Organization-wide.</span> CI scans belong to a source
+          repository rather than a cloud account, so this tab is not filtered by the account
+          selector.
+        </p>
+      </div>
+
       {/* Scan kind first, as Upwind orders it. Admission controller is theirs and reported 0;
           we have no scan type for it, so it is not shown rather than shown empty. */}
       <div className="flex items-center gap-2">

@@ -13,6 +13,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { fetchOnboardingAccounts, useUpwindOnboarding } from '../../hooks/useUpwindOnboarding';
+import SensorDeployPanel from '../XamSecure/SensorDeployPanel';
 import type { OnboardingAccount } from '../../types/xamsecure';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -39,9 +40,14 @@ const XamSecureSection: React.FC = () => {
       setLoadError(null);
     } catch (err) {
       // A failure here means "we could not read status", not "you have no accounts" — saying the
-      // latter would send people to add an account they already have.
-      setLoadError(err instanceof Error ? err.message
-        : 'Could not load security monitoring status.');
+      // latter sends people to add an account they already have, which is exactly what this
+      // section did when the request failed with a blank message: the error <p> rendered empty
+      // and the empty-state copy showed instead. Never trust the message to be non-empty.
+      const detail = err instanceof Error && err.message ? err.message : String(err ?? '');
+      setLoadError(detail && detail !== 'undefined'
+        ? `Could not load security monitoring status: ${detail}`
+        : 'Could not load security monitoring status. Check that you are still signed in, '
+          + 'then reload.');
     }
   }, []);
 
@@ -92,9 +98,13 @@ const XamSecureSection: React.FC = () => {
                 ? <img src={p.iconImg} alt={p.name} className="w-8 h-8 object-contain" />
                 : <Icon icon={p.icon!} width={32} />}
               <span className="text-[12px] font-medium text-[rgba(0,0,0,0.75)]">{p.name}</span>
+              {/* Four distinct states. "Failed" previously rendered as an em-dash next to an
+                  empty-state message, which read as "you have no accounts" — the opposite of
+                  what had happened. */}
               <span className="text-[10px] text-[rgba(0,0,0,0.4)]">
                 {!p.supported ? 'Coming soon'
-                  : accounts === null ? '—'
+                  : loadError ? 'Unavailable'
+                  : accounts === null ? 'Loading…'
                   : total === 0 ? 'No accounts'
                   : `${connected}/${total} protected`}
               </span>
@@ -105,7 +115,15 @@ const XamSecureSection: React.FC = () => {
 
       {selected && (
         <div className="mt-5 space-y-2.5">
-          {forProvider.length === 0 && (
+          {/* Only claim "none" once a load has actually succeeded. While loading or after a
+              failure, say so instead — the two are not the same thing and only one of them is
+              the customer's problem to fix. */}
+          {accounts === null && !loadError && (
+            <div className="rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-6 text-center">
+              <p className="text-[13px] text-[rgba(0,0,0,0.45)]">Loading accounts…</p>
+            </div>
+          )}
+          {accounts !== null && forProvider.length === 0 && (
             <div className="rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-6 text-center">
               <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.6)]">
                 No {selected} accounts connected to XamOps yet
@@ -115,6 +133,23 @@ const XamSecureSection: React.FC = () => {
               </p>
             </div>
           )}
+          {loadError && (
+            <div className="rounded-xl border border-[rgba(0,0,0,0.08)] bg-white p-6 text-center">
+              <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.6)]">
+                Could not load your accounts
+              </p>
+              <button type="button" onClick={() => { setAccounts(null); void load(); }}
+                      className="mt-2 px-3 py-1.5 rounded-md text-[11px] font-semibold border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.03)]">
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Sensor deployment lives here too, not only in the XamSecure tab: this is where
+              someone is already enabling security monitoring, and the runtime signal is a
+              separate step from connecting the account. Shown once because the script is
+              organization-wide, with nothing in it keyed to an account. */}
+          {selected === 'AWS' && <SensorDeployPanel />}
 
           {forProvider.map((a) => {
             const busy = busyId === a.cloudAccountId;
