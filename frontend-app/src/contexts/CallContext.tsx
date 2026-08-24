@@ -29,6 +29,7 @@ import {
   beaconLeaveCall,
   declineCall,
   fetchActiveCall,
+  fetchCallQueue,
   fetchMissedCalls,
   fetchWsToken,
   initiateCall,
@@ -87,6 +88,26 @@ const NO_ANSWER_TOAST_MS = 12000;
  */
 const DISMISSED_MISSED_KEY = 'xamops.calls.dismissedMissed';
 
+/**
+ * Cross-tab channel for "this user is on a call".
+ *
+ * Each tab mounts its own provider with its own state, so a call answered in one
+ * tab was invisible to every other tab. A second ring would then arrive at a tab
+ * that believed the user was free and interrupt at full volume — and answering it
+ * put the same person into two rooms with both audio streams live.
+ *
+ * The server now refuses the second call outright, so this is not the safety
+ * mechanism; it is what makes the *experience* right, by letting the other tabs
+ * show a waiting card instead of a ring they must not act on.
+ */
+const TAB_SYNC_CHANNEL = 'xamops.calls.tabSync';
+
+type TabSyncMessage =
+  | { kind: 'in-call'; callId: number }
+  | { kind: 'free' }
+  /** Sent by a newly opened tab so an existing in-call tab re-announces itself. */
+  | { kind: 'who-is-on-a-call' };
+
 const loadDismissedMissed = (): number[] => {
   try {
     const raw = localStorage.getItem(DISMISSED_MISSED_KEY);
@@ -114,6 +135,12 @@ interface CallContextValue {
   outgoing: CallSignal | null;
   /** Live calls someone else answered that we are still welcome to join. */
   joinable: CallSignal[];
+  /**
+   * Calls ringing at us right now that we cannot take because we are already on
+   * one. Distinct from `joinable`: nobody has answered these, they are still
+   * counting down, and if we ignore them they become missed calls.
+   */
+  waitingCalls: CallSignal[];
   activeToken: CallTokenResponse | null;
   activeCall: CallSignal | null;
   /**
@@ -135,6 +162,14 @@ interface CallContextValue {
   joinExisting: (callId: number) => Promise<void>;
   hangUp: () => Promise<void>;
   dismissJoinable: (callId: number) => void;
+  /**
+   * Takes a waiting call. If we are still on another one, that call is ended first
+   * — a person can only be in one conversation, and the alternative (two live
+   * rooms) is the bug this replaced.
+   */
+  answerWaiting: (callId: number) => Promise<void>;
+  /** Declines a waiting call, so its caller is told rather than left ringing. */
+  declineWaiting: (callId: number) => Promise<void>;
   refreshMissedCalls: () => Promise<void>;
   /** Marks one missed call as seen; it drops off the badge. */
   dismissMissedCall: (participantId: number) => void;
@@ -151,6 +186,7 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [incoming, setIncoming] = useState<CallSignal | null>(null);
   const [outgoing, setOutgoing] = useState<CallSignal | null>(null);
   const [joinable, setJoinable] = useState<CallSignal[]>([]);
+  const [waitingCalls, setWaitingCalls] = useState<CallSignal[]>([]);
   const [activeToken, setActiveToken] = useState<CallTokenResponse | null>(null);
   const [activeCall, setActiveCall] = useState<CallSignal | null>(null);
   const [activeMediaKind, setActiveMediaKind] = useState<CallMediaKind>('AUDIO');
@@ -196,6 +232,20 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const enterRoomRef = useRef<
     (token: CallTokenResponse, signal: CallSignal | null, mediaKind: CallMediaKind) => void
   >(() => undefined);
+  /**
+   * The call another tab of ours is on, if any.
+   *
+   * Read when a ring arrives to decide between interrupting and showing a waiting
+   * card. A ref rather than state because the socket callback that needs it closes
+   * over stale renders.
+   */
+  const otherTabCallIdRef = useRef<number | null>(null);
+  const tabSyncRef = useRef<BroadcastChannel | null>(null);
+  /**
+   * Loads the standing queue. Reached through a ref because the socket's connect
+   * callback is created before the loader is defined.
+   */
+  const loadQueueRef = useRef<() => Promise<void>>(async () => undefined);
 
   const isAuthenticated = authReady && userRoles.length > 0;
 
@@ -225,11 +275,41 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       switch (signal.type) {
         case 'INCOMING': {
-          // Never let a second ring stomp a call we are already handling.
-          if (activeCallIdRef.current !== null || incomingIdRef.current !== null) {
-            setJoinable(prev =>
+          /**
+           * A ring we cannot take right now becomes a *waiting* call, not a
+           * "joinable" one.
+           *
+           * It used to be pushed onto `joinable`, which is for calls somebody else
+           * already answered — so it rendered as "Call in progress" with a disabled
+           * Join button, no caller name and no sound. A real customer was ringing and
+           * the agent had no way to tell.
+           *
+           * Four things can make us unavailable, and the server knows about only one
+           * of them, so all four are checked:
+           *  - `signal.waiting`: the server sees us in a live call (covers other tabs
+           *    and other devices, and is authoritative);
+           *  - we are in a call in *this* tab;
+           *  - we are already ringing for a different call;
+           *  - another tab told us it is on a call.
+           */
+          const unavailable =
+            signal.waiting === true ||
+            activeCallIdRef.current !== null ||
+            incomingIdRef.current !== null ||
+            otherTabCallIdRef.current !== null;
+
+          if (unavailable) {
+            setWaitingCalls(prev =>
               prev.some(c => c.callId === signal.callId) ? prev : [...prev, signal]
             );
+            // Quiet double-beep rather than the looping ring: loud enough to notice,
+            // quiet enough not to talk over the call already in progress.
+            ringtone.chime();
+            showNotification(`Call waiting from ${signal.initiatorName ?? 'support'}`, {
+              body: signal.ticketId != null ? `Ticket #${signal.ticketId}` : undefined,
+              tag: `call-waiting-${signal.callId}`,
+              playSound: false,
+            });
             return;
           }
           incomingIdRef.current = signal.callId;
@@ -272,6 +352,33 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           break;
 
+        case 'QUEUED': {
+          // The ring window elapsed. Nothing has failed — the call is holding.
+          if (activeCallIdRef.current === signal.callId) {
+            // We are the caller. Stay in the room waiting; just refresh the description
+            // so the panel can say "holding in the queue" instead of "ringing".
+            setActiveCall(signal);
+            setOutgoing(signal);
+            break;
+          }
+
+          // We were being rung. Stop the ringtone, but keep the call in the waiting
+          // list — it is still answerable for the whole queue window, and dropping it
+          // here is exactly how a caller ends up ignored.
+          if (incomingIdRef.current === signal.callId) {
+            incomingIdRef.current = null;
+            stopRinging();
+            setIncoming(null);
+            setPhase(activeCallIdRef.current ? 'in-call' : 'idle');
+          }
+          setWaitingCalls(prev =>
+            prev.some(c => c.callId === signal.callId)
+              ? prev.map(c => (c.callId === signal.callId ? { ...signal, waiting: true } : c))
+              : [...prev, { ...signal, waiting: true }]
+          );
+          break;
+        }
+
         case 'JOINABLE':
           // Someone else picked up. Stop ringing but keep a way in.
           if (incomingIdRef.current === signal.callId) {
@@ -280,6 +387,9 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setPhase(activeCallIdRef.current ? 'in-call' : 'idle');
             stopRinging();
           }
+          // A colleague answering it settles the question for us too: it is no longer
+          // a call we are keeping someone waiting on, just a room we may drop into.
+          setWaitingCalls(prev => prev.filter(c => c.callId !== signal.callId));
           setJoinable(prev =>
             prev.some(c => c.callId === signal.callId)
               ? prev.map(c => (c.callId === signal.callId ? signal : c))
@@ -299,6 +409,9 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         case 'DECLINED':
         case 'NO_ANSWER_AVAILABLE': {
           setJoinable(prev => prev.filter(c => c.callId !== signal.callId));
+          // A waiting call that ended stops waiting, whatever ended it. Left in place
+          // it would be a card offering to answer a call that no longer exists.
+          setWaitingCalls(prev => prev.filter(c => c.callId !== signal.callId));
 
           // A missed ring becomes a durable record for everyone it rang, not just
           // whichever tab happened to be showing the call — pull the fresh list so
@@ -443,6 +556,11 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           });
 
+          // Catch up on callers already holding. A push only reaches whoever was
+          // connected when it was sent, so without this an agent arriving three
+          // minutes into a ten-minute queue would never know anyone was waiting.
+          void loadQueueRef.current();
+
           // Refreshes the server-side presence TTL. Without it a long-idle tab
           // silently stops being ringable.
           const ping = () => {
@@ -500,6 +618,48 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, [isAuthenticated, connect, disconnect]);
 
+  // ─── Standing queue ────────────────────────────────────────────────────────
+
+  /**
+   * Pulls in callers who are already holding.
+   *
+   * Merged rather than replaced: a call we are actively ringing for must not be
+   * demoted into the quiet waiting list just because it also appears in the queue
+   * snapshot.
+   */
+  const loadQueue = useCallback(async () => {
+    try {
+      const queue = await fetchCallQueue();
+      if (!mountedRef.current || !Array.isArray(queue)) return;
+
+      setWaitingCalls(prev => {
+        const known = new Set(prev.map(c => c.callId));
+        const additions: CallSignal[] = queue
+          .filter(
+            session =>
+              !known.has(session.id) &&
+              session.id !== activeCallIdRef.current &&
+              session.id !== incomingIdRef.current
+          )
+          .map(session => ({
+            type: 'QUEUED' as const,
+            callId: session.id,
+            ticketId: session.ticketId,
+            direction: session.direction,
+            mediaKind: session.mediaKind,
+            initiatorUserId: session.initiatorUserId,
+            initiatorName: session.initiatorName,
+            ringExpiresInSeconds: session.queueExpiresInSeconds,
+            waiting: true,
+          }));
+        return additions.length === 0 ? prev : [...prev, ...additions];
+      });
+    } catch {
+      // The queue list is supplementary; a failed fetch just means we rely on pushes.
+    }
+  }, []);
+  loadQueueRef.current = loadQueue;
+
   // ─── In-call liveness ──────────────────────────────────────────────────────
 
   /**
@@ -553,6 +713,85 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
   }, [activeCallId, clearCall]);
+
+  /**
+   * Keeps sibling tabs in step about whether this user is on a call.
+   *
+   * Without it, each tab had its own private answer to "am I busy?", so a ring
+   * arriving while tab 1 was mid-call would interrupt tab 2 at full volume — and
+   * answering there produced two live rooms at once. The server now rejects that
+   * outright; this is what stops the user being offered the invalid action in the
+   * first place.
+   */
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+
+    const channel = new BroadcastChannel(TAB_SYNC_CHANNEL);
+    tabSyncRef.current = channel;
+
+    channel.onmessage = (event: MessageEvent<TabSyncMessage>) => {
+      const message = event.data;
+      if (!message || !mountedRef.current) return;
+
+      if (message.kind === 'who-is-on-a-call') {
+        // A tab just opened and is asking. Only answer if we are actually on a call.
+        if (activeCallIdRef.current !== null) {
+          channel.postMessage({ kind: 'in-call', callId: activeCallIdRef.current });
+        }
+        return;
+      }
+
+      if (message.kind === 'free') {
+        otherTabCallIdRef.current = null;
+        return;
+      }
+
+      // Another tab is on a call. Ignore its own echo of the call we are both aware
+      // of, then stand down from anything we are currently ringing for.
+      if (message.callId === activeCallIdRef.current) return;
+      otherTabCallIdRef.current = message.callId;
+
+      const ringingFor = incomingIdRef.current;
+      if (ringingFor !== null && ringingFor !== message.callId) {
+        // We were ringing for a call this user cannot take. Convert it rather than
+        // drop it: it is still a live ring that becomes a missed call if ignored.
+        incomingIdRef.current = null;
+        stopRinging();
+        setIncoming(prev => {
+          if (prev && prev.callId === ringingFor) {
+            setWaitingCalls(w =>
+              w.some(c => c.callId === prev.callId) ? w : [...w, { ...prev, waiting: true }]
+            );
+          }
+          return null;
+        });
+        setPhase('idle');
+      }
+    };
+
+    // Ask whoever is already open, so a freshly opened tab is not briefly convinced
+    // the user is free.
+    channel.postMessage({ kind: 'who-is-on-a-call' });
+
+    return () => {
+      channel.onmessage = null;
+      channel.close();
+      tabSyncRef.current = null;
+    };
+  }, [stopRinging]);
+
+  /** Announces our own transitions so the handler above has something to react to. */
+  useEffect(() => {
+    const channel = tabSyncRef.current;
+    if (!channel) return;
+    try {
+      channel.postMessage(
+        activeCallId != null ? { kind: 'in-call', callId: activeCallId } : { kind: 'free' }
+      );
+    } catch {
+      /* a closed channel during teardown is not worth reporting */
+    }
+  }, [activeCallId]);
 
   /**
    * Leaves the call when the page goes away.
@@ -691,8 +930,8 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const session = await initiateCall(ticketId, mediaKind);
 
-        // A call that found nobody online is already closed server-side; the
-        // NO_ANSWER_AVAILABLE signal explains it, so just stand down here.
+        // A call with nobody online now *holds in the queue* rather than closing, so
+        // reaching here with a terminal state means something genuinely ended it.
         if (session.state !== 'RINGING' && session.state !== 'ACTIVE') {
           setPhase('idle');
           return;
@@ -738,9 +977,24 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
 
-      // Lost the race. Joining is the right move, not retrying.
       setIncoming(null);
       incomingIdRef.current = null;
+
+      // Not a lost race: this user is genuinely on another call, most likely in a
+      // different tab. Keep the ring as a waiting card so it is not silently lost,
+      // and say plainly why it could not be answered.
+      if (outcome.alreadyOnCall) {
+        setPhase(activeCallIdRef.current ? 'in-call' : 'idle');
+        setWaitingCalls(prev =>
+          prev.some(c => c.callId === call.callId) ? prev : [...prev, { ...call, waiting: true }]
+        );
+        gooeyToast.warning('You are already on another call', {
+          description: 'Finish that call, then answer this one from the waiting list.',
+        });
+        return;
+      }
+
+      // Lost the race. Joining is the right move, not retrying.
       if (outcome.joinable) {
         const token = await joinCall(call.callId);
         if (!mountedRef.current) return;
@@ -820,12 +1074,79 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setJoinable(prev => prev.filter(c => c.callId !== callId));
   }, []);
 
+  /**
+   * Takes a call that was waiting.
+   *
+   * If we are still on another call it is ended first, because one person cannot hold
+   * two conversations — that was the defect this replaced, not a feature. Ending
+   * first also means the server-side one-call-at-a-time guard is satisfied by the
+   * time we accept, so this cannot fail for that reason.
+   */
+  const answerWaiting = useCallback(
+    async (callId: number) => {
+      const call = waitingCalls.find(c => c.callId === callId);
+      if (!call) return;
+
+      if (activeCallIdRef.current !== null) {
+        await hangUp();
+      }
+      setWaitingCalls(prev => prev.filter(c => c.callId !== callId));
+      setPhase('connecting');
+
+      try {
+        const outcome = await acceptCall(callId);
+        if (!mountedRef.current) return;
+
+        if (outcome.won) {
+          enterRoom(outcome.token, call, call.mediaKind ?? 'AUDIO');
+          setPhase('in-call');
+          return;
+        }
+
+        if (outcome.joinable) {
+          const token = await joinCall(callId);
+          if (!mountedRef.current) return;
+          enterRoom(token, call, call.mediaKind ?? 'AUDIO');
+          setPhase('in-call');
+          gooeyToast.info('Another agent answered first — you joined the call');
+          return;
+        }
+
+        setPhase('idle');
+        gooeyToast.info('That call has already ended');
+      } catch (err) {
+        setPhase('idle');
+        gooeyToast.error('Could not answer', {
+          description: readableCallError(err, 'Could not join the call'),
+        });
+      }
+    },
+    [waitingCalls, hangUp, enterRoom]
+  );
+
+  /**
+   * Declines a waiting call properly.
+   *
+   * Removing the card locally is not enough — the caller would keep ringing until the
+   * deadline. Telling the server lets it close the call as soon as the last recipient
+   * has said no, which is the difference between "declined" and "nobody answered".
+   */
+  const declineWaiting = useCallback(async (callId: number) => {
+    setWaitingCalls(prev => prev.filter(c => c.callId !== callId));
+    try {
+      await declineCall(callId);
+    } catch {
+      /* the card is already gone locally; the ring deadline reconciles the rest */
+    }
+  }, []);
+
   const value = useMemo<CallContextValue>(
     () => ({
       phase,
       incoming,
       outgoing,
       joinable,
+      waitingCalls,
       activeToken,
       activeCall,
       activeMediaKind,
@@ -838,6 +1159,8 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       joinExisting,
       hangUp,
       dismissJoinable,
+      answerWaiting,
+      declineWaiting,
       refreshMissedCalls,
       dismissMissedCall,
       clearMissedCalls,
@@ -847,6 +1170,7 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       incoming,
       outgoing,
       joinable,
+      waitingCalls,
       activeToken,
       activeCall,
       activeMediaKind,
@@ -859,6 +1183,8 @@ export const CallProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       joinExisting,
       hangUp,
       dismissJoinable,
+      answerWaiting,
+      declineWaiting,
       refreshMissedCalls,
       dismissMissedCall,
       clearMissedCalls,

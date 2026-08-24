@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -67,6 +68,30 @@ public class CallService {
         }
     }
 
+    /**
+     * Thrown when someone tries to be in two calls at once.
+     *
+     * The browser used to be the only thing tracking "I am on a call", and it tracked
+     * it per tab. Two tabs meant two independent views of the world: a call answered
+     * in one left the other believing the user was free, so it rang at full volume
+     * and a second answer put the same person into two LiveKit rooms with both audio
+     * streams playing over each other. The server is the only place that can settle
+     * this, so it does.
+     */
+    public static class AlreadyOnAnotherCallException extends RuntimeException {
+        private final Long currentCallId;
+
+        public AlreadyOnAnotherCallException(Long userId, Long currentCallId, Long attemptedCallId) {
+            super("User " + userId + " is already on call " + currentCallId
+                    + " and cannot join " + attemptedCallId);
+            this.currentCallId = currentCallId;
+        }
+
+        public Long getCurrentCallId() {
+            return currentCallId;
+        }
+    }
+
     private final CallSessionRepository sessionRepository;
     private final CallParticipantRepository participantRepository;
     private final TicketRepository ticketRepository;
@@ -78,8 +103,20 @@ public class CallService {
     private final CallNotificationService callNotificationService;
     private final CallSignalRelay signalRelay;
 
-    @Value("${xamops.calls.ring-seconds:40}")
+    /** How long agents are interrupted with a ringtone before the call goes quiet. */
+    @Value("${xamops.calls.ring-seconds:45}")
     private long ringSeconds;
+
+    /**
+     * How long the caller keeps holding overall.
+     *
+     * The single 40-second deadline was the wrong model for a support desk: a caller
+     * who is willing to wait a few minutes was being cut off, and a call placed when
+     * every agent happened to have no tab open was closed on the spot. This is the
+     * deadline that actually gives up.
+     */
+    @Value("${xamops.calls.queue-seconds:600}")
+    private long queueSeconds;
 
     /**
      * How long an occupant may go without a heartbeat before the room is treated as
@@ -154,8 +191,16 @@ public class CallService {
         List<CallSession> existing = sessionRepository
                 .findByTicketIdAndStateInOrderByIdDesc(ticketId, LIVE_STATES);
         if (!existing.isEmpty()) {
-            return attachToLiveCall(caller, existing.get(0), ticket);
+            CallSession live = existing.get(0);
+            // Re-entering the call already on this ticket is fine; being pulled out of a
+            // different one is not.
+            requireNotOnAnotherCall(caller.getUserId(), live.getId());
+            return attachToLiveCall(caller, live, ticket);
         }
+
+        // Starting a brand new call while already on one would leave the caller in two
+        // rooms at once, which is the same defect from the other direction.
+        requireNotOnAnotherCall(caller.getUserId(), null);
 
         boolean callerIsAdmin = caller.isBillOpsAdmin();
         CallSession.Direction direction = callerIsAdmin
@@ -177,7 +222,11 @@ public class CallService {
         session.setInitiatorUsername(caller.getUsername());
         session.setInitiatorDisplayName(caller.getDisplayName());
         session.setCreatedAt(LocalDateTime.now());
+        // Two deadlines: the first stops the ringtone, the second gives up. Both are
+        // stamped up front so the sweeper never has to guess, and so a caller's wait is
+        // decided by the server rather than by whichever browser is still open.
         session.setRingExpiresAt(LocalDateTime.now().plusSeconds(ringSeconds));
+        session.setQueueExpiresAt(LocalDateTime.now().plusSeconds(Math.max(ringSeconds, queueSeconds)));
         session.setState(CallSession.State.RINGING);
         session = sessionRepository.save(session);
 
@@ -220,28 +269,35 @@ public class CallService {
         Set<Long> online = presenceService.filterOnline(
                 rung.stream().map(CallParticipant::getUserId).toList());
 
+        // Nobody reachable is no longer a failure — it is simply an empty queue.
+        //
+        // Closing the call here was the single worst thing about the caller experience:
+        // dial at a moment when no agent happens to have a tab open and the call died
+        // instantly with "nobody is available", even though someone would log in a
+        // minute later. The call now waits, and the queue sweep re-announces it to
+        // agents as they arrive.
         if (online.isEmpty()) {
-            log.info("Call {} on ticket {} had no reachable recipients; closing immediately",
+            log.info("Call {} on ticket {} has no reachable recipients yet; holding in queue",
                     session.getId(), ticketId);
-            closeCall(session, CallSession.State.MISSED, "no_recipients_online",
-                    CallParticipant.Outcome.MISSED, ticket);
-            CallSignal signal = buildSignal(CallSignal.Type.NO_ANSWER_AVAILABLE, session, ticket);
-            signal.setReason("no_recipients_online");
-            notify(caller.getUserId(), signal);
-            return session;
-        }
-
-        CallSignal incoming = buildSignal(CallSignal.Type.INCOMING, session, ticket);
-        for (Long userId : online) {
-            notify(userId, incoming);
+        } else {
+            // Recipients already on another call are still rung, but flagged so their UI
+            // shows a waiting call instead of hijacking a live conversation. Computed once
+            // for the whole ring set rather than per person.
+            Set<Long> busy = busyAmong(online);
+            for (Long userId : online) {
+                notify(userId, incomingFor(session, ticket, busy.contains(userId)));
+            }
+            log.info("Call {} ringing {} recipient(s) on ticket {} ({})",
+                    session.getId(), online.size(), ticketId, direction);
         }
 
         CallSignal ringing = buildSignal(CallSignal.Type.RINGING, session, ticket);
-        ringing.setActiveParticipants(online.size());
+        // How many agents can actually pick up right now, not merely how many have a
+        // tab open — "3 agents ringing" when all three are mid-call sets an expectation
+        // the queue cannot meet. Zero is a legitimate answer and means "still holding".
+        ringing.setActiveParticipants(online.size() - busyAmong(online).size());
         notify(caller.getUserId(), ringing);
 
-        log.info("Call {} ringing {} recipient(s) on ticket {} ({})",
-                session.getId(), online.size(), ticketId, direction);
         return session;
     }
 
@@ -304,6 +360,49 @@ public class CallService {
     }
 
     /**
+     * The live call this user is currently occupying, if any.
+     *
+     * The single source of truth for "busy". Deliberately derived from the database
+     * rather than presence or anything the browser reports, because the browser's
+     * view is per-tab and presence only knows whether a socket is open.
+     */
+    private Optional<Long> currentLiveCallId(Long userId) {
+        List<Long> live = participantRepository.findLiveCallIdsByUserId(
+                userId, CallParticipant.Outcome.JOINED, LIVE_STATES);
+        return live.isEmpty() ? Optional.empty() : Optional.of(live.get(0));
+    }
+
+    /**
+     * Refuses to put someone into a second simultaneous call.
+     *
+     * Re-entering the call you are already in is fine and common — a reload, a second
+     * tab catching up — so only a *different* live call is rejected.
+     */
+    private void requireNotOnAnotherCall(Long userId, Long targetCallId) {
+        currentLiveCallId(userId).ifPresent(currentId -> {
+            if (!currentId.equals(targetCallId)) {
+                throw new AlreadyOnAnotherCallException(userId, currentId, targetCallId);
+            }
+        });
+    }
+
+    /**
+     * Which of these recipients are already on a call.
+     *
+     * Used to mark their ring as "waiting" instead of a full-volume interruption.
+     * They are still rung: a busy agent is often the right person to take the next
+     * call, and silently skipping them would leave the caller waiting out the entire
+     * ring window for no reason.
+     */
+    private Set<Long> busyAmong(Collection<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Set.of();
+        }
+        return new HashSet<>(participantRepository.findUserIdsOnLiveCall(
+                userIds, CallParticipant.Outcome.JOINED, LIVE_STATES));
+    }
+
+    /**
      * Gate for every ticket-scoped call operation.
      *
      * BillOps admins are the support organisation and legitimately reach every
@@ -335,6 +434,10 @@ public class CallService {
     public boolean accept(CallUserPrincipal user, Long callId) {
         CallSession session = requireSession(callId);
         requireWasInvited(session, user.getUserId());
+        // Checked before the claim, so losing this race costs nothing: a second tab
+        // that answers a different call is stopped here rather than being let into a
+        // room while its owner is still talking to someone else.
+        requireNotOnAnotherCall(user.getUserId(), callId);
 
         int claimed = sessionRepository.claimAnswer(callId, user.getUserId(), user.getUsername(),
                 LocalDateTime.now(), CallSession.State.RINGING, CallSession.State.ACTIVE);
@@ -384,6 +487,7 @@ public class CallService {
             throw new IllegalStateException("Call " + callId + " is not active");
         }
         requireWasInvited(session, user.getUserId());
+        requireNotOnAnotherCall(user.getUserId(), callId);
         markJoined(callId, user.getUserId());
 
         Ticket ticket = ticketRepository.findById(session.getTicketId()).orElse(null);
@@ -541,19 +645,96 @@ public class CallService {
      */
     @Transactional
     public void sweepExpiredRings() {
-        List<CallSession> expired = sessionRepository.findByStateAndRingExpiresAtBefore(
-                CallSession.State.RINGING, LocalDateTime.now());
-        for (CallSession session : expired) {
+        LocalDateTime now = LocalDateTime.now();
+
+        // Phase 1: the ringtone has done its job. Stop interrupting people, but keep
+        // the call open and answerable — this is the difference between a phone that
+        // gives up and a queue that holds.
+        for (CallSession session : sessionRepository
+                .findByStateAndQueuedFalseAndRingExpiresAtBefore(CallSession.State.RINGING, now)) {
+            escalateToQueue(session);
+        }
+
+        // Phase 2: the caller has waited long enough. Now it is a missed call.
+        for (CallSession session : sessionRepository
+                .findByStateAndQueueExpiresAtBefore(CallSession.State.RINGING, now)) {
             Ticket ticket = ticketRepository.findById(session.getTicketId()).orElse(null);
-            if (!closeCall(session, CallSession.State.MISSED, "ring_timeout",
+            if (!closeCall(session, CallSession.State.MISSED, "queue_timeout",
                     CallParticipant.Outcome.MISSED, ticket)) {
                 continue;
             }
-            log.info("Call {} on ticket {} expired unanswered", session.getId(), session.getTicketId());
+            log.info("Call {} on ticket {} gave up after the queue window",
+                    session.getId(), session.getTicketId());
             CallSignal missed = buildSignal(CallSignal.Type.MISSED, session, ticket);
-            missed.setReason("ring_timeout");
+            missed.setReason("queue_timeout");
             broadcastToParticipants(session.getId(), missed, null);
         }
+    }
+
+    /**
+     * Moves a call from loud ringing into the quiet queue.
+     *
+     * Everyone who was rung is told to stop ringing but keep the call in their waiting
+     * list, and the caller is told they are still holding rather than being cut off.
+     * The session stays RINGING so every other path — accept, decline, join, cancel —
+     * continues to work without a special case.
+     */
+    private void escalateToQueue(CallSession session) {
+        session.setQueued(true);
+        // Rows created before the queue existed have no wait deadline, and a NULL never
+        // matches the give-up sweep — so such a call would sit in RINGING until the
+        // 12-hour backstop, blocking its ticket the whole time. Backfill it here rather
+        // than relying on a migration having run, since the environments where Flyway is
+        // disabled are exactly the ones that will have these rows.
+        if (session.getQueueExpiresAt() == null) {
+            session.setQueueExpiresAt(LocalDateTime.now().plusSeconds(queueSeconds));
+        }
+        sessionRepository.save(session);
+
+        Ticket ticket = ticketRepository.findById(session.getTicketId()).orElse(null);
+        CallSignal queued = buildSignal(CallSignal.Type.QUEUED, session, ticket);
+        queued.setReason("ring_window_elapsed");
+        broadcastToParticipants(session.getId(), queued, null);
+        // The caller was never a ring recipient of their own call, so they need telling
+        // separately — and they are the person most in need of reassurance here.
+        notify(session.getInitiatorUserId(), queued);
+
+        log.info("Call {} on ticket {} moved to the queue after the ring window",
+                session.getId(), session.getTicketId());
+    }
+
+    /**
+     * Calls currently holding that this user could answer.
+     *
+     * The reason an agent who logs in three minutes into a ten-minute queue can still
+     * take the call. Previously only agents connected at the exact moment of dialling
+     * ever heard about it, which made a long queue pointless.
+     */
+    @Transactional(readOnly = true)
+    public List<CallSession> waitingQueueFor(CallUserPrincipal user) {
+        List<CallSession> holding = sessionRepository
+                .findByStateOrderByCreatedAtAsc(CallSession.State.RINGING);
+        if (holding.isEmpty()) {
+            return List.of();
+        }
+
+        List<CallSession> mine = new ArrayList<>();
+        for (CallSession session : holding) {
+            if (session.getInitiatorUserId().equals(user.getUserId())) {
+                continue; // your own call is not something you answer
+            }
+            // Only calls this person is actually a recipient of. An admin is a recipient
+            // of everything they were rung for; scoping by participant row keeps a
+            // customer from ever seeing another tenant's queue.
+            boolean invited = participantRepository
+                    .findByCallSessionIdAndUserId(session.getId(), user.getUserId())
+                    .map(CallParticipant::isWasRung)
+                    .orElse(false);
+            if (invited) {
+                mine.add(session);
+            }
+        }
+        return mine;
     }
 
     // ─── Abandoned call recovery ─────────────────────────────────────────────
@@ -847,12 +1028,14 @@ public class CallService {
         }
         participantRepository.saveAll(added);
 
-        // Ring the ones who are online, exactly like the initial fan-out.
-        CallSignal incoming = buildSignal(CallSignal.Type.INCOMING, session, ticket);
+        // Ring the ones who are online, exactly like the initial fan-out — including
+        // the waiting flag, since someone pulled into a call can just as easily already
+        // be on another one.
         Set<Long> online = presenceService.filterOnline(
                 added.stream().map(CallParticipant::getUserId).toList());
+        Set<Long> busy = busyAmong(online);
         for (Long userId : online) {
-            notify(userId, incoming);
+            notify(userId, incomingFor(session, ticket, busy.contains(userId)));
         }
 
         // Email everyone invited (durable "click to join"), with the detail route
@@ -1113,6 +1296,19 @@ public class CallService {
      */
     private void notify(Long userId, CallSignal signal) {
         signalRelay.send(userId, signal);
+    }
+
+    /**
+     * An INCOMING ring, marked according to whether the recipient is free.
+     *
+     * Built per recipient rather than once for the group precisely because this flag
+     * differs between them — the same call is an interruption for an idle agent and a
+     * waiting call for a busy one.
+     */
+    private CallSignal incomingFor(CallSession session, Ticket ticket, boolean recipientBusy) {
+        CallSignal signal = buildSignal(CallSignal.Type.INCOMING, session, ticket);
+        signal.setWaiting(recipientBusy);
+        return signal;
     }
 
     private CallSignal buildSignal(CallSignal.Type type, CallSession session, Ticket ticket) {

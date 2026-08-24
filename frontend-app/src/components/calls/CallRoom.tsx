@@ -496,16 +496,16 @@ const CallRoom: React.FC<CallRoomProps> = ({
       } catch (err) {
         if (cancelled) return;
         console.error('[calls] Failed to join room', err);
-        // A failure on a retry is not worth its own toast — attemptRejoin reports
-        // the outcome once it runs out of tries.
-        if (rejoinAttemptsRef.current > 0) {
-          attemptRejoinRef.current();
-          return;
-        }
-        gooeyToast.error('Could not connect to the call', {
-          description: err instanceof Error ? err.message : undefined,
-        });
-        onHangUpRef.current();
+        // Retry rather than hang up.
+        //
+        // This used to cancel the call outright on the very first failure, which is
+        // why a call could die "after a few seconds": the caller is placed in the room
+        // alone the instant they dial, so one transient media failure — a slow SFU, a
+        // network blip, a moment of packet loss — tore down a call that was otherwise
+        // perfectly fine and would have been answered. A caller waiting in a queue
+        // especially must not lose their place over it. attemptRejoin reports the
+        // outcome once it genuinely runs out of tries.
+        attemptRejoinRef.current();
       }
     })();
 
@@ -543,6 +543,14 @@ const CallRoom: React.FC<CallRoomProps> = ({
    */
   const inQueue = ringing && !hasPeer && call?.direction === 'USER_TO_ADMIN';
   const agentsRinging = call?.activeParticipants ?? 0;
+  /**
+   * True once the loud ring window has passed and we are simply holding.
+   *
+   * Worth distinguishing: "ringing 3 agents" and "holding for the next free agent"
+   * call for different words, and the second must not read as a failure. The caller
+   * is not being ignored, and the call is not about to drop.
+   */
+  const holdingInQueue = inQueue && call?.type === 'QUEUED';
 
   // How long the caller has been queued. Deliberately separate from `elapsed`,
   // which measures the conversation and must not start before one exists.
@@ -667,7 +675,7 @@ const CallRoom: React.FC<CallRoomProps> = ({
   // is a different state from its internal Reconnecting — and the one that used
   // to show a frozen panel reading "Disconnected" with nothing happening.
   const statusLabel = inQueue
-    ? `In queue · ${mmss(waited)}`
+    ? `${holdingInQueue ? 'Waiting for an agent' : 'In queue'} · ${mmss(waited)}`
     : rejoining
       ? 'Reconnecting…'
       : ringing && !hasPeer
@@ -840,12 +848,19 @@ const CallRoom: React.FC<CallRoomProps> = ({
                   You're in the queue
                 </span>
               </div>
+              {/* Three genuinely different situations, and saying the wrong one is
+                  what makes a wait feel broken. Ringing a named number of agents is
+                  reassuring; holding for the next free agent is normal and must not
+                  read as failure; and "nobody online yet" has to promise the call is
+                  still alive, because that case used to hang up on the spot. */}
               <p className={`text-slate-400 ${isFull ? 'text-sm' : 'text-[11px]'}`}>
-                {agentsRinging > 0
-                  ? `Ringing ${agentsRinging} available support agent${
-                      agentsRinging === 1 ? '' : 's'
-                    } — the first to answer picks up your call.`
-                  : 'Connecting you to the next available support agent.'}
+                {holdingInQueue
+                  ? 'All agents are busy right now. You are holding — someone will join you shortly.'
+                  : agentsRinging > 0
+                    ? `Ringing ${agentsRinging} available support agent${
+                        agentsRinging === 1 ? '' : 's'
+                      } — the first to answer picks up your call.`
+                    : 'Holding for the next available support agent — someone will join you shortly.'}
               </p>
               <span
                 className={`tabular-nums font-medium text-teal-300 ${isFull ? 'text-sm' : 'text-[11px]'}`}

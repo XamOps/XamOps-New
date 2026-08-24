@@ -1,6 +1,7 @@
 package com.xammer.cloud.repository.call;
 
 import com.xammer.cloud.domain.call.CallParticipant;
+import com.xammer.cloud.domain.call.CallSession;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -87,4 +88,36 @@ public interface CallParticipantRepository extends JpaRepository<CallParticipant
             + "AND p.outcome = :joined AND p.leftAt IS NULL ORDER BY p.id DESC")
     List<CallParticipant> findInRoomByUserId(@Param("userId") Long userId,
             @Param("joined") CallParticipant.Outcome joined);
+
+    /**
+     * Which of these users are currently occupying a room on a call that is still
+     * live.
+     *
+     * "In room" alone is not enough — a participant row can outlive its session if
+     * the session was closed by a path that did not evict occupants. Joining to
+     * {@link com.xammer.cloud.domain.call.CallSession} and requiring a live state
+     * means a stale row can never make somebody look permanently busy, which would
+     * silently stop them ever being rung again.
+     *
+     * One query for the whole ring set rather than a lookup per person, because this
+     * runs on the call-setup path where latency is visible to the caller.
+     */
+    @Query("SELECT DISTINCT p.userId FROM CallParticipant p, CallSession s "
+            + "WHERE p.callSessionId = s.id AND p.userId IN :userIds "
+            + "AND p.outcome = :joined AND p.leftAt IS NULL AND s.state IN :liveStates")
+    List<Long> findUserIdsOnLiveCall(@Param("userIds") Collection<Long> userIds,
+            @Param("joined") CallParticipant.Outcome joined,
+            @Param("liveStates") Collection<CallSession.State> liveStates);
+
+    /**
+     * The live calls this one user is in. Expected to be at most one — the accept
+     * and join paths enforce that — so this exists to detect and report a second.
+     */
+    @Query("SELECT s.id FROM CallParticipant p, CallSession s "
+            + "WHERE p.callSessionId = s.id AND p.userId = :userId "
+            + "AND p.outcome = :joined AND p.leftAt IS NULL AND s.state IN :liveStates "
+            + "ORDER BY s.id DESC")
+    List<Long> findLiveCallIdsByUserId(@Param("userId") Long userId,
+            @Param("joined") CallParticipant.Outcome joined,
+            @Param("liveStates") Collection<CallSession.State> liveStates);
 }

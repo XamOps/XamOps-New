@@ -25,6 +25,21 @@ public class CallSessionDto {
     private String endReason;
     private Long ringExpiresInSeconds;
 
+    /** True once the loud ring window has passed and the call is holding quietly. */
+    private boolean queued;
+
+    /**
+     * Seconds the caller will keep holding before this is recorded as a missed call.
+     *
+     * Separate from {@code ringExpiresInSeconds}, which only covers the interrupting
+     * ring. The queue window is what the caller's "waiting for an agent" UI counts
+     * against, and it is far longer.
+     */
+    private Long queueExpiresInSeconds;
+
+    /** How long the caller has already been holding — the number they care about. */
+    private Long waitingSeconds;
+
     public static CallSessionDto from(CallSession s) {
         CallSessionDto dto = new CallSessionDto();
         dto.setId(s.getId());
@@ -43,9 +58,21 @@ public class CallSessionDto {
         dto.setAnsweredAt(s.getAnsweredAt());
         dto.setEndedAt(s.getEndedAt());
         dto.setEndReason(s.getEndReason());
-        if (s.getState() == CallSession.State.RINGING && s.getRingExpiresAt() != null) {
-            long left = Duration.between(LocalDateTime.now(), s.getRingExpiresAt()).getSeconds();
-            dto.setRingExpiresInSeconds(Math.max(0, left));
+        dto.setQueued(s.isQueued());
+        LocalDateTime now = LocalDateTime.now();
+        if (s.getState() == CallSession.State.RINGING) {
+            if (s.getRingExpiresAt() != null) {
+                dto.setRingExpiresInSeconds(
+                        Math.max(0, Duration.between(now, s.getRingExpiresAt()).getSeconds()));
+            }
+            if (s.getQueueExpiresAt() != null) {
+                dto.setQueueExpiresInSeconds(
+                        Math.max(0, Duration.between(now, s.getQueueExpiresAt()).getSeconds()));
+            }
+            if (s.getCreatedAt() != null) {
+                dto.setWaitingSeconds(
+                        Math.max(0, Duration.between(s.getCreatedAt(), now).getSeconds()));
+            }
         }
         return dto;
     }

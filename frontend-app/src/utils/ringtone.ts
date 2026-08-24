@@ -16,6 +16,15 @@ type Ringtone = {
   start: () => void;
   stop: () => void;
   isPlaying: () => boolean;
+  /**
+   * Single soft double-beep for a call arriving while you are already talking.
+   *
+   * A looping ringtone over a live conversation is unusable — you cannot hear the
+   * person you are with. But silence is what made a waiting call invisible, so this
+   * is the middle ground: quiet, brief, and audible enough to make you glance at the
+   * waiting card.
+   */
+  chime: () => void;
 };
 
 const RING_ON_SECONDS = 1.6;
@@ -132,7 +141,39 @@ const createRingtone = (): Ringtone => {
     }
   };
 
-  return { start, stop, isPlaying: () => playing };
+  /**
+   * Two short blips at a lower level than the ring.
+   *
+   * Deliberately does not touch `playing`, so it can sound while a call is in
+   * progress without the ring state machine thinking a ringtone started — and
+   * without `stop()` on the live call silencing it.
+   */
+  const chime = () => {
+    const ctx = ensureContext();
+    if (!ctx || ctx.state === 'closed') return;
+    void ctx.resume().catch(() => undefined);
+
+    const now = ctx.currentTime;
+    const peak = PEAK_GAIN * 0.55;
+
+    [0, 0.22].forEach(offset => {
+      const at = now + offset;
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(peak, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
+
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(TONE_B_HZ, at);
+      osc.connect(gain);
+      osc.start(at);
+      osc.stop(at + 0.16);
+    });
+  };
+
+  return { start, stop, isPlaying: () => playing, chime };
 };
 
 /** Single shared ringtone — two overlapping rings would beat against each other. */

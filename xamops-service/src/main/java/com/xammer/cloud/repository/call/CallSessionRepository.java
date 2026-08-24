@@ -25,10 +25,30 @@ public interface CallSessionRepository extends JpaRepository<CallSession, Long> 
             Collection<CallSession.State> states);
 
     /**
-     * Rings that blew their deadline. Drives the sweeper that marks calls MISSED
-     * when no browser is left to report it.
+     * Calls whose loud ring window has elapsed but which have not yet been moved into
+     * the quiet queue phase.
+     *
+     * The {@code queued = false} predicate is what makes the escalation fire exactly
+     * once: the ring deadline stays in the past forever, so without it every sweep
+     * would re-announce the same call.
      */
-    List<CallSession> findByStateAndRingExpiresAtBefore(CallSession.State state, LocalDateTime cutoff);
+    List<CallSession> findByStateAndQueuedFalseAndRingExpiresAtBefore(CallSession.State state,
+            LocalDateTime cutoff);
+
+    /**
+     * Calls nobody took within the overall wait window. This is the deadline that
+     * actually gives up and records a missed call.
+     */
+    List<CallSession> findByStateAndQueueExpiresAtBefore(CallSession.State state, LocalDateTime cutoff);
+
+    /**
+     * Calls still waiting for somebody to answer.
+     *
+     * Lets an agent who logs in partway through a queue window see what is holding.
+     * Without this, only agents who happened to be connected at the moment of dialling
+     * ever learned about a call — which is most of the point of having a queue.
+     */
+    List<CallSession> findByStateOrderByCreatedAtAsc(CallSession.State state);
 
     List<CallSession> findByTicketIdOrderByCreatedAtDesc(Long ticketId);
 

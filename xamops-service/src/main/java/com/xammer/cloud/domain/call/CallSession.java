@@ -104,11 +104,45 @@ public class CallSession {
     private LocalDateTime createdAt = LocalDateTime.now();
 
     /**
-     * Ring deadline. Enforced by the server sweeper, never by the browser — a
-     * client that closes mid-ring must not be able to strand the call in RINGING.
+     * How long agents are actively interrupted with a ringtone.
+     *
+     * Enforced by the server sweeper, never by the browser — a client that closes
+     * mid-ring must not be able to strand the call in RINGING. Passing this deadline
+     * no longer ends the call; it moves it into the quiet queue phase.
      */
     @Column(name = "ring_expires_at", nullable = false)
     private LocalDateTime ringExpiresAt;
+
+    /**
+     * How long the caller waits overall before the call is recorded as missed.
+     *
+     * Much longer than the ring window, because a support caller is willing to hold
+     * for an agent to become free — and closing the call the instant nobody grabbed
+     * it in 40 seconds made a busy team look like an absent one.
+     */
+    @Column(name = "queue_expires_at")
+    private LocalDateTime queueExpiresAt;
+
+    /**
+     * True once the loud ring window has passed and the call is waiting quietly.
+     *
+     * Marks the phase rather than introducing a new state, so accept, decline, join
+     * and cancel keep working unchanged. It also makes the escalation idempotent —
+     * without it the sweeper would re-announce the same call on every pass, since
+     * the ring deadline stays in the past forever.
+     *
+     * The column default is spelled out because Hibernate's {@code ddl-auto=update}
+     * is what applies this on environments where Flyway is disabled, and it emits a
+     * bare {@code add column queued boolean not null}. Postgres refuses that on a
+     * table that already holds rows — there is no value to put in them — so without
+     * the default the whole application fails to start.
+     *
+     * The definition carries only the type and default; the NOT NULL comes from
+     * {@code nullable = false}. Putting it in both places makes Hibernate emit
+     * "boolean not null default false not null", which is not portable.
+     */
+    @Column(name = "queued", nullable = false, columnDefinition = "boolean default false")
+    private boolean queued = false;
 
     @Column(name = "answered_at")
     private LocalDateTime answeredAt;

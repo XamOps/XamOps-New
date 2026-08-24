@@ -469,6 +469,11 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // a token that does not exist.
   if (url.includes('/api/xamops/calls/active'))
     return new Response(null, { status: 204 });
+  // Must be an array: the queue snapshot is iterated on socket connect, and the {}
+  // fallback below would throw inside CallProvider, which sits above the error
+  // boundary and would blank the page rather than degrade one panel.
+  if (url.includes('/api/xamops/calls/queue'))
+    return makeResponse([]);
   if (url.includes('/api/xamops/calls/') && url.includes('/invitable-users'))
     return makeResponse([]);
   if (url.includes('/api/xamops/calls'))

@@ -2,8 +2,10 @@ package com.xammer.cloud.service.call;
 
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.Ticket;
+import com.xammer.cloud.domain.User;
 import com.xammer.cloud.domain.call.CallParticipant;
 import com.xammer.cloud.domain.call.CallSession;
+import com.xammer.cloud.dto.call.CallSignal;
 import com.xammer.cloud.dto.call.CallTokenResponse;
 import com.xammer.cloud.repository.TicketReplyRepository;
 import com.xammer.cloud.repository.TicketRepository;
@@ -23,11 +25,13 @@ import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -150,6 +154,13 @@ class CallServiceHardeningTest {
     private CallUserPrincipal admin(long userId) {
         return new CallUserPrincipal(userId, "admin" + userId, "Admin " + userId,
                 Set.of("ROLE_BILLOPS_ADMIN"), null);
+    }
+
+    private User user(long id, String username) {
+        User u = new User();
+        u.setId(id);
+        u.setUsername(username);
+        return u;
     }
 
     // ─── Abandoned calls ─────────────────────────────────────────────────────
@@ -339,6 +350,241 @@ class CallServiceHardeningTest {
 
             assertThrows(CallService.CallAccessDeniedException.class,
                     () -> service.issueToken(customer(9L, CLIENT_A), 7L));
+        }
+    }
+
+    // ─── One call at a time (Issue 2) ────────────────────────────────────────
+
+    @Nested
+    @DisplayName("one call at a time")
+    class OneCallAtATime {
+
+        /** Marks this user as currently occupying {@code liveCallId}. */
+        private void onCall(long userId, Long liveCallId) {
+            when(participantRepository.findLiveCallIdsByUserId(eq(userId), any(), anyCollection()))
+                    .thenReturn(liveCallId == null ? List.of() : List.of(liveCallId));
+        }
+
+        @Test
+        @DisplayName("accepting a second call is refused, so two tabs cannot land in two rooms")
+        void acceptRefusedWhenAlreadyOnAnotherCall() {
+            CallSession other = session(30L, CallSession.State.RINGING, 99L);
+            when(sessionRepository.findById(30L)).thenReturn(Optional.of(other));
+            when(participantRepository.findByCallSessionIdAndUserId(30L, 8L))
+                    .thenReturn(Optional.of(participant(8L, null, true)));
+            onCall(8L, 21L); // already in call 21
+
+            assertThrows(CallService.AlreadyOnAnotherCallException.class,
+                    () -> service.accept(admin(8L), 30L));
+
+            // Rejected before the claim, so the ring is untouched and still answerable
+            // by a colleague who is actually free.
+            verify(sessionRepository, never()).claimAnswer(anyLong(), anyLong(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("re-accepting the call you are already in is allowed")
+        void acceptAllowedForSameCall() {
+            CallSession same = session(21L, CallSession.State.RINGING, 99L);
+            when(sessionRepository.findById(21L)).thenReturn(Optional.of(same));
+            when(participantRepository.findByCallSessionIdAndUserId(21L, 8L))
+                    .thenReturn(Optional.of(participant(8L, null, true)));
+            when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket(CLIENT_A)));
+            when(participantRepository.findByCallSessionId(21L)).thenReturn(List.of());
+            when(sessionRepository.claimAnswer(eq(21L), eq(8L), any(), any(), any(), any()))
+                    .thenReturn(1);
+            onCall(8L, 21L); // the live call IS this one
+
+            assertTrue(service.accept(admin(8L), 21L));
+        }
+
+        @Test
+        @DisplayName("joining a second call is refused")
+        void joinRefusedWhenAlreadyOnAnotherCall() {
+            CallSession other = session(31L, CallSession.State.ACTIVE, 99L);
+            when(sessionRepository.findById(31L)).thenReturn(Optional.of(other));
+            when(participantRepository.findByCallSessionIdAndUserId(31L, 8L))
+                    .thenReturn(Optional.of(participant(8L, null, true)));
+            onCall(8L, 21L);
+
+            assertThrows(CallService.AlreadyOnAnotherCallException.class,
+                    () -> service.join(admin(8L), 31L));
+        }
+
+        @Test
+        @DisplayName("starting a brand new call while on one is refused")
+        void initiateRefusedWhenAlreadyOnAnotherCall() {
+            when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket(CLIENT_A)));
+            when(sessionRepository.findByTicketIdAndStateInOrderByIdDesc(eq(TICKET_ID), anyCollection()))
+                    .thenReturn(List.of());
+            onCall(8L, 21L);
+
+            assertThrows(CallService.AlreadyOnAnotherCallException.class,
+                    () -> service.initiate(admin(8L), TICKET_ID, "AUDIO"));
+
+            verify(sessionRepository, never()).save(any());
+        }
+    }
+
+    // ─── Call waiting (Issue 1) ──────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("call waiting")
+    class CallWaiting {
+
+        @Test
+        @DisplayName("a busy recipient is still rung, but flagged so their UI does not interrupt")
+        void busyRecipientIsFlaggedWaiting() {
+            Ticket t = ticket(CLIENT_A);
+            when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(t));
+            when(sessionRepository.findByTicketIdAndStateInOrderByIdDesc(eq(TICKET_ID), anyCollection()))
+                    .thenReturn(List.of());
+            // Caller is free.
+            when(participantRepository.findLiveCallIdsByUserId(eq(7L), any(), anyCollection()))
+                    .thenReturn(List.of());
+
+            User freeAdmin = user(101L, "meera");
+            User busyAdmin = user(102L, "raj");
+            when(recipientResolver.resolveAdminPool(any(), eq(7L)))
+                    .thenReturn(List.of(freeAdmin, busyAdmin));
+
+            when(sessionRepository.save(any(CallSession.class))).thenAnswer(inv -> {
+                CallSession s = inv.getArgument(0);
+                s.setId(40L);
+                return s;
+            });
+            when(presenceService.filterOnline(anyCollection()))
+                    .thenReturn(new LinkedHashSet<>(List.of(101L, 102L)));
+            // Raj is mid-call on something else.
+            when(participantRepository.findUserIdsOnLiveCall(anyCollection(), any(), anyCollection()))
+                    .thenReturn(List.of(102L));
+
+            service.initiate(customer(7L, CLIENT_A), TICKET_ID, "AUDIO");
+
+            ArgumentCaptor<Long> targets = ArgumentCaptor.forClass(Long.class);
+            ArgumentCaptor<CallSignal> signals = ArgumentCaptor.forClass(CallSignal.class);
+            verify(signalRelay, org.mockito.Mockito.atLeast(3))
+                    .send(targets.capture(), signals.capture());
+
+            CallSignal toFree = signalFor(targets.getAllValues(), signals.getAllValues(),
+                    101L, CallSignal.Type.INCOMING);
+            CallSignal toBusy = signalFor(targets.getAllValues(), signals.getAllValues(),
+                    102L, CallSignal.Type.INCOMING);
+            CallSignal toCaller = signalFor(targets.getAllValues(), signals.getAllValues(),
+                    7L, CallSignal.Type.RINGING);
+
+            assertNotNull(toFree, "the free admin must be rung");
+            assertNotNull(toBusy, "the busy admin must still be rung, not skipped");
+            assertNotNull(toCaller, "the caller must be told the ring started");
+
+            assertFalse(toFree.isWaiting(), "a free admin gets a normal interrupting ring");
+            assertTrue(toBusy.isWaiting(),
+                    "a busy admin's ring must be marked waiting, or their UI mislabels it");
+
+            // The caller is told how many can actually pick up, not how many have a tab
+            // open — one of the two is mid-call.
+            assertEquals(1, toCaller.getActiveParticipants());
+        }
+
+        private CallSignal signalFor(List<Long> targets, List<CallSignal> signals,
+                Long userId, CallSignal.Type type) {
+            for (int i = 0; i < targets.size(); i++) {
+                if (userId.equals(targets.get(i)) && signals.get(i).getType() == type) {
+                    return signals.get(i);
+                }
+            }
+            return null;
+        }
+    }
+
+    // ─── Queue behaviour ─────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("queue")
+    class Queue {
+
+        @Test
+        @DisplayName("nobody online holds the caller in the queue instead of hanging up on them")
+        void noAgentsOnlineHoldsInQueue() {
+            when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket(CLIENT_A)));
+            when(sessionRepository.findByTicketIdAndStateInOrderByIdDesc(eq(TICKET_ID), anyCollection()))
+                    .thenReturn(List.of());
+            when(participantRepository.findLiveCallIdsByUserId(eq(7L), any(), anyCollection()))
+                    .thenReturn(List.of());
+            when(recipientResolver.resolveAdminPool(any(), eq(7L)))
+                    .thenReturn(List.of(user(101L, "meera")));
+            when(sessionRepository.save(any(CallSession.class))).thenAnswer(inv -> {
+                CallSession s = inv.getArgument(0);
+                s.setId(50L);
+                return s;
+            });
+            // Nobody has a tab open.
+            when(presenceService.filterOnline(anyCollection())).thenReturn(Set.of());
+
+            CallSession session = service.initiate(customer(7L, CLIENT_A), TICKET_ID, "AUDIO");
+
+            // This used to close the call on the spot with "nobody is available", which
+            // is what made a call die within seconds of dialling.
+            assertEquals(CallSession.State.RINGING, session.getState());
+            verify(sessionRepository, never()).terminate(anyLong(), any(), any(), any(), anyCollection());
+            assertNotNull(session.getQueueExpiresAt(), "the caller needs a wait deadline");
+            assertTrue(session.getQueueExpiresAt().isAfter(session.getRingExpiresAt()),
+                    "holding must outlast the ringtone, or there is no queue at all");
+        }
+
+        @Test
+        @DisplayName("passing the ring window quiets the call but keeps it answerable")
+        void ringWindowElapsedMovesToQueue() {
+            CallSession holding = session(60L, CallSession.State.RINGING, 7L);
+            holding.setRingExpiresAt(LocalDateTime.now().minusSeconds(5));
+            holding.setQueueExpiresAt(LocalDateTime.now().plusMinutes(9));
+
+            when(sessionRepository.findByStateAndQueuedFalseAndRingExpiresAtBefore(
+                    eq(CallSession.State.RINGING), any())).thenReturn(List.of(holding));
+            when(sessionRepository.findByStateAndQueueExpiresAtBefore(
+                    eq(CallSession.State.RINGING), any())).thenReturn(List.of());
+            when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket(CLIENT_A)));
+            when(participantRepository.findByCallSessionId(60L)).thenReturn(List.of());
+
+            service.sweepExpiredRings();
+
+            // Quietened, not closed.
+            verify(sessionRepository, never()).terminate(anyLong(), any(), any(), any(), anyCollection());
+            assertTrue(holding.isQueued(), "must be marked queued so it is not re-announced");
+
+            // The caller is the one who most needs to hear "you are still holding".
+            ArgumentCaptor<Long> targets = ArgumentCaptor.forClass(Long.class);
+            ArgumentCaptor<CallSignal> signals = ArgumentCaptor.forClass(CallSignal.class);
+            verify(signalRelay, org.mockito.Mockito.atLeastOnce())
+                    .send(targets.capture(), signals.capture());
+            assertTrue(
+                    signals.getAllValues().stream()
+                            .anyMatch(s -> s.getType() == CallSignal.Type.QUEUED),
+                    "recipients and caller must be told the call moved to the queue");
+            assertTrue(targets.getAllValues().contains(7L), "the caller must be notified");
+        }
+
+        @Test
+        @DisplayName("only the queue deadline gives up and records a missed call")
+        void queueWindowElapsedRecordsMissed() {
+            CallSession outOfPatience = session(61L, CallSession.State.RINGING, 7L);
+            outOfPatience.setQueued(true);
+            outOfPatience.setQueueExpiresAt(LocalDateTime.now().minusSeconds(5));
+
+            when(sessionRepository.findByStateAndQueuedFalseAndRingExpiresAtBefore(
+                    eq(CallSession.State.RINGING), any())).thenReturn(List.of());
+            when(sessionRepository.findByStateAndQueueExpiresAtBefore(
+                    eq(CallSession.State.RINGING), any())).thenReturn(List.of(outOfPatience));
+            when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket(CLIENT_A)));
+            when(participantRepository.findByCallSessionId(61L)).thenReturn(List.of());
+            when(sessionRepository.terminate(eq(61L), any(), any(), any(), anyCollection()))
+                    .thenReturn(1);
+
+            service.sweepExpiredRings();
+
+            verify(sessionRepository).terminate(eq(61L), eq(CallSession.State.MISSED),
+                    eq("queue_timeout"), any(), anyCollection());
+            verify(participantRepository).settleUndecided(61L, CallParticipant.Outcome.MISSED);
         }
     }
 

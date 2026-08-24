@@ -13,12 +13,14 @@ import { Icon } from '@iconify/react';
 import { useCalls } from '../../contexts/CallContext';
 import IncomingCallSheet from './IncomingCallSheet';
 import CallRoom from './CallRoom';
+import WaitingCallsStack from './WaitingCallsStack';
 
 const CallCenter: React.FC = () => {
   const {
     phase,
     incoming,
     joinable,
+    waitingCalls,
     activeToken,
     activeCall,
     activeMediaKind,
@@ -27,6 +29,8 @@ const CallCenter: React.FC = () => {
     joinExisting,
     hangUp,
     dismissJoinable,
+    answerWaiting,
+    declineWaiting,
   } = useCalls();
 
   if (typeof document === 'undefined') return null;
@@ -54,6 +58,18 @@ const CallCenter: React.FC = () => {
             onDecline={declineIncoming}
           />
         )}
+      </AnimatePresence>
+
+      {/* Calls ringing at us that we cannot take yet. Top-right, away from the ring
+          sheet and the call panel, so a waiting call is never mistaken for either. */}
+      <AnimatePresence>
+        <WaitingCallsStack
+          calls={waitingCalls}
+          onAnotherCall={!!activeToken}
+          busy={busy}
+          onAnswer={answerWaiting}
+          onDecline={declineWaiting}
+        />
       </AnimatePresence>
 
       {/* Calls someone else answered that we can still drop into. Stacked above

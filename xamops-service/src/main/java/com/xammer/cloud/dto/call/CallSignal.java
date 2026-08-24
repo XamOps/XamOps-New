@@ -20,6 +20,16 @@ public class CallSignal {
         INCOMING,
         /** Caller-side acknowledgement that the ring set was notified. */
         RINGING,
+        /**
+         * The loud ring window has passed; the call is now waiting quietly in the
+         * queue.
+         *
+         * Recipients stop ringing but keep the call in their waiting list, and the
+         * caller is told they are still holding rather than being cut off. This is
+         * what makes a support queue behave like one instead of a phone that gives up
+         * after forty seconds.
+         */
+        QUEUED,
         /** Someone accepted. Recipients stop ringing; the answerer gets a token. */
         ANSWERED,
         /** Call is live and this recipient may still join it. */
@@ -61,6 +71,19 @@ public class CallSignal {
 
     /** Seconds left before the ring expires; drives the caller-side countdown. */
     private Long ringExpiresInSeconds;
+
+    /**
+     * True on an INCOMING that reached somebody already on another call.
+     *
+     * The recipient is still a real ring target — they may well want to wrap up and
+     * take it — but their UI must present it as a waiting call rather than seizing
+     * the screen and playing a ringtone over a live conversation.
+     *
+     * Decided by the server because the browser cannot: "am I on a call?" used to
+     * live in one tab's memory, so a second tab believed the user was free and rang
+     * at full volume.
+     */
+    private boolean waiting;
 
     private Integer activeParticipants;
     private String reason;

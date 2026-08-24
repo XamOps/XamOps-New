@@ -76,11 +76,20 @@ export const acceptCall = async (callId: number): Promise<AcceptOutcome> => {
 
   if (response.status === 409) {
     let joinable = true;
+    let alreadyOnCall = false;
     try {
       const body = await response.json();
       joinable = body?.joinable !== false;
+      alreadyOnCall = body?.alreadyOnCall === true;
     } catch {
       /* body is optional; assume joinable */
+    }
+    // Two very different situations share this status code. "Someone answered first"
+    // means go and join; "you are already on another call" means do not, and joining
+    // would be rejected for the same reason. Conflating them produced a pointless
+    // second request and then a confusing error.
+    if (alreadyOnCall) {
+      return { won: false, joinable: false, alreadyOnCall: true };
     }
     return { won: false, joinable };
   }
@@ -128,6 +137,16 @@ export const fetchTicketCallHistory = async (ticketId: number): Promise<CallSess
 
 export const fetchMissedCalls = async (): Promise<MissedCallEntry[]> =>
   apiClient.get(`${BASE}/missed`);
+
+/**
+ * Calls currently holding in the queue that this user could answer.
+ *
+ * Fetched when the socket comes up so an agent who logs in partway through a queue
+ * window still sees the caller waiting. Push alone is not enough: a signal only
+ * reaches whoever was connected at the moment it was sent.
+ */
+export const fetchCallQueue = async (): Promise<CallSessionDto[]> =>
+  apiClient.get(`${BASE}/queue`);
 
 /**
  * The call this user is currently in, if any.

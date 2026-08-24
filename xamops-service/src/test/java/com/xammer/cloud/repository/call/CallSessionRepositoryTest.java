@@ -37,6 +37,13 @@ class CallSessionRepositoryTest {
     CallParticipantRepository participantRepository;
 
     private CallSession ringingCall(long ticketId, LocalDateTime ringExpiry) {
+        // Queue deadline well past the ring deadline, matching production: passing the
+        // ring window only quiets the ringtone, it does not end the call.
+        return ringingCall(ticketId, ringExpiry, ringExpiry.plusMinutes(10));
+    }
+
+    private CallSession ringingCall(long ticketId, LocalDateTime ringExpiry,
+            LocalDateTime queueExpiry) {
         CallSession s = new CallSession();
         s.setRoomName("ticket-" + ticketId + "-" + System.nanoTime());
         s.setTicketId(ticketId);
@@ -50,6 +57,7 @@ class CallSessionRepositoryTest {
         s.setInitiatorDisplayName("Customer");
         s.setCreatedAt(LocalDateTime.now());
         s.setRingExpiresAt(ringExpiry);
+        s.setQueueExpiresAt(queueExpiry);
         return sessionRepository.save(s);
     }
 
@@ -90,14 +98,48 @@ class CallSessionRepositoryTest {
     }
 
     @Test
-    void findsOnlyRingsPastTheirDeadline() {
-        CallSession stale = ringingCall(502L, LocalDateTime.now().minusSeconds(5));
+    void findsOnlyRingsReadyToStopRinging() {
+        CallSession pastRingWindow = ringingCall(502L, LocalDateTime.now().minusSeconds(5));
         ringingCall(503L, LocalDateTime.now().plusMinutes(5));
 
-        List<CallSession> expired = sessionRepository.findByStateAndRingExpiresAtBefore(
+        List<CallSession> toQuieten = sessionRepository
+                .findByStateAndQueuedFalseAndRingExpiresAtBefore(
+                        CallSession.State.RINGING, LocalDateTime.now());
+
+        assertThat(toQuieten).extracting(CallSession::getId)
+                .containsExactly(pastRingWindow.getId());
+    }
+
+    @Test
+    void alreadyQueuedCallsAreNotEscalatedTwice() {
+        CallSession call = ringingCall(506L, LocalDateTime.now().minusSeconds(5));
+        call.setQueued(true);
+        sessionRepository.save(call);
+
+        List<CallSession> toQuieten = sessionRepository
+                .findByStateAndQueuedFalseAndRingExpiresAtBefore(
+                        CallSession.State.RINGING, LocalDateTime.now());
+
+        // The ring deadline stays in the past forever, so without the queued flag the
+        // sweeper would re-announce this call on every pass — telling the caller they
+        // had been moved to the queue every ten seconds.
+        assertThat(toQuieten).isEmpty();
+    }
+
+    @Test
+    void passingTheRingWindowDoesNotMakeACallGiveUp() {
+        // Ring window gone, queue window still open: this is a caller holding, and
+        // closing it here is exactly the behaviour that cut calls off after 40 seconds.
+        ringingCall(507L, LocalDateTime.now().minusSeconds(30),
+                LocalDateTime.now().plusMinutes(9));
+        CallSession outOfPatience = ringingCall(508L, LocalDateTime.now().minusMinutes(11),
+                LocalDateTime.now().minusSeconds(5));
+
+        List<CallSession> giveUp = sessionRepository.findByStateAndQueueExpiresAtBefore(
                 CallSession.State.RINGING, LocalDateTime.now());
 
-        assertThat(expired).extracting(CallSession::getId).containsExactly(stale.getId());
+        assertThat(giveUp).extracting(CallSession::getId)
+                .containsExactly(outOfPatience.getId());
     }
 
     @Test

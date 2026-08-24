@@ -94,6 +94,8 @@ public class CallController {
         try {
             CallSession session = callService.initiate(me, request.getTicketId(), request.getMediaKind());
             return ResponseEntity.ok(CallSessionDto.from(session));
+        } catch (CallService.AlreadyOnAnotherCallException e) {
+            return alreadyOnAnotherCall(e);
         } catch (CallService.CallAccessDeniedException e) {
             return denied(e, "You do not have access to calls on this ticket");
         } catch (IllegalArgumentException e) {
@@ -126,6 +128,8 @@ public class CallController {
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
             }
             return ResponseEntity.ok(callService.issueToken(me, callId));
+        } catch (CallService.AlreadyOnAnotherCallException e) {
+            return alreadyOnAnotherCall(e);
         } catch (CallService.CallAccessDeniedException e) {
             return denied(e, "You were not invited to this call");
         } catch (IllegalArgumentException e) {
@@ -149,6 +153,8 @@ public class CallController {
             callService.join(me, callId);
             CallTokenResponse token = callService.issueToken(me, callId);
             return ResponseEntity.ok(token);
+        } catch (CallService.AlreadyOnAnotherCallException e) {
+            return alreadyOnAnotherCall(e);
         } catch (CallService.CallAccessDeniedException e) {
             return denied(e, "You were not invited to this call");
         } catch (IllegalArgumentException e) {
@@ -315,6 +321,26 @@ public class CallController {
     }
 
     /**
+     * Calls currently holding in the queue that this user could answer.
+     *
+     * Fetched when the call socket comes up, so an agent who logs in three minutes into
+     * a ten-minute queue still sees the caller waiting. Without it, only agents who
+     * happened to be connected at the exact moment of dialling ever learned about a
+     * call, which made a long queue window pointless.
+     */
+    @GetMapping("/queue")
+    public ResponseEntity<?> queue(Authentication authentication) {
+        CallUserPrincipal me = principalFactory.fromAuthentication(authentication);
+        if (me == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        List<CallSessionDto> waiting = callService.waitingQueueFor(me).stream()
+                .map(CallSessionDto::from)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(waiting);
+    }
+
+    /**
      * Liveness ping from a client that is in a room.
      *
      * Also exposed over REST, not only STOMP, so that a browser whose signalling
@@ -380,5 +406,20 @@ public class CallController {
     private ResponseEntity<?> denied(CallService.CallAccessDeniedException e, String userFacing) {
         log.debug("Call access denied: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error(userFacing));
+    }
+
+    /**
+     * 409 for "you are already on another call".
+     *
+     * Carries {@code currentCallId} so the client can reconcile rather than merely
+     * apologise: a tab that hits this has a stale idea of whether its own user is
+     * free, and the id tells it which call it should actually be showing.
+     */
+    private ResponseEntity<?> alreadyOnAnotherCall(CallService.AlreadyOnAnotherCallException e) {
+        log.debug("Rejected concurrent call: {}", e.getMessage());
+        Map<String, Object> body = error("You are already on another call");
+        body.put("alreadyOnCall", true);
+        body.put("currentCallId", e.getCurrentCallId());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 }
