@@ -246,7 +246,15 @@ export function extractApiError(e: unknown, fallback = 'Request failed'): { mess
   }
 
   if (!message) {
-    message = body.length > 0 && body.length <= 300 ? body : `${fallback} (HTTP ${status})`;
+    // The length cap exists to stop an HTML error page being dumped into the UI, but at 300
+    // characters it also discarded the messages worth showing: the plain-text config generators
+    // answer with a multi-sentence explanation of why a credential was refused and what to do,
+    // which runs to roughly 330. Reject HTML explicitly and allow a server-authored message to
+    // be as long as it needs to be.
+    const looksLikeHtml = /^\s*<(!doctype|html|head|body)\b/i.test(body);
+    message = (!looksLikeHtml && body.length > 0 && body.length <= 2000)
+      ? body
+      : `${fallback} (HTTP ${status})`;
   }
   return { message, retryable };
 }
