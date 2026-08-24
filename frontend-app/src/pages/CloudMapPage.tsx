@@ -44,6 +44,8 @@ import {
   type NodeData,
 } from '../types/cloudmap';
 
+import { sanitizeInlineHtml } from '../utils/sanitizeHtml';
+
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
@@ -2051,7 +2053,10 @@ const CloudMapPage: React.FC = () => {
       const expr = label.slice(1, -1).trim();
       let html = '';
       try {
-        html = katex.renderToString(expr, { throwOnError: false, displayMode: true, output: 'html' });
+        // KaTeX escapes the expression and, with the default `trust: false`,
+        // refuses markup-producing commands (\url, \htmlData, \includegraphics).
+        // Its output is therefore safe to hand to dangerouslySetInnerHTML below.
+        html = katex.renderToString(expr, { throwOnError: false, displayMode: true, output: 'html', trust: false });
       } catch { return; }
       const pos = n.renderedPosition();
       if (!pos) return;
@@ -2062,8 +2067,12 @@ const CloudMapPage: React.FC = () => {
     setLatexOverlays(overlays);
   }, []);
 
-  // Keep the ref in sync so early-declared callbacks can call it
-  refreshLatexOverlaysRef.current = refreshLatexOverlays;
+  // Keep the ref in sync so early-declared callbacks can call it. Assigned in an
+  // effect rather than during render (React treats render as side-effect free,
+  // and a render that is thrown away would otherwise still have mutated the ref).
+  // Both call sites fire from user-driven timers, long after the first effect
+  // flush, and the ref is seeded with a no-op — so nothing observes the gap.
+  useEffect(() => { refreshLatexOverlaysRef.current = refreshLatexOverlays; }, [refreshLatexOverlays]);
 
   const handleBatchStyleApply = useCallback(() => {
     if (!cyRef.current || !selectedElement) return;
@@ -4232,14 +4241,14 @@ ${xmlEdges}
               </div>
             )}
 
-            {/* Node tooltip — supports rich HTML */}
+            {/* Node tooltip — author-supplied inline HTML, sanitized before render */}
             {mode === 'design' && nodeTooltip && (
               <div
                 className="absolute z-[250] pointer-events-none select-none"
                 style={{ left: nodeTooltip.x + canvasInset, top: nodeTooltip.y + canvasInset, transform: 'translate(-50%, -100%)' }}
               >
                 <div className="bg-gray-900 text-white text-[11px] rounded-lg px-2.5 py-1.5 shadow-xl max-w-[220px] leading-relaxed">
-                  <div dangerouslySetInnerHTML={{ __html: nodeTooltip.text.replace(/\n/g, '<br/>') }} />
+                  <div dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(nodeTooltip.text.replace(/\n/g, '<br/>')) }} />
                 </div>
                 <div className="w-2 h-2 bg-gray-900 rotate-45 mx-auto -mt-1" />
               </div>

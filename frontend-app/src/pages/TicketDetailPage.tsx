@@ -21,6 +21,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { formatIST, getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
+import { sanitizeRichText, htmlToPlainText, escapeHtml } from '../utils/sanitizeHtml';
 import TicketCallButton from '../components/calls/TicketCallButton';
 import TicketCallHistory from '../components/calls/TicketCallHistory';
 import ReactQuill from 'react-quill-new';
@@ -618,7 +619,7 @@ const TicketDetailPage: React.FC = () => {
                           <span className="text-[9px] font-medium text-[rgba(0,0,0,0.35)]">{formatIST(reply.createdAt)}</span>
                         </div>
                         <div className="p-4 rounded-xl rounded-tr-none shadow-sm text-sm font-medium leading-relaxed bg-amber-50 text-amber-900 border border-amber-200">
-                          <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
+                          <div dangerouslySetInnerHTML={{ __html: sanitizeRichText(reply.message) }} className="prose-chat" />
                         </div>
                       </div>
                     </div>
@@ -657,9 +658,7 @@ const TicketDetailPage: React.FC = () => {
                               <button
                                 onClick={() => {
                                   setEditingReplyId(reply.id);
-                                  const tmp = document.createElement('div');
-                                  tmp.innerHTML = reply.message;
-                                  setEditContent(tmp.textContent || tmp.innerText || '');
+                                  setEditContent(htmlToPlainText(reply.message));
                                 }}
                                 className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
                                 title="Edit (until seen by the other side)"
@@ -700,7 +699,10 @@ const TicketDetailPage: React.FC = () => {
                                 onClick={async () => {
                                   if (!editContent.trim()) return;
                                   try {
-                                    const htmlMsg = editContent.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+                                    const htmlMsg = editContent
+                                      .split('\n')
+                                      .map(line => `<p>${escapeHtml(line) || '<br>'}</p>`)
+                                      .join('');
                                     await editReply(reply.id, htmlMsg);
                                     setEditingReplyId(null);
                                   } catch { globalThis.alert('Failed to edit. The other side may have already seen this message.'); }
@@ -711,7 +713,7 @@ const TicketDetailPage: React.FC = () => {
                           </div>
                         ) : (
                           <>
-                            <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat" />
+                            <div dangerouslySetInnerHTML={{ __html: sanitizeRichText(reply.message) }} className="prose-chat" />
                             {reply.edited && (
                               <span className={`text-[9px] font-bold italic mt-1 inline-block ${isMe(reply) ? 'text-white/40' : 'text-[rgba(0,0,0,0.35)]'}`}>Edited</span>
                             )}

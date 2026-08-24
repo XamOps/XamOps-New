@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import type { CostHistory } from '../../types/liveDashboard';
+import { escapeHtml } from '../../utils/sanitizeHtml';
 
 interface BillingSummaryItem {
   serviceName: string;
@@ -258,13 +259,15 @@ const CostSection: React.FC<CostSectionProps> = ({ billingSummary, isLoading, ac
                 .map((p: any) => {
                   const color = serviceActualColors[p.datasetIndex] || '#888';
                   return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0">
-                    <span style="width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0;display:inline-block"></span>
-                    <span style="font-size:12px;color:rgba(0,0,0,0.6);flex:1;white-space:nowrap">${p.dataset.label}</span>
-                    <span style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-left:8px">${formatCurrency(p.parsed.y)}</span>
+                    <span style="width:8px;height:8px;border-radius:2px;background:${escapeHtml(color)};flex-shrink:0;display:inline-block"></span>
+                    <span style="font-size:12px;color:rgba(0,0,0,0.6);flex:1;white-space:nowrap">${escapeHtml(p.dataset.label)}</span>
+                    <span style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-left:8px">${escapeHtml(formatCurrency(p.parsed.y))}</span>
                   </div>`;
                 });
+              // Service labels come from cost data, so escape every hole; the
+              // surrounding markup is static and stays as written.
               tooltipEl.innerHTML = `
-                <div style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-bottom:6px">${title}</div>
+                <div style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-bottom:6px">${escapeHtml(title)}</div>
                 ${lines.join('')}
               `;
               const canvasRect = context.chart.canvas.getBoundingClientRect();

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import type { GcpCostHistory, GcpBillingSummary } from '../../types/gcpDashboard';
+import { escapeHtml } from '../../utils/sanitizeHtml';
 
 interface GcpCostSectionProps {
   costHistory: GcpCostHistory;
@@ -221,12 +222,13 @@ const GcpCostSection: React.FC<GcpCostSectionProps> = ({ billingSummary, isLoadi
                 .map((p: any) => {
                   const color = serviceActualColors[p.datasetIndex] || '#888';
                   return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0">
-                    <span style="width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0;display:inline-block"></span>
-                    <span style="font-size:12px;color:rgba(0,0,0,0.6);flex:1;white-space:nowrap">${p.dataset.label}</span>
-                    <span style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-left:8px">${formatCurrency(p.parsed.y)}</span>
+                    <span style="width:8px;height:8px;border-radius:2px;background:${escapeHtml(color)};flex-shrink:0;display:inline-block"></span>
+                    <span style="font-size:12px;color:rgba(0,0,0,0.6);flex:1;white-space:nowrap">${escapeHtml(p.dataset.label)}</span>
+                    <span style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-left:8px">${escapeHtml(formatCurrency(p.parsed.y))}</span>
                   </div>`;
                 });
-              tooltipEl.innerHTML = `<div style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-bottom:6px">${title}</div>${lines.join('')}`;
+              // Service labels come from billing data, so escape every hole.
+              tooltipEl.innerHTML = `<div style="font-size:12px;font-weight:600;color:rgba(0,0,0,0.88);margin-bottom:6px">${escapeHtml(title)}</div>${lines.join('')}`;
               const canvasRect = context.chart.canvas.getBoundingClientRect();
               const containerRect = tooltipEl.parentElement?.getBoundingClientRect();
               if (!containerRect) return;

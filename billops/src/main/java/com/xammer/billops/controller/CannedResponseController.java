@@ -2,6 +2,7 @@ package com.xammer.billops.controller;
 
 import com.xammer.billops.dto.CannedResponseDto;
 import com.xammer.billops.repository.CannedResponseRepository;
+import com.xammer.billops.util.TicketHtmlSanitizer;
 import com.xammer.cloud.domain.CannedResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,7 +49,8 @@ public class CannedResponseController {
         }
         CannedResponse cr = new CannedResponse();
         cr.setTitle(payload.getTitle().trim());
-        cr.setBody(payload.getBody());
+        // Bodies are rich text and get inserted into reply drafts, so sanitize on write.
+        cr.setBody(TicketHtmlSanitizer.sanitize(payload.getBody()));
         cr.setCreatedBy(auth != null ? auth.getName() : null);
         cr.setCreatedAt(LocalDateTime.now());
         cr.setUpdatedAt(LocalDateTime.now());
@@ -60,7 +62,7 @@ public class CannedResponseController {
     public ResponseEntity<CannedResponseDto> update(@PathVariable Long id, @RequestBody CannedResponseDto payload) {
         return repository.findById(id).map(cr -> {
             if (payload.getTitle() != null && !payload.getTitle().isBlank()) cr.setTitle(payload.getTitle().trim());
-            if (payload.getBody() != null) cr.setBody(payload.getBody());
+            if (payload.getBody() != null) cr.setBody(TicketHtmlSanitizer.sanitize(payload.getBody()));
             cr.setUpdatedAt(LocalDateTime.now());
             return ResponseEntity.ok(toDto(repository.save(cr)));
         }).orElseGet(() -> ResponseEntity.notFound().build());

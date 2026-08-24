@@ -18,6 +18,7 @@ import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
 import { RCAFormData, RCAFormSection, TicketReply } from '../types/billopsTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import { getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
+import { sanitizeRichText, htmlToPlainText, escapeHtml } from '../utils/sanitizeHtml';
 import CannedResponsesPicker from '../components/tickets/CannedResponsesPicker';
 import TicketCallButton from '../components/calls/TicketCallButton';
 import TicketCallHistory from '../components/calls/TicketCallHistory';
@@ -289,7 +290,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
     if (draftKey) {
       const savedDraft = localStorage.getItem(draftKey);
       if (savedDraft) {
-        quillInstance.current.root.innerHTML = savedDraft;
+        quillInstance.current.root.innerHTML = sanitizeRichText(savedDraft);
         setNewReplyHasContent(quillInstance.current.getText().trim().length > 0);
         setDraftRestored(true);
       }
@@ -405,9 +406,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
       noteHtmlRef.current = html;
       setNoteHtml(html);
       if (html) {
-        const tmp = document.createElement('div');
-        tmp.innerHTML = html;
-        const text = (tmp.textContent || '').trim();
+        const text = htmlToPlainText(html).trim();
         setNoteWordCount(text ? text.split(/\s+/).filter(Boolean).length : 0);
       } else {
         setNoteWordCount(0);
@@ -434,7 +433,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
         // No server note — migrate from legacy localStorage (if any)
         const oldText = localStorage.getItem(`xamops_ticket_note_${ticketId}`);
         const legacyHtml = localStorage.getItem(`xamops_ticket_note_html_${ticketId}`)
-          || (oldText ? `<p>${oldText.replace(/\n/g, '</p><p>')}</p>` : '');
+          || (oldText ? `<p>${escapeHtml(oldText).replace(/\n/g, '</p><p>')}</p>` : '');
         let legacyTasks = '[]';
         try { legacyTasks = localStorage.getItem(`xamops_ticket_tasks_${ticketId}`) || '[]'; } catch { /* ignore */ }
         const legacyColor = localStorage.getItem(`xamops_ticket_note_color_${ticketId}`) || '';
@@ -525,7 +524,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
       // Seed content from the loaded note (ref avoids stale-state timing issues)
       const savedHtml = noteHtmlRef.current || '';
-      if (savedHtml) noteQuillInstance.current.root.innerHTML = savedHtml;
+      if (savedHtml) noteQuillInstance.current.root.innerHTML = sanitizeRichText(savedHtml);
 
       noteQuillInstance.current.on('text-change', () => {
         if (!noteQuillInstance.current) return;
@@ -1010,9 +1009,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
   /** First line of note shown as tooltip on the Note button */
   const noteFirstLine = React.useMemo(() => {
     if (!noteHtml) return '';
-    const tmp = document.createElement('div');
-    tmp.innerHTML = noteHtml;
-    const text = (tmp.textContent || '').trim();
+    const text = htmlToPlainText(noteHtml).trim();
     return text.length > 80 ? text.substring(0, 80) + '…' : text;
   }, [noteHtml]);
 
@@ -1408,7 +1405,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                               <span className="text-[10px] text-[rgba(0,0,0,0.35)] flex-shrink-0">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
                             </div>
                             <div className="p-4 rounded-xl rounded-tr-sm shadow-sm text-sm leading-relaxed overflow-hidden bg-amber-50 text-amber-900 border border-amber-200">
-                              <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat break-words" />
+                              <div dangerouslySetInnerHTML={{ __html: sanitizeRichText(reply.message) }} className="prose-chat break-words" />
                             </div>
                           </div>
                         </div>
@@ -1476,9 +1473,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                   onClick={() => {
                                     setEditingReplyId(reply.id);
                                     setEditWidth(null);
-                                    const tmp = document.createElement('div');
-                                    tmp.innerHTML = reply.message;
-                                    setEditContent(tmp.textContent || tmp.innerText || '');
+                                    setEditContent(htmlToPlainText(reply.message));
                                   }}
                                   className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
                                   title="Edit (until seen by the other side)"
@@ -1549,7 +1544,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                   onClick={async () => {
                                     if (!editContent.trim()) return;
                                     try {
-                                      const htmlMsg = editContent.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+                                      const htmlMsg = editContent
+                                        .split('\n')
+                                        .map(line => `<p>${escapeHtml(line) || '<br>'}</p>`)
+                                        .join('');
                                       await editReply(reply.id, htmlMsg);
                                       setEditingReplyId(null);
                                     } catch (err) { globalThis.alert('Failed to edit — ' + (err instanceof Error ? err.message : 'unknown')); }
@@ -1560,7 +1558,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                             </div>
                           ) : (
                             <>
-                              <div dangerouslySetInnerHTML={{ __html: reply.message }} className="prose-chat !p-0 break-words" />
+                              <div dangerouslySetInnerHTML={{ __html: sanitizeRichText(reply.message) }} className="prose-chat !p-0 break-words" />
                               {reply.edited && (
                                 <span
                                   title={
@@ -2502,7 +2500,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                               key={i}
                               onClick={() => {
                                 if (noteQuillInstance.current) {
-                                  noteQuillInstance.current.root.innerHTML = entry.html;
+                                  noteQuillInstance.current.root.innerHTML = sanitizeRichText(entry.html);
                                   setNoteHtml(entry.html);
                                 }
                                 setShowNoteHistory(false);
@@ -2513,7 +2511,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                                 {new Date(entry.savedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'short' })}
                               </div>
                               <div className="text-xs text-[rgba(0,0,0,0.5)] font-medium line-clamp-2 leading-snug">
-                                {(() => { const d = document.createElement('div'); d.innerHTML = entry.html; return d.textContent || ''; })()}
+                                {htmlToPlainText(entry.html)}
                               </div>
                             </button>
                           ))}

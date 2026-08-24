@@ -23,7 +23,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, onRegionClick }) => {
-    const [tooltipContent, setTooltipContent] = useState<string | null>(null);
+    // Structured rather than an HTML string: the region and status are rendered
+    // as text by React, so there is no innerHTML sink here.
+    const [tooltipContent, setTooltipContent] = useState<{ region: string; status: string } | null>(null);
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [center, setCenter] = useState<[number, number]>([0, 20]);
@@ -111,7 +113,10 @@ const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, 
                                 marginTop: '-10px',
                             }}
                         >
-                            <div dangerouslySetInnerHTML={{ __html: tooltipContent }} />
+                            <div>
+                                <p style={{ color: '#94a3b8', fontSize: 9, marginBottom: 2, textTransform: 'uppercase' }}>GCP Region</p>
+                                <p>{tooltipContent.region} ({tooltipContent.status})</p>
+                            </div>
                         </div>
                     )}
 
@@ -163,7 +168,7 @@ const GcpMapSection: React.FC<GcpMapSectionProps> = ({ regionStatus, isLoading, 
                                                     y: rect.top - container.top,
                                                 });
                                             }
-                                            setTooltipContent(`<div><p style="color:#94a3b8;font-size:9px;margin-bottom:2px;text-transform:uppercase;">GCP Region</p><p>${region.region} (${region.status})</p></div>`);
+                                            setTooltipContent({ region: region.region, status: region.status });
                                         }}
                                         onMouseLeave={() => setTooltipContent(null)}
                                         onClick={() => onRegionClick(region.region)}

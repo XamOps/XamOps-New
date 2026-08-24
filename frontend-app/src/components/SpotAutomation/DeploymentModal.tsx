@@ -56,7 +56,7 @@ const DeploymentModal: React.FC<DeploymentModalProps> = ({ isOpen, onClose, onGe
               {isGenerating ? 'Generating...' : 'Generate URL'}
             </button>
             <button
-              onClick={() => generatedUrl && window.open(generatedUrl, '_blank')}
+              onClick={() => generatedUrl && window.open(generatedUrl, '_blank', 'noopener,noreferrer')}
               disabled={!generatedUrl}
               className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-white bg-[#FF9900] hover:bg-[#e8890a] rounded-xl transition-colors disabled:opacity-50"
             >

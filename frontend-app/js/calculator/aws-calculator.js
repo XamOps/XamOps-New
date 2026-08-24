@@ -1,3 +1,18 @@
+/**
+ * Escape a value for interpolation into an HTML string.
+ * This file is a classic script (no module imports), so it carries its own copy
+ * of the helper in src/utils/sanitizeHtml.ts.
+ */
+function esc(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // Backend base
 const AWS_API_ROOT = 'http://localhost:8080';
 const AWS_API_BASE = `${AWS_API_ROOT}/api/aws/calculator`;
@@ -144,7 +159,7 @@ async function loadServiceForm(serviceCode, region, formContainer, pricingResult
       submitBtn.innerHTML = '<i class="fas fa-calculator"></i> Calculate Estimate';
     });
   } catch (e) {
-    formContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-xl text-sm">Error: ${e.message}</div>`;
+    formContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-xl text-sm">Error: ${esc(e.message)}</div>`;
   }
 }
 
@@ -203,7 +218,7 @@ async function onSubmitServiceForm(config, region, formEl, pricingResultContaine
     const result = await apiGet(`${AWS_API_ROOT}${config.pricingEndpoint}`, params, 30000);
     renderPricingResult(config, result, pricingResultContainer, region, values);
   } catch (e) {
-    pricingResultContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-xl text-sm mt-4">Failed: ${e.message}</div>`;
+    pricingResultContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-xl text-sm mt-4">Failed: ${esc(e.message)}</div>`;
   }
 }
 
@@ -216,7 +231,7 @@ function renderPricingResult(config, result, container, region, formValues) {
   header.innerHTML = `
     <div>
       <p class="text-indigo-100 text-xs font-bold uppercase tracking-widest mb-1">Estimated Monthly Cost</p>
-      <h3 class="text-sm font-medium">${config.serviceName} in ${region}</h3>
+      <h3 class="text-sm font-medium">${esc(config.serviceName)} in ${esc(region)}</h3>
     </div>
     <div class="text-3xl font-bold">$${total.toFixed(2)}<span class="text-lg opacity-70 ml-1">USD</span></div>
   `;
@@ -230,7 +245,7 @@ function renderPricingResult(config, result, container, region, formValues) {
       grid.innerHTML += `
         <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
           <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Compute Units</div>
-          <div class="text-sm font-semibold text-gray-800">${result.compute.details || result.compute.instanceType || 'N/A'}</div>
+          <div class="text-sm font-semibold text-gray-800">${esc(result.compute.details || result.compute.instanceType || 'N/A')}</div>
           <div class="text-lg font-bold text-indigo-600 mt-1">$${Number(result.compute.monthlyCost || 0).toFixed(2)}</div>
         </div>`;
     }
@@ -238,7 +253,7 @@ function renderPricingResult(config, result, container, region, formValues) {
       grid.innerHTML += `
         <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
           <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Storage Usage</div>
-          <div class="text-sm font-semibold text-gray-800">${result.storage.sizeGB || result.storage.gb || 0} GB</div>
+          <div class="text-sm font-semibold text-gray-800">${esc(result.storage.sizeGB || result.storage.gb || 0)} GB</div>
           <div class="text-lg font-bold text-indigo-600 mt-1">$${Number(result.storage.monthlyTotal || result.storage.monthlyCost || 0).toFixed(2)}</div>
         </div>`;
     }
@@ -265,9 +280,9 @@ function renderPricingResult(config, result, container, region, formValues) {
     
     result.pricingModels.forEach(m => {
       html += `<tr>
-        <td class="px-4 py-3 font-medium text-gray-700">${m.name}</td>
+        <td class="px-4 py-3 font-medium text-gray-700">${esc(m.name)}</td>
         <td class="px-4 py-3 font-bold text-gray-900">$${Number(m.monthlyTotal || m.monthlyCost).toFixed(2)}</td>
-        <td class="px-4 py-3 text-right text-green-500 font-bold">${m.savings}</td>
+        <td class="px-4 py-3 text-right text-green-500 font-bold">${esc(m.savings)}</td>
       </tr>`;
     });
     tableContainer.innerHTML = html + '</tbody></table>';
@@ -314,12 +329,12 @@ function renderEstimateCart() {
       tr.className = 'hover:bg-gray-50 transition-colors';
       tr.innerHTML = `
         <td class="px-6 py-4">
-          <div class="font-semibold text-gray-800">${item.serviceName}</div>
-          <div class="text-[10px] text-gray-400 uppercase mt-1">${item.region} | ${item.configSummary}</div>
+          <div class="font-semibold text-gray-800">${esc(item.serviceName)}</div>
+          <div class="text-[10px] text-gray-400 uppercase mt-1">${esc(item.region)} | ${esc(item.configSummary)}</div>
         </td>
         <td class="px-6 py-4 font-bold text-gray-900">$${item.monthlyCost.toFixed(2)}</td>
         <td class="px-6 py-4 text-right">
-          <button class="text-gray-300 hover:text-red-500 transition-colors" onclick="removeFromCart(${item.id})">
+          <button class="text-gray-300 hover:text-red-500 transition-colors" onclick="removeFromCart(${Number(item.id) || 0})">
             <i class="fas fa-times-circle"></i>
           </button>
         </td>`;

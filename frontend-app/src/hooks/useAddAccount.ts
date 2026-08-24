@@ -244,7 +244,7 @@ export function useAddAccount(): UseAddAccountReturn {
       const data: StackUrlResponse = await res.json();
 
       // Open AWS CloudFormation in a new tab
-      window.open(data.url, '_blank');
+      window.open(data.url, '_blank', 'noopener,noreferrer');
 
       // Store externalId and switch to verification mode. roleName is prefilled from the
       // template's hardcoded RoleName so manual entry is one field, not two — the customer

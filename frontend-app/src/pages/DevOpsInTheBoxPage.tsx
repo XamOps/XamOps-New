@@ -6,6 +6,7 @@ import { DevOpsScript, ScriptCategory } from '../types/devopsInTheBox';
 import { useTopbar } from '../contexts/TopbarContext';
 import { DialogRoot, DialogPanel } from '../components/ui';
 import ScriptCustomizerModal from '../components/DevOpsInTheBox/ScriptCustomizerModal';
+import { sanitizeRichText } from '../utils/sanitizeHtml';
 
 /** True when the script body contains at least one {{PLACEHOLDER}} token. */
 function hasPlaceholders(code?: string): boolean {
@@ -333,7 +334,7 @@ const DevOpsInTheBoxPage: React.FC = () => {
                     Usage Instructions
                   </h3>
                   <div className="text-[13px] text-[rgba(0,0,0,0.7)] prose prose-sm max-w-none"
-                    dangerouslySetInnerHTML={{ __html: selectedScript.usage }} />
+                    dangerouslySetInnerHTML={{ __html: sanitizeRichText(selectedScript.usage) }} />
                 </div>
               </div>
             </DialogPanel>

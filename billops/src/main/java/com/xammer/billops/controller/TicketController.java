@@ -12,6 +12,7 @@ import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.TicketReplyRepository;
 import com.xammer.billops.service.RcaService;
 import com.xammer.billops.service.TicketService;
+import com.xammer.billops.util.TicketHtmlSanitizer;
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
@@ -193,7 +194,9 @@ public class TicketController {
             TicketReplyDto replyDto = new TicketReplyDto();
             replyDto.setAuthorUsername(username);
 
-            String safeMessage = (message != null) ? message : "";
+            // Reply bodies are rich text typed by customers and agents, and are
+            // rendered back to every participant — strip active content on the way in.
+            String safeMessage = TicketHtmlSanitizer.sanitize(message);
             replyDto.setMessage(safeMessage);
             replyDto.setInternal(isInternal && isAdmin);
 
@@ -266,7 +269,10 @@ public class TicketController {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body("SEEN_BY_OTHER");
             }
 
-            target.setMessage(payload.getOrDefault("message", target.getMessage()));
+            String editedMessage = payload.get("message");
+            if (editedMessage != null) {
+                target.setMessage(TicketHtmlSanitizer.sanitize(editedMessage));
+            }
             target.setEdited(true);
             target.setEditedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
             ticketReplyRepository.save(target);

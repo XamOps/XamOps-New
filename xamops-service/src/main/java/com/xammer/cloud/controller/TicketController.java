@@ -5,6 +5,7 @@ import com.xammer.cloud.dto.TicketReplyDto;
 import com.xammer.cloud.repository.TicketReplyRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.TicketService;
+import com.xammer.cloud.util.TicketHtmlSanitizer;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -72,7 +73,10 @@ public class TicketController {
             @RequestPart(value = "isInternal", required = false) String isInternalStr,
             Authentication authentication) {
 
-        boolean hasMessage = message != null && !message.isBlank();
+        // Reply bodies are rich text typed by customers and agents, and are
+        // rendered back to every participant — strip active content on the way in.
+        String safeMessage = TicketHtmlSanitizer.sanitize(message);
+        boolean hasMessage = !safeMessage.isBlank();
         boolean hasFiles = files != null && files.stream().anyMatch(f -> !f.isEmpty());
 
         if (!hasMessage && !hasFiles) {
@@ -80,7 +84,7 @@ public class TicketController {
         }
 
         TicketReplyDto replyDto = new TicketReplyDto();
-        replyDto.setMessage(hasMessage ? message : "");
+        replyDto.setMessage(safeMessage);
 
         if (authentication != null) {
             replyDto.setAuthorUsername(authentication.getName());
@@ -179,7 +183,10 @@ public class TicketController {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body("SEEN_BY_OTHER");
             }
 
-            target.setMessage(payload.getOrDefault("message", target.getMessage()));
+            String editedMessage = payload.get("message");
+            if (editedMessage != null) {
+                target.setMessage(TicketHtmlSanitizer.sanitize(editedMessage));
+            }
             target.setEdited(true);
             target.setEditedAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
             ticketReplyRepository.save(target);

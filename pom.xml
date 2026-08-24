@@ -22,6 +22,7 @@
         <aws.java.sdk.version>2.44.14</aws.java.sdk.version>
         <gcp.libraries.bom.version>26.34.0</gcp.libraries.bom.version>
         <flyway.version>9.22.3</flyway.version>
+        <owasp.html.sanitizer.version>20260313.1</owasp.html.sanitizer.version>
     </properties>
 
     <modules>
@@ -72,6 +73,13 @@
                 <groupId>com.google.apis</groupId>
                 <artifactId>google-api-services-sqladmin</artifactId>
                 <version>v1-rev20250807-2.0.0</version>
+            </dependency>
+
+            <!-- Server-side HTML sanitization for user-authored ticket content -->
+            <dependency>
+                <groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
+                <artifactId>owasp-java-html-sanitizer</artifactId>
+                <version>${owasp.html.sanitizer.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

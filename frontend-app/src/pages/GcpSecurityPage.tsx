@@ -6,6 +6,7 @@ import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpSecurityData } from '../hooks/useGcpSecurityData';
 import type { GcpSeverityLevel } from '../types/gcpSecurity';
 import { DialogRoot, DialogPanel } from '../components/ui';
+import { sanitizeRichText } from '../utils/sanitizeHtml';
 
 const SEVERITY_ICON: Record<GcpSeverityLevel, string> = {
   CRITICAL: 'mdi:alert-circle',
@@ -450,7 +451,7 @@ const GcpSecurityPage: React.FC = () => {
           <div className="overflow-y-auto max-h-[60vh]">
             <div
               className="prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: remediationSteps }}
+              dangerouslySetInnerHTML={{ __html: sanitizeRichText(remediationSteps) }}
             />
           </div>
         </DialogPanel>

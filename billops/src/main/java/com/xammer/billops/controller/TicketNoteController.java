@@ -1,6 +1,7 @@
 package com.xammer.billops.controller;
 
 import com.xammer.billops.dto.TicketNoteDto;
+import com.xammer.billops.util.TicketHtmlSanitizer;
 import com.xammer.billops.repository.TicketNoteRepository;
 import com.xammer.cloud.domain.TicketNote;
 import org.slf4j.Logger;
@@ -54,7 +55,8 @@ public class TicketNoteController {
                     });
 
             // Partial update — only apply non-null fields
-            if (payload.getNoteHtml() != null) note.setNoteHtml(payload.getNoteHtml());
+            // Note bodies are rich text rendered back into the note panel — sanitize on write.
+            if (payload.getNoteHtml() != null) note.setNoteHtml(TicketHtmlSanitizer.sanitize(payload.getNoteHtml()));
             if (payload.getTasksJson() != null) note.setTasksJson(payload.getTasksJson());
             if (payload.getColor() != null) note.setColor(payload.getColor());
             if (payload.getHistoryJson() != null) note.setHistoryJson(payload.getHistoryJson());

@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import apiClient from '../utils/apiClient';
+import { escapeHtml } from '../utils/sanitizeHtml';
 import type {
   GcpSecurityFinding,
   GcpIamDrift,
@@ -187,10 +188,12 @@ export const useGcpSecurityData = ({
    */
   const openRemediationModal = useCallback((finding: GcpSecurityFinding) => {
     setSelectedFinding(finding);
+    // Finding fields are Security Command Center payloads, not trusted markup:
+    // escape them so the surrounding template is the only HTML that survives.
     setRemediationSteps(
-      `<p><strong>1. Identify Resource:</strong> Locate the resource <strong>${finding.resourceName}</strong> in the GCP console.</p>` +
-      `<p><strong>2. Analyze Finding:</strong> Understand the issue: <em>"${finding.description}"</em>.</p>` +
-      `<p><strong>3. Follow Best Practices:</strong> Consult the official Google Cloud documentation for the <strong>${finding.category}</strong> service to apply the recommended fix.</p>` +
+      `<p><strong>1. Identify Resource:</strong> Locate the resource <strong>${escapeHtml(finding.resourceName)}</strong> in the GCP console.</p>` +
+      `<p><strong>2. Analyze Finding:</strong> Understand the issue: <em>"${escapeHtml(finding.description)}"</em>.</p>` +
+      `<p><strong>3. Follow Best Practices:</strong> Consult the official Google Cloud documentation for the <strong>${escapeHtml(finding.category)}</strong> service to apply the recommended fix.</p>` +
       `<p><strong>4. Verify Fix:</strong> Re-run the security scan to confirm the issue is resolved.</p>`
     );
     setIsModalOpen(true);

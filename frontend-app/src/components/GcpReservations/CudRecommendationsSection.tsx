@@ -48,19 +48,31 @@ const CudRecommendationsSection: React.FC<CudRecommendationsSectionProps> = ({
     return 'XamOps';
   };
 
-  const getUsageInsight = (rec: GcpCudRecommendation): string => {
+  /**
+   * Break-even blurb for a recommendation. Rendered as JSX rather than an HTML
+   * string so there is no innerHTML sink on this path at all.
+   */
+  const renderUsageInsight = (rec: GcpCudRecommendation): React.ReactNode => {
     const term = extractTermFromDescription(rec.currentMachineType);
     const termYears = term.includes('3') ? 3 : 1;
     const breakEvenDays = Math.round(termYears * 365 * 0.45);
     const breakEvenPercent = 45;
 
-    return `With this CUD purchase, if you use <strong>1 GB</strong> for at least
-            <strong>${breakEvenDays} days</strong> in <strong>${termYears} years</strong>
-            (<strong>${breakEvenPercent}%</strong> of CUD term), you will still break even.
-            <a href="https://cloud.google.com/docs/cuds-recommender#understanding-summary-cards"
-               target="_blank"
-               rel="noopener noreferrer"
-               class="usage-insight-link">Learn more</a>`;
+    return (
+      <>
+        With this CUD purchase, if you use <strong>1 GB</strong> for at least{' '}
+        <strong>{breakEvenDays} days</strong> in <strong>{termYears} years</strong>{' '}
+        (<strong>{breakEvenPercent}%</strong> of CUD term), you will still break even.{' '}
+        <a
+          href="https://cloud.google.com/docs/cuds-recommender#understanding-summary-cards"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="usage-insight-link"
+        >
+          Learn more
+        </a>
+      </>
+    );
   };
 
   return (
@@ -158,10 +170,9 @@ const CudRecommendationsSection: React.FC<CudRecommendationsSectionProps> = ({
                 </div>
                 <div className="detail-row detail-row-last">
                   <span className="detail-label">Usage insights</span>
-                  <span
-                    className="detail-value detail-value-insight"
-                    dangerouslySetInnerHTML={{ __html: getUsageInsight(rec) }}
-                  />
+                  <span className="detail-value detail-value-insight">
+                    {renderUsageInsight(rec)}
+                  </span>
                 </div>
               </div>
 

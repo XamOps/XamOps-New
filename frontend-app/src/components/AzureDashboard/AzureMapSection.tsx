@@ -24,7 +24,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const AzureMapSection: React.FC<AzureMapSectionProps> = ({ regionStatus, isLoading, onRegionClick }) => {
-  const [tooltipContent, setTooltipContent] = useState<string | null>(null);
+  // Structured rather than an HTML string: the region name and status are
+  // rendered as text by React, so there is no innerHTML sink here.
+  const [tooltipContent, setTooltipContent] = useState<{ name: string; status: string } | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [center, setCenter] = useState<[number, number]>([0, 20]);
@@ -112,7 +114,10 @@ const AzureMapSection: React.FC<AzureMapSectionProps> = ({ regionStatus, isLoadi
                 marginTop: '-10px',
               }}
             >
-              <div dangerouslySetInnerHTML={{ __html: tooltipContent }} />
+              <div>
+                <p style={{ color: '#94a3b8', fontSize: 9, marginBottom: 2, textTransform: 'uppercase' }}>Azure Region</p>
+                <p>{tooltipContent.name} ({tooltipContent.status})</p>
+              </div>
             </div>
           )}
 
@@ -164,7 +169,7 @@ const AzureMapSection: React.FC<AzureMapSectionProps> = ({ regionStatus, isLoadi
                           y: rect.top - container.top,
                         });
                       }
-                      setTooltipContent(`<div><p style="color:#94a3b8;font-size:9px;margin-bottom:2px;text-transform:uppercase;">Azure Region</p><p>${region.name} (${region.status})</p></div>`);
+                      setTooltipContent({ name: region.name, status: region.status });
                     }}
                     onMouseLeave={() => setTooltipContent(null)}
                     onClick={() => onRegionClick(region.name)}

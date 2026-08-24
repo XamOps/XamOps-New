@@ -7,16 +7,13 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '@iconify/react';
 import { useCannedResponses, CannedResponse } from '../../hooks/useCannedResponses';
+import { htmlToPlainText } from '../../utils/sanitizeHtml';
 
 interface Props {
   onInsert: (body: string) => void;
 }
 
-const stripHtml = (html: string): string => {
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html || '';
-  return (tmp.textContent || '').trim();
-};
+const stripHtml = (html: string): string => htmlToPlainText(html).trim();
 
 const CannedResponsesPicker: React.FC<Props> = ({ onInsert }) => {
   const [open, setOpen] = useState(false);

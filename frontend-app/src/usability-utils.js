@@ -4,6 +4,8 @@
  * across all pages of the dashboard.
  */
 
+import { escapeHtml } from './utils/sanitizeHtml';
+
 /**
  * Click-to-copy functionality for text elements
  * @param {string} text - The text to copy to clipboard
@@ -100,9 +102,10 @@ export function showToast(message, type = 'info', duration = 3000) {
     info: 'fa-info-circle'
   };
 
+  // `message` can carry resource names and API error text, so escape it.
   toast.innerHTML = `
-    <i class="fas ${iconMap[type]} toast-icon"></i>
-    <span class="toast-message">${message}</span>
+    <i class="fas ${iconMap[type] || iconMap.info} toast-icon"></i>
+    <span class="toast-message">${escapeHtml(message)}</span>
     <button class="toast-close" onclick="this.parentElement.remove()">
       <i class="fas fa-times"></i>
     </button>
