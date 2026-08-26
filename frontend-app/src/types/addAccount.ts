@@ -77,6 +77,8 @@ export interface StackUrlResponse {
   url: string;
   externalId: string;
   eventBridgeEnabled: string; // "true" or "false" from backend
+  /** RoleName of the template this environment hands out. Absent on older backends. */
+  roleName?: string;
 }
 
 export interface AddAccountState {

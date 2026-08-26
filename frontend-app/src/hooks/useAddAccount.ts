@@ -54,12 +54,14 @@ const SLOW_AFTER_MS = 5 * 60 * 1000;
 const POLL_GIVE_UP_MS = 30 * 60 * 1000;
 
 /**
- * The name the CloudFormation stack gives the role it creates.
+ * Fallback name for the role the CloudFormation stack creates.
  *
- * Both templates hardcode `RoleName`, so this is knowable without asking the customer —
- * we prefill it and they only have to supply the account ID. Kept in step with
- * cloudformation/xamops-readonly-role.yml and xamops-readwrite-role.live.yml; if either
- * template's RoleName changes, change it here too.
+ * The templates hardcode `RoleName`, so this is knowable without asking the customer — we
+ * prefill it and they only have to supply the account ID. But the name is per-environment
+ * (local and UAT suffix it with -local / -uat so a test connection can coexist with a real
+ * one in the same AWS account), and only the backend knows which template it handed out.
+ * So the authoritative value is `roleName` on the generate-stack-url response; these
+ * production names are the fallback for a backend that doesn't send it.
  */
 export const roleNameFor = (accessType: AccessType): string =>
   accessType === 'read-write' ? 'XamOpsReadWriteRole' : 'XamOpsReadOnlyRole';
@@ -249,7 +251,10 @@ export function useAddAccount(): UseAddAccountReturn {
       // Store externalId and switch to verification mode. roleName is prefilled from the
       // template's hardcoded RoleName so manual entry is one field, not two — the customer
       // can still edit it if they deployed a modified template.
-      setVerificationDetails({ externalId: data.externalId, roleName: roleNameFor(accessType) });
+      setVerificationDetails({
+        externalId: data.externalId,
+        roleName: data.roleName || roleNameFor(accessType),
+      });
       setIsVerifying(true);
 
       // Only poll for auto-connect if EventBridge is configured on this environment

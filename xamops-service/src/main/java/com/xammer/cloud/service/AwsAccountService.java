@@ -60,6 +60,17 @@ public class AwsAccountService {
     @Value("${cloudformation.template.s3.readwrite.url}")
     private String cloudFormationReadWriteTemplateUrl;
 
+    // The name the stack gives the role it creates. Each environment's template suffixes it
+    // differently (-local, -uat) so a customer can hold connections to several environments in
+    // one AWS account without the role names colliding. The UI prefills this for manual
+    // verification, so it has to follow whichever template we actually hand out — defaults here
+    // match the production templates.
+    @Value("${xamops.role.readonly.name:XamOpsReadOnlyRole}")
+    private String readOnlyRoleName;
+
+    @Value("${xamops.role.readwrite.name:XamOpsReadWriteRole}")
+    private String readWriteRoleName;
+
     @Value("${xamops.cfn.callback.param.name:}")
     private String cfnCallbackParamName;
 
@@ -113,7 +124,9 @@ public class AwsAccountService {
 
         String stackName = "XamOps-Connection-" + accountName.replaceAll("[^a-zA-Z0-9-]", "");
         String xamopsAccountId = this.hostAccountId;
-        String templateUrl = "read-write".equals(accessType) ? cloudFormationReadWriteTemplateUrl : cloudFormationTemplateUrl;
+        boolean readWrite = "read-write".equals(accessType);
+        String templateUrl = readWrite ? cloudFormationReadWriteTemplateUrl : cloudFormationTemplateUrl;
+        String roleName = readWrite ? readWriteRoleName : readOnlyRoleName;
 
         boolean eventBridgeEnabled = cfnCallbackParamName != null && !cfnCallbackParamName.isEmpty();
         String callbackParam = eventBridgeEnabled
@@ -127,7 +140,8 @@ public class AwsAccountService {
         return Map.of(
                 "url", new URL(urlString),
                 "externalId", externalId,
-                "eventBridgeEnabled", eventBridgeEnabled);
+                "eventBridgeEnabled", eventBridgeEnabled,
+                "roleName", roleName);
     }
 
     public CloudAccount verifyAccount(VerifyAccountRequest request) {

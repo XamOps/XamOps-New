@@ -79,7 +79,8 @@ public class AccountManagerController {
             Map<String, String> stackDetails = Map.of(
                     "url", result.get("url").toString(),
                     "externalId", result.get("externalId").toString(),
-                    "eventBridgeEnabled", result.get("eventBridgeEnabled").toString());
+                    "eventBridgeEnabled", result.get("eventBridgeEnabled").toString(),
+                    "roleName", result.get("roleName").toString());
             return ResponseEntity.ok(stackDetails);
         } catch (Exception e) {
             return ResponseEntity.badRequest()
