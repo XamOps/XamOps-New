@@ -338,11 +338,35 @@ public class AwsInventoryReconciler {
                 return new IndexInfo(region, AwsInventorySyncState.INDEX_AGGREGATOR_INCOMPLETE, uncovered);
             }
 
-            String region = regionOf(indexes.get(0));
-            log.info("[Inventory] Account {} has only LOCAL indexes — results limited to region {}. "
-                    + "Promoting an aggregator index would make this a single cross-region query.",
-                    account.getAwsAccountId(), region);
-            return new IndexInfo(region, AwsInventorySyncState.INDEX_LOCAL, uncovered);
+            // Prefer the configured default region when it has an index, rather than
+            // whichever index AWS happened to list first. The queried region decides what
+            // the plane contains, so an arbitrary choice made that content arbitrary too.
+            String region = indexedRegions.contains(defaultRegion)
+                    ? defaultRegion
+                    : regionOf(indexes.get(0));
+
+            // Every other region is uncovered, because fetchAll() queries exactly one.
+            //
+            // Without this the sweep tombstones them. uncovered was empty for these accounts
+            // — an index exists everywhere, nothing is missing — so persistInTransaction took
+            // the unrestricted sweepStaleResources path and marked every resource outside the
+            // queried region DELETED, once per sync. Observed on a real account: 9
+            // CloudFormation stacks sitting in DELETED that had never been deleted.
+            //
+            // A LOCAL index genuinely cannot see other regions, so their absence from this
+            // fetch carries no information about whether the resources still exist. That is
+            // precisely what uncoveredRegions means.
+            Set<String> unqueried = new LinkedHashSet<>(indexedRegions);
+            unqueried.addAll(uncovered);
+            unqueried.remove(region);
+
+            log.warn("[Inventory] Account {} has only LOCAL indexes — enumeration is limited to "
+                    + "region {}, and resources in the other {} region(s) are invisible to this "
+                    + "sync. They are protected from the sweep, and the account stays on the "
+                    + "describe fallback. Promoting an aggregator index would make this one "
+                    + "cross-region query and put the account on the fast path.",
+                    account.getAwsAccountId(), region, unqueried.size());
+            return new IndexInfo(region, AwsInventorySyncState.INDEX_LOCAL, unqueried);
 
         } catch (Exception e) {
             log.info("[Inventory] ListIndexes unavailable for account {} ({}) — attempting partial search",

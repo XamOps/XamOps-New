@@ -88,6 +88,45 @@ class InventoryRegionCoverageTest {
         assertTrue(projection.isFresh(CLOUD_ACCOUNT_ID));
     }
 
+    /**
+     * The gap this file did not previously close. {@code isPartial} already reported LOCAL
+     * honestly, but {@code isFresh} only excluded AGGREGATOR_INCOMPLETE, so a LOCAL-only
+     * account was served as authoritative.
+     *
+     * <p>
+     * That is not a partial answer, it is a single-region one: the reconciler calls
+     * {@code fetchAll} with one region, so the plane holds that region and nothing else.
+     * Measured on a real account with LOCAL indexes in 18 regions — the plane held EKS, EC2
+     * and EventBridge resources from ap-northeast-1 and none of the S3 buckets in ap-south-1,
+     * while the cloud list presented it as the whole estate.
+     */
+    @Test
+    void refusesToServeWhenOnlyLocalIndexesExist() {
+        when(syncStateRepository.findById(CLOUD_ACCOUNT_ID)).thenReturn(Optional.of(
+                state(AwsInventorySyncState.INDEX_LOCAL, null)));
+
+        assertFalse(projection.isFresh(CLOUD_ACCOUNT_ID),
+                "a LOCAL index covers one region; serving it hides every other region");
+    }
+
+    /** No user-owned index at all — results are explicitly partial by name. */
+    @Test
+    void refusesToServeAPartialIndex() {
+        when(syncStateRepository.findById(CLOUD_ACCOUNT_ID)).thenReturn(Optional.of(
+                state(AwsInventorySyncState.INDEX_PARTIAL, null)));
+
+        assertFalse(projection.isFresh(CLOUD_ACCOUNT_ID));
+    }
+
+    /** A null index type has answered no question, so it cannot be served either. */
+    @Test
+    void refusesToServeWhenTheIndexTypeIsUnknown() {
+        when(syncStateRepository.findById(CLOUD_ACCOUNT_ID)).thenReturn(Optional.of(
+                state(null, null)));
+
+        assertFalse(projection.isFresh(CLOUD_ACCOUNT_ID));
+    }
+
     @Test
     void reportsIncompleteCoverageAsPartialForHonestLabelling() {
         when(syncStateRepository.findById(CLOUD_ACCOUNT_ID)).thenReturn(Optional.of(

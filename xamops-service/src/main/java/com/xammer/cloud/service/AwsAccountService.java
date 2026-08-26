@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -34,6 +35,7 @@ import software.amazon.awssdk.services.sts.StsClient;
 
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
+import javax.persistence.PersistenceException;
 import java.net.URL;
 import java.util.List;
 import java.util.Map;
@@ -268,6 +270,8 @@ public class AwsAccountService {
         autoSpottingSettingsRepository.deleteByAccountId(accountId);
         finOpsReportScheduleRepository.deleteByCloudAccountId(accountId);
         dbAgentConfigRepository.deleteByCloudAccountId(accountId);
+        deleteOrphanedAccountTables(accountId);
+        deleteClusterAgentData(accountId);
         kubernetesClusterConfigRepository.deleteByCloudAccountId(accountId);
         kubernetesClusterRepository.deleteByCloudAccount_Id(accountId);
         userCloudAccountAccessRepository.deleteByCloudAccountId(accountId);
@@ -277,9 +281,69 @@ public class AwsAccountService {
         // Force the DELETE out now so any remaining foreign key surfaces inside this
         // call — at commit time it would escape the caller's try/catch and land in the
         // generic 500 handler as an opaque "constraint" message.
-        entityManager.flush();
+        //
+        // flush() raises PersistenceException, which Spring only translates to
+        // DataIntegrityViolationException across a repository proxy — not for a direct
+        // EntityManager call in a service. Untranslated it bypasses the caller's
+        // catch entirely, which is what turned a nameable foreign key into a bare 500.
+        try {
+            entityManager.flush();
+        } catch (PersistenceException e) {
+            throw new DataIntegrityViolationException(
+                    "Could not delete cloud account " + accountId, e);
+        }
 
         clearAllCaches();
+    }
+
+    /**
+     * Clears the agent rows hanging off this account's cluster configs.
+     *
+     * <p>
+     * {@code agent_data_cache} and {@code agent_events} key off
+     * {@code kubernetes_cluster_config.id}, so they are grandchildren of the account
+     * rather than dependents of it — nothing above touches them. V20260217 declares both
+     * foreign keys {@code ON DELETE CASCADE}, but it creates the tables with
+     * {@code CREATE TABLE IF NOT EXISTS} and ddl-auto had already made them, so the
+     * statement was skipped and the cascade rule was never applied to
+     * {@code agent_data_cache}. Deleting the rows here does not depend on which rule the
+     * database actually ended up with.
+     *
+     * <p>
+     * Runs before the cluster configs are deleted, while the subquery can still resolve
+     * them.
+     */
+    private void deleteClusterAgentData(Long accountId) {
+        if (!hasColumn("kubernetes_cluster_config", "cloud_account_id")) {
+            return;
+        }
+        for (String table : List.of("agent_data_cache", "agent_events")) {
+            if (!hasColumn(table, "cluster_config_id")) {
+                continue;
+            }
+            entityManager.createNativeQuery("DELETE FROM " + table
+                    + " WHERE cluster_config_id IN "
+                    + "(SELECT id FROM kubernetes_cluster_config WHERE cloud_account_id = :id)")
+                    .setParameter("id", accountId)
+                    .executeUpdate();
+        }
+    }
+
+    /**
+     * Clears tables that still carry a non-cascading foreign key to {@code cloud_account}
+     * but no longer have an entity or repository in this codebase — leftovers from code
+     * that has since been removed. Nothing else deletes them, so a single surviving row
+     * blocks the account delete with no Java-side owner to point at.
+     */
+    private void deleteOrphanedAccountTables(Long accountId) {
+        for (String table : List.of("agent_commands", "rightsizing_history", "rightsizing_recommendations")) {
+            if (!hasColumn(table, "account_id")) {
+                continue;
+            }
+            entityManager.createNativeQuery("DELETE FROM " + table + " WHERE account_id = :id")
+                    .setParameter("id", accountId)
+                    .executeUpdate();
+        }
     }
 
     /**

@@ -115,11 +115,26 @@ public class InventoryProjectionService {
         // A slow-but-complete describe scan is strictly better than a fast wrong answer,
         // so the whole account falls back until the gap is closed by creating an index in
         // the missing region.
-        if (AwsInventorySyncState.INDEX_AGGREGATOR_INCOMPLETE.equals(state.getIndexType())) {
-            log.warn("[Inventory] Account {} has unindexed region(s) [{}] — falling back to "
-                    + "describes so those regions are not silently omitted. Create a Resource "
-                    + "Explorer index in those regions to use the fast path.",
-                    state.getAwsAccountId(), state.getUncoveredRegions());
+        // Only an aggregator index sees the whole account in one query, so only an
+        // aggregator index may be served.
+        //
+        // AGGREGATOR_INCOMPLETE was already excluded here for exactly this reason, but LOCAL
+        // and PARTIAL fell through and were served as though complete. They are not:
+        // AwsInventoryReconciler calls fetchAll() with a single region, so a LOCAL-only
+        // account is enumerated from one arbitrarily-chosen region's index and every other
+        // region is absent. Measured on a real account with LOCAL indexes in 18 regions: the
+        // plane held EKS, EC2 and EventBridge resources from ap-northeast-1 and not one of
+        // the S3 buckets that exist in ap-south-1, while the cloud list reported it as the
+        // complete estate.
+        //
+        // The same principle the AGGREGATOR_INCOMPLETE branch was written on: a slow but
+        // complete describe scan beats a fast wrong answer. Promoting one LOCAL index to
+        // AGGREGATOR restores the fast path for these accounts.
+        if (!AwsInventorySyncState.INDEX_AGGREGATOR.equals(state.getIndexType())) {
+            log.warn("[Inventory] Account {} has index type {} (uncovered: [{}]) — falling back "
+                    + "to describes because only an AGGREGATOR index covers every region in one "
+                    + "query. Promote a Resource Explorer aggregator index to use the fast path.",
+                    state.getAwsAccountId(), state.getIndexType(), state.getUncoveredRegions());
             return false;
         }
         if (state.getLastFullSyncAt() == null) {
