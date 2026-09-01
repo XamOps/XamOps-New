@@ -1,4 +1,14 @@
-FROM eclipse-temurin:25-jre-noble
+# Jammy (Ubuntu 22.04), not Noble (24.04), purely because of Prowler below.
+# Ubuntu 24.04 marks its system Python as externally managed (PEP 668), so the
+# `pip3 install prowler` on the next line fails outright with
+# "error: externally-managed-environment". Jammy has no such restriction, and
+# Jammy + system Python is the combination Prowler has always been installed on
+# here — only the JRE version changes with the Java 25 upgrade.
+#
+# Follow-up if this image should move to Noble: install Prowler into a venv
+# (python3 -m venv /opt/prowler && /opt/prowler/bin/pip install prowler) and
+# symlink /usr/local/bin/prowler at it, so prowler.executable.path still resolves.
+FROM eclipse-temurin:25-jre-jammy
 WORKDIR /app
 
 ARG EXPOSE_PORT=8080

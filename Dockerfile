@@ -54,7 +54,11 @@ RUN cp ${MODULE_NAME}/target/*.jar /app/app.jar
 # ===================================================================
 # Stage 2: Create the final runtime image with ALL Cloud CLIs
 # ===================================================================
-FROM eclipse-temurin:25-jre-noble
+# Jammy (Ubuntu 22.04), not Noble (24.04): step 5 below installs Prowler with
+# `pip3 install` into the system Python, which Ubuntu 24.04 refuses under PEP 668
+# ("error: externally-managed-environment"). Only the JRE version changes here as
+# part of the Java 25 upgrade; the OS stays where Prowler already installs cleanly.
+FROM eclipse-temurin:25-jre-jammy
 WORKDIR /app
 
 # 1. Install Core Utilities & Dependencies (including Python & Docker CLI)
