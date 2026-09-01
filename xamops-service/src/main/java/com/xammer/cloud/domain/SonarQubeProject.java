@@ -30,7 +30,11 @@ public class SonarQubeProject {
     @Column(nullable = false)
     private String projectKey; // e.g., "my-org_my-repo"
 
-    @Lob
+    // No @Lob: the column is TEXT, and on PostgreSQL @Lob makes Hibernate treat it as a
+    // large object -- read through a LOB stream, which fails outside a transaction with
+    // "Unable to access lob stream" / "Large Objects may not be used in auto-commit mode".
+    // Hibernate 5 tolerated the mismatch; Hibernate 7 does not. columnDefinition = "TEXT"
+    // already gives unbounded storage. Same fix as ScriptVersion/DevOpsScript/JenkinsIntegrationConfig.
     @Column(nullable = false, columnDefinition = "TEXT")
     private String encryptedToken; // Encrypted SonarQube API token
 

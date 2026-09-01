@@ -21,7 +21,11 @@ public class GitHubIntegrationConfig {
     @Column(nullable = false)
     private String githubRepo; // e.g., "my-cool-project"
 
-    @Lob // Use Lob for potentially long strings like encrypted tokens
+    // No @Lob: the column is TEXT, and on PostgreSQL @Lob makes Hibernate treat it as a
+    // large object -- read through a LOB stream, which fails outside a transaction with
+    // "Unable to access lob stream" / "Large Objects may not be used in auto-commit mode".
+    // Hibernate 5 tolerated the mismatch; Hibernate 7 does not. columnDefinition = "TEXT"
+    // already gives unbounded storage. Same fix as ScriptVersion/DevOpsScript/JenkinsIntegrationConfig.
     @Column(nullable = false, columnDefinition = "TEXT")
     private String encryptedPat; // Store the encrypted Personal Access Token
 

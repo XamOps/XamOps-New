@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query; // <-- IMPORT
 import org.springframework.data.repository.query.Param; // <-- IMPORT
 import java.util.List; // <-- IMPORT
 import java.time.LocalDateTime;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface TicketRepository extends JpaRepository<Ticket, Long> {
 
@@ -25,6 +26,16 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
     @Query("SELECT t FROM Ticket t LEFT JOIN FETCH t.replies r LEFT JOIN FETCH r.author WHERE t.id = :id")
     Ticket findByIdWithRepliesAndAuthors(@Param("id") Long id);
 
+    /**
+     * Transactional on purpose. Ticket.description is @Lob over a PostgreSQL oid column, i.e. a
+     * real large object, and PostgreSQL refuses to read one in auto-commit mode. Spring Data only
+     * wraps SimpleJpaRepository's own CRUD methods in a transaction -- custom @Query methods like
+     * this one get none -- so without this the query fails with "Unable to access lob stream" /
+     * "Large Objects may not be used in auto-commit mode". Hibernate 5 did not surface this;
+     * Hibernate 7 does. The transaction here is what lets Hibernate materialise the large object
+     * into a String, after which callers can read it normally.
+     */
+    @Transactional(readOnly = true)
     @Query("SELECT t FROM Ticket t LEFT JOIN FETCH t.creator " +
            "WHERE t.status != 'CLOSED' " +
            "AND t.lastAdminReplyAt IS NOT NULL " +

@@ -12,7 +12,11 @@ public class CachedData {
     @Id
     private String cacheKey;
 
-    @Lob
+    // No @Lob: the column is TEXT, and on PostgreSQL @Lob makes Hibernate treat it as a
+    // large object -- read through a LOB stream, which fails outside a transaction with
+    // "Unable to access lob stream" / "Large Objects may not be used in auto-commit mode".
+    // Hibernate 5 tolerated the mismatch; Hibernate 7 does not. columnDefinition = "TEXT"
+    // already gives unbounded storage. Same fix as ScriptVersion/DevOpsScript/JenkinsIntegrationConfig.
     @Column(columnDefinition = "TEXT")
     private String jsonData;
 
