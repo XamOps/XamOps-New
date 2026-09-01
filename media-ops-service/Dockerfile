@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:25-jre-noble
 
 # Install FFmpeg — baked into the image so UAT/prod never need host-level installs
 RUN apt-get update \

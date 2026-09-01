@@ -17,7 +17,7 @@ import com.xammer.cloud.dto.cicd.JenkinsConfigResponseDto;
 import java.util.List;
 import java.util.stream.Collectors;
 // Optional: Add validation import if using DTO validation
-// import javax.validation.Valid;
+// import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping({"/api/cicd/config", "/cicd/config"})

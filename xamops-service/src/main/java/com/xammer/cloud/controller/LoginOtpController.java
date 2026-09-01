@@ -9,6 +9,7 @@ import com.xammer.cloud.service.EmailIcons;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.FlexComputeService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.util.OtpCodes;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,13 +23,12 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Arrays;
@@ -73,6 +73,12 @@ public class LoginOtpController {
     ));
 
     /**
+     * Namespaces the OTP attempt counters. Kept distinct from the password-reset scope so
+     * failed logins cannot exhaust the reset budget or vice versa.
+     */
+    private static final String LOGIN_OTP_SCOPE = "login";
+
+    /**
      * Step 1: Validate email + password, send OTP to email.
      * Body: { "email": "...", "password": "..." }
      */
@@ -108,10 +114,15 @@ public class LoginOtpController {
             return authenticateAndRedirect(user, request);
         }
 
-        // Credentials validated — generate and send OTP
-        String otp = String.format("%06d", new Random().nextInt(999999));
+        // Credentials validated — generate and send OTP.
+        // SecureRandom via OtpCodes: java.util.Random here meant an attacker who could
+        // observe one code (their own login) could predict the second factor issued to
+        // another user seconds later, which defeats the point of having one.
+        String otp = OtpCodes.generate();
         redisCacheService.saveLoginOtp(email, otp);
         redisCacheService.savePreAuthFlag(email);
+        // Fresh code, fresh guess budget.
+        redisCacheService.clearOtpFailures(LOGIN_OTP_SCOPE, email);
 
         String htmlBody = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>Verification Code</title></head>"
                 + "<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>"
@@ -171,12 +182,29 @@ public class LoginOtpController {
                     .body(Map.of("error", "Session expired or invalid request. Please start login again."));
         }
 
-        // Verify OTP
+        // Cap guesses. The pre-auth flag proves step 1 succeeded but does nothing to bound
+        // how many codes may be tried against it, so without this the second factor is
+        // ~20 bits with unlimited attempts inside a 5-minute window.
+        if (redisCacheService.isOtpLocked(LOGIN_OTP_SCOPE, email)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Too many attempts. Please start login again."));
+        }
+
+        // Verify OTP (constant-time; String.equals leaks a prefix oracle via timing)
         String cachedOtp = redisCacheService.getLoginOtp(email);
-        if (cachedOtp == null || !cachedOtp.equals(otp)) {
+        if (!OtpCodes.matches(cachedOtp, otp)) {
+            if (redisCacheService.registerOtpFailure(LOGIN_OTP_SCOPE, email)) {
+                // Budget spent: invalidate the code and force a full restart rather than
+                // leaving a known-length window open.
+                redisCacheService.deleteLoginOtp(email);
+                redisCacheService.deletePreAuthFlag(email);
+                log.warn("Login OTP burned after repeated failed attempts");
+            }
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid or expired verification code"));
         }
+
+        redisCacheService.clearOtpFailures(LOGIN_OTP_SCOPE, email);
 
         // OTP valid — clean up Redis
         redisCacheService.deleteLoginOtp(email);

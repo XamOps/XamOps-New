@@ -4,11 +4,16 @@ import com.xammer.cloud.config.AwsConfig;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import java.security.Principal;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
@@ -27,6 +32,7 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
 
     private final AwsConfig awsConfig;
     private final CloudAccountRepository cloudAccountRepository;
+    private final CloudAccountAccessService accountAccessService;
 
     private final Map<String, Process> sessions = new ConcurrentHashMap<>();
     private final Map<String, Thread> outputThreads = new ConcurrentHashMap<>();
@@ -34,9 +40,28 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     // Locks for synchronized message sending per session (prevents TEXT_PARTIAL_WRITING errors)
     private final Map<String, Object> sessionLocks = new ConcurrentHashMap<>();
 
-    public CloudShellSocketHandler(AwsConfig awsConfig, CloudAccountRepository cloudAccountRepository) {
+    public CloudShellSocketHandler(AwsConfig awsConfig, CloudAccountRepository cloudAccountRepository,
+            CloudAccountAccessService accountAccessService) {
         this.awsConfig = awsConfig;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.accountAccessService = accountAccessService;
+    }
+
+    /**
+     * Pulls the authenticated user off the handshake.
+     *
+     * <p>
+     * Spring Security stores the {@code Authentication} as the WebSocket session principal
+     * when the handshake passes through the filter chain. Returns null rather than throwing
+     * so the caller can close the socket with a message the terminal UI can display.
+     */
+    private ClientUserDetails resolveCaller(WebSocketSession session) {
+        Principal principal = session.getPrincipal();
+        if (principal instanceof Authentication authentication
+                && authentication.getPrincipal() instanceof ClientUserDetails details) {
+            return details;
+        }
+        return null;
     }
 
     /**
@@ -63,7 +88,6 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         Map<String, String> queryParams = parseQueryParams(session.getUri().getQuery());
         String accountId = queryParams.get("accountId");
-        String tenantId = queryParams.get("tenantId");
 
         // Initialize session lock for thread-safe message sending
         sessionLocks.put(session.getId(), new Object());
@@ -74,20 +98,50 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        if (tenantId != null && !tenantId.equals("null")) {
-            TenantContext.setCurrentTenant(tenantId);
+        // Who is asking. The handshake is authenticated by the servlet filter chain now
+        // that /terminal is no longer permitAll, so a principal must be present; if it is
+        // not, something is misconfigured and refusing is the only safe response.
+        //
+        // Deliberately NOT taken from the query string. This endpoint hands the caller an
+        // interactive shell already holding the account's cloud credentials, so identity
+        // has to come from the authenticated session, never from a parameter the caller
+        // controls.
+        ClientUserDetails caller = resolveCaller(session);
+        if (caller == null) {
+            log.warn("Rejecting CloudShell connection with no authenticated principal (session={})",
+                    session.getId());
+            sendMessageSafe(session, "Error: Not authenticated.\r\n");
+            session.close(CloseStatus.NOT_ACCEPTABLE);
+            return;
+        }
+
+        // Tenant is taken from the authenticated user, not from the tenantId query
+        // parameter. Honouring a caller-supplied tenant let an attacker point the lookup
+        // at another customer's schema, which is how the account resolution below could be
+        // steered off-tenant in the first place.
+        if (caller.getTenantId() != null && !caller.getTenantId().isBlank()) {
+            TenantContext.setCurrentTenant(caller.getTenantId());
         }
 
         try {
-            log.info("WS Connecting: Session={}, Account={}", session.getId(), accountId);
+            log.info("WS Connecting: Session={}, User={}", session.getId(), caller.getId());
 
             // Track session start time
             sessionStartTimes.put(session.getId(), System.currentTimeMillis());
 
             CloudAccount account = findAccount(accountId);
-            if (account == null) {
+
+            // Ownership. findAccount resolves a caller-supplied identifier against the
+            // whole table, so without this check naming any account ID was sufficient to
+            // be handed a shell in that customer's cloud. Same rule as the HTTP endpoints,
+            // via the same service, so the two cannot drift.
+            if (account == null || !accountAccessService.canAccess(caller, account)) {
+                // One message for both cases: distinguishing "no such account" from "not
+                // yours" would confirm which account IDs exist.
+                log.warn("Denied CloudShell access: user={} requested an account they do not hold",
+                        caller.getId());
                 sendMessageSafe(session, "Error: Account not found.\r\n");
-                session.close();
+                session.close(CloseStatus.NOT_ACCEPTABLE);
                 return;
             }
 
@@ -180,9 +234,21 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     }
 
     private ProcessBuilder setupAwsProcess(String sessionId, CloudAccount account) {
-        String externalId = (account.getExternalId() != null && !account.getExternalId().isEmpty())
-                ? account.getExternalId()
-                : "XamOps_Secure_ID";
+        // An ExternalId is the confused-deputy defence on AssumeRole: it is the shared
+        // secret proving the request came from XamOps rather than from someone else who
+        // learned the customer's role ARN. Falling back to a constant compiled into the
+        // source defeated that entirely — the value was the same for every account that had
+        // none configured, and it is in the repository.
+        //
+        // Failing closed instead. An account with no ExternalId is a misconfigured
+        // onboarding, and refusing the shell is better than assuming the role with a
+        // publicly-known value.
+        String externalId = account.getExternalId();
+        if (externalId == null || externalId.isBlank()) {
+            throw new IllegalStateException(
+                    "No ExternalId configured for this account. Re-run onboarding to set one; "
+                            + "CloudShell will not assume a role without it.");
+        }
 
         log.info("Assuming AWS Role: {}", account.getRoleArn());
 

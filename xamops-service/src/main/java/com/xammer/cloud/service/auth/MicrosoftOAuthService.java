@@ -72,7 +72,7 @@ public class MicrosoftOAuthService {
      * @param state opaque anti-CSRF value echoed back on the callback
      */
     public String buildAuthorizationUrl(String state) {
-        return UriComponentsBuilder.fromHttpUrl(String.format(AUTH_ENDPOINT_TMPL, tenant))
+        return UriComponentsBuilder.fromUriString(String.format(AUTH_ENDPOINT_TMPL, tenant))
                 .queryParam("client_id", clientId)
                 .queryParam("redirect_uri", redirectUri)
                 .queryParam("response_type", "code")

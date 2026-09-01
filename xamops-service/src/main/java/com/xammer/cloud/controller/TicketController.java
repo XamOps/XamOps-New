@@ -69,9 +69,19 @@ public class TicketController {
             @PathVariable Long id,
             @RequestPart(value = "message", required = false) String message,
             @RequestPart(value = "files", required = false) List<MultipartFile> files,
-            @RequestPart(value = "authorId", required = false) String authorIdStr,
             @RequestPart(value = "isInternal", required = false) String isInternalStr,
             Authentication authentication) {
+
+        // The authorId request part was removed. TicketService prefers authorId over the
+        // authenticated username when both are present, so accepting it from the client let
+        // any caller post a reply attributed to any user id — including a support agent or
+        // an admin. That is identity spoofing on a channel people act on, and it also made
+        // a convincing delivery vehicle for other payloads in the same thread.
+        //
+        // The author is now always the authenticated user.
+        if (authentication == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
 
         // Reply bodies are rich text typed by customers and agents, and are
         // rendered back to every participant — strip active content on the way in.
@@ -85,20 +95,16 @@ public class TicketController {
 
         TicketReplyDto replyDto = new TicketReplyDto();
         replyDto.setMessage(safeMessage);
+        replyDto.setAuthorUsername(authentication.getName());
 
-        if (authentication != null) {
-            replyDto.setAuthorUsername(authentication.getName());
-        }
-
-        if (authorIdStr != null && !authorIdStr.isBlank()) {
-            try {
-                replyDto.setAuthorId(Long.parseLong(authorIdStr));
-            } catch (NumberFormatException e) {
-                // ignore invalid ID
-            }
-        }
-
-        if ("true".equalsIgnoreCase(isInternalStr)) {
+        // Internal notes are staff-only. billops already gates this on the admin role; this
+        // service did not, so a customer could post a reply flagged internal and have it
+        // hidden from the ticket's own participants while still reaching support.
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_BILLOPS_ADMIN".equals(a.getAuthority())
+                        || "ROLE_SUPER_ADMIN".equals(a.getAuthority())
+                        || "ROLE_XAMOPS_ADMIN".equals(a.getAuthority()));
+        if ("true".equalsIgnoreCase(isInternalStr) && isAdmin) {
             replyDto.setInternal(true);
         }
 

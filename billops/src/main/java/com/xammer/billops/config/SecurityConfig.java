@@ -19,7 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -33,6 +33,13 @@ import static org.springframework.security.config.Customizer.withDefaults;
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 public class SecurityConfig {
+
+    /**
+     * Security 7 removed AntPathRequestMatcher. Every rule below was an Ant pattern over
+     * a servlet path, which PathPattern parses identically for the shapes used here
+     * ({@code /a/**}, literals).
+     */
+    private static final PathPatternRequestMatcher.Builder PATH = PathPatternRequestMatcher.withDefaults();
 
     private final CustomAuthenticationSuccessHandler authenticationSuccessHandler;
     private final CustomUserDetailsService userDetailsService; // Inject this
@@ -55,8 +62,9 @@ public class SecurityConfig {
 
     @Bean
     public DaoAuthenticationProvider authenticationProvider(BCryptPasswordEncoder passwordEncoder) {
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
-        authProvider.setUserDetailsService(userDetailsService); // Use the Multi-Tenant service
+        // Security 7 dropped the no-arg constructor and setUserDetailsService: the
+        // UserDetailsService is now mandatory and supplied up front.
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider(userDetailsService);
         authProvider.setPasswordEncoder(passwordEncoder);
         return authProvider;
     }
@@ -64,11 +72,14 @@ public class SecurityConfig {
     /** Completely bypass Spring Security for webhook + OAuth callback endpoints — no auth, no filters */
     @Bean
     public WebSecurityCustomizer webSecurityCustomizer() {
+        // antMatchers() was removed in Security 6; requestMatchers() takes the same
+        // patterns and accepts them all in one call.
         return (web) -> web.ignoring()
-                .antMatchers("/api/billops/webhook/**")
-                .antMatchers("/api/billops/slack/oauth/callback")
-                .antMatchers("/api/billops/teams/app/manifest.zip")
-                .antMatchers("/api/billops/support/files/**");
+                .requestMatchers(
+                        "/api/billops/webhook/**",
+                        "/api/billops/slack/oauth/callback",
+                        "/api/billops/teams/app/manifest.zip",
+                        "/api/billops/support/files/**");
     }
 
     /**
@@ -79,7 +90,7 @@ public class SecurityConfig {
     @Order(1)
     public SecurityFilterChain impersonationJwtFilterChain(HttpSecurity http) throws Exception {
         http
-                .requestMatcher(new RequestHeaderRequestMatcher("Authorization"))
+                .securityMatcher(new RequestHeaderRequestMatcher("Authorization"))
                 .cors(withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session
@@ -87,7 +98,7 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                                new AntPathRequestMatcher("/api/**")))
+                                PATH.matcher("/api/**")))
                 .authorizeHttpRequests(auth -> auth
                         .anyRequest().authenticated())
                 .addFilterBefore(impersonationJwtFilter, UsernamePasswordAuthenticationFilter.class);
@@ -102,35 +113,35 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests((requests) -> requests
                         // Docker/K8s health checks — must be public so health probes don't 401
-                        .requestMatchers(new AntPathRequestMatcher("/actuator/health")).permitAll()
+                        .requestMatchers(PATH.matcher("/actuator/health")).permitAll()
                         .requestMatchers(
-                                new AntPathRequestMatcher("/"),
-                                new AntPathRequestMatcher("/index.html"),
-                                new AntPathRequestMatcher("/login"),
-                                new AntPathRequestMatcher("/css/**"),
-                                new AntPathRequestMatcher("/js/**"),
-                                new AntPathRequestMatcher("/icons/**"),
-                                new AntPathRequestMatcher("/api/admin/cloudfront/**"),
+                                PATH.matcher("/"),
+                                PATH.matcher("/index.html"),
+                                PATH.matcher("/login"),
+                                PATH.matcher("/css/**"),
+                                PATH.matcher("/js/**"),
+                                PATH.matcher("/icons/**"),
+                                PATH.matcher("/api/admin/cloudfront/**"),
                                 // External platform webhooks — must be public (no session/auth)
-                                new AntPathRequestMatcher("/api/billops/webhook/**"))
+                                PATH.matcher("/api/billops/webhook/**"))
                         .permitAll()
                         // BillOps Admin Dashboard - ROLE_BILLOPS_ADMIN and ROLE_BILLOPS_ADMIN_SUB
-                        .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_admin.html"))
+                        .requestMatchers(PATH.matcher("/billops/dashboard_admin.html"))
                         .hasAnyAuthority("ROLE_BILLOPS_ADMIN", "ROLE_BILLOPS_ADMIN_SUB")
                         // BillOps User Dashboard - ROLE_BILLOPS and ROLE_BILLOPS_ADMIN
-                        .requestMatchers(new AntPathRequestMatcher("/billops/dashboard_user.html"))
+                        .requestMatchers(PATH.matcher("/billops/dashboard_user.html"))
                         .hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN", "ROLE_BILLOPS_ADMIN_SUB")
                         // Unified Dashboard - ROLE_XAMOPS
-                        .requestMatchers(new AntPathRequestMatcher("/unified-dashboard.html"))
+                        .requestMatchers(PATH.matcher("/unified-dashboard.html"))
                         .hasAuthority("ROLE_XAMOPS")
                         // All other BillOps pages - ROLE_BILLOPS, ROLE_BILLOPS_ADMIN, ROLE_BILLOPS_ADMIN_SUB
-                        .requestMatchers(new AntPathRequestMatcher("/billops/**"))
+                        .requestMatchers(PATH.matcher("/billops/**"))
                         .hasAnyAuthority("ROLE_BILLOPS", "ROLE_BILLOPS_ADMIN", "ROLE_BILLOPS_ADMIN_SUB")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                                new AntPathRequestMatcher("/api/**")))
+                                PATH.matcher("/api/**")))
                 .formLogin((form) -> form
                         .loginPage("/login")
                         .successHandler(authenticationSuccessHandler)

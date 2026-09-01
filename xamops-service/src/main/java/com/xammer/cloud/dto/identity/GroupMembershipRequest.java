@@ -3,7 +3,7 @@ package com.xammer.cloud.dto.identity;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotNull;
 
 /**
  * Request body for add-user-to-group and remove-user-from-group endpoints.

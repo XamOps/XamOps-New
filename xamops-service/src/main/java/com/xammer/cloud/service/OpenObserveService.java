@@ -56,7 +56,7 @@ public class OpenObserveService {
      * credentials surfaced as a 401 from O2 buried inside a log-search failure, which reads
      * as "observability is broken" rather than "this deployment is misconfigured".
      */
-    @javax.annotation.PostConstruct
+    @jakarta.annotation.PostConstruct
     void verifyCredentialsConfigured() {
         if (adminEmail == null || adminEmail.isBlank() || adminPassword == null || adminPassword.isBlank()) {
             throw new IllegalStateException(

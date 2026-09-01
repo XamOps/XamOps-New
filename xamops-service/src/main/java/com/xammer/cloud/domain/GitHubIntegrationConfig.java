@@ -1,6 +1,6 @@
 package com.xammer.cloud.domain;
 
-import javax.persistence.*; // Use javax.persistence for Spring Boot 2.x
+import jakarta.persistence.*; // Use jakarta.persistence for Spring Boot 2.x
 import java.time.Instant;
 
 @Entity

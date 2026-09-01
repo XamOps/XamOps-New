@@ -1,7 +1,7 @@
 package com.xammer.cloud.dto.cicd;
 
 // Add validation annotations if needed (e.g., @NotBlank)
-// import javax.validation.constraints.NotBlank;
+// import jakarta.validation.constraints.NotBlank;
 
 public class GitHubConfigRequestDto {
 

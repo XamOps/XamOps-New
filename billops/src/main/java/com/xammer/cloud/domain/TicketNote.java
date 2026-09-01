@@ -1,7 +1,7 @@
 package com.xammer.cloud.domain;
 
 import java.time.LocalDateTime;
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 /**
  * A single shared internal note pad per ticket (admin-only).

@@ -64,7 +64,7 @@ public class GoogleOAuthService {
      * @param state opaque anti-CSRF value echoed back on the callback
      */
     public String buildAuthorizationUrl(String state) {
-        return UriComponentsBuilder.fromHttpUrl(AUTH_ENDPOINT)
+        return UriComponentsBuilder.fromUriString(AUTH_ENDPOINT)
                 .queryParam("client_id", clientId)
                 .queryParam("redirect_uri", redirectUri)
                 .queryParam("response_type", "code")

@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 @Entity
 @Data

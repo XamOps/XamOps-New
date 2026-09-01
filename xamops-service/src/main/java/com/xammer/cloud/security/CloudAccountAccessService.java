@@ -2,10 +2,12 @@ package com.xammer.cloud.security;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.User;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 
@@ -44,11 +46,91 @@ public class CloudAccountAccessService {
 
     private final UserRepository userRepository;
     private final UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+    private final CloudAccountRepository cloudAccountRepository;
 
     public CloudAccountAccessService(UserRepository userRepository,
-            UserCloudAccountAccessRepository userCloudAccountAccessRepository) {
+            UserCloudAccountAccessRepository userCloudAccountAccessRepository,
+            CloudAccountRepository cloudAccountRepository) {
         this.userRepository = userRepository;
         this.userCloudAccountAccessRepository = userCloudAccountAccessRepository;
+        this.cloudAccountRepository = cloudAccountRepository;
+    }
+
+    /**
+     * Resolves a CloudAccount by primary key and asserts the caller may use it.
+     *
+     * <p>
+     * The AutoSpotting controllers take {@code accountId} as a path variable and passed it
+     * straight to the service layer, so any authenticated user — and before the
+     * SecurityConfig change, any unauthenticated one — could drive spot infrastructure in
+     * another tenant's cloud account by incrementing an integer. This is the single
+     * chokepoint those endpoints now go through.
+     *
+     * <p>
+     * "Not found" and "not yours" both raise {@link AccessDeniedException} with the same
+     * message on purpose. Distinguishing them turns the endpoint into an oracle for which
+     * account IDs exist, which is most of the value of the original IDOR.
+     *
+     * @throws AccessDeniedException if the caller is absent, the account does not exist, or
+     *                               the caller is not entitled to it.
+     */
+    public CloudAccount requireAccess(ClientUserDetails userDetails, Long cloudAccountId) {
+        if (userDetails == null) {
+            // Reachable if an endpoint is left in the permitAll list by mistake; failing
+            // closed here means the guard does not depend on SecurityConfig being right.
+            throw new AccessDeniedException("Authentication required.");
+        }
+        if (cloudAccountId == null) {
+            throw new AccessDeniedException("Account not found or access denied.");
+        }
+
+        CloudAccount account = cloudAccountRepository.findById(cloudAccountId).orElse(null);
+        if (account == null || !canAccess(userDetails, account)) {
+            log.warn("Denied account access: user={} requested cloudAccountId={}",
+                    userDetails.getId(), cloudAccountId);
+            throw new AccessDeniedException("Account not found or access denied.");
+        }
+        return account;
+    }
+
+    /**
+     * String-identifier variant, for the GCP and Azure endpoints whose {@code accountId} is
+     * either a provider account identifier (GCP project, Azure subscription) or a numeric
+     * primary key.
+     *
+     * <p>
+     * The resolution order matches {@code GcpAutoSpottingService.resolveAccount} so guarded
+     * endpoints keep accepting the identifiers the frontend already sends. The difference is
+     * that the result is then checked against the caller's entitlement, and that the numeric
+     * fallback cannot be used to reach an account the caller does not hold.
+     *
+     * @throws AccessDeniedException if the identifier resolves to nothing the caller may use.
+     */
+    public CloudAccount requireAccessByIdentifier(ClientUserDetails userDetails, String identifier) {
+        if (userDetails == null) {
+            throw new AccessDeniedException("Authentication required.");
+        }
+        if (identifier == null || identifier.isBlank()) {
+            throw new AccessDeniedException("Account not found or access denied.");
+        }
+
+        CloudAccount byProvider = cloudAccountRepository.findByProviderAccountId(identifier).orElse(null);
+        if (byProvider != null && canAccess(userDetails, byProvider)) {
+            return byProvider;
+        }
+
+        // Numeric fallback, preserved from the original resolver.
+        try {
+            CloudAccount byId = cloudAccountRepository.findById(Long.parseLong(identifier)).orElse(null);
+            if (byId != null && canAccess(userDetails, byId)) {
+                return byId;
+            }
+        } catch (NumberFormatException ignored) {
+            // Not a primary key; the provider lookup above was the only option.
+        }
+
+        log.warn("Denied account access: user={} requested account identifier", userDetails.getId());
+        throw new AccessDeniedException("Account not found or access denied.");
     }
 
     /**

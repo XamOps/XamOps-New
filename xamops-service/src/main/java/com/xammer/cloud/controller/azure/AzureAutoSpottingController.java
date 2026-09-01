@@ -8,10 +8,13 @@ import com.xammer.cloud.dto.autospotting.LaunchAnalyticsResponse;
 import com.xammer.cloud.dto.autospotting.RiSpCoverageResponse;
 import com.xammer.cloud.dto.autospotting.SpotInstanceDto;
 import com.xammer.cloud.service.azure.AzureAutoSpottingService;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -30,6 +33,7 @@ import java.util.Map;
 public class AzureAutoSpottingController {
 
     private final AzureAutoSpottingService azureAutoSpottingService;
+    private final CloudAccountAccessService accountAccessService;
 
     // =================== VMSS LISTING ===================
 
@@ -39,7 +43,9 @@ public class AzureAutoSpottingController {
      */
     @GetMapping("/vmss/all-regions/{subscriptionId}")
     public ResponseEntity<?> listVmssAllRegions(@PathVariable String subscriptionId,
-            @RequestParam(defaultValue = "false") boolean refresh) {
+            @RequestParam(defaultValue = "false") boolean refresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("🚀 [Azure AutoSpotting] listVmssAllRegions called for subscriptionId: {}, refresh={}", subscriptionId, refresh);
         try {
             List<AzureAutoSpottingService.AzureAutoSpottingGroupDto> vmssList =
@@ -61,7 +67,9 @@ public class AzureAutoSpottingController {
      * GET /api/azure/autospotting/instances/{subscriptionId}
      */
     @GetMapping("/instances/{subscriptionId}")
-    public ResponseEntity<?> getSpotInstances(@PathVariable String subscriptionId) {
+    public ResponseEntity<?> getSpotInstances(@PathVariable String subscriptionId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("Azure AutoSpottingController.getSpotInstances called with subscriptionId={}", subscriptionId);
         try {
             List<SpotInstanceDto> instances = azureAutoSpottingService.getSpotInstances(subscriptionId);
@@ -83,7 +91,9 @@ public class AzureAutoSpottingController {
     @GetMapping("/history/{subscriptionId}")
     public ResponseEntity<?> getHistory(
             @PathVariable String subscriptionId,
-            @RequestParam(defaultValue = "last7d") String range) {
+            @RequestParam(defaultValue = "last7d") String range,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("Azure AutoSpottingController.getHistory called with subscriptionId={}, range={}", subscriptionId, range);
         try {
             HistoryResponse history = azureAutoSpottingService.getHistoryData(subscriptionId, range);
@@ -108,7 +118,9 @@ public class AzureAutoSpottingController {
             @RequestParam(required = false) String start,
             @RequestParam(required = false) String end,
             @RequestParam(required = false) String eventType,
-            @RequestParam(required = false) String vmssName) {
+            @RequestParam(required = false) String vmssName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("Azure AutoSpottingController.getEvents called with subscriptionId={}, start={}, end={}, eventType={}, vmssName={}",
                 subscriptionId, start, end, eventType, vmssName);
         try {
@@ -132,7 +144,9 @@ public class AzureAutoSpottingController {
     public ResponseEntity<?> enableAutoSpotting(
             @RequestParam String subscriptionId,
             @RequestParam String resourceGroup,
-            @RequestParam String vmssName) {
+            @RequestParam String vmssName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("🚀 [Azure AutoSpotting] enableAutoSpotting called - subscriptionId: {}, resourceGroup: {}, vmssName: {}",
                 subscriptionId, resourceGroup, vmssName);
         try {
@@ -160,7 +174,9 @@ public class AzureAutoSpottingController {
     public ResponseEntity<?> disableAutoSpotting(
             @RequestParam String subscriptionId,
             @RequestParam String resourceGroup,
-            @RequestParam String vmssName) {
+            @RequestParam String vmssName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("🚀 [Azure AutoSpotting] disableAutoSpotting called - subscriptionId: {}, resourceGroup: {}, vmssName: {}",
                 subscriptionId, resourceGroup, vmssName);
         try {
@@ -184,7 +200,9 @@ public class AzureAutoSpottingController {
      * POST /api/azure/autospotting/register/{subscriptionId}
      */
     @PostMapping("/register/{subscriptionId}")
-    public ResponseEntity<?> registerAccount(@PathVariable String subscriptionId) {
+    public ResponseEntity<?> registerAccount(@PathVariable String subscriptionId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] registerAccount called for subscriptionId={}", subscriptionId);
         try {
             Map<String, Object> result = azureAutoSpottingService.registerAccount(subscriptionId);
@@ -202,7 +220,9 @@ public class AzureAutoSpottingController {
      * GET /api/azure/autospotting/costs/{subscriptionId}
      */
     @GetMapping("/costs/{subscriptionId}")
-    public ResponseEntity<?> getCostData(@PathVariable String subscriptionId) {
+    public ResponseEntity<?> getCostData(@PathVariable String subscriptionId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] getCostData called for subscriptionId={}", subscriptionId);
         try {
             CostResponse response = azureAutoSpottingService.getCostData(subscriptionId);
@@ -220,7 +240,9 @@ public class AzureAutoSpottingController {
     @GetMapping("/costs/history/{subscriptionId}")
     public ResponseEntity<?> getCostHistory(
             @PathVariable String subscriptionId,
-            @RequestParam(defaultValue = "last7d") String range) {
+            @RequestParam(defaultValue = "last7d") String range,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] getCostHistory called for subscriptionId={}, range={}", subscriptionId, range);
         try {
             HistoryResponse response = azureAutoSpottingService.getHistoryData(subscriptionId, range);
@@ -236,7 +258,9 @@ public class AzureAutoSpottingController {
      * GET /api/azure/autospotting/savings/{subscriptionId}
      */
     @GetMapping("/savings/{subscriptionId}")
-    public ResponseEntity<?> getSavingsMetrics(@PathVariable String subscriptionId) {
+    public ResponseEntity<?> getSavingsMetrics(@PathVariable String subscriptionId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] getSavingsMetrics called for subscriptionId={}", subscriptionId);
         try {
             Map<String, Object> metrics = azureAutoSpottingService.getSavingsMetrics(subscriptionId);
@@ -257,7 +281,9 @@ public class AzureAutoSpottingController {
     public ResponseEntity<?> getConfiguredVmSkus(
             @PathVariable String subscriptionId,
             @RequestParam String resourceGroup,
-            @RequestParam String vmssName) {
+            @RequestParam String vmssName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         try {
             return ResponseEntity.ok(azureAutoSpottingService.getConfiguredVmSkus(subscriptionId, resourceGroup, vmssName));
         } catch (Exception e) {
@@ -275,7 +301,9 @@ public class AzureAutoSpottingController {
             @PathVariable String subscriptionId,
             @RequestParam String resourceGroup,
             @RequestParam String vmssName,
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         try {
             String allowedVmSkus = body.getOrDefault("allowed_vm_skus", "");
             String strategy      = body.getOrDefault("spot_allocation_strategy", "mixed");
@@ -294,7 +322,9 @@ public class AzureAutoSpottingController {
     public ResponseEntity<?> getSpotConfig(
             @PathVariable String subscriptionId,
             @RequestParam String resourceGroup,
-            @RequestParam String vmssName) {
+            @RequestParam String vmssName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         try {
             return ResponseEntity.ok(azureAutoSpottingService.getSpotConfig(subscriptionId, resourceGroup, vmssName));
         } catch (Exception e) {
@@ -312,7 +342,9 @@ public class AzureAutoSpottingController {
             @PathVariable String subscriptionId,
             @RequestParam String resourceGroup,
             @RequestParam String vmssName,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         try {
             Integer spotPercentage = body.containsKey("spot_percentage") && body.get("spot_percentage") != null
                     ? ((Number) body.get("spot_percentage")).intValue() : null;
@@ -333,7 +365,9 @@ public class AzureAutoSpottingController {
     public ResponseEntity<?> getVmssConfig(
             @PathVariable String subscriptionId,
             @RequestParam String resourceGroup,
-            @RequestParam String vmssName) {
+            @RequestParam String vmssName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         try {
             return ResponseEntity.ok(azureAutoSpottingService.getVmssConfig(subscriptionId, resourceGroup, vmssName));
         } catch (Exception e) {
@@ -351,7 +385,9 @@ public class AzureAutoSpottingController {
             @PathVariable String subscriptionId,
             @RequestParam String resourceGroup,
             @RequestParam String vmssName,
-            @RequestBody Map<String, Object> updates) {
+            @RequestBody Map<String, Object> updates,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         try {
             return ResponseEntity.ok(azureAutoSpottingService.updateVmssConfig(subscriptionId, resourceGroup, vmssName, updates));
         } catch (Exception e) {
@@ -367,7 +403,9 @@ public class AzureAutoSpottingController {
      * POST /api/azure/autospotting/vmss/{subscriptionId}/sync
      */
     @PostMapping("/vmss/{subscriptionId}/sync")
-    public ResponseEntity<?> syncSpotEvents(@PathVariable String subscriptionId) {
+    public ResponseEntity<?> syncSpotEvents(@PathVariable String subscriptionId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] syncSpotEvents (backfill) called for subscriptionId={}", subscriptionId);
         try {
             Map<String, Object> result = azureAutoSpottingService.backfillSpotEvents(subscriptionId);
@@ -383,7 +421,9 @@ public class AzureAutoSpottingController {
      * POST /api/azure/autospotting/vmss/{subscriptionId}/refresh-cache
      */
     @PostMapping("/vmss/{subscriptionId}/refresh-cache")
-    public ResponseEntity<?> refreshRegionCache(@PathVariable String subscriptionId) {
+    public ResponseEntity<?> refreshRegionCache(@PathVariable String subscriptionId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] refreshRegionCache called for subscriptionId={}", subscriptionId);
         try {
             Map<String, Object> result = azureAutoSpottingService.refreshRegionCache(subscriptionId);
@@ -403,7 +443,9 @@ public class AzureAutoSpottingController {
     @GetMapping("/analytics/launches/{subscriptionId}")
     public ResponseEntity<?> getLaunchAnalytics(
             @PathVariable String subscriptionId,
-            @RequestParam(defaultValue = "last7d") String range) {
+            @RequestParam(defaultValue = "last7d") String range,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] getLaunchAnalytics called for subscriptionId={}, range={}", subscriptionId, range);
         try {
             LaunchAnalyticsResponse response = azureAutoSpottingService.getLaunchAnalytics(subscriptionId, range);
@@ -419,7 +461,9 @@ public class AzureAutoSpottingController {
      * GET /api/azure/autospotting/analytics/reservation-coverage/{subscriptionId}
      */
     @GetMapping("/analytics/reservation-coverage/{subscriptionId}")
-    public ResponseEntity<?> getReservationCoverage(@PathVariable String subscriptionId) {
+    public ResponseEntity<?> getReservationCoverage(@PathVariable String subscriptionId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] getReservationCoverage called for subscriptionId={}", subscriptionId);
         try {
             RiSpCoverageResponse response = azureAutoSpottingService.getReservationCoverage(subscriptionId);
@@ -437,7 +481,9 @@ public class AzureAutoSpottingController {
      * GET /api/azure/autospotting/settings/{subscriptionId}
      */
     @GetMapping("/settings/{subscriptionId}")
-    public ResponseEntity<?> getSettings(@PathVariable String subscriptionId) {
+    public ResponseEntity<?> getSettings(@PathVariable String subscriptionId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] getSettings called for subscriptionId={}", subscriptionId);
         try {
             AutoSpottingSettings settings = azureAutoSpottingService.getSettings(subscriptionId);
@@ -455,7 +501,9 @@ public class AzureAutoSpottingController {
     @PutMapping("/settings/{subscriptionId}/reservation-respect")
     public ResponseEntity<?> updateRispRespectSettings(
             @PathVariable String subscriptionId,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("[Azure AutoSpotting] updateRispRespectSettings called for subscriptionId={}", subscriptionId);
         try {
             boolean enabled   = Boolean.TRUE.equals(body.get("enabled"));
@@ -484,7 +532,9 @@ public class AzureAutoSpottingController {
      * Useful for diagnosing auth issues without waiting 60s for VMSS list to timeout.
      */
     @GetMapping("/test-auth/{subscriptionId}")
-    public ResponseEntity<Map<String, Object>> testAuth(@PathVariable String subscriptionId) {
+    public ResponseEntity<Map<String, Object>> testAuth(@PathVariable String subscriptionId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, subscriptionId);
         log.info("Azure auth test requested for subscriptionId={}", subscriptionId);
         try {
             com.azure.core.credential.TokenCredential credential =

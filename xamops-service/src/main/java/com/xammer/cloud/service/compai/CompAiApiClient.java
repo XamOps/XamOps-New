@@ -39,7 +39,7 @@ public class CompAiApiClient {
         this.restTemplate = restTemplate;
     }
 
-    @javax.annotation.PostConstruct
+    @jakarta.annotation.PostConstruct
     void logConfigState() {
         log.info("[CompAi] client init — configured={} apiBaseUrl={}", isConfigured(), apiBaseUrl);
         if (!isConfigured()) {

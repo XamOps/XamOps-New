@@ -4,7 +4,7 @@ import com.xammer.cloud.domain.AppUser;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 @Entity
 @Table(name = "user_cloud_account_access")

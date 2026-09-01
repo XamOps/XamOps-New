@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.cache.annotation.EnableCaching;
@@ -48,8 +48,39 @@ public class CacheConfig {
                 objectMapper.registerModule(new ClientUserDetailsJacksonModule());
 
                 // --- Type Info Configuration (Fixes LinkedHashMap Error) ---
+                //
+                // Default typing is genuinely needed here: Redis holds heterogeneous cached
+                // values and session objects, and without embedded type information they
+                // deserialize back as LinkedHashMap. What is not needed is accepting *any*
+                // class named in the JSON.
+                //
+                // This previously used LaissezFaireSubTypeValidator, which performs no
+                // validation at all — it is Jackson's explicit "trust the document" option.
+                // Combined with default typing that is the standard deserialization-gadget
+                // RCE setup: an attacker who can write a value into Redis names a class with
+                // a dangerous constructor or setter (the JNDI-fetching datasource classes
+                // are the usual choice) and gets code execution inside the service on read.
+                //
+                // Redis is not internet-exposed, so this is a second-stage vulnerability
+                // rather than a front door. It is worth closing anyway: it converts "the
+                // attacker reached Redis" from full application compromise into cache
+                // tampering, and it is the difference between one bug and a chain.
+                //
+                // The allowlist is by package rather than by class so ordinary DTO changes
+                // do not require touching this config. Anything deserialized here belongs to
+                // the application, the JDK's own containers, or Spring Security's session
+                // types — nothing else has a legitimate reason to appear.
+                BasicPolymorphicTypeValidator typeValidator = BasicPolymorphicTypeValidator.builder()
+                                .allowIfSubType("com.xammer.")
+                                .allowIfSubType("java.util.")
+                                .allowIfSubType("java.time.")
+                                .allowIfSubType("java.lang.")
+                                .allowIfSubType("java.math.")
+                                .allowIfSubType("org.springframework.security.")
+                                .build();
+
                 objectMapper.activateDefaultTyping(
-                                LaissezFaireSubTypeValidator.instance,
+                                typeValidator,
                                 ObjectMapper.DefaultTyping.NON_FINAL,
                                 JsonTypeInfo.As.PROPERTY);
 

@@ -22,9 +22,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
@@ -98,6 +98,21 @@ public class MediaOpsController {
         if (clientId == null) return ResponseEntity.status(401).build();
         if (req.getSourceUrl() == null || req.getSourceUrl().isBlank())
             return ResponseEntity.badRequest().build();
+
+        // Same SSRF validation the /probe endpoint performs. It was missing here, which made
+        // this the more useful of the two endpoints to attack: the URL is handed to ffmpeg,
+        // so http://169.254.169.254/... reaches EC2 instance metadata and the role credentials
+        // behind it, and the result is retrievable through the job's own output and logs.
+        // A job also persists and runs asynchronously, so the fetch happens server-side well
+        // after the request returns.
+        //
+        // Validated before the preset merge below so a preset cannot reintroduce a source URL
+        // that skips this check.
+        try {
+            validateProbeUrl(req.getSourceUrl());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "invalid-url", "message", e.getMessage()));
+        }
 
         // Step 1: If presetId is present, load preset and apply via PresetService
         if (req.getPresetId() != null) {

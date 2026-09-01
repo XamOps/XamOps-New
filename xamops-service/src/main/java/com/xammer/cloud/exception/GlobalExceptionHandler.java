@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
-import javax.servlet.http.HttpServletRequest; // ✅ Added Import
+import jakarta.servlet.http.HttpServletRequest; // ✅ Added Import
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;

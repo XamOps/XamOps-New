@@ -3,7 +3,7 @@ package com.xammer.cloud.domain;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 /**
  * Maps a tenant's Authentik group to an AWS account and IAM Identity Center

@@ -9,13 +9,13 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.jpa.repository.Query;
 
-import javax.persistence.EntityManager;
-import javax.persistence.EntityManagerFactory;
-import javax.persistence.SharedCacheMode;
-import javax.persistence.ValidationMode;
-import javax.persistence.spi.ClassTransformer;
-import javax.persistence.spi.PersistenceUnitInfo;
-import javax.persistence.spi.PersistenceUnitTransactionType;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.SharedCacheMode;
+import jakarta.persistence.ValidationMode;
+import jakarta.persistence.spi.ClassTransformer;
+import jakarta.persistence.spi.PersistenceUnitInfo;
+import jakarta.persistence.spi.PersistenceUnitTransactionType;
 import javax.sql.DataSource;
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -126,6 +126,20 @@ class CallRepositoryQueryParseTest {
             return "org.hibernate.jpa.HibernatePersistenceProvider";
         }
 
+        // Jakarta Persistence 3.2 added CDI scope/qualifier metadata to the SPI. This
+        // persistence unit is built by hand rather than by a CDI container, so there is
+        // no scope or qualifier to report.
+        @Override
+        public String getScopeAnnotationName() {
+            return null;
+        }
+
+        @Override
+        public List<String> getQualifierAnnotationNames() {
+            return Collections.emptyList();
+        }
+
+        @SuppressWarnings("removal") // getTransactionType() is the only accessor the SPI still declares
         @Override
         public PersistenceUnitTransactionType getTransactionType() {
             return PersistenceUnitTransactionType.RESOURCE_LOCAL;

@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.xammer.billops.config.ClientUserDetailsJacksonModule; // Ensure this import is correct
 import org.springframework.cache.annotation.EnableCaching;
@@ -43,8 +43,23 @@ public class CacheConfig {
         objectMapper.registerModule(new ClientUserDetailsJacksonModule());
 
         // Activate Default Typing (Crucial for Redis, bad for REST)
+        //
+        // Was LaissezFaireSubTypeValidator, which validates nothing — with default typing
+        // enabled that is the classic deserialization-gadget RCE configuration, because the
+        // JSON gets to name the class to instantiate. Restricted to an allowlist of the
+        // packages that legitimately appear in cached values and session state.
+        // Kept in step with xamops-service and media-ops-service, which share this Redis.
+        BasicPolymorphicTypeValidator typeValidator = BasicPolymorphicTypeValidator.builder()
+                .allowIfSubType("com.xammer.")
+                .allowIfSubType("java.util.")
+                .allowIfSubType("java.time.")
+                .allowIfSubType("java.lang.")
+                .allowIfSubType("java.math.")
+                .allowIfSubType("org.springframework.security.")
+                .build();
+
         objectMapper.activateDefaultTyping(
-                LaissezFaireSubTypeValidator.instance,
+                typeValidator,
                 ObjectMapper.DefaultTyping.NON_FINAL,
                 JsonTypeInfo.As.PROPERTY);
         return objectMapper;

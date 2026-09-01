@@ -62,7 +62,7 @@ public class InvoiceDto {
                 dto.setGcpProjectId(invoice.getCloudAccount().getGcpProjectId());
                 dto.setAzureSubscriptionId(invoice.getCloudAccount().getAzureSubscriptionId()); // ✅ Map Azure ID
             }
-        } catch (javax.persistence.EntityNotFoundException e) {
+        } catch (jakarta.persistence.EntityNotFoundException e) {
             dto.setAccountName("Unknown/Deleted Account");
             dto.setAwsAccountId("N/A");
             dto.setGcpProjectId("N/A");

@@ -5,9 +5,12 @@ import com.xammer.cloud.dto.autospotting.HistoryResponse;
 import com.xammer.cloud.dto.autospotting.SpotInstanceDto;
 import com.xammer.cloud.dto.gcp.GcpMigConfigDto;
 import com.xammer.cloud.service.gcp.GcpAutoSpottingService;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,9 +23,12 @@ import java.util.Map;
 public class GcpAutoSpottingController {
 
     private final GcpAutoSpottingService gcpAutoSpottingService;
+    private final CloudAccountAccessService accountAccessService;
 
     @GetMapping("/migs/all-regions/{accountId}")
-    public ResponseEntity<?> listMigsAllRegions(@PathVariable("accountId") String accountId) {
+    public ResponseEntity<?> listMigsAllRegions(@PathVariable("accountId") String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, accountId);
         log.info("🚀 [GCP DEBUG] listMigsAllRegions called for accountId: {}", accountId);
         try {
             List<GcpAutoSpottingService.GcpAutoSpottingGroupDto> migs = gcpAutoSpottingService
@@ -38,7 +44,9 @@ public class GcpAutoSpottingController {
     }
 
     @GetMapping("/instances/{accountId}")
-    public ResponseEntity<?> getSpotInstances(@PathVariable String accountId) {
+    public ResponseEntity<?> getSpotInstances(@PathVariable String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, accountId);
         log.info("GcpAutoSpottingController.getSpotInstances called with accountId={}", accountId);
         try {
             List<SpotInstanceDto> instances = gcpAutoSpottingService.getSpotInstances(accountId);
@@ -54,7 +62,9 @@ public class GcpAutoSpottingController {
     @GetMapping("/history/{accountId}")
     public ResponseEntity<?> getHistory(
             @PathVariable String accountId,
-            @RequestParam(defaultValue = "last7d") String range) {
+            @RequestParam(defaultValue = "last7d") String range,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, accountId);
         log.info("GcpAutoSpottingController.getHistory called with accountId={}, range={}", accountId, range);
         try {
             HistoryResponse history = gcpAutoSpottingService.getHistoryData(accountId, range);
@@ -72,7 +82,9 @@ public class GcpAutoSpottingController {
             @RequestParam(required = false) String start,
             @RequestParam(required = false) String end,
             @RequestParam(required = false) String eventType,
-            @RequestParam(required = false) String asgName) {
+            @RequestParam(required = false) String asgName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, accountId);
         log.info("GcpAutoSpottingController.getEvents called with accountId={}, start={}, end={}, eventType={}, asgName={}",
                 accountId, start, end, eventType, asgName);
         try {
@@ -90,7 +102,9 @@ public class GcpAutoSpottingController {
     public ResponseEntity<?> enableAutoSpotting(
             @RequestParam("accountId") String accountId,
             @RequestParam("region") String region,
-            @RequestParam("migName") String migName) {
+            @RequestParam("migName") String migName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, accountId);
         log.info("🚀 [GCP DEBUG] enableAutoSpotting called - accountId: {}, region: {}, migName: {}", accountId, region,
                 migName);
         try {
@@ -112,7 +126,9 @@ public class GcpAutoSpottingController {
     public ResponseEntity<?> disableAutoSpotting(
             @RequestParam("accountId") String accountId,
             @RequestParam("region") String region,
-            @RequestParam("migName") String migName) {
+            @RequestParam("migName") String migName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, accountId);
         log.info("🚀 [GCP DEBUG] disableAutoSpotting called - accountId: {}, region: {}, migName: {}", accountId,
                 region, migName);
         try {
@@ -142,7 +158,9 @@ public class GcpAutoSpottingController {
     public ResponseEntity<?> getMigConfig(
             @PathVariable("accountId") String accountId,
             @RequestParam("region") String region,
-            @RequestParam("migName") String migName) {
+            @RequestParam("migName") String migName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, accountId);
         log.info("GET /migs/{}/config  region={} migName={}", accountId, region, migName);
         try {
             GcpMigConfigDto config = gcpAutoSpottingService.getMigConfig(accountId, region, migName);
@@ -165,7 +183,9 @@ public class GcpAutoSpottingController {
             @PathVariable("accountId") String accountId,
             @RequestParam("region") String region,
             @RequestParam("migName") String migName,
-            @RequestBody GcpMigConfigDto config) {
+            @RequestBody GcpMigConfigDto config,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccessByIdentifier(userDetails, accountId);
         log.info("PUT /migs/{}/config  region={} migName={} maxSurge={} maxUnavailable={} minReadySec={}",
                 accountId, region, migName, config.getMaxSurge(), config.getMaxUnavailable(), config.getMinReadySeconds());
         try {

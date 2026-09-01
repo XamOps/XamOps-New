@@ -3,6 +3,7 @@ package com.xammer.cloud.security;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.User;
+import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,13 +37,15 @@ class CloudAccountAccessServiceTest {
 
     private UserRepository userRepository;
     private UserCloudAccountAccessRepository accessRepository;
+    private CloudAccountRepository cloudAccountRepository;
     private CloudAccountAccessService service;
 
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
         accessRepository = mock(UserCloudAccountAccessRepository.class);
-        service = new CloudAccountAccessService(userRepository, accessRepository);
+        cloudAccountRepository = mock(CloudAccountRepository.class);
+        service = new CloudAccountAccessService(userRepository, accessRepository, cloudAccountRepository);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

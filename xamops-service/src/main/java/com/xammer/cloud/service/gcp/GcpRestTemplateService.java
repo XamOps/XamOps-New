@@ -3,9 +3,11 @@ package com.xammer.cloud.service.gcp;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.xammer.cloud.config.HttpClient5Support;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.springframework.http.*;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
@@ -33,9 +35,12 @@ public class GcpRestTemplateService {
     public GcpRestTemplateService(CloudAccountRepository cloudAccountRepository) {
         this.cloudAccountRepository = cloudAccountRepository;
 
-        // Configure RestTemplate with HttpComponents to support PATCH method
-        HttpComponentsClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(30000);
+        // Configure RestTemplate with HttpComponents to support PATCH method.
+        // Connect timeout lives on the HttpClient 5 connection manager, not the factory.
+        HttpComponentsClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory(
+                HttpClients.custom()
+                        .setConnectionManager(HttpClient5Support.connectionManager(30000))
+                        .build());
         requestFactory.setReadTimeout(60000);
 
         this.restTemplate = new RestTemplate(requestFactory);

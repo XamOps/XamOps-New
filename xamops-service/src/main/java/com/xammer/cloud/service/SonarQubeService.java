@@ -97,7 +97,7 @@ public class SonarQubeService {
                             "reliability_rating,security_rating,security_hotspots,security_review_rating," +
                             "sqale_rating,sqale_index,lines_to_cover,duplicated_lines,duplicated_lines_density";
 
-        String url = UriComponentsBuilder.fromHttpUrl(project.getServerUrl())
+        String url = UriComponentsBuilder.fromUriString(project.getServerUrl())
                 .path("/api/measures/component")
                 .queryParam("component", project.getProjectKey())
                 .queryParam("metricKeys", metricKeys) // Use the new, expanded list

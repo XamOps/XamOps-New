@@ -71,7 +71,7 @@ public class UpwindApiClient {
      * (Components/SBOM, APIs, Threat Policies, Workflows) short-circuit to empty when
      * {@link #isConfigured()} is false, even though the DB-backed tabs still show synced data.
      */
-    @javax.annotation.PostConstruct
+    @jakarta.annotation.PostConstruct
     void logConfigState() {
         log.info("[Upwind] client init — configured={} orgId={} apiBaseUrl={}",
                 isConfigured(), (orgId == null || orgId.isEmpty() ? "<unset>" : orgId), apiBaseUrl);
@@ -467,7 +467,7 @@ public class UpwindApiClient {
     private static String rootMessage(RuntimeException e) {
         if (e instanceof org.springframework.web.client.RestClientResponseException r) {
             String body = r.getResponseBodyAsString();
-            String status = r.getRawStatusCode() + " " + r.getStatusText();
+            String status = r.getStatusCode().value() + " " + r.getStatusText();
             return status + (body == null || body.isBlank()
                     ? " with an empty response body" : " — " + truncate(body, 400));
         }
@@ -928,7 +928,7 @@ public class UpwindApiClient {
                 // Status and body, not the exception subclass: only the response-error handler
                 // creates HttpClientErrorException.BadRequest, so matching on the type would
                 // quietly miss every other way a 400 reaches here.
-                if (e.getRawStatusCode() != 400 || !e.getResponseBodyAsString().isBlank()) throw e;
+                if (e.getStatusCode().value() != 400 || !e.getResponseBodyAsString().isBlank()) throw e;
                 last = e;
             } catch (HttpServerErrorException | ResourceAccessException e) {
                 last = e;

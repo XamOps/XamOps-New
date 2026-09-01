@@ -12,7 +12,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 
 @Configuration
 @EnableWebSecurity
@@ -38,21 +38,22 @@ public class SecurityConfig {
     @Bean
     @Order(1)
     public SecurityFilterChain impersonationJwtFilterChain(HttpSecurity http) throws Exception {
+        // Security 7 removed the `and()`-chained configurers and the authorizeRequests /
+        // antMatchers DSL; the lambda form below is the only remaining API. The rules are
+        // unchanged: same paths, same permitAll/authenticated split, same session policy.
         http
-            .requestMatcher(request -> request.getHeader("Authorization") != null)
-            .csrf().disable()
-            .exceptionHandling()
-                .authenticationEntryPoint((req, res, ex) ->
+            .securityMatcher(request -> request.getHeader("Authorization") != null)
+            .csrf(csrf -> csrf.disable())
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint((req, res, e) ->
                     res.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized"))
-                .accessDeniedHandler((req, res, ex) ->
-                    res.sendError(HttpServletResponse.SC_FORBIDDEN, "Forbidden"))
-            .and()
-            .authorizeRequests()
-                .antMatchers("/actuator/health", "/media-ops-ws/**", "/browser-stream/**", "/media/**").permitAll()
-                .anyRequest().authenticated()
-            .and()
-            .sessionManagement()
-                .sessionCreationPolicy(SessionCreationPolicy.STATELESS);
+                .accessDeniedHandler((req, res, e) ->
+                    res.sendError(HttpServletResponse.SC_FORBIDDEN, "Forbidden")))
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health", "/media-ops-ws/**", "/browser-stream/**", "/media/**").permitAll()
+                .anyRequest().authenticated())
+            .sessionManagement(session -> session
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
         http.addFilterBefore(impersonationJwtFilter, UsernamePasswordAuthenticationFilter.class);
         // Impersonated clients are subject to the same trial gate as session users.
@@ -65,21 +66,19 @@ public class SecurityConfig {
     @Order(2)
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .csrf().disable()
+            .csrf(csrf -> csrf.disable())
             // Return 401 JSON instead of redirecting to /login (this service has no login page)
-            .exceptionHandling()
-                .authenticationEntryPoint((req, res, ex) ->
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint((req, res, e) ->
                     res.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized"))
-                .accessDeniedHandler((req, res, ex) ->
-                    res.sendError(HttpServletResponse.SC_FORBIDDEN, "Forbidden"))
-            .and()
-            .authorizeRequests()
-                .antMatchers("/actuator/health", "/media-ops-ws/**", "/browser-stream/**", "/media/**").permitAll()
-                .antMatchers("/api/media-ops/**").authenticated()
-                .anyRequest().authenticated()
-            .and()
-            .sessionManagement()
-                .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED);
+                .accessDeniedHandler((req, res, e) ->
+                    res.sendError(HttpServletResponse.SC_FORBIDDEN, "Forbidden")))
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health", "/media-ops-ws/**", "/browser-stream/**", "/media/**").permitAll()
+                .requestMatchers("/api/media-ops/**").authenticated()
+                .anyRequest().authenticated())
+            .sessionManagement(session -> session
+                .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
 
         // Block expired-trial clients from media-ops APIs (runs after auth context is restored).
         http.addFilterAfter(trialEnforcementFilter, UsernamePasswordAuthenticationFilter.class);

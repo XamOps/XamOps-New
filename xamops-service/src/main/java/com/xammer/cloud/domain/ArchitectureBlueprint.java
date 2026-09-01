@@ -1,7 +1,7 @@
 package com.xammer.cloud.domain;
 
 // CHANGE THIS LINE: Use javax instead of jakarta for Spring Boot 2.x
-import javax.persistence.*; 
+import jakarta.persistence.*; 
 import lombok.Data;
 import java.time.LocalDateTime;
 

@@ -4,7 +4,7 @@
 // import lombok.Data;
 // import lombok.NoArgsConstructor;
 
-// import javax.persistence.*;
+// import jakarta.persistence.*;
 
 // @Entity
 // @Data
@@ -34,7 +34,7 @@ package com.xammer.cloud.domain;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 @Entity
 @Data

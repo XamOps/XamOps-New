@@ -17,11 +17,6 @@
     <name>media-ops-service</name>
     <description>MediaOps — FFmpeg-based media processing, live streaming and storage for XamOps</description>
 
-    <properties>
-        <!-- Spring Boot 2.7.x autoconfigure calls oracleSqlplus() which was removed in Flyway 9.x -->
-        <flyway.version>8.5.13</flyway.version>
-    </properties>
-
     <dependencies>
         <!-- Records which customer IAM actions are being denied, so pages can explain
              empty data instead of silently showing nothing. -->
@@ -32,16 +27,21 @@
         </dependency>
 
         <!-- AWS Secrets Manager integration: loads DB credentials into the Spring Environment
-             (in-memory, never as OS env vars) via spring.config.import. -->
+             (in-memory, never as OS env vars) via spring.config.import.
+             awspring 4.x renamed the artifact and dropped the "-config" split. -->
         <dependency>
             <groupId>io.awspring.cloud</groupId>
-            <artifactId>spring-cloud-starter-aws-secrets-manager-config</artifactId>
-            <version>2.4.4</version>
+            <artifactId>spring-cloud-aws-starter-secrets-manager</artifactId>
         </dependency>
         <!-- Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!-- RestTemplate/RestClient moved out of the web starter in Boot 4 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
         </dependency>
 
         <!-- WebSocket / STOMP (real-time job progress) -->
@@ -61,10 +61,23 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Flyway migrations -->
+        <!-- Flyway migrations. Boot 4 moved Flyway autoconfiguration into its own module,
+             so the bare flyway-core jar no longer wires up migrations on startup. The
+             version pin this module used to carry is gone: it existed only because Boot
+             2.7's autoconfigure called oracleSqlplus(), removed in Flyway 9. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <!--
+            REQUIRED, and not pulled in by the starter. Flyway 10 split every database out
+            of flyway-core into its own plugin; flyway-core 11 registers only SQLite, H2
+            and TestContainers. Without this module Flyway throws "Unsupported Database:
+            PostgreSQL" during startup and the service never comes up.
+        -->
         <dependency>
             <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
         <!-- Spring Security -->
@@ -99,8 +112,8 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.springframework.session</groupId>
-            <artifactId>spring-session-data-redis</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-session-data-redis</artifactId>
         </dependency>
 
         <!-- Eureka service discovery -->
@@ -138,10 +151,21 @@
             <artifactId>sts</artifactId>
         </dependency>
 
-        <!-- Test -->
+        <!-- Test. Boot 4 splits the test infrastructure per technology; these pull in
+             spring-boot-starter-test transitively. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

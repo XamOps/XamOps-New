@@ -276,12 +276,12 @@ public class CloudListService {
                     if (ex != null) {
                         logger.error("Asynchronous resource refresh failed for account {}", accountIdToUse, ex);
                         messagingTemplate.convertAndSend("/topic/cloudlist-refresh",
-                                Map.of("status", "refresh-failed", "accountId", accountIdToUse));
+                                (Object) Map.of("status", "refresh-failed", "accountId", accountIdToUse));
                     } else {
                         logger.info("Asynchronous resource refresh completed successfully for account {}",
                                 accountIdToUse);
                         messagingTemplate.convertAndSend("/topic/cloudlist-refresh",
-                                Map.of("status", "refresh-complete", "accountId", accountIdToUse));
+                                (Object) Map.of("status", "refresh-complete", "accountId", accountIdToUse));
                     }
                 });
     }

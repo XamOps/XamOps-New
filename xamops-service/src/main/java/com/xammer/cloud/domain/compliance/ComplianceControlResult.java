@@ -3,7 +3,7 @@ package com.xammer.cloud.domain.compliance;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 /**
  * The outcome of one control in one scan.

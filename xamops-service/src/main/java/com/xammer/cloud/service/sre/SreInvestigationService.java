@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 
 import org.springframework.beans.factory.annotation.Value;
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 import java.time.Instant;
 import java.util.*;

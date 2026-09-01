@@ -3,10 +3,13 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.autospotting.*;
 import com.xammer.cloud.service.AutoSpottingService;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -21,6 +24,7 @@ public class AutoSpottingController {
     private static final Logger log = LoggerFactory.getLogger(AutoSpottingController.class);
 
     private final AutoSpottingService autoSpottingService;
+    private final CloudAccountAccessService accountAccessService;
 
     // ================= ACCOUNT REGISTRATION =================
 
@@ -29,7 +33,9 @@ public class AutoSpottingController {
      * POST /api/autospotting/register/{accountId}
      */
     @PostMapping("/register/{accountId}")
-    public ResponseEntity<?> registerAccount(@PathVariable Long accountId) {
+    public ResponseEntity<?> registerAccount(@PathVariable Long accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
         log.info("AutoSpottingController.registerAccount called with accountId={}", accountId);
         try {
             autoSpottingService.registerCustomerAccount(accountId);
@@ -52,7 +58,9 @@ public class AutoSpottingController {
      */
     @GetMapping("/costs/{accountId}")
     public ResponseEntity<?> getCostData(@PathVariable Long accountId,
-            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
         log.info("getCostData called: accountId={}, forceRefresh={}", accountId, forceRefresh);
         try {
             CostResponse costData = autoSpottingService.getCostData(accountId, forceRefresh);
@@ -80,7 +88,9 @@ public class AutoSpottingController {
             @PathVariable Long accountId,
             @RequestParam(required = false) String start,
             @RequestParam(required = false) String end,
-            @RequestParam(defaultValue = "daily") String interval) {
+            @RequestParam(defaultValue = "daily") String interval,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getCostHistory called with accountId={}, start={}, end={}, interval={}",
                 accountId, start, end, interval);
@@ -101,7 +111,9 @@ public class AutoSpottingController {
      * GET /api/autospotting/savings/{accountId}
      */
     @GetMapping("/savings/{accountId}")
-    public ResponseEntity<?> getSavings(@PathVariable Long accountId) {
+    public ResponseEntity<?> getSavings(@PathVariable Long accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
         log.info("AutoSpottingController.getSavings called with accountId={}", accountId);
         try {
             DashboardData.SavingsSummary savings = autoSpottingService.getSavingsMetrics(accountId);
@@ -121,7 +133,9 @@ public class AutoSpottingController {
      * GET /api/autospotting/asgs/all-regions/{accountId}
      */
     @GetMapping("/asgs/all-regions/{accountId}")
-    public ResponseEntity<?> listAsgsAllRegions(@PathVariable Long accountId) {
+    public ResponseEntity<?> listAsgsAllRegions(@PathVariable Long accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
         log.info("AutoSpottingController.listAsgsAllRegions called with accountId={}", accountId);
         try {
             List<AutoSpottingService.AutoSpottingGroupDto> asgs = autoSpottingService
@@ -143,7 +157,9 @@ public class AutoSpottingController {
     @GetMapping("/asgs/{accountId}")
     public ResponseEntity<?> listAsgs(
             @PathVariable Long accountId,
-            @RequestParam(defaultValue = "us-east-1") String region) {
+            @RequestParam(defaultValue = "us-east-1") String region,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
         log.info("AutoSpottingController.listAsgs called with accountId={}, region={}", accountId, region);
         try {
             List<AutoSpottingService.AutoSpottingGroupDto> asgs = autoSpottingService.listAsgs(accountId, region);
@@ -161,7 +177,9 @@ public class AutoSpottingController {
      * POST /api/autospotting/asgs/{accountId}/refresh-regions
      */
     @PostMapping("/asgs/{accountId}/refresh-regions")
-    public ResponseEntity<Map<String, Object>> refreshRegionCache(@PathVariable Long accountId) {
+    public ResponseEntity<Map<String, Object>> refreshRegionCache(@PathVariable Long accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
         log.info("AutoSpottingController.refreshRegionCache called with accountId={}", accountId);
 
         try {
@@ -189,7 +207,9 @@ public class AutoSpottingController {
     public ResponseEntity<?> enableAutoSpotting(
             @PathVariable Long accountId,
             @RequestParam String region,
-            @RequestParam String asgName) {
+            @RequestParam String asgName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.enableAutoSpotting called with accountId={}, region={}, asgName={}",
                 accountId, region, asgName);
@@ -218,7 +238,9 @@ public class AutoSpottingController {
     public ResponseEntity<?> syncSpotEvents(
             @PathVariable Long accountId,
             @RequestParam String region,
-            @RequestParam String asgName) {
+            @RequestParam String asgName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.syncSpotEvents called: accountId={} region={} asgName={}",
                 accountId, region, asgName);
@@ -249,7 +271,9 @@ public class AutoSpottingController {
     public ResponseEntity<?> getInstanceTypeConfig(
             @PathVariable Long accountId,
             @RequestParam String region,
-            @RequestParam String asgName) {
+            @RequestParam String asgName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getInstanceTypeConfig called: accountId={} region={} asgName={}",
                 accountId, region, asgName);
@@ -278,7 +302,9 @@ public class AutoSpottingController {
             @RequestParam String region,
             @RequestParam String asgName,
             @RequestParam(defaultValue = "true") boolean apply,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.updateInstanceTypeConfig: accountId={} region={} asgName={} apply={}",
                 accountId, region, asgName, apply);
@@ -324,7 +350,9 @@ public class AutoSpottingController {
     public ResponseEntity<?> getSpotConfig(
             @PathVariable Long accountId,
             @RequestParam String region,
-            @RequestParam String asgName) {
+            @RequestParam String asgName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getSpotConfig called: accountId={} region={} asgName={}",
                 accountId, region, asgName);
@@ -350,7 +378,9 @@ public class AutoSpottingController {
             @RequestParam String region,
             @RequestParam String asgName,
             @RequestParam(defaultValue = "true") boolean apply,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.saveSpotConfig: accountId={} region={} asgName={} apply={} body={}",
                 accountId, region, asgName, apply, body);
@@ -398,7 +428,9 @@ public class AutoSpottingController {
     public ResponseEntity<?> getSpotInstances(
             @PathVariable Long accountId,
             @RequestParam(required = false) String asgName,
-            @RequestParam(required = false) String region) {
+            @RequestParam(required = false) String region,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
         log.info("AutoSpottingController.getSpotInstances called with accountId={}, asgName={}, region={}",
                 accountId, asgName, region);
         try {
@@ -435,7 +467,9 @@ public class AutoSpottingController {
     public ResponseEntity<?> disableAutoSpotting(
             @PathVariable Long accountId,
             @RequestParam String region,
-            @RequestParam String asgName) {
+            @RequestParam String asgName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.disableAutoSpotting called with accountId={}, region={}, asgName={}",
                 accountId, region, asgName);
@@ -463,7 +497,9 @@ public class AutoSpottingController {
     public ResponseEntity<?> getAsgConfig(
             @PathVariable Long accountId,
             @RequestParam String region,
-            @RequestParam String asgName) {
+            @RequestParam String asgName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getAsgConfig called with accountId={}, region={}, asgName={}",
                 accountId, region, asgName);
@@ -489,7 +525,9 @@ public class AutoSpottingController {
             @PathVariable Long accountId,
             @RequestParam String region,
             @RequestParam String asgName,
-            @RequestBody ASGConfigUpdate config) {
+            @RequestBody ASGConfigUpdate config,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.updateAsgConfig called with accountId={}, region={}, asgName={}",
                 accountId, region, asgName);
@@ -540,7 +578,9 @@ public class AutoSpottingController {
             @RequestParam(required = false) String start,
             @RequestParam(required = false) String end,
             @RequestParam(required = false) String eventType,
-            @RequestParam(required = false) String asgName) {
+            @RequestParam(required = false) String asgName,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info(
                 "AutoSpottingController.getEvents called with accountId={}, start={}, end={}, eventType={}, asgName={}",
@@ -582,7 +622,9 @@ public class AutoSpottingController {
     public ResponseEntity<?> getLaunchAnalytics(
             @PathVariable Long accountId,
             @RequestParam(required = false) String start,
-            @RequestParam(required = false) String end) {
+            @RequestParam(required = false) String end,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getLaunchAnalytics called with accountId={}, start={}, end={}",
                 accountId, start, end);
@@ -610,7 +652,9 @@ public class AutoSpottingController {
     }
 
     @GetMapping("/analytics/risp-coverage/{accountId}")
-    public ResponseEntity<?> getRiSpCoverage(@PathVariable Long accountId) {
+    public ResponseEntity<?> getRiSpCoverage(@PathVariable Long accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
         log.info("AutoSpottingController.getRiSpCoverage called with accountId={}", accountId);
 
         try {
@@ -629,7 +673,9 @@ public class AutoSpottingController {
      * Get AutoSpotting settings including RI/SP respect configuration
      */
     @GetMapping("/settings/{accountId}")
-    public ResponseEntity<?> getSettings(@PathVariable Long accountId) {
+    public ResponseEntity<?> getSettings(@PathVariable Long accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
         log.info("AutoSpottingController.getSettings called with accountId={}", accountId);
 
         try {
@@ -655,7 +701,9 @@ public class AutoSpottingController {
     @PutMapping("/settings/{accountId}/risp-respect")
     public ResponseEntity<?> updateRispRespectSettings(
             @PathVariable Long accountId,
-            @RequestBody Map<String, Object> request) {
+            @RequestBody Map<String, Object> request,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        accountAccessService.requireAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.updateRispRespectSettings called with accountId={}, request={}", 
                 accountId, request);

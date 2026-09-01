@@ -1,5 +1,5 @@
 # # Stage 1: Build the application using Maven
-# FROM maven:3.8.5-openjdk-17 AS build
+# FROM maven:3.9-eclipse-temurin-25 AS build
 # WORKDIR /app
 
 # # Copy the entire project context
@@ -10,7 +10,7 @@
 # RUN mvn clean package -pl ${MODULE_NAME} -am -DskipTests
 
 # # Stage 2: Create the final, lightweight runtime image
-# FROM eclipse-temurin:17-jre-jammy
+# FROM eclipse-temurin:25-jre-noble
 # WORKDIR /app
 
 # # --- CRITICAL FIX: Install Docker CLI HERE (Before Copy/Entrypoint) ---
@@ -35,7 +35,7 @@
 # ===================================================================
 # Stage 1: Build the application using Maven
 # ===================================================================
-FROM maven:3.8.5-openjdk-17 AS build
+FROM maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /app
 
 # Copy the entire project context
@@ -54,7 +54,7 @@ RUN cp ${MODULE_NAME}/target/*.jar /app/app.jar
 # ===================================================================
 # Stage 2: Create the final runtime image with ALL Cloud CLIs
 # ===================================================================
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:25-jre-noble
 WORKDIR /app
 
 # 1. Install Core Utilities & Dependencies (including Python & Docker CLI)

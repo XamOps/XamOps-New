@@ -3,7 +3,7 @@ package com.xammer.cloud.domain;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 /**
  * Per-ASG stateful workload configuration for Spot interruption protection.

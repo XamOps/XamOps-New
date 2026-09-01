@@ -1,6 +1,7 @@
 package com.xammer.cloud.service.sre;
 
-import org.apache.http.impl.client.HttpClients;
+import com.xammer.cloud.config.HttpClient5Support;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,10 +28,12 @@ public class OpenSreClient {
                          @Value("${opensre.langsmith.api-key:}") String langsmithApiKey) {
         this.openSreBaseUrl = openSreBaseUrl;
         this.langsmithApiKey = langsmithApiKey;
-        // Dedicated RestTemplate with short timeouts — OpenSRE runs locally and should respond in seconds
+        // Dedicated RestTemplate with short timeouts — OpenSRE runs locally and should respond in seconds.
+        // Connect timeout lives on the HttpClient 5 connection manager, not the factory.
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(
-                HttpClients.createDefault());
-        factory.setConnectTimeout(5_000);
+                HttpClients.custom()
+                        .setConnectionManager(HttpClient5Support.connectionManager(5_000))
+                        .build());
         factory.setReadTimeout(30_000);
         this.restTemplate = new RestTemplate(factory);
     }

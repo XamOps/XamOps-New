@@ -302,9 +302,9 @@ public class TranscodeJobService {
      * {@code GET /jobs/{id}/play/**} playback proxy.
      */
     public void streamOutputObject(TranscodeJob job, String relativePath, String rangeHeader,
-                                   javax.servlet.http.HttpServletResponse response) throws java.io.IOException {
+                                   jakarta.servlet.http.HttpServletResponse response) throws java.io.IOException {
         if (job.getOutputBucketPrefix() == null) {
-            response.setStatus(javax.servlet.http.HttpServletResponse.SC_NOT_FOUND);
+            response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND);
             return;
         }
         String key = job.getOutputBucketPrefix() + "/" + relativePath;
@@ -314,7 +314,7 @@ public class TranscodeJobService {
             accountS3Service.streamObject(job.getOutputAccountId(), job.getClientId(), job.getOutputBucket(),
                     job.getOutputRegion(), key, rangeHeader, response);
         } else {
-            response.setStatus(javax.servlet.http.HttpServletResponse.SC_NOT_FOUND);
+            response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND);
         }
     }
 
@@ -460,7 +460,7 @@ public class TranscodeJobService {
     private void broadcast(TranscodeJob job) {
         try {
             messaging.convertAndSend("/topic/media-ops/jobs/" + job.getId(),
-                    Map.of("id", job.getId(), "status", job.getStatus().name(), "progress", job.getProgress()));
+                    (Object) Map.of("id", job.getId(), "status", job.getStatus().name(), "progress", job.getProgress()));
         } catch (Exception ignored) {}
     }
 

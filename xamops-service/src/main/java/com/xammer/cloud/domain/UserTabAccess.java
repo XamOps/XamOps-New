@@ -1,6 +1,6 @@
 package com.xammer.cloud.domain;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 /**
  * Per-user sidebar tab/module access for XamOps users.

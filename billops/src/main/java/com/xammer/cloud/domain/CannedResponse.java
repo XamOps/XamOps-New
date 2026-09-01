@@ -1,7 +1,7 @@
 package com.xammer.cloud.domain;
 
 import java.time.LocalDateTime;
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 /**
  * A reusable reply template ("canned response") that support agents can insert

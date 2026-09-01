@@ -55,7 +55,7 @@ public class InventoryChangeNotifier {
             String source) {
         String awsAccountId = account.getAwsAccountId();
         try {
-            messagingTemplate.convertAndSend(CHANGE_TOPIC, Map.of(
+            messagingTemplate.convertAndSend(CHANGE_TOPIC, (Object) Map.of(
                     "status", "inventory-changed",
                     "accountId", awsAccountId,
                     "added", added,

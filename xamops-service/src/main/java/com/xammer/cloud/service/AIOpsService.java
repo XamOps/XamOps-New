@@ -585,7 +585,7 @@ public class AIOpsService {
         Instant since = parsePeriod(period);
 
         Specification<LlmUsageLog> spec = (root, query, cb) -> {
-            List<javax.persistence.criteria.Predicate> predicates = new ArrayList<>();
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("clientId"), clientId));
             predicates.add(cb.greaterThanOrEqualTo(root.get("timestamp"), since));
 
@@ -600,7 +600,7 @@ public class AIOpsService {
             }
 
             query.orderBy(cb.desc(root.get("timestamp")));
-            return cb.and(predicates.toArray(new javax.persistence.criteria.Predicate[0]));
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
 
         Page<LlmUsageLog> pageResult = usageLogRepo.findAll(spec, PageRequest.of(page, size));
@@ -1275,13 +1275,13 @@ public class AIOpsService {
         Instant since = parsePeriod(period);
 
         Specification<LlmUsageLog> spec = (root, query, cb) -> {
-            List<javax.persistence.criteria.Predicate> preds = new ArrayList<>();
+            List<jakarta.persistence.criteria.Predicate> preds = new ArrayList<>();
             preds.add(cb.equal(root.get("clientId"), clientId));
             preds.add(cb.greaterThanOrEqualTo(root.get("timestamp"), since));
             if (provider != null && !provider.isBlank()) {
                 preds.add(cb.equal(root.get("provider"), provider));
             }
-            return cb.and(preds.toArray(new javax.persistence.criteria.Predicate[0]));
+            return cb.and(preds.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
 
         List<LlmUsageLog> allLogs = usageLogRepo.findAll(spec, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
@@ -1356,10 +1356,10 @@ public class AIOpsService {
 
         // Get usage grouped by provider+model
         Specification<LlmUsageLog> spec = (root, query, cb) -> {
-            List<javax.persistence.criteria.Predicate> preds = new ArrayList<>();
+            List<jakarta.persistence.criteria.Predicate> preds = new ArrayList<>();
             preds.add(cb.equal(root.get("clientId"), clientId));
             preds.add(cb.greaterThanOrEqualTo(root.get("timestamp"), since));
-            return cb.and(preds.toArray(new javax.persistence.criteria.Predicate[0]));
+            return cb.and(preds.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
 
         List<LlmUsageLog> allLogs = usageLogRepo.findAll(spec, PageRequest.of(0, Integer.MAX_VALUE)).getContent();

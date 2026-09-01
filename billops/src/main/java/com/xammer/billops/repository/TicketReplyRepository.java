@@ -24,7 +24,12 @@ public interface TicketReplyRepository extends JpaRepository<TicketReply, Long> 
      * Returns the IDs of tickets that have at least one non-deleted reply whose
      * message contains the given term (case-insensitive). Used for reply-body search.
      */
+    // TicketReply.message is @Lob, so Hibernate types it as CLOB. Hibernate 7 checks
+    // function argument types and rejects lower(CLOB) outright, where Hibernate 5
+    // accepted it — the repository bean fails to be created at startup, not at call
+    // time. The cast narrows the argument to a string for the comparison only; the
+    // column mapping is untouched.
     @Query("SELECT DISTINCT r.ticket.id FROM TicketReply r "
-            + "WHERE r.deleted = false AND lower(r.message) LIKE lower(concat('%', :term, '%'))")
+            + "WHERE r.deleted = false AND lower(cast(r.message as String)) LIKE lower(concat('%', :term, '%'))")
     List<Long> findTicketIdsByReplyMessageContaining(@Param("term") String term);
 }

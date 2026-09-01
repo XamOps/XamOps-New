@@ -46,14 +46,17 @@ public class SnsNotificationService {
     private final IsvMarketplaceCustomerRepository customerRepository;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final SnsSignatureVerifier snsSignatureVerifier;
 
     public SnsNotificationService(
             MarketplaceSubscriptionEventRepository eventRepository,
             IsvMarketplaceCustomerRepository customerRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            SnsSignatureVerifier snsSignatureVerifier) {
         this.eventRepository = eventRepository;
         this.customerRepository = customerRepository;
         this.objectMapper = objectMapper;
+        this.snsSignatureVerifier = snsSignatureVerifier;
         this.httpClient = HttpClient.newHttpClient();
     }
 
@@ -73,6 +76,21 @@ public class SnsNotificationService {
         try {
             JsonNode envelope = objectMapper.readTree(rawBody);
             String snsType = envelope.path("Type").asText("");
+
+            // ── Origin check, before anything is trusted or acted on ──────────
+            //
+            // This endpoint is public and drives billing state, and nothing here proved the
+            // request came from AWS. A forged POST could activate a paid entitlement or
+            // cancel a real customer's subscription. Verification therefore runs first, for
+            // every message type — including the handshake, whose only previous check was a
+            // string comparison on a caller-supplied URL.
+            if (!snsSignatureVerifier.isValid(envelope, rawBody)) {
+                saveAuditEvent("system", null, snsType, "REJECTED",
+                        rawBody, "SNS signature verification failed", receivedAt);
+                result.put("status", "rejected");
+                result.put("reason", "signature verification failed");
+                return result;
+            }
 
             // ── SNS Subscription Confirmation (one-time handshake) ────────────
             if ("SubscriptionConfirmation".equals(snsType)) {

@@ -1,12 +1,9 @@
 package com.xammer.cloud.config;
 
-import org.apache.http.client.CookieStore;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.impl.client.BasicCookieStore;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.ssl.SSLContextBuilder;
+import org.apache.hc.client5.http.cookie.CookieStore;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.cookie.BasicCookieStore;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,11 +11,19 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
-import javax.net.ssl.SSLContext;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 
+/**
+ * Spring Framework 7 dropped HttpClient 4 support from
+ * {@link HttpComponentsClientHttpRequestFactory} and removed its
+ * {@code setConnectTimeout}: the connect timeout is a property of the connection
+ * manager in HttpClient 5, not of the request. Every client below is therefore built
+ * from a {@link HttpClient5Support} pooling connection manager that carries both the
+ * pool sizes and the connect timeout, with the read/connection-request timeouts still
+ * set on the factory.
+ */
 @Configuration
 public class RestTemplateConfig {
 
@@ -29,33 +34,18 @@ public class RestTemplateConfig {
     @Primary
     public RestTemplate restTemplate() throws KeyStoreException, NoSuchAlgorithmException, KeyManagementException {
 
-        // Build SSL context that trusts all certificates (for CloudFront/ACM)
-        SSLContext sslContext = SSLContextBuilder
-                .create()
-                .loadTrustMaterial((chain, authType) -> true) // Trust all certificates
-                .build();
-
-        // Create SSL socket factory with hostname verification disabled
-        SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(
-                sslContext,
-                NoopHostnameVerifier.INSTANCE // Skip hostname verification for CloudFront
-        );
-
         // Create cookie store to maintain sessions (required for CloudiDR API)
         CookieStore cookieStore = new BasicCookieStore();
 
-        // Build HTTP client with SSL support and cookie handling
+        // 15 s connect — fail fast if server is unreachable
         CloseableHttpClient httpClient = HttpClients.custom()
-                .setSSLSocketFactory(socketFactory)
+                .setConnectionManager(HttpClient5Support.trustAllConnectionManager(100, 20, 15000))
                 .setDefaultCookieStore(cookieStore)
-                .setMaxConnTotal(100)
-                .setMaxConnPerRoute(20)
                 .build();
 
-        // Create request factory
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-        factory.setConnectTimeout(15000); // 15 seconds — fail fast if server is unreachable
-        factory.setReadTimeout(300000);  // 5 minutes — purchase endpoint provisions real AWS capacity and can take 2-3 minutes
+        // 5 minutes — purchase endpoint provisions real AWS capacity and can take 2-3 minutes
+        factory.setReadTimeout(300000);
 
         return new RestTemplate(factory);
     }
@@ -70,8 +60,11 @@ public class RestTemplateConfig {
     @Bean
     @Qualifier("authentikRestTemplate")
     public RestTemplate authentikRestTemplate() {
-        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
-        factory.setConnectTimeout(5000);   // 5 s — fail fast if Authentik is unreachable
+        // 5 s connect — fail fast if Authentik is unreachable
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(HttpClient5Support.connectionManager(5000))
+                .build();
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(15000);     // 15 s — covers slow list endpoints
         return new RestTemplate(factory);
     }
@@ -85,8 +78,10 @@ public class RestTemplateConfig {
     @Bean
     @Qualifier("prometheusRestTemplate")
     public RestTemplate prometheusRestTemplate() {
-        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
-        factory.setConnectTimeout(8000);  // 8 seconds
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(HttpClient5Support.connectionManager(8000))
+                .build();
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(8000);     // 8 seconds
         return new RestTemplate(factory);
     }
@@ -98,19 +93,10 @@ public class RestTemplateConfig {
     @Bean
     @Qualifier("llmRestTemplate")
     public RestTemplate llmRestTemplate() throws KeyStoreException, NoSuchAlgorithmException, KeyManagementException {
-        SSLContext sslContext = SSLContextBuilder
-                .create()
-                .loadTrustMaterial((chain, authType) -> true)
-                .build();
-        SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(
-                sslContext, NoopHostnameVerifier.INSTANCE);
         CloseableHttpClient httpClient = HttpClients.custom()
-                .setSSLSocketFactory(socketFactory)
-                .setMaxConnTotal(50)
-                .setMaxConnPerRoute(10)
+                .setConnectionManager(HttpClient5Support.trustAllConnectionManager(50, 10, 10000)) // 10s connect
                 .build();
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-        factory.setConnectTimeout(10000); // 10s connect
         factory.setReadTimeout(30000);    // 30s read
         return new RestTemplate(factory);
     }
@@ -128,12 +114,12 @@ public class RestTemplateConfig {
     @Bean
     @Qualifier("openObserveRestTemplate")
     public RestTemplate openObserveRestTemplate() {
+        // one route (the O2 host) — must cover the dashboard fan-out.
+        // 5 s connect — O2 is same-network, fail fast if down
         CloseableHttpClient httpClient = HttpClients.custom()
-                .setMaxConnTotal(100)
-                .setMaxConnPerRoute(50)   // one route (the O2 host) — must cover the dashboard fan-out
+                .setConnectionManager(HttpClient5Support.connectionManager(100, 50, 5000))
                 .build();
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-        factory.setConnectTimeout(5000);           // 5 s — O2 is same-network, fail fast if down
         factory.setReadTimeout(20000);             // 20 s — covers wide-range PromQL / stream stats
         factory.setConnectionRequestTimeout(5000); // 5 s — don't queue forever on a saturated pool
         return new RestTemplate(factory);
@@ -149,8 +135,10 @@ public class RestTemplateConfig {
     @Bean
     @Qualifier("oauthRestTemplate")
     public RestTemplate oauthRestTemplate() {
-        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
-        factory.setConnectTimeout(5000);  // 5s
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(HttpClient5Support.connectionManager(5000)) // 5s
+                .build();
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(15000);    // 15s
         return new RestTemplate(factory);
     }
@@ -163,8 +151,10 @@ public class RestTemplateConfig {
     @Bean
     @Qualifier("internalServiceRestTemplate")
     public RestTemplate internalServiceRestTemplate() {
-        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
-        factory.setConnectTimeout(5000);   // 5s — same network
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(HttpClient5Support.connectionManager(5000)) // 5s — same network
+                .build();
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(60000);     // 60s — some catalog operations are slow
         return new RestTemplate(factory);
     }
@@ -177,8 +167,11 @@ public class RestTemplateConfig {
     @Bean
     @Qualifier("litellmRestTemplate")
     public RestTemplate litellmRestTemplate() {
-        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
-        factory.setConnectTimeout(2000); // 2s — fail fast if LiteLLM not running
+        // 2s connect — fail fast if LiteLLM not running
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(HttpClient5Support.connectionManager(2000))
+                .build();
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(5000);    // 5s read
         return new RestTemplate(factory);
     }

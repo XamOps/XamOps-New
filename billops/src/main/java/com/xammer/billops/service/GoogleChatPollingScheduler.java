@@ -112,7 +112,7 @@ public class GoogleChatPollingScheduler {
 
         try {
             java.net.URI uri = org.springframework.web.util.UriComponentsBuilder
-                    .fromHttpUrl(CHAT_BASE + "/" + spaceName + "/messages")
+                    .fromUriString(CHAT_BASE + "/" + spaceName + "/messages")
                     .queryParam("filter", filter)
                     .build().encode().toUri();
 

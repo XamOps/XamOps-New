@@ -1503,7 +1503,7 @@ public class PrometheusService {
 
     private URI buildUrl(String baseUrl, String query) {
         String cleanUrl = normalizeUrl(baseUrl);
-        return UriComponentsBuilder.fromHttpUrl(cleanUrl)
+        return UriComponentsBuilder.fromUriString(cleanUrl)
                 .path("/api/v1/query")
                 .queryParam("query", query)
                 .build()

@@ -292,7 +292,7 @@ public class GcpOptimizationService {
      * Shuts the detector pool down with the bean so it does not outlive the context.
      * The previous cached pool was never shut down.
      */
-    @javax.annotation.PreDestroy
+    @jakarta.annotation.PreDestroy
     void shutdownExecutor() {
         executor.shutdown();
         try {

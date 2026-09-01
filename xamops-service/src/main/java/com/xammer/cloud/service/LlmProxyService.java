@@ -227,7 +227,7 @@ public class LlmProxyService {
             HttpEntity<String> entity = new HttpEntity<>(translatedBody, directHeaders);
             ResponseEntity<String> resp = restTemplate.exchange(targetUrl, method, entity, String.class);
             long latency = System.currentTimeMillis() - startTime;
-            logUsageAsync(config, subPath, body, resp.getBody(), resp.getStatusCodeValue(), latency, false, null, agentName);
+            logUsageAsync(config, subPath, body, resp.getBody(), resp.getStatusCode().value(), latency, false, null, agentName);
             return ResponseEntity.status(resp.getStatusCode())
                     .headers(filterResponseHeaders(resp.getHeaders()))
                     .body(resp.getBody());
@@ -299,7 +299,7 @@ public class LlmProxyService {
                 ResponseEntity<String> resp = restTemplate.exchange(targetUrl, method, entity, String.class);
                 long latency = System.currentTimeMillis() - startTime;
                 keyPoolService.markSuccess(selectedKey.keyId());
-                logUsageAsync(config, subPath, body, resp.getBody(), resp.getStatusCodeValue(), latency, false, null, agentName);
+                logUsageAsync(config, subPath, body, resp.getBody(), resp.getStatusCode().value(), latency, false, null, agentName);
                 return ResponseEntity.status(resp.getStatusCode())
                         .headers(filterResponseHeaders(resp.getHeaders()))
                         .body(resp.getBody());
@@ -353,7 +353,7 @@ public class LlmProxyService {
             HttpEntity<String> entity = new HttpEntity<>(translatedBody, directHeaders);
             ResponseEntity<String> resp = restTemplate.exchange(targetUrl, method, entity, String.class);
             long latency = System.currentTimeMillis() - startTime;
-            logUsageAsync(config, subPath, body, resp.getBody(), resp.getStatusCodeValue(), latency, false, null, agentName);
+            logUsageAsync(config, subPath, body, resp.getBody(), resp.getStatusCode().value(), latency, false, null, agentName);
             return ResponseEntity.status(resp.getStatusCode())
                     .headers(filterResponseHeaders(resp.getHeaders()))
                     .body(resp.getBody());
@@ -427,7 +427,7 @@ public class LlmProxyService {
             long latency = System.currentTimeMillis() - startTime;
 
             logUsageAsync(config, subPath, body, response.getBody(),
-                    response.getStatusCodeValue(), latency, false, null, agentName);
+                    response.getStatusCode().value(), latency, false, null, agentName);
 
             return ResponseEntity.status(response.getStatusCode())
                     .headers(filterResponseHeaders(response.getHeaders()))
@@ -489,7 +489,7 @@ public class LlmProxyService {
                 long lat2 = System.currentTimeMillis() - startTime;
                 if (usedKeyId != null) keyPoolService.markSuccess(usedKeyId);
                 logUsageAsync(config, subPath, body, fallbackResp.getBody(),
-                        fallbackResp.getStatusCodeValue(), lat2, false, null, agentName);
+                        fallbackResp.getStatusCode().value(), lat2, false, null, agentName);
                 return ResponseEntity.status(fallbackResp.getStatusCode())
                         .headers(filterResponseHeaders(fallbackResp.getHeaders()))
                         .body(fallbackResp.getBody());
@@ -730,7 +730,7 @@ public class LlmProxyService {
 
             long latency = System.currentTimeMillis() - startTime;
             logUsageAsync(config, subPath, body, response.getBody(),
-                    response.getStatusCodeValue(), latency, false, null, agentName);
+                    response.getStatusCode().value(), latency, false, null, agentName);
 
             return ResponseEntity.status(response.getStatusCode())
                     .headers(filterResponseHeaders(response.getHeaders()))
@@ -799,7 +799,7 @@ public class LlmProxyService {
         }
 
         // Forward Accept header if present
-        if (incoming.containsKey(HttpHeaders.ACCEPT)) {
+        if (incoming.containsHeader(HttpHeaders.ACCEPT)) {
             headers.setAccept(incoming.getAccept());
         }
 

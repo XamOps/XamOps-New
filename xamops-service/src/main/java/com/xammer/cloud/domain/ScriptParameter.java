@@ -1,6 +1,6 @@
 package com.xammer.cloud.domain;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 @Entity
 @Table(name = "script_parameters", indexes = {

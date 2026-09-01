@@ -16,9 +16,12 @@
     <packaging>jar</packaging>
 
     <properties>
-        <springdoc.version>1.6.12</springdoc.version>
-        <k8s.client.version>6.9.2</k8s.client.version>
-        <spring-cloud.version>2021.0.8</spring-cloud.version>
+        <!-- springdoc 3.0.x is the line built against Spring Boot 4.0 / OpenAPI via swagger-core 2.2.x -->
+        <springdoc.version>3.0.3</springdoc.version>
+        <k8s.client.version>7.8.0</k8s.client.version>
+        <bucket4j.version>0.14.0</bucket4j.version>
+        <!-- must match the bucket4j core version the 0.14.0 starter is built against -->
+        <bucket4j-core.version>8.15.0</bucket4j-core.version>
     </properties>
 
     <dependencyManagement>
@@ -30,21 +33,9 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>software.amazon.awssdk</groupId>
-                <artifactId>bom</artifactId>
-                <version>${aws.java.sdk.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
+
+            <!-- Newer than the platform default: the WAR and inventory work needs
+                 orgpolicy/asset APIs that only landed in the 26.64+ line. -->
             <dependency>
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
@@ -65,19 +56,20 @@
         </dependency>
 
         <!-- AWS Secrets Manager integration: loads secrets into the Spring Environment
-             (in-memory, never as OS env vars) via spring.config.import. Matches Spring Boot 2.7 / Spring Cloud 2021.0.x -->
+             (in-memory, never as OS env vars) via spring.config.import.
+             awspring 4.x renamed the artifact and dropped the "-config" split. -->
         <dependency>
             <groupId>io.awspring.cloud</groupId>
-            <artifactId>spring-cloud-starter-aws-secrets-manager-config</artifactId>
-            <version>2.4.4</version>
+            <artifactId>spring-cloud-aws-starter-secrets-manager</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
         </dependency>
+        <!-- Boot 4 renamed spring-boot-starter-aop to make the AspectJ dependency explicit -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-aop</artifactId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
         </dependency>
 
         <dependency>
@@ -90,8 +82,8 @@
             <classifier>osx-aarch_64</classifier>
         </dependency>
         <dependency>
-            <groupId>org.springframework.session</groupId>
-            <artifactId>spring-session-data-redis</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-session-data-redis</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -108,7 +100,12 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!-- RestTemplate/RestClient moved out of the web starter in Boot 4 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -127,17 +124,31 @@
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
         </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
+        <!-- Boot 4 moved Flyway autoconfiguration into its own module, so the bare
+             flyway-core jar no longer wires up migrations on startup. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <!--
+            REQUIRED, and not pulled in by the starter. Flyway 10 split every database
+            out of flyway-core into its own plugin; flyway-core 11 now registers only
+            SQLite, H2 and TestContainers. Without this module Flyway throws
+            "Unsupported Database: PostgreSQL" during startup and the service never
+            comes up. The test suite cannot catch it because @DataJpaTest runs on H2,
+            which IS bundled — so this only ever fails against a real environment.
+        -->
         <dependency>
             <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -692,7 +703,6 @@
             <artifactId>service</artifactId>
             <version>0.12.0</version>
         </dependency>
-        
         <dependency>
             <groupId>io.fabric8</groupId>
             <artifactId>kubernetes-client</artifactId>
@@ -704,14 +714,38 @@
         
         <dependency>
             <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-ui</artifactId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>${springdoc.version}</version>
         </dependency>
-        
+
         <dependency>
             <groupId>com.giffing.bucket4j.spring.boot.starter</groupId>
             <artifactId>bucket4j-spring-boot-starter</artifactId>
-            <version>0.8.1</version>
+            <version>${bucket4j.version}</version>
+        </dependency>
+        <!--
+            bucket4j 0.14 dropped its Caffeine cache resolver, so the dashboard rate limiter
+            needs a cache named explicitly. JCache backed by Caffeine keeps the limiter
+            in-process, which is what the 0.8.1 setup did — the upgrade is not the place to
+            turn a per-instance limit into a distributed one.
+
+            It must also be a *synchronous* resolver: the starter's Lettuce and Redisson
+            resolvers are @ConditionalOnAsynchronousPropertyCondition and only activate for
+            WEBFLUX/GATEWAY filters. In a servlet app they never match and startup fails
+            with "No Bucket4j cache configuration found". JCache and Jedis are the two sync
+            options; JCache is the one that needs no new Redis client.
+
+            bucket4j_jdk17-jcache arrives transitively with the starter; these two supply
+            the JSR-107 API and the Caffeine provider behind it.
+        -->
+        <dependency>
+            <groupId>javax.cache</groupId>
+            <artifactId>cache-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>jcache</artifactId>
+            <version>${caffeine.version}</version>
         </dependency>
 
         <!-- Apache HttpComponents for RestTemplate PATCH support -->
@@ -720,9 +754,21 @@
             <artifactId>httpclient5</artifactId>
         </dependency>
 
+        <!-- Boot 4 splits the test infrastructure per technology; each of these pulls in
+             spring-boot-starter-test transitively. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-test</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- In-memory database for @DataJpaTest repository slice tests (test scope only) -->
@@ -743,7 +789,8 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.11</version>
+                <!-- 0.8.15 is the first line that can instrument Java 25 class files -->
+                <version>0.8.15</version>
                 <executions>
                     <execution>
                         <id>default-prepare-agent</id>
@@ -768,7 +815,7 @@
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
-                            <version>1.18.36</version>
+                            <version>${lombok.version}</version>
                         </path>
                     </annotationProcessorPaths>
                     <fork>true</fork>

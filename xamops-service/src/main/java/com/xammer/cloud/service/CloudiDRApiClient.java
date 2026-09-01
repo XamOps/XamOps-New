@@ -11,7 +11,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import java.util.Collections;
 import java.util.List;
 
@@ -125,7 +125,7 @@ public class CloudiDRApiClient {
         logger.info("CloudiDR API: GET /external/api/v1/flexcompute/search for instance type: {}", request.getInstanceType());
 
         try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl + "/external/api/v1/flexcompute/search");
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(baseUrl + "/external/api/v1/flexcompute/search");
 
             // Required parameters
             if (request.getInstanceType() != null) builder.queryParam("instanceType", request.getInstanceType());
@@ -305,7 +305,7 @@ public class CloudiDRApiClient {
         logger.info("CloudiDR API: GET /external/api/v1/flexcompute/capacities");
 
         try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl + "/external/api/v1/flexcompute/capacities");
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(baseUrl + "/external/api/v1/flexcompute/capacities");
 
             // Optional parameters
             if (page != null) builder.queryParam("page", page);

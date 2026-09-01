@@ -2,7 +2,7 @@ package com.xammer.billops.domain;
 
 import com.xammer.cloud.domain.AppUser;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 @Entity
 @Table(name = "user_tab_access")

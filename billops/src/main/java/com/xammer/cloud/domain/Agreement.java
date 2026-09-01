@@ -1,7 +1,7 @@
 package com.xammer.cloud.domain;
 
 import com.xammer.billops.domain.CloudAccount;
-import javax.persistence.*;
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity

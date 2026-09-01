@@ -213,7 +213,7 @@ public class AuthentikApiClient {
         int page = 1;
 
         while (true) {
-            String url = UriComponentsBuilder.fromHttpUrl(baseEndpoint)
+            String url = UriComponentsBuilder.fromUriString(baseEndpoint)
                     .queryParam(filterParam, filterValue)
                     .queryParam("page_size", PAGE_SIZE)
                     .queryParam("page", page)

@@ -39,7 +39,7 @@ class XamSecureWebhookRegisterTest {
         when(apiClient.createWebhook(any())).thenReturn(created);
 
         var resp = controller.registerWebhook();
-        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(200, resp.getStatusCode().value());
 
         ArgumentCaptor<JsonNode> cap = ArgumentCaptor.forClass(JsonNode.class);
         verify(apiClient).createWebhook(cap.capture());
@@ -59,7 +59,7 @@ class XamSecureWebhookRegisterTest {
 
         var resp = controller.registerWebhook();
 
-        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(200, resp.getStatusCode().value());
         verify(apiClient, never()).createWebhook(any());
     }
 
@@ -72,7 +72,7 @@ class XamSecureWebhookRegisterTest {
 
         var resp = controller.registerWebhook();
 
-        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(200, resp.getStatusCode().value());
         verify(apiClient).createWebhook(any());
     }
 
@@ -80,7 +80,7 @@ class XamSecureWebhookRegisterTest {
     void registerWebhookFailsWithoutSecret() {
         controller.setWebhookSecret("");
         var resp = controller.registerWebhook();
-        assertEquals(400, resp.getStatusCodeValue());
+        assertEquals(400, resp.getStatusCode().value());
         verifyNoInteractions(apiClient);
     }
 }

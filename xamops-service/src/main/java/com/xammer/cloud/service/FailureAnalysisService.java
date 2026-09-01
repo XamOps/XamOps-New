@@ -3,7 +3,7 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.dto.cicd.DiffSummaryDto;
 import com.xammer.cloud.dto.cicd.FailureAnalysisDto;
 import com.xammer.cloud.repository.CicdRunRecordRepository;
-import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.boot.restclient.RestTemplateBuilder;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;

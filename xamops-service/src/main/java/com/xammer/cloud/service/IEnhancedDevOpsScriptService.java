@@ -45,7 +45,7 @@ public interface IEnhancedDevOpsScriptService {
      *
      * @param id the script id
      * @return the script
-     * @throws javax.persistence.EntityNotFoundException if no script exists
+     * @throws jakarta.persistence.EntityNotFoundException if no script exists
      */
     DevOpsScript getScriptById(Long id);
 

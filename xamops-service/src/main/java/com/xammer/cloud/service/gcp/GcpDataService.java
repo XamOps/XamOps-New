@@ -756,11 +756,11 @@ public class GcpDataService {
                     if (ex != null) {
                         log.error("[GcpCloudList] Async refresh FAILED for project: {}", gcpProjectId, ex);
                         messagingTemplate.convertAndSend("/topic/gcp-cloudlist-refresh",
-                                Map.of("status", "refresh-failed", "accountId", gcpProjectId));
+                                (Object) Map.of("status", "refresh-failed", "accountId", gcpProjectId));
                     } else {
                         log.info("[GcpCloudList] Async refresh COMPLETE for project: {}", gcpProjectId);
                         messagingTemplate.convertAndSend("/topic/gcp-cloudlist-refresh",
-                                Map.of("status", "refresh-complete", "accountId", gcpProjectId));
+                                (Object) Map.of("status", "refresh-complete", "accountId", gcpProjectId));
                     }
                 });
     }

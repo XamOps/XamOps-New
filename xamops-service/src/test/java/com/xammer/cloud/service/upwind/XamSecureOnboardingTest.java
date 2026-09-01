@@ -64,7 +64,7 @@ class XamSecureOnboardingTest {
     @Test
     void registerRejectsMissingAccountId() {
         var resp = controller.register(Map.of("status", "CONNECTED"));
-        assertEquals(400, resp.getStatusCodeValue());
+        assertEquals(400, resp.getStatusCode().value());
         verify(connectionRepo, never()).save(any());
     }
 }

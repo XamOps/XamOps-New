@@ -206,4 +206,67 @@ public class RedisCacheService {
         return redisTemplate.opsForValue().get(key);
     }
 
+    // --- OTP brute-force limiting -------------------------------------------
+    //
+    // A 6-digit code is ~20 bits. Within its 5-minute window an unthrottled attacker
+    // walks the whole space, so the TTL alone is not a control — the attempt cap is what
+    // makes the code strong enough to use. Counters live in Redis rather than in memory
+    // because the services run multi-replica behind the gateway; a per-instance counter
+    // would let an attacker get the cap's worth of guesses per replica.
+
+    /** Max wrong guesses per identifier before its code is burned. */
+    public static final int MAX_OTP_ATTEMPTS = 5;
+
+    /** Max codes that may be requested for one identifier per window. */
+    public static final int MAX_OTP_REQUESTS = 5;
+
+    private static final int OTP_ATTEMPT_WINDOW_SECONDS = 900;
+
+    /**
+     * Records a failed guess.
+     *
+     * @return true when the caller should now treat the code as burned.
+     */
+    public boolean registerOtpFailure(String scope, String identifier) {
+        String key = "OTP_FAIL:" + scope + ":" + identifier;
+        Long attempts = redisTemplate.opsForValue().increment(key);
+        if (attempts != null && attempts == 1L) {
+            // Only set expiry on first increment, otherwise a steady drip of guesses
+            // would keep pushing the window out and the counter would never reset.
+            redisTemplate.expire(key, OTP_ATTEMPT_WINDOW_SECONDS, TimeUnit.SECONDS);
+        }
+        return attempts != null && attempts >= MAX_OTP_ATTEMPTS;
+    }
+
+    public boolean isOtpLocked(String scope, String identifier) {
+        String value = redisTemplate.opsForValue().get("OTP_FAIL:" + scope + ":" + identifier);
+        if (value == null) {
+            return false;
+        }
+        try {
+            return Long.parseLong(value) >= MAX_OTP_ATTEMPTS;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    public void clearOtpFailures(String scope, String identifier) {
+        redisTemplate.delete("OTP_FAIL:" + scope + ":" + identifier);
+    }
+
+    /**
+     * Rate-limits code issuance, so the send endpoint cannot be used to spray a user's
+     * inbox or to keep minting fresh codes until one is guessed.
+     *
+     * @return true when this request is over the limit and should be dropped.
+     */
+    public boolean registerOtpRequestAndCheckLimit(String scope, String identifier) {
+        String key = "OTP_REQ:" + scope + ":" + identifier;
+        Long count = redisTemplate.opsForValue().increment(key);
+        if (count != null && count == 1L) {
+            redisTemplate.expire(key, OTP_ATTEMPT_WINDOW_SECONDS, TimeUnit.SECONDS);
+        }
+        return count != null && count > MAX_OTP_REQUESTS;
+    }
+
 }

@@ -11,7 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.boot.restclient.RestTemplateBuilder;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
@@ -98,7 +98,7 @@ public class CicdStatusService {
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
         for (int page = 1; page <= maxPages; page++) {
-            String url = UriComponentsBuilder.fromHttpUrl(githubApiBaseUrl)
+            String url = UriComponentsBuilder.fromUriString(githubApiBaseUrl)
                     .pathSegment("repos", owner, repo, "actions", "runs")
                     .queryParam("per_page", perPage)
                     .queryParam("page", page)
@@ -177,7 +177,7 @@ public class CicdStatusService {
      * Helper method to fetch all defined workflows (.yml files) in a repo.
      */
     private List<GitHubWorkflowDto> fetchWorkflowsForRepo(String owner, String repo, String decryptedPat) {
-        String url = UriComponentsBuilder.fromHttpUrl(githubApiBaseUrl)
+        String url = UriComponentsBuilder.fromUriString(githubApiBaseUrl)
                 .pathSegment("repos", owner, repo, "actions", "workflows")
                 .toUriString();
 
@@ -218,7 +218,7 @@ public class CicdStatusService {
      */
     private GitHubWorkflowRunDto fetchLatestRunForWorkflow(String owner, String repo, Long workflowId,
             String decryptedPat) {
-        String url = UriComponentsBuilder.fromHttpUrl(githubApiBaseUrl)
+        String url = UriComponentsBuilder.fromUriString(githubApiBaseUrl)
                 .pathSegment("repos", owner, repo, "actions", "workflows", workflowId.toString(), "runs")
                 .queryParam("per_page", 1) // We only want the most recent one
                 .queryParam("page", 1)
@@ -253,7 +253,7 @@ public class CicdStatusService {
      */
     public List<GitHubWorkflowRunDto> getLatestGitHubWorkflowRuns(String owner, String repo, String decryptedPat,
             int count) {
-        String url = UriComponentsBuilder.fromHttpUrl(githubApiBaseUrl)
+        String url = UriComponentsBuilder.fromUriString(githubApiBaseUrl)
                 .pathSegment("repos", owner, repo, "actions", "runs")
                 .queryParam("per_page", count)
                 .queryParam("page", 1)
@@ -324,7 +324,7 @@ public class CicdStatusService {
     // This is the method used by the modal (getWorkflowRunHistory)
     public List<GitHubWorkflowRunDto> getRunsForWorkflow(String owner, String repo, Long workflowId,
             String decryptedPat, int count) {
-        String url = UriComponentsBuilder.fromHttpUrl(githubApiBaseUrl)
+        String url = UriComponentsBuilder.fromUriString(githubApiBaseUrl)
                 .pathSegment("repos", owner, repo, "actions", "workflows", workflowId.toString(), "runs")
                 .queryParam("per_page", count) // Use the count parameter
                 .queryParam("page", 1)
@@ -369,7 +369,7 @@ public class CicdStatusService {
     public GitHubWorkflowRunsApiResponse getWorkflowRunsForWorkflow(String owner, String repo, String workflowId,
             String token) {
 
-        String url = UriComponentsBuilder.fromHttpUrl(githubApiBaseUrl)
+        String url = UriComponentsBuilder.fromUriString(githubApiBaseUrl)
                 .pathSegment("repos", owner, repo, "actions", "workflows", workflowId, "runs")
                 .toUriString();
 
@@ -401,7 +401,7 @@ public class CicdStatusService {
     }
 
     public List<PipelineStageDto> getGitHubRunJobs(String owner, String repo, Long runId, String decryptedPat) {
-        String url = UriComponentsBuilder.fromHttpUrl(githubApiBaseUrl)
+        String url = UriComponentsBuilder.fromUriString(githubApiBaseUrl)
                 .pathSegment("repos", owner, repo, "actions", "runs", runId.toString(), "jobs")
                 .toUriString();
 
