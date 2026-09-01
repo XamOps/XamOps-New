@@ -175,9 +175,12 @@ SA_CREATE_OUTPUT=$(gcloud iam service-accounts create "$SERVICE_ACCOUNT_NAME" \
     2>&1)
 SA_CREATE_STATUS=$?
 
+SA_WAS_CREATED=1
+
 if [ $SA_CREATE_STATUS -ne 0 ]; then
     if echo "$SA_CREATE_OUTPUT" | grep -qi "already exists"; then
         echo "  ℹ️  Service account already exists, continuing..."
+        SA_WAS_CREATED=0
     else
         echo "❌ ERROR: Failed to create service account '$SERVICE_ACCOUNT_NAME':"
         echo "$SA_CREATE_OUTPUT"
@@ -188,8 +191,90 @@ if [ $SA_CREATE_STATUS -ne 0 ]; then
     fi
 fi
 
+# A freshly created service account is not immediately visible to every IAM
+# backend. Binding roles right away makes the first few calls fail with
+# "Service account ... does not exist". Wait until it is readable.
+printf "  Waiting for service account to propagate..."
+SA_READY=0
+SA_WAIT_ATTEMPT=0
+while [ "$SA_WAIT_ATTEMPT" -lt 15 ]; do
+    if gcloud iam service-accounts describe "$SERVICE_ACCOUNT_EMAIL" \
+        --project="$PROJECT_ID" > /dev/null 2>&1; then
+        SA_READY=1
+        break
+    fi
+    SA_WAIT_ATTEMPT=$((SA_WAIT_ATTEMPT + 1))
+    printf "."
+    sleep 2
+done
+
+if [ "$SA_READY" -eq 1 ]; then
+    echo " ✓"
+else
+    echo " (timed out, continuing anyway)"
+fi
+
+# Even once readable, the IAM policy service can lag a few seconds behind for
+# a brand-new account. Small one-time buffer; the per-role retry covers the rest.
+if [ "$SA_WAS_CREATED" -eq 1 ]; then
+    sleep 5
+fi
+
 echo "✓ Service account ready"
 echo ""
+
+# ------------------------------------------------------------------
+# IAM binding helper
+# ------------------------------------------------------------------
+# Project IAM writes are a read-modify-write of the whole policy and can fail
+# transiently: propagation lag on a new service account, a stale read after a
+# preceding write ("There were concurrent policy changes"), or setIamPolicy
+# rate limits when looping over many roles. Retry with backoff and keep the
+# real gcloud error so failures can be reported accurately instead of guessed.
+
+# Older gcloud releases do not support --condition. Probe once so the flag can
+# be added when available (it suppresses the interactive condition prompt on
+# projects that already have conditional bindings).
+CONDITION_FLAG=""
+if gcloud projects add-iam-policy-binding --help 2>/dev/null | grep -q -- "--condition"; then
+    CONDITION_FLAG="--condition=None"
+fi
+
+IAM_BIND_ERROR=""
+
+bind_role() {
+    BIND_ROLE_NAME="$1"
+    BIND_ATTEMPT=1
+    BIND_MAX_ATTEMPTS=4
+    IAM_BIND_ERROR=""
+
+    while [ "$BIND_ATTEMPT" -le "$BIND_MAX_ATTEMPTS" ]; do
+        BIND_OUTPUT=$(gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+            --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+            --role="$BIND_ROLE_NAME" \
+            $CONDITION_FLAG \
+            --quiet 2>&1)
+        BIND_STATUS=$?
+
+        if [ $BIND_STATUS -eq 0 ]; then
+            return 0
+        fi
+
+        IAM_BIND_ERROR="$BIND_OUTPUT"
+
+        # Permission and org-policy denials will never succeed on retry.
+        if echo "$BIND_OUTPUT" | grep -qiE "PERMISSION_DENIED|does not have permission|violates constraint|Policy update access denied"; then
+            return 1
+        fi
+
+        BIND_ATTEMPT=$((BIND_ATTEMPT + 1))
+        if [ "$BIND_ATTEMPT" -le "$BIND_MAX_ATTEMPTS" ]; then
+            sleep $((BIND_ATTEMPT * 3))
+        fi
+    done
+
+    return 1
+}
 
 # Step 3: Grant Comprehensive Permissions
 echo "[3/4] Granting comprehensive read-only access..."
@@ -236,32 +321,48 @@ SERVICE_ROLES=(
 
 ALL_ROLES=("${CORE_ROLES[@]}" "${SERVICE_ROLES[@]}")
 FAILED_ROLES=()
+FAILED_ROLE_ERRORS=()
 FAILED_OPTIONAL_ROLES=()
 
 echo "  Binding ${#ALL_ROLES[@]} IAM roles to $SERVICE_ACCOUNT_EMAIL..."
 for role in "${ALL_ROLES[@]}"; do
-    if gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-        --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
-        --role="$role" \
-        --quiet > /dev/null 2>&1; then
+    if bind_role "$role"; then
         :
     else
         FAILED_ROLES+=("$role")
+        FAILED_ROLE_ERRORS+=("$IAM_BIND_ERROR")
     fi
 done
 
 if [ ${#FAILED_ROLES[@]} -gt 0 ]; then
     echo ""
-    echo "❌ ERROR: Failed to grant ${#FAILED_ROLES[@]} of ${#ALL_ROLES[@]} IAM role(s) to $SERVICE_ACCOUNT_EMAIL:"
+    echo "❌ ERROR: Failed to grant ${#FAILED_ROLES[@]} of ${#ALL_ROLES[@]} IAM role(s) to $SERVICE_ACCOUNT_EMAIL"
+    echo "   (each was attempted 4 times with backoff)"
+    echo ""
+    FAILED_INDEX=0
     for role in "${FAILED_ROLES[@]}"; do
         echo "   - $role"
+        echo "${FAILED_ROLE_ERRORS[$FAILED_INDEX]}" | sed 's/^/     /'
+        echo ""
+        FAILED_INDEX=$((FAILED_INDEX + 1))
     done
+    echo "Read the gcloud error above — it states the actual cause. Common ones:"
     echo ""
-    echo "This means your account does not have permission to modify IAM policy"
-    echo "on project '$PROJECT_ID' (requires 'Owner' or 'roles/resourcemanager.projectIamAdmin')."
+    echo "  * PERMISSION_DENIED / 'Policy update access denied'"
+    echo "      Your account cannot modify IAM policy on '$PROJECT_ID'. Ask a"
+    echo "      project Owner to run this script, or grant yourself"
+    echo "      'roles/resourcemanager.projectIamAdmin' and re-run it."
     echo ""
-    echo "Ask a project Owner to run this script, or grant yourself"
-    echo "'roles/resourcemanager.projectIamAdmin' and re-run it."
+    echo "  * 'Service account ... does not exist'"
+    echo "      Propagation lag. Simply re-run the script; the account now exists."
+    echo ""
+    echo "  * 'violates constraint' / org policy"
+    echo "      An organization policy blocks this role (basic roles such as"
+    echo "      roles/viewer are restricted in some orgs). Your org admin must"
+    echo "      allow it, or XamOps can run with the predefined roles only."
+    echo ""
+    echo "  * 'There were concurrent policy changes' / RESOURCE_EXHAUSTED"
+    echo "      Transient. Re-run the script."
     echo ""
     echo "Aborting WITHOUT generating a key — connecting a key with no IAM"
     echo "roles to XamOps would result in an empty dashboard with no error."
@@ -270,10 +371,7 @@ fi
 
 echo "  Binding ${#OPTIONAL_ROLES[@]} optional IAM roles (billing) to $SERVICE_ACCOUNT_EMAIL..."
 for role in "${OPTIONAL_ROLES[@]}"; do
-    if gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-        --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
-        --role="$role" \
-        --quiet > /dev/null 2>&1; then
+    if bind_role "$role"; then
         :
     else
         FAILED_OPTIONAL_ROLES+=("$role")
@@ -316,27 +414,32 @@ if [ "$ACCESS_TYPE" = "read-write" ]; then
     )
 
     FAILED_WRITE_ROLES=()
+    FAILED_WRITE_ROLE_ERRORS=()
     for role in "${WRITE_ROLES[@]}"; do
-        if gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-            --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
-            --role="$role" \
-            --quiet > /dev/null 2>&1; then
+        if bind_role "$role"; then
             :
         else
             FAILED_WRITE_ROLES+=("$role")
+            FAILED_WRITE_ROLE_ERRORS+=("$IAM_BIND_ERROR")
         fi
     done
 
     if [ ${#FAILED_WRITE_ROLES[@]} -gt 0 ]; then
         echo ""
-        echo "❌ ERROR: Failed to grant ${#FAILED_WRITE_ROLES[@]} write role(s):"
+        echo "❌ ERROR: Failed to grant ${#FAILED_WRITE_ROLES[@]} write role(s)"
+        echo "   (each was attempted 4 times with backoff)"
+        echo ""
+        FAILED_WRITE_INDEX=0
         for role in "${FAILED_WRITE_ROLES[@]}"; do
             echo "   - $role"
+            echo "${FAILED_WRITE_ROLE_ERRORS[$FAILED_WRITE_INDEX]}" | sed 's/^/     /'
+            echo ""
+            FAILED_WRITE_INDEX=$((FAILED_WRITE_INDEX + 1))
         done
-        echo ""
         echo "Aborting — read-write mode requires all write roles to be granted."
-        echo "Ask a project Owner to run this script, or grant yourself"
-        echo "'roles/resourcemanager.projectIamAdmin' and re-run it."
+        echo "See the gcloud error above for the actual cause. If it is a"
+        echo "permission error, ask a project Owner to run this script or grant"
+        echo "yourself 'roles/resourcemanager.projectIamAdmin' and re-run it."
         exit 1
     fi
 
