@@ -369,6 +369,17 @@ public class TicketService {
                 : List.of();
 
         if (!nonEmpty.isEmpty()) {
+            // Outside the try below, which wraps everything in a RuntimeException — a rejected
+            // attachment is a client error and must surface as a 400, not "upload failed" 500.
+            // Also validated before any upload starts, so one bad file in a batch does not
+            // leave the earlier ones orphaned in storage.
+            //
+            // Attachments are served back to other ticket participants, so an unrestricted
+            // upload is a stored-XSS vector that bypasses the reply-body sanitiser entirely:
+            // an .html or .svg file opened by a support agent runs script in their session.
+            for (MultipartFile f : nonEmpty) {
+                com.xammer.cloud.util.TicketAttachmentPolicy.validate(f);
+            }
             try {
                 ObjectMapper mapper = new ObjectMapper();
                 List<java.util.Map<String, String>> attachmentList = new ArrayList<>();

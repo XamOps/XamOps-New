@@ -458,6 +458,16 @@ public class TicketService {
                 : java.util.Collections.emptyList();
 
         if (!nonEmpty.isEmpty()) {
+            // Outside the try below so a rejected attachment surfaces as a client error rather
+            // than being wrapped into an "upload failed" 500, and validated before any upload
+            // begins so one bad file does not orphan the earlier ones in storage.
+            //
+            // Attachments are served back to other ticket participants, so an unrestricted
+            // upload is a stored-XSS vector that bypasses the reply-body sanitiser entirely:
+            // an .html or .svg file opened by a support agent runs script in their session.
+            for (MultipartFile f : nonEmpty) {
+                com.xammer.billops.util.TicketAttachmentPolicy.validate(f);
+            }
             try {
                 com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
                 List<Map<String, String>> attachmentList = new java.util.ArrayList<>();

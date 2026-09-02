@@ -57,6 +57,13 @@ public class SecurityConfig {
         @Autowired
         private com.xammer.cloud.security.TrialEnforcementFilter trialEnforcementFilter;
 
+        /**
+         * Signing key for the remember-me cookie. No default: it must be supplied per
+         * environment rather than falling back to a value in source.
+         */
+        @org.springframework.beans.factory.annotation.Value("${app.remember-me.key}")
+        private String rememberMeKey;
+
         public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
                         CustomAuthenticationFailureHandler authenticationFailureHandler,
                         CustomLogoutSuccessHandler logoutSuccessHandler,
@@ -338,7 +345,17 @@ public class SecurityConfig {
                                                 .deleteCookies("JSESSIONID", "remember-me")
                                                 .permitAll())
                                 .rememberMe((rememberMe) -> rememberMe
-                                                .key("xamops-remember-me-key-2025")
+                                                // Was the literal "xamops-remember-me-key-2025". This key
+                                                // signs the remember-me cookie, so publishing it in source
+                                                // removes half of what an attacker needs to mint a valid
+                                                // persistent-login token — the rest being a username, an
+                                                // expiry and the account's bcrypt hash. Low entropy and
+                                                // committed to git is the worst combination for a signing
+                                                // key, even one that is not sufficient on its own.
+                                                //
+                                                // Rotating this invalidates existing remember-me cookies, so
+                                                // users with an active "remember me" session sign in once more.
+                                                .key(rememberMeKey)
                                                 .tokenValiditySeconds(1209600) // 14 days
                                                 .rememberMeParameter("rememberMe")
                                                 .userDetailsService(userDetailsService));

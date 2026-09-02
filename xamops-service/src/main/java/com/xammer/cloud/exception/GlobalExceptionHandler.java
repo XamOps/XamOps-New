@@ -92,6 +92,30 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles input the caller got wrong — rejected ticket attachments, malformed
+     * identifiers, and similar validation failures raised from the service layer.
+     *
+     * <p>
+     * Without this these fell through to the generic handler and came back as a 500 with
+     * "An unexpected error occurred", which is both wrong (the server is fine; the request
+     * was not) and unhelpful, because the caller could not tell what to change. The message
+     * is surfaced deliberately: these are written to be shown to a user.
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<?> handleIllegalArgumentException(IllegalArgumentException ex,
+            HttpServletRequest request) {
+        log.warn("Rejected request — {} {}: {}",
+                request.getMethod(), request.getRequestURI(), ex.getMessage());
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", new Date());
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(body);
+    }
+
+    /**
      * Handles authentication failures for bad credentials.
      */
     @ExceptionHandler(BadCredentialsException.class)

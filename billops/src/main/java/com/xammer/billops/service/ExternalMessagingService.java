@@ -5,6 +5,7 @@ import com.xammer.billops.domain.UserPlatformConnection;
 import com.xammer.billops.repository.MessagingIntegrationConfigRepository;
 import com.xammer.billops.repository.UserPlatformConnectionRepository;
 import com.xammer.billops.service.TeamsMessagingService;
+import com.xammer.billops.util.WebhookUrlValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -146,7 +147,10 @@ public class ExternalMessagingService {
         }
 
         // ── Priority 2: Incoming Webhook URL (cross-org, no bot token needed) ──
-        if (conn.getWebhookUrl() != null && !conn.getWebhookUrl().isBlank()) {
+        // Re-validated at egress, not just on save: rows stored before validation existed are
+        // still in the table, and this is the call that actually performs the fetch.
+        if (conn.getWebhookUrl() != null && !conn.getWebhookUrl().isBlank()
+                && WebhookUrlValidator.isValid(conn.getWebhookUrl())) {
             Map<String, Object> body = buildSlackWebhookPayload(message, adminName, attachmentUrl, attachmentType, attachmentName);
             HttpEntity<Map<String, Object>> req = new HttpEntity<>(body, headers);
             ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
@@ -382,8 +386,10 @@ public class ExternalMessagingService {
         }
 
         // ── Priority 2: Incoming Webhook URL (one-way, legacy) ───────────────
+        // startsWith("https://") was the entire previous check, which https://169.254.169.254/
+        // also passes. Replaced with provider-host validation.
         if (conn.getWebhookUrl() == null || conn.getWebhookUrl().isBlank()
-                || !conn.getWebhookUrl().startsWith("https://")) {
+                || !WebhookUrlValidator.isValid(conn.getWebhookUrl())) {
             log.warn("Teams: no usable webhook URL for userId={}", conn.getUserId());
             return null;
         }
@@ -483,8 +489,11 @@ public class ExternalMessagingService {
         }
 
         // ── Priority 2: Incoming Webhook URL (legacy / cross-org fallback) ──
-        if (conn.getWebhookUrl() == null || conn.getWebhookUrl().isBlank()) {
-            log.warn("GChat: no space ID and no webhook URL for userId={}", conn.getUserId());
+        // Host-validated for the same reason as the Slack and Teams paths: this URL came from
+        // a request body and is fetched by the server.
+        if (conn.getWebhookUrl() == null || conn.getWebhookUrl().isBlank()
+                || !WebhookUrlValidator.isValid(conn.getWebhookUrl())) {
+            log.warn("GChat: no space ID and no usable webhook URL for userId={}", conn.getUserId());
             return null;
         }
 

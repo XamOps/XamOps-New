@@ -1,6 +1,7 @@
 package com.xammer.cloud.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.xammer.cloud.domain.converter.EncryptedStringConverter;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -32,6 +33,14 @@ public class CloudAccount {
     @Column(unique = true)
     private String roleArn;
 
+    /**
+     * GCP service-account JSON key. A standing credential with no expiry, so it is encrypted
+     * at rest — see {@link EncryptedStringConverter}. {@code @JsonIgnore} because this entity
+     * is serialised directly by several account endpoints and the key must never leave the
+     * service in a response body.
+     */
+    @JsonIgnore
+    @Convert(converter = EncryptedStringConverter.class)
     @Column(columnDefinition = "TEXT")
     private String gcpServiceAccountKey;
 
@@ -82,6 +91,14 @@ public class CloudAccount {
     @Column(name = "azure_client_id")
     private String azureClientId;
 
+    /**
+     * Azure service-principal client secret. Same reasoning as
+     * {@link #gcpServiceAccountKey}: long-lived, so encrypted at rest, and never serialised
+     * back to a caller. The report noted this value was being echoed in an API response —
+     * {@code @JsonIgnore} closes that off at the entity rather than per-endpoint.
+     */
+    @JsonIgnore
+    @Convert(converter = EncryptedStringConverter.class)
     @Column(name = "azure_client_secret")
     private String azureClientSecret;
 

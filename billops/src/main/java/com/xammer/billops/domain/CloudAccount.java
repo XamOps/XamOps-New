@@ -2,6 +2,7 @@ package com.xammer.billops.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.xammer.billops.domain.converter.EncryptedStringConverter;
 import com.xammer.cloud.domain.Invoice;
 import lombok.NoArgsConstructor;
 import java.util.List;
@@ -31,6 +32,13 @@ public class CloudAccount {
     @Column(name = "role_arn", unique = true)
     private String roleArn;
 
+    /**
+     * GCP service-account JSON key — a standing credential with no expiry, so encrypted at
+     * rest. Must use the same converter and key as xamops-service, which maps this same
+     * column.
+     */
+    @JsonIgnore
+    @Convert(converter = EncryptedStringConverter.class)
     @Column(name = "gcp_service_account_key", columnDefinition = "TEXT")
     private String gcpServiceAccountKey;
 
@@ -64,6 +72,9 @@ public class CloudAccount {
     @Column(name = "azure_client_id")
     private String azureClientId;
 
+    /** Azure service-principal secret — encrypted at rest, never serialised to a caller. */
+    @JsonIgnore
+    @Convert(converter = EncryptedStringConverter.class)
     @Column(name = "azure_client_secret")
     private String azureClientSecret;
 

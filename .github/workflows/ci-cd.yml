@@ -252,6 +252,8 @@ jobs:
               --memory=2g --memory-swap=2g \
               -p 8082:8082 \
               -e SPRING_PROFILES_ACTIVE=uat \
+              -e APP_IMPERSONATION_SECRET_KEY=${{ secrets.APP_IMPERSONATION_SECRET_KEY }} \
+              -e APP_ENCRYPTION_SECRET_KEY=${{ secrets.APP_ENCRYPTION_SECRET_KEY }} \
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
               -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
               -e SPRING_FLYWAY_OUT_OF_ORDER=true \
@@ -465,6 +467,9 @@ jobs:
               --memory=4g --memory-swap=4g \
               -p 8080:8080 \
               -e SPRING_PROFILES_ACTIVE=uat \
+              -e APP_IMPERSONATION_SECRET_KEY=${{ secrets.APP_IMPERSONATION_SECRET_KEY }} \
+              -e APP_ENCRYPTION_SECRET_KEY=${{ secrets.APP_ENCRYPTION_SECRET_KEY }} \
+              -e APP_REMEMBER_ME_KEY=${{ secrets.APP_REMEMBER_ME_KEY }} \
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
               -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
               -e SPRING_FLYWAY_OUT_OF_ORDER=true \
@@ -777,6 +782,7 @@ jobs:
               -p 8084:8084 \
               -v /data/xamops-media:/data/xamops-media \
               -e SPRING_PROFILES_ACTIVE=uat \
+              -e APP_IMPERSONATION_SECRET_KEY=${{ secrets.APP_IMPERSONATION_SECRET_KEY }} \
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
               -e REDIS_HOST=redis-uat \
               -e REDIS_PORT=6379 \

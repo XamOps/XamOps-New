@@ -7,6 +7,7 @@ import com.xammer.billops.repository.MessagingIntegrationConfigRepository;
 import com.xammer.billops.repository.UserPlatformConnectionRepository;
 import com.xammer.billops.service.ExternalMessagingService;
 import com.xammer.cloud.domain.AppUser;
+import com.xammer.billops.util.WebhookUrlValidator;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -169,8 +170,23 @@ public class MessagingIntegrationController {
         conn.setUpdatedAt(LocalDateTime.now(IST));
         conn.setActive(true);
 
-        if (payload.containsKey("webhookUrl"))
-            conn.setWebhookUrl(payload.get("webhookUrl"));
+        // Validate before storing. This URL is later POSTed to by the backend, so accepting
+        // an arbitrary value here is SSRF with persistence: the request succeeds, and the
+        // server-side fetch happens later on a schedule or on the next ticket reply.
+        // Blank clears the connection, which stays allowed.
+        if (payload.containsKey("webhookUrl")) {
+            String webhookUrl = payload.get("webhookUrl");
+            if (webhookUrl == null || webhookUrl.isBlank()) {
+                conn.setWebhookUrl(null);
+            } else {
+                try {
+                    WebhookUrlValidator.validate(webhookUrl);
+                } catch (IllegalArgumentException e) {
+                    return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+                }
+                conn.setWebhookUrl(webhookUrl.trim());
+            }
+        }
         if (payload.containsKey("channelId"))
             conn.setChannelId(payload.get("channelId"));
         if (payload.containsKey("platformUserId"))
