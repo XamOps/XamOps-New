@@ -26,6 +26,10 @@ import com.xammer.billops.dto.*;
 import com.xammer.billops.dto.azure.AzureBillingDashboardDto; // ✅ Import Azure DTO
 import com.xammer.billops.repository.*;
 import com.xammer.billops.service.CloudFrontUsageService.CloudFrontUsageDto;
+import com.xammer.billops.dto.cur.CurAggregates;
+import com.xammer.billops.service.cdn.CloudFrontBill;
+import com.xammer.billops.service.cdn.CloudFrontBillLine;
+import com.xammer.billops.service.cdn.CloudFrontPricingService;
 import com.xammer.cloud.domain.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,6 +82,7 @@ public class InvoiceManagementService {
     private static final Logger logger = LoggerFactory.getLogger(InvoiceManagementService.class);
     private final CloudFrontUsageService cloudFrontUsageService;
     private final CloudFrontPrivateRateRepository privateRateRepository;
+    private final CloudFrontPricingService cloudFrontPricingService;
     private final ClientRepository clientRepository;
     private final RedisCacheService redisCache;
     private AccountAccessHelper accountAccessHelper;
@@ -85,6 +90,36 @@ public class InvoiceManagementService {
     private static final String INVOICE_LIST_CACHE_KEY = "billops:invoices:list:admin";
     private static final long CACHE_TTL_MINUTES = 60;
     private static final BigDecimal IGST_RATE = new BigDecimal("0.18");
+
+    /**
+     * Service name CloudFront line items carry. Used to split them onto their own invoice
+     * row and to scope a CloudFront-specific discount, so it has to match exactly what
+     * ingestion writes -- see CurIngestionService.normaliseServiceName.
+     */
+    private static final String CLOUDFRONT_SERVICE = "Amazon CloudFront";
+
+    /**
+     * Discount scopes that mean "the whole consumption row" rather than one service.
+     * Lowercase for case-insensitive lookup.
+     */
+    private static final Set<String> CONSUMPTION_DISCOUNT_SCOPES = Set.of(
+            "aws consumption charge",
+            "google cloud consumption",
+            "microsoft azure consumption");
+
+    /**
+     * Whether a discount's service name means "the whole consumption row" rather than one
+     * named service.
+     *
+     * The GCP and Azure names used to be recognised only by the PDF, never by
+     * {@code recalculateTotals}. There they fell through to the per-service branch, which
+     * matches line items by exact service name -- and GCP/Azure line items are named after
+     * individual services, so the match found nothing and the discount came out as zero.
+     * The rendered invoice showed a concession the stored invoice did not carry.
+     */
+    private static boolean isConsumptionScope(String serviceName) {
+        return serviceName != null && CONSUMPTION_DISCOUNT_SCOPES.contains(serviceName.toLowerCase());
+    }
 
     public InvoiceManagementService(InvoiceRepository invoiceRepository,
             CloudAccountRepository cloudAccountRepository,
@@ -96,6 +131,7 @@ public class InvoiceManagementService {
             EmailService emailService,
             CloudFrontUsageService cloudFrontUsageService,
             CloudFrontPrivateRateRepository privateRateRepository,
+            CloudFrontPricingService cloudFrontPricingService,
             ClientRepository clientRepository,
             RedisCacheService redisCache,
             AccountAccessHelper accountAccessHelper) {
@@ -109,6 +145,7 @@ public class InvoiceManagementService {
         this.emailService = emailService;
         this.cloudFrontUsageService = cloudFrontUsageService;
         this.privateRateRepository = privateRateRepository;
+        this.cloudFrontPricingService = cloudFrontPricingService;
         this.clientRepository = clientRepository;
         this.redisCache = redisCache;
         this.accountAccessHelper = accountAccessHelper;
@@ -447,9 +484,31 @@ public class InvoiceManagementService {
         BigDecimal totalTaxable = BigDecimal.ZERO;
 
         Map<String, List<InvoiceDto.LineItemDto>> grouped = items.stream().collect(Collectors.groupingBy(
-                item -> "Amazon CloudFront".equalsIgnoreCase(item.getServiceName()) ? "CLOUDFRONT" : "STANDARD"));
+                item -> CLOUDFRONT_SERVICE.equalsIgnoreCase(item.getServiceName()) ? "CLOUDFRONT" : "STANDARD"));
 
         String monthStr = formatMonth(dto.getBillingPeriod());
+
+        // CloudFront's total is needed by BOTH rows before either is written: the
+        // CLOUDFRONT row bills it, and an "ALL"-scoped discount has to be split across
+        // the two rows because its base spans both.
+        BigDecimal cfTotalUsd = grouped.getOrDefault("CLOUDFRONT", Collections.emptyList()).stream()
+                .map(i -> Optional.ofNullable(i.getCost()).orElse(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal marketplaceForDiscount = Optional.ofNullable(dto.getMarketplaceCharge()).orElse(BigDecimal.ZERO);
+        BigDecimal stdDiscountableTotal = grouped.getOrDefault("STANDARD", Collections.emptyList()).stream()
+                .map(i -> Optional.ofNullable(i.getCost()).orElse(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .subtract(marketplaceForDiscount)
+                .max(BigDecimal.ZERO);
+
+        // Attributed once, so the rows cannot disagree with each other or with the
+        // saved invoice. See attributeDiscounts.
+        RowDiscounts rowDiscounts = attributeDiscounts(
+                dto.getDiscounts(),
+                stdDiscountableTotal,
+                cfTotalUsd,
+                grouped.getOrDefault("STANDARD", Collections.emptyList()));
 
         // --- ROW 1: Standard Consumption (AWS, GCP, or Azure) ---
         if (grouped.containsKey("STANDARD")) {
@@ -464,30 +523,19 @@ public class InvoiceManagementService {
                 stdTotal = BigDecimal.ZERO;
             }
 
-            BigDecimal discountPercent = BigDecimal.ZERO;
-            BigDecimal discountAmount = BigDecimal.ZERO;
-            boolean showDiscountInDesc = false;
-
-            if (dto.getDiscounts() != null) {
-                for (InvoiceDto.DiscountDto d : dto.getDiscounts()) {
-                    String svcName = Optional.ofNullable(d.getServiceName()).orElse("");
-                    // Only show discount in description for global/consumption-level discounts
-                    if ("ALL".equalsIgnoreCase(svcName)
-                            || "AWS Consumption Charge".equalsIgnoreCase(svcName)
-                            || "Google Cloud Consumption".equalsIgnoreCase(svcName)
-                            || "Microsoft Azure Consumption".equalsIgnoreCase(svcName)) {
-                        discountPercent = d.getPercentage();
-                        BigDecimal pct = discountPercent.divide(new BigDecimal(100), 4, RoundingMode.HALF_UP);
-                        discountAmount = stdTotal.multiply(pct).setScale(2, RoundingMode.HALF_UP);
-                        showDiscountInDesc = true;
-                    }
-                }
-            }
-            // For per-service discounts (not global), use DTO's pre-computed discount total silently
-            if (!showDiscountInDesc && dto.getDiscountAmount() != null
-                    && dto.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
-                discountAmount = dto.getDiscountAmount();
-            }
+            // Only the discount attributable to THIS row.
+            //
+            // Previously this row fell back to dto.getDiscountAmount() -- the whole
+            // invoice's discount -- whenever no consumption-level discount was present.
+            // That was the only route by which a per-service discount reached the PDF, so
+            // a CloudFront discount was deducted here while the CloudFront row below
+            // showed full price. And when a consumption-level discount WAS present the
+            // fallback was skipped entirely, so the CloudFront discount vanished from the
+            // PDF altogether and the customer was billed more than the saved invoice said.
+            BigDecimal discountPercent = rowDiscounts.consumptionPercent();
+            BigDecimal discountAmount = rowDiscounts.standard();
+            boolean showDiscountInDesc = rowDiscounts.showConsumptionPercent()
+                    && discountAmount.compareTo(BigDecimal.ZERO) > 0;
 
             // Detect Provider for Text Labels
             boolean isGcp = dto.getGcpProjectId() != null && !dto.getGcpProjectId().equals("N/A")
@@ -553,16 +601,29 @@ public class InvoiceManagementService {
 
         // --- ROW 2: CloudFront Consumption ---
         if (grouped.containsKey("CLOUDFRONT")) {
-            BigDecimal cfTotalUsd = grouped.get("CLOUDFRONT").stream().map(InvoiceDto.LineItemDto::getCost)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            BigDecimal cfTotalInr = cfTotalUsd.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+            // CloudFront carries its own discount, either scoped directly to
+            // "Amazon CloudFront" or as its share of an "ALL"-scoped one. This row used
+            // to bill the gross figure unconditionally, which is what let the discount
+            // go missing from the PDF while still being present on the saved invoice.
+            BigDecimal cfDiscountUsd = rowDiscounts.cloudFront();
+            BigDecimal cfNetUsd = cfTotalUsd.subtract(cfDiscountUsd).max(BigDecimal.ZERO);
+            BigDecimal cfTotalInr = cfNetUsd.multiply(rate).setScale(2, RoundingMode.HALF_UP);
 
             Paragraph cfDescPara = new Paragraph();
             cfDescPara.add(new com.itextpdf.layout.element.Text("AWS CloudFront Consumption").setBold().setFontSize(8));
             cfDescPara.add(new com.itextpdf.layout.element.Text("\nAmazon CloudFront Charges").setItalic().setFontSize(8));
             cfDescPara.add(new com.itextpdf.layout.element.Text("\nFor the Period of " + monthStr).setItalic().setFontSize(8));
             cfDescPara.add(new com.itextpdf.layout.element.Text(
-                    String.format("\n($%.2f @%s)", cfTotalUsd.doubleValue(), rateStr)).setItalic().setFontSize(8));
+                    String.format("\n($%.2f @%s)", cfNetUsd.doubleValue(), rateStr)).setItalic().setFontSize(8));
+            if (cfDiscountUsd.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal cfPercent = cfTotalUsd.compareTo(BigDecimal.ZERO) > 0
+                        ? cfDiscountUsd.multiply(new BigDecimal(100))
+                                .divide(cfTotalUsd, 2, RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO;
+                cfDescPara.add(new com.itextpdf.layout.element.Text(
+                        String.format("\nDiscount: %.2f%% (-$%.2f)", cfPercent.doubleValue(), cfDiscountUsd.doubleValue())
+                ).setItalic().setFontSize(8));
+            }
 
             addTableRow(table, slNo++, cfDescPara, "998315", cfTotalInr);
             totalTaxable = totalTaxable.add(cfTotalInr);
@@ -990,6 +1051,90 @@ public class InvoiceManagementService {
         return invoiceDto;
     }
 
+    /**
+     * Discount split across the invoice's two billed rows.
+     *
+     * @param standard               deducted from the consumption row
+     * @param cloudFront             deducted from the CloudFront row
+     * @param consumptionPercent     percentage to print on the consumption row
+     * @param showConsumptionPercent whether that percentage came from a consumption-level
+     *                               scope, and so should be shown rather than applied silently
+     */
+    record RowDiscounts(BigDecimal standard,
+                        BigDecimal cloudFront,
+                        BigDecimal consumptionPercent,
+                        boolean showConsumptionPercent) {
+    }
+
+    /**
+     * Splits the invoice's discounts across the consumption row and the CloudFront row.
+     *
+     * Mirrors the scope rules in {@link #recalculateTotals(Invoice)} deliberately, because
+     * that method computes the amount actually charged. The PDF previously derived its own
+     * figures and disagreed with it: a CloudFront discount was either applied to the wrong
+     * row or dropped, so the rendered invoice and the stored one differed by real money.
+     * Attributing once, here, is what keeps the two in step.
+     *
+     * @param stdTotal discountable consumption -- non-CloudFront line items less Marketplace
+     * @param cfTotal  CloudFront line items
+     * @param stdItems non-CloudFront line items, for per-service scopes
+     */
+    static RowDiscounts attributeDiscounts(List<InvoiceDto.DiscountDto> discounts,
+                                           BigDecimal stdTotal,
+                                           BigDecimal cfTotal,
+                                           List<InvoiceDto.LineItemDto> stdItems) {
+        BigDecimal std = BigDecimal.ZERO;
+        BigDecimal cf = BigDecimal.ZERO;
+        BigDecimal consumptionPercent = BigDecimal.ZERO;
+        boolean showConsumptionPercent = false;
+
+        if (discounts == null || discounts.isEmpty()) {
+            return new RowDiscounts(std, cf, consumptionPercent, false);
+        }
+
+        for (InvoiceDto.DiscountDto d : discounts) {
+            if (d == null || d.getPercentage() == null) {
+                continue;
+            }
+            String svc = Optional.ofNullable(d.getServiceName()).orElse("");
+            BigDecimal pct = d.getPercentage().divide(new BigDecimal(100), 4, RoundingMode.HALF_UP);
+
+            if ("ALL".equalsIgnoreCase(svc)) {
+                // Base spans everything but Marketplace, CloudFront included, so it lands
+                // on both rows. Applying it only to the consumption row -- as this used to
+                // -- under-discounted the invoice by CloudFront's share.
+                std = std.add(stdTotal.multiply(pct));
+                cf = cf.add(cfTotal.multiply(pct));
+                consumptionPercent = d.getPercentage();
+                showConsumptionPercent = true;
+
+            } else if (isConsumptionScope(svc)) {
+                std = std.add(stdTotal.multiply(pct));
+                consumptionPercent = d.getPercentage();
+                showConsumptionPercent = true;
+
+            } else if (CLOUDFRONT_SERVICE.equalsIgnoreCase(svc)) {
+                cf = cf.add(cfTotal.multiply(pct));
+
+            } else {
+                // Named service: only ever a non-CloudFront one, so it reduces the
+                // consumption row. Not surfaced as a percentage, since it applies to one
+                // service rather than to the row total shown beside it.
+                BigDecimal serviceTotal = stdItems.stream()
+                        .filter(i -> svc.equalsIgnoreCase(i.getServiceName()))
+                        .map(i -> Optional.ofNullable(i.getCost()).orElse(BigDecimal.ZERO))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                std = std.add(serviceTotal.multiply(pct));
+            }
+        }
+
+        return new RowDiscounts(
+                std.setScale(2, RoundingMode.HALF_UP),
+                cf.setScale(2, RoundingMode.HALF_UP),
+                consumptionPercent,
+                showConsumptionPercent);
+    }
+
     private void recalculateTotalsForDto(InvoiceDto invoiceDto) {
         BigDecimal totalDiscount = BigDecimal.ZERO;
         BigDecimal preDiscountTotal = Optional.ofNullable(invoiceDto.getPreDiscountTotal()).orElse(BigDecimal.ZERO);
@@ -1006,10 +1151,10 @@ public class InvoiceManagementService {
             if ("ALL".equalsIgnoreCase(disc.getServiceName())) {
                 BigDecimal allBase = preDiscountTotal.subtract(dtoMarketplace).max(BigDecimal.ZERO);
                 totalDiscount = totalDiscount.add(allBase.multiply(percentage));
-            } else if ("AWS Consumption Charge".equalsIgnoreCase(disc.getServiceName())) {
+            } else if (isConsumptionScope(disc.getServiceName())) {
                 BigDecimal standardTotal = lineItems.stream()
                         .filter(item -> !item.isHidden())
-                        .filter(item -> !"Amazon CloudFront".equalsIgnoreCase(item.getServiceName()))
+                        .filter(item -> !CLOUDFRONT_SERVICE.equalsIgnoreCase(item.getServiceName()))
                         .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
                         .subtract(dtoMarketplace).max(BigDecimal.ZERO);
@@ -1360,12 +1505,107 @@ public class InvoiceManagementService {
             }
         }
 
+        // CloudFront is resold under a private pricing agreement, so its line items are
+        // repriced from usage rather than passed through at AWS cost. Done after the loop
+        // above so the generic path stays untouched and the swap is one explicit step.
+        repriceCloudFrontAtPrivateRates(lineItems, invoice, cloudAccount, year, month);
+
         recalculateTotals(invoice);
         logger.info("[InvoiceGen] Draft invoice computed for account='{}' {}/{}: {} line items, total={}, includeIrn={}",
                 accountId, year, month, lineItems.size(), invoice.getAmount(), includeIrn);
         Invoice saved = invoiceRepository.save(invoice);
         evictInvoiceListCache();
         return saved;
+    }
+
+    /**
+     * Replaces the cost-based CloudFront line items with ones priced at the client's
+     * private per-unit rates.
+     *
+     * BillOps resells CloudFront at negotiated rates, so the CDN charge is
+     * {@code quantity x ourRate} rather than AWS's cost. The generic line-item builder has
+     * no way to know that -- it copies whatever cost the detailed report carries -- so the
+     * CloudFront rows it produced are discarded here and rebuilt from
+     * {@link CloudFrontPricingService}.
+     *
+     * Usage comes through {@link CloudFrontUsageService#getUsageFromAws}, which prefers the
+     * reconciled CUR export for closed months and falls back to Cost Explorer, so pricing
+     * works from whichever source is available.
+     *
+     * Leaves the invoice exactly as it was on any miss -- non-AWS account, no client, no
+     * usage, or nothing priced. Billing CloudFront at zero because a lookup failed would be
+     * far worse than billing it at cost.
+     */
+    private void repriceCloudFrontAtPrivateRates(List<InvoiceLineItem> lineItems, Invoice invoice,
+                                                 CloudAccount cloudAccount, int year, int month) {
+        if ("GCP".equals(cloudAccount.getProvider()) || "Azure".equals(cloudAccount.getProvider())
+                || cloudAccount.getAwsAccountId() == null) {
+            return;
+        }
+        Long clientId = cloudAccount.getClient() == null ? null : cloudAccount.getClient().getId();
+        if (clientId == null) {
+            return;
+        }
+
+        try {
+            YearMonth period = YearMonth.of(year, month);
+            List<CloudFrontUsageDto> usage =
+                    cloudFrontUsageService.getUsageFromAws(cloudAccount.getAwsAccountId(), period);
+            if (usage == null || usage.isEmpty()) {
+                return;
+            }
+
+            List<CurAggregates.SvcUsageEntry> rows = new ArrayList<>(usage.size());
+            for (CloudFrontUsageDto u : usage) {
+                rows.add(new CurAggregates.SvcUsageEntry(
+                        CLOUDFRONT_SERVICE, u.getRegion(), u.getUsageType(),
+                        u.getCost(), u.getQuantity(), u.getUnit()));
+            }
+
+            CloudFrontBill bill = cloudFrontPricingService.price(rows, clientId);
+            if (bill.isEmpty()) {
+                return;
+            }
+
+            boolean removed = lineItems.removeIf(
+                    li -> CLOUDFRONT_SERVICE.equalsIgnoreCase(li.getServiceName()));
+
+            for (CloudFrontBillLine line : bill.getLines()) {
+                InvoiceLineItem li = new InvoiceLineItem();
+                li.setInvoice(invoice);
+                li.setServiceName(CLOUDFRONT_SERVICE);
+                li.setRegionName(line.getGeographyName());
+                // Shows the working -- geography, quantity and the rate applied -- because
+                // a CDN charge that appears as a bare total invites a support ticket asking
+                // how it was derived.
+                li.setResourceName(line.getDisplayDescription());
+                li.setUsageQuantity(line.getQuantity() == null ? "0" : line.getQuantity().toPlainString());
+                li.setUnit(line.getUnit());
+                li.setCost(line.getAmount().setScale(4, RoundingMode.HALF_UP));
+                lineItems.add(li);
+            }
+
+            logger.info("[InvoiceGen] CloudFront repriced at private rates for account={} {}/{}: "
+                            + "{} lines, billed=${}, awsCost=${}, margin=${} (replaced={})",
+                    cloudAccount.getAwsAccountId(), year, month, bill.getLines().size(),
+                    bill.getTotalAmount(), bill.getTotalAwsCost(), bill.getMargin(), removed);
+
+            if (bill.hasUnpricedLines()) {
+                // Loud on purpose: an invoice carrying traffic from a geography with no
+                // configured rate is incomplete, and should be caught by whoever reviews it
+                // rather than discovered by the customer.
+                logger.warn("[InvoiceGen] CloudFront invoice for account={} {}/{} has {} UNPRICED line(s) "
+                                + "passed through at AWS cost -- review before sending: {}",
+                        cloudAccount.getAwsAccountId(), year, month, bill.getUnpricedLines().size(),
+                        bill.getUnpricedLines().stream()
+                                .map(CloudFrontBillLine::getNote)
+                                .collect(Collectors.joining("; ")));
+            }
+        } catch (Exception e) {
+            logger.error("[InvoiceGen] CloudFront private-rate pricing failed for account={} {}/{} -- "
+                            + "leaving cost-based lines in place: {}",
+                    cloudAccount.getAwsAccountId(), year, month, e.getMessage(), e);
+        }
     }
 
     @Transactional
@@ -1477,10 +1717,10 @@ public class InvoiceManagementService {
                 BigDecimal allBase = preDiscountTotal.subtract(marketplace).max(BigDecimal.ZERO);
                 totalDiscount = totalDiscount.add(allBase.multiply(percentage));
 
-            } else if ("AWS Consumption Charge".equalsIgnoreCase(disc.getServiceName())) {
+            } else if (isConsumptionScope(disc.getServiceName())) {
                 BigDecimal standardTotal = lineItems.stream()
                         .filter(item -> !item.isHidden())
-                        .filter(item -> !"Amazon CloudFront".equalsIgnoreCase(item.getServiceName()))
+                        .filter(item -> !CLOUDFRONT_SERVICE.equalsIgnoreCase(item.getServiceName()))
                         .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
                         .subtract(marketplace).max(BigDecimal.ZERO);
