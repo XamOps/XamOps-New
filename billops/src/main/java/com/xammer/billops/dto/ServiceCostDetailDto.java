@@ -15,6 +15,19 @@ public class ServiceCostDetailDto {
     private List<RegionCostDto> regionCosts;
     private List<ResourceCostDto> resourceCosts;
 
+    /**
+     * Which AWS source produced these figures: {@code "CUR"} when reconciled from the
+     * customer's Cost and Usage Report, {@code "COST_EXPLORER"} when estimated from
+     * the Cost Explorer API, null on older cached payloads written before this field
+     * existed.
+     *
+     * Present so the UI can distinguish a reconciled invoice from an estimate. The
+     * two can legitimately differ — Cost Explorer omits or redistributes tax,
+     * credits, refunds and some data-transfer charges — and showing both without
+     * labelling which is which is how a customer loses trust in the number.
+     */
+    private String dataSource;
+
     // public ServiceCostDetailDto() {
     // }
 
@@ -73,5 +86,13 @@ public class ServiceCostDetailDto {
 
     public void setResourceCosts(List<ResourceCostDto> resourceCosts) {
         this.resourceCosts = resourceCosts;
+    }
+
+    public String getDataSource() {
+        return dataSource;
+    }
+
+    public void setDataSource(String dataSource) {
+        this.dataSource = dataSource;
     }
 }

@@ -5,16 +5,57 @@ import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailIcons;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.RedisCacheService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Random;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 
 @RestController
 @RequestMapping("/api/auth")
 public class PasswordResetController {
+
+    private static final Logger logger = LoggerFactory.getLogger(PasswordResetController.class);
+
+    /** Cryptographically secure source for OTPs — java.util.Random is predictable from its seed. */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    /** Matches the 5-minute OTP TTL enforced in RedisCacheService.saveOtp. */
+    private static final int OTP_TTL_SECONDS = 300;
+
+    /** Wrong-code attempts allowed per issued OTP before the code is burned. */
+    private static final int MAX_VERIFY_ATTEMPTS = 5;
+
+    /** OTP requests allowed per email address per window. */
+    private static final int MAX_OTP_REQUESTS = 5;
+    private static final int OTP_REQUEST_WINDOW_SECONDS = 900; // 15 minutes
+
+    private static String attemptKey(String email) {
+        return "OTP_ATTEMPT:" + email;
+    }
+
+    private static String requestKey(String email) {
+        return "OTP_REQUEST:" + email;
+    }
+
+    /**
+     * Length-safe, constant-time comparison so response timing does not leak how many
+     * leading digits of the OTP were correct.
+     */
+    private static boolean otpMatches(String expected, String supplied) {
+        if (expected == null || supplied == null) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                expected.getBytes(StandardCharsets.UTF_8),
+                supplied.getBytes(StandardCharsets.UTF_8));
+    }
 
     @Autowired
     private UserRepository userRepository;
@@ -32,15 +73,28 @@ public class PasswordResetController {
     @PostMapping("/forgot-password")
     public ResponseEntity<?> sendOtp(@RequestParam String email) {
         try {
+            // Throttle before doing any work so this endpoint can't be used to pump out
+            // unlimited OTPs (each new OTP is a fresh brute-force window).
+            long requests = redisCacheService.incrementCounter(requestKey(email), OTP_REQUEST_WINDOW_SECONDS);
+            if (requests > MAX_OTP_REQUESTS) {
+                logger.warn("Password reset OTP request throttled for email hash {}", email.hashCode());
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                        .body("Too many reset requests. Please wait a few minutes and try again.");
+            }
+
             // Find user by email directly — no global_users lookup needed
-            User user = userRepository.findByEmail(email)
+            userRepository.findByEmail(email)
                     .orElseThrow(() -> new RuntimeException("No account found with that email address."));
 
-            // Generate 6-digit OTP
-            String otp = String.format("%06d", new Random().nextInt(999999));
+            // Generate 6-digit OTP from a CSPRNG (full 000000-999999 range)
+            String otp = String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
 
             // Save OTP to Redis keyed by email (expires in 5 minutes)
             redisCacheService.saveOtp(email, otp);
+
+            // A newly issued code gets a fresh attempt budget, so a user who mistyped the
+            // previous one is not locked out of the flow.
+            redisCacheService.deleteKey(attemptKey(email));
 
             // Send Email
             String subject = "XamOps Password Reset Code";
@@ -66,14 +120,13 @@ public class PasswordResetController {
                           + "</td></tr>"
                           + "</table></td></tr></table></body></html>";
 
-            System.out.println(">>> OTP for " + email + ": " + otp);
-
+            // The OTP is a password-equivalent secret and is deliberately never logged.
             emailService.sendHtmlEmail(email, subject, body);
 
             return ResponseEntity.ok().body("OTP sent to your email.");
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.warn("Password reset OTP request failed: {}", e.getMessage());
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
     }
@@ -82,8 +135,22 @@ public class PasswordResetController {
     @PostMapping("/verify-otp")
     public ResponseEntity<?> verifyOtp(@RequestParam String email, @RequestParam String otp) {
         String cachedOtp = redisCacheService.getOtp(email);
+        if (cachedOtp == null) {
+            return ResponseEntity.badRequest().body("Invalid or expired OTP");
+        }
 
-        if (cachedOtp != null && cachedOtp.equals(otp)) {
+        long attempts = redisCacheService.incrementCounter(attemptKey(email), OTP_TTL_SECONDS);
+        if (attempts > MAX_VERIFY_ATTEMPTS) {
+            // Burn the code so the remaining TTL can't be used to keep guessing.
+            redisCacheService.deleteOtp(email);
+            logger.warn("Password reset OTP burned after {} failed attempts for email hash {}",
+                    attempts - 1, email.hashCode());
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body("Too many invalid attempts. Please request a new code.");
+        }
+
+        if (otpMatches(cachedOtp, otp)) {
+            redisCacheService.deleteKey(attemptKey(email));
             return ResponseEntity.ok().body("OTP Verified");
         }
         return ResponseEntity.badRequest().body("Invalid or expired OTP");
@@ -97,7 +164,22 @@ public class PasswordResetController {
         try {
             // Re-verify OTP
             String cachedOtp = redisCacheService.getOtp(email);
-            if (cachedOtp == null || !cachedOtp.equals(otp)) {
+            if (cachedOtp == null) {
+                return ResponseEntity.badRequest().body("Invalid request or OTP expired.");
+            }
+
+            // Shares the attempt budget with /verify-otp so this endpoint can't be used to
+            // bypass the limit and brute-force the code directly.
+            long attempts = redisCacheService.incrementCounter(attemptKey(email), OTP_TTL_SECONDS);
+            if (attempts > MAX_VERIFY_ATTEMPTS) {
+                redisCacheService.deleteOtp(email);
+                logger.warn("Password reset OTP burned after {} failed attempts for email hash {}",
+                        attempts - 1, email.hashCode());
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                        .body("Too many invalid attempts. Please request a new code.");
+            }
+
+            if (!otpMatches(cachedOtp, otp)) {
                 return ResponseEntity.badRequest().body("Invalid request or OTP expired.");
             }
 
@@ -108,10 +190,12 @@ public class PasswordResetController {
             userRepository.save(user);
 
             redisCacheService.deleteOtp(email);
+            redisCacheService.deleteKey(attemptKey(email));
 
             return ResponseEntity.ok().body("Password updated successfully.");
 
         } catch (Exception e) {
+            logger.warn("Password reset failed: {}", e.getMessage());
             return ResponseEntity.badRequest().body("Failed to reset password: " + e.getMessage());
         }
     }

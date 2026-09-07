@@ -95,10 +95,38 @@ Parameters:
     Description: S3 URL of the nested inventory-events template.
     Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-inventory-events-nested.yaml'
 
+  # -------------------------------------------------------------------
+  # CUR 2.0 Data Export (billing reconciliation for BillOps invoicing)
+  #
+  # On by default, same reasoning as EnableInventoryEvents. Cost to this
+  # account is a few cents a month (S3 storage + requests only — Data
+  # Exports itself has no AWS charge) and is purged automatically after
+  # 90 days.
+  # -------------------------------------------------------------------
+  EnableCurExport:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Set up an AWS Cost and Usage Report (CUR 2.0) export to a dedicated S3
+      bucket in this account, so BillOps can reconcile invoices from AWS's
+      billing source of truth instead of Cost Explorer's aggregated totals.
+      Creates one S3 bucket and one Data Export. Cost is typically a few
+      cents a month.
+
+  XamOpsCurExportTemplateUrl:
+    Type: String
+    Description: S3 URL of the nested CUR export template.
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-export-nested.yaml'
+
 Conditions:
   # Guards the nested stack. With inventory events off, nothing below is created
   # and the account simply relies on 60s polling.
   DeployInventoryEvents: !Equals [!Ref EnableInventoryEvents, 'true']
+
+  # Guards the CUR export nested stack. With this off, BillOps simply keeps
+  # reconciling this account's invoices from Cost Explorer.
+  DeployCurExport: !Equals [!Ref EnableCurExport, 'true']
 
 Resources:
   # =================================================================
@@ -292,6 +320,18 @@ Resources:
                   - 's3:PutObject'
                   - 's3:DeleteObject'
                 Resource: 'arn:aws:s3:::*/xamops-mediaops/*'
+
+              # BillOps CUR read access — scoped to the dedicated
+              # xamops-cur-{accountId} bucket created by the nested
+              # XamOpsCurExport stack, not a wildcard.
+              - Sid: 'XamOpsCurReadAccess'
+                Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
 
   # =================================================================
   # 2. IAM Role for the EKS Automation Lambda

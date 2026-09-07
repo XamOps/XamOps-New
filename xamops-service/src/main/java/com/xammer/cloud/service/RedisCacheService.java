@@ -155,6 +155,37 @@ public class RedisCacheService {
         redisTemplate.delete(key);
     }
 
+    /**
+     * Atomically increments a counter and (on first increment) applies a TTL, giving a
+     * simple fixed-window rate limiter. Returns the counter value after incrementing.
+     *
+     * Fails open (returns 0) if Redis is unavailable so that a Redis outage cannot lock
+     * users out of flows guarded by this counter.
+     */
+    public long incrementCounter(String key, int ttlSeconds) {
+        try {
+            Long value = redisTemplate.opsForValue().increment(key);
+            if (value != null && value == 1L) {
+                redisTemplate.expire(key, ttlSeconds, TimeUnit.SECONDS);
+            }
+            return value == null ? 0L : value;
+        } catch (Exception e) {
+            logger.warn("Rate-limit counter unavailable for key {}: {}", key, e.getMessage());
+            return 0L;
+        }
+    }
+
+    /**
+     * Deletes a key without the "not found" warning that {@link #evict(String)} logs.
+     */
+    public void deleteKey(String key) {
+        try {
+            redisTemplate.delete(key);
+        } catch (Exception e) {
+            logger.warn("Failed to delete Redis key {}: {}", key, e.getMessage());
+        }
+    }
+
     // --- Login OTP (email-based 2FA login) ---
 
     public void saveLoginOtp(String email, String otp) {

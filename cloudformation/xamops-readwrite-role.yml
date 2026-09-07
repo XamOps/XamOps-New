@@ -115,12 +115,42 @@ Parameters:
     Description: S3 URL of the nested inventory-events template.
     Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-inventory-events-nested.yaml'
 
+  # -------------------------------------------------------------------
+  # CUR 2.0 Data Export (billing reconciliation for BillOps invoicing)
+  #
+  # On by default, same reasoning as EnableInventoryEvents. Cost to this
+  # account is a few cents a month (S3 storage + requests only — Data
+  # Exports itself has no AWS charge) and is purged automatically after
+  # 90 days. Read-write accounts get the exact same billing pipeline as
+  # read-only accounts — CUR export is unrelated to the write permissions
+  # this role adds, so there's no reason for the two paths to diverge.
+  # -------------------------------------------------------------------
+  EnableCurExport:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Set up an AWS Cost and Usage Report (CUR 2.0) export to a dedicated S3
+      bucket in this account, so BillOps can reconcile invoices from AWS's
+      billing source of truth instead of Cost Explorer's aggregated totals.
+      Creates one S3 bucket and one Data Export. Cost is typically a few
+      cents a month.
+
+  XamOpsCurExportTemplateUrl:
+    Type: String
+    Description: S3 URL of the nested CUR export template.
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-export-nested.yaml'
+
 Conditions:
   IsAutoSpottingEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
 
   # Guards the nested stack. With inventory events off, nothing below is created
   # and the account simply relies on 60s polling.
   DeployInventoryEvents: !Equals [!Ref EnableInventoryEvents, 'true']
+
+  # Guards the CUR export nested stack. With this off, BillOps simply keeps
+  # reconciling this account's invoices from Cost Explorer.
+  DeployCurExport: !Equals [!Ref EnableCurExport, 'true']
 
 Resources:
 
@@ -851,6 +881,25 @@ Resources:
                   - 'lambda:UpdateFunctionConfiguration'
                   - 'rds:ModifyDBInstance'
                 Resource: '*'
+        # -----------------------------------------------------------------
+        # BillOps CUR read access — scoped to the dedicated
+        # xamops-cur-{accountId} bucket created by the nested
+        # XamOpsCurExport stack below, not a wildcard. Kept as its own
+        # inline policy (like Rightsizing above) since this role is
+        # already at the 10 managed-policy limit.
+        # -----------------------------------------------------------------
+        - PolicyName: XamOpsPolicyCurRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: XamOpsCurReadAccess
+                Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
       Tags:
         - Key: ManagedBy
           Value: CloudFormation
@@ -1332,6 +1381,25 @@ Resources:
         XamOpsRegion: !Ref XamOpsInventoryRegion
         IncludeSecurityFindings: !Ref IncludeSecurityFindings
 
+  # =================================================================
+  # CUR 2.0 DATA EXPORT (nested)
+  #
+  # Nested for the same reason as inventory events: keeps the S3 bucket,
+  # bucket policy, and BCMDataExports::Export resources out of the base
+  # role definition so they can be reused/updated independently and skipped
+  # entirely when disabled. Identical to the one deployed from the
+  # read-only template — CUR export doesn't depend on which role a customer
+  # chose.
+  # =================================================================
+  XamOpsCurExport:
+    Type: AWS::CloudFormation::Stack
+    Condition: DeployCurExport
+    Properties:
+      TemplateURL: !Ref XamOpsCurExportTemplateUrl
+      TimeoutInMinutes: 15
+      Parameters:
+        XamOpsAccountId: !Ref XamOpsAccountId
+
 Outputs:
   XamOpsRoleArn:
     Description: ARN of the IAM role created for the XamOps platform (Read-Write access).
@@ -1377,6 +1445,28 @@ Outputs:
   PolicyCostManageArn:
     Description: ARN of the XamOps cost management policy.
     Value: !Ref XamOpsPolicyCostManage
+
+  CurExportEnabled:
+    Description: Whether a CUR 2.0 Data Export was configured for BillOps.
+    Value: !Ref EnableCurExport
+
+  CurBucketName:
+    Description: >
+      S3 bucket receiving CUR 2.0 exports. Feed this into CloudAccount.curS3Bucket
+      during account verification so BillOps can locate the export.
+    Value: !If
+      - DeployCurExport
+      - !GetAtt XamOpsCurExport.Outputs.CurBucketName
+      - 'disabled — BillOps will use Cost Explorer instead'
+
+  CurReportPrefix:
+    Description: >
+      S3 key prefix under which CUR 2.0 files are delivered. Feed this into
+      CloudAccount.curReportPath during account verification.
+    Value: !If
+      - DeployCurExport
+      - !GetAtt XamOpsCurExport.Outputs.CurReportPrefix
+      - 'disabled'
 
   AutoSpottingForwarderFunctionArn:
     Description: ARN of the AutoSpotting event forwarder Lambda function.

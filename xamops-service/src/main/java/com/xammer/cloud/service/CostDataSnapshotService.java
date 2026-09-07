@@ -49,16 +49,19 @@ public class CostDataSnapshotService {
     private final CachedDataRepository cachedDataRepository;
     private final AwsClientProvider awsClientProvider;
     private final ObjectMapper objectMapper;
+    private final CurSnapshotReader curSnapshotReader;
 
     @Autowired
     public CostDataSnapshotService(CloudAccountRepository cloudAccountRepository,
                                    CachedDataRepository cachedDataRepository,
                                    AwsClientProvider awsClientProvider,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   CurSnapshotReader curSnapshotReader) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.cachedDataRepository = cachedDataRepository;
         this.awsClientProvider = awsClientProvider;
         this.objectMapper = objectMapper;
+        this.curSnapshotReader = curSnapshotReader;
     }
 
     // -------------------------------------------------------------------------
@@ -419,34 +422,90 @@ public class CostDataSnapshotService {
 
     // -------------------------------------------------------------------------
     // Read helpers — used by CostService to serve closed-month data
+    //
+    // CUR-FIRST, COST-EXPLORER-FALLBACK
+    //
+    // Every FinOps read path in this service funnels through these seven helpers,
+    // which is why the CUR preference is applied here rather than in CostService or
+    // FinOpsService: one interception point gives the cost pages, the FinOps report
+    // and the forecast backfill reconciled figures without any of them changing.
+    //
+    // The Cost Explorer snapshots below are still written exactly as before and are
+    // never overwritten — CUR lives under separate AWS_CUR_* keys. So this is a read
+    // preference, fully reversible by setting xamops.cur.enabled=false, and any miss
+    // (no export, not ingested, deserialize failure) falls through to the CE snapshot
+    // that was already there.
+    //
+    // Callers already restrict these to closed months, which is the only window where
+    // CUR is authoritative: AWS does not finalise a billing period until roughly 72
+    // hours after it ends.
     // -------------------------------------------------------------------------
 
     public Optional<Double> readMonthlyTotal(String accountId, YearMonth ym) {
+        Optional<Double> cur = curSnapshotReader.readMonthlyTotal(accountId, ym);
+        if (cur.isPresent()) {
+            logCurHit("monthly total", accountId, ym);
+            return cur;
+        }
         return readFromDb(keyMonthlyTotal(accountId, ym), Double.class);
     }
 
     public Optional<List<CostDto>> readBreakdownSvc(String accountId, YearMonth ym) {
+        Optional<List<CostDto>> cur = curSnapshotReader.readBreakdownSvc(accountId, ym);
+        if (cur.isPresent()) {
+            logCurHit("service breakdown", accountId, ym);
+            return cur;
+        }
         return readListFromDb(keyMonthlyBreakdownSvc(accountId, ym), new TypeReference<List<CostDto>>() {});
     }
 
     public Optional<List<CostDto>> readBreakdownRgn(String accountId, YearMonth ym) {
+        Optional<List<CostDto>> cur = curSnapshotReader.readBreakdownRgn(accountId, ym);
+        if (cur.isPresent()) {
+            logCurHit("region breakdown", accountId, ym);
+            return cur;
+        }
         return readListFromDb(keyMonthlyBreakdownRgn(accountId, ym), new TypeReference<List<CostDto>>() {});
     }
 
     public Optional<List<DetailedCostDto>> readSvcRegion(String accountId, YearMonth ym) {
+        Optional<List<DetailedCostDto>> cur = curSnapshotReader.readSvcRegion(accountId, ym);
+        if (cur.isPresent()) {
+            logCurHit("service/region breakdown", accountId, ym);
+            return cur;
+        }
         return readListFromDb(keyMonthlySvcRegion(accountId, ym), new TypeReference<List<DetailedCostDto>>() {});
     }
 
     public Optional<List<DailyCostEntry>> readDailyCost(String accountId, YearMonth ym) {
+        Optional<List<DailyCostEntry>> cur = curSnapshotReader.readDailyCost(accountId, ym);
+        if (cur.isPresent()) {
+            logCurHit("daily cost", accountId, ym);
+            return cur;
+        }
         return readListFromDb(keyDailyCost(accountId, ym), new TypeReference<List<DailyCostEntry>>() {});
     }
 
     public Optional<List<SvcUsageEntry>> readSvcUsage(String accountId, YearMonth ym) {
+        Optional<List<SvcUsageEntry>> cur = curSnapshotReader.readSvcUsage(accountId, ym);
+        if (cur.isPresent()) {
+            logCurHit("service/usage-type breakdown", accountId, ym);
+            return cur;
+        }
         return readListFromDb(keySvcUsage(accountId, ym), new TypeReference<List<SvcUsageEntry>>() {});
     }
 
     public Optional<List<CfUsageEntry>> readCfUsage(String accountId, YearMonth ym) {
+        Optional<List<CfUsageEntry>> cur = curSnapshotReader.readCfUsage(accountId, ym);
+        if (cur.isPresent()) {
+            logCurHit("CloudFront usage breakdown", accountId, ym);
+            return cur;
+        }
         return readListFromDb(keyCfUsage(accountId, ym), new TypeReference<List<CfUsageEntry>>() {});
+    }
+
+    private void logCurHit(String what, String accountId, YearMonth ym) {
+        logger.info("✅ [CUR] {} for {} / {} served from reconciled CUR data", what, accountId, ym);
     }
 
     // -------------------------------------------------------------------------

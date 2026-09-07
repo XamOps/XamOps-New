@@ -22,7 +22,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.security.web.firewall.HttpFirewall;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
-import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -112,10 +111,9 @@ public class SecurityConfig {
                                                 // ✅ TEAM FIX: Allow Password Reset APIs Publicly
                                                 .requestMatchers(new AntPathRequestMatcher("/api/auth/**")).permitAll()
 
-                                                // Grafana Ingest
-                                                .requestMatchers(new AntPathRequestMatcher(
-                                                                "/api/xamops/cloudguard/grafana-ingest", "POST"))
-                                                .permitAll()
+                                                // NOTE: the "/api/xamops/cloudguard/grafana-ingest" permitAll entry was
+                                                // removed — no controller maps that path, so it only widened the public
+                                                // surface for any future handler added under it.
 
                                                 // EventBridge auto-connect callback — called by Lambda, no session
                                                 .requestMatchers(new AntPathRequestMatcher(
@@ -280,13 +278,18 @@ public class SecurityConfig {
         @Bean
         public CorsConfigurationSource corsConfigurationSource() {
                 CorsConfiguration configuration = new CorsConfiguration();
+                // NOTE: setAllowedOrigins does exact string matching — a "*" inside an entry
+                // is NOT a wildcard. The former "https://*.ngrok-free.dev"/"https://*.ngrok.io"
+                // entries could therefore never match a real Origin header and were removed.
+                // If ngrok tunnels need CORS access, add the concrete tunnel origin here, or
+                // switch to setAllowedOriginPatterns — but note that patterns combined with
+                // allowCredentials(true) would let any *.ngrok.io host make credentialed
+                // cross-origin calls, so make that choice deliberately.
                 configuration.setAllowedOrigins(Arrays.asList(
                                 "http://localhost:5173",
                                 "https://live.xamops.com",
                                 "https://prep.xamops.com",
-                                "https://uat.xamops.com",
-                                "https://*.ngrok-free.dev",
-                                "https://*.ngrok.io"));
+                                "https://uat.xamops.com"));
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
                 configuration.setAllowedHeaders(Arrays.asList("*"));
                 configuration.setAllowCredentials(true);

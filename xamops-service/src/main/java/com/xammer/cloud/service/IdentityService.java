@@ -54,6 +54,13 @@ public class IdentityService {
     @Value("${identity.encryption-key}")
     private String encryptionKey;
 
+    /**
+     * Retired identity keys, comma-separated, newest first. Decrypt-only, so tokens stored under a
+     * previous key keep working while they are re-encrypted. Empty in steady state.
+     */
+    @Value("${identity.encryption-previous-keys:}")
+    private String previousEncryptionKeys;
+
     public IdentityService(AuthentikApiClient authentikApiClient,
                            ClientIdentityConfigRepository configRepo,
                            ClientAwsAccessRepository awsAccessRepo,
@@ -255,9 +262,15 @@ public class IdentityService {
                         + ". Contact XamOps support."));
     }
 
-    /** Decrypt in-memory. The returned value is passed directly to Authentik; never stored. */
+    /**
+     * Decrypt in-memory. The returned value is passed directly to Authentik; never stored.
+     *
+     * Retired keys are passed too, so a token encrypted before a key rotation still resolves
+     * rather than failing every Authentik call until the value is migrated.
+     */
     private String decrypt(ClientIdentityConfig config) {
-        return TokenEncryptionUtil.decrypt(config.getAuthentikTokenEncrypted(), encryptionKey);
+        return TokenEncryptionUtil.decrypt(
+                config.getAuthentikTokenEncrypted(), encryptionKey, previousEncryptionKeys);
     }
 
     private void writeAudit(User actor, String action, String targetEmail,

@@ -42,18 +42,79 @@ public class CloudFrontUsageService {
     private final RedisCacheService redisCacheService;
     private final BillOpsCachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
+    private final CurIngestionService curIngestionService;
     private static final Logger logger = LoggerFactory.getLogger(CloudFrontUsageService.class);
+
+    /** Product name CUR uses for CloudFront line items. */
+    private static final String CLOUDFRONT_SERVICE = "Amazon CloudFront";
 
     public CloudFrontUsageService(AwsClientProvider awsClientProvider,
             CloudAccountRepository cloudAccountRepository,
             RedisCacheService redisCacheService,
             BillOpsCachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            CurIngestionService curIngestionService) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCacheService = redisCacheService;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.curIngestionService = curIngestionService;
+    }
+
+    /**
+     * CloudFront usage from the reconciled CUR export, when one has been ingested for
+     * a closed month.
+     *
+     * This is the case CUR helps most with. CloudFront usage types are geography-coded
+     * (US-, EU-, AP- prefixes) and Cost Explorer's REGION grouping does not line up
+     * with how they appear on the invoice, which is why this feature previously had a
+     * manual "upload your CUR CSV" path at all ({@link #getUsageFromBill}). Coming
+     * from the automatically-ingested export it is the same data with no upload.
+     *
+     * Returns empty when CUR is unconfigured or not yet ingested, so the Cost Explorer
+     * path below stays the fallback.
+     */
+    private List<CloudFrontUsageDto> getUsageFromCur(String accountId, YearMonth period) {
+        if (period == null || !period.isBefore(YearMonth.now())) {
+            return List.of(); // open month is not final in CUR
+        }
+        if (!curIngestionService.hasCurData(accountId, period)) {
+            return List.of();
+        }
+        try {
+            return curIngestionService.readSvcUsage(accountId, period)
+                    .map(rows -> {
+                        List<CloudFrontUsageDto> out = new ArrayList<>();
+                        for (com.xammer.billops.dto.cur.CurAggregates.SvcUsageEntry u : rows) {
+                            if (!CLOUDFRONT_SERVICE.equalsIgnoreCase(
+                                    u.getService() == null ? "" : u.getService())) {
+                                continue;
+                            }
+                            out.add(new CloudFrontUsageDto(
+                                    blankToGlobal(u.getRegion()),
+                                    u.getUsageType() == null ? "" : u.getUsageType(),
+                                    u.getQuantity(),
+                                    u.getUnit() == null ? "" : u.getUnit(),
+                                    u.getCost()));
+                        }
+                        out.sort((a, b) -> Double.compare(b.getCost(), a.getCost()));
+                        return out;
+                    })
+                    .orElse(List.of());
+        } catch (Exception e) {
+            logger.warn("[CF] CUR read failed for account={} period={}: {}", accountId, period, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * CloudFront is a global service, so most of its line items carry no region code;
+     * the geography lives in the usage-type prefix instead. "Global" matches the label
+     * the existing CSV and PDF parsers use.
+     */
+    private static String blankToGlobal(String region) {
+        return (region == null || region.isBlank() || "global".equalsIgnoreCase(region)) ? "Global" : region;
     }
 
     /**
@@ -80,6 +141,27 @@ public class CloudFrontUsageService {
             }
         } catch (Exception dbEx) {
             logger.warn("DB cache miss for {}: {}", cacheKey, dbEx.getMessage());
+        }
+
+        // ── CUR-first for closed months ─────────────────────────────────────────────
+        // Preferred over both the CE snapshot and the CE API below: CUR is the source
+        // AWS bills from, so these figures reconcile with the customer's actual
+        // CloudFront charges rather than approximating them.
+        List<CloudFrontUsageDto> curUsage = getUsageFromCur(accountId, period);
+        if (!curUsage.isEmpty()) {
+            redisCacheService.put(cacheKey, curUsage, 360);
+            try {
+                CachedData snapshot = cachedDataRepository.findById(cacheKey).orElse(new CachedData());
+                snapshot.setCacheKey(cacheKey);
+                snapshot.setJsonData(objectMapper.writeValueAsString(curUsage));
+                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                cachedDataRepository.save(snapshot);
+            } catch (Exception dbEx) {
+                logger.warn("Failed to save CF CUR snapshot {}: {}", cacheKey, dbEx.getMessage());
+            }
+            logger.info("✅ [CF] CloudFront usage for account={} period={} served from reconciled CUR ({} line items)",
+                    accountId, period, curUsage.size());
+            return curUsage;
         }
 
         // ── Snapshot-first for closed months ────────────────────────────────────────

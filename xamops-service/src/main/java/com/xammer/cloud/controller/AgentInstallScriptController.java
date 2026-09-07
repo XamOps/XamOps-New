@@ -1,5 +1,6 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.service.InstallScriptIntegrity;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpHeaders;
@@ -40,6 +41,12 @@ public class AgentInstallScriptController {
 
     private static final String SCRIPT = "agent-install/install-k8s.sh";
 
+    private final InstallScriptIntegrity integrity;
+
+    public AgentInstallScriptController(InstallScriptIntegrity integrity) {
+        this.integrity = integrity;
+    }
+
     /**
      * The script's provider-default assignment, substituted here rather than passed as a flag so the
      * one-liner in the guide stays short and cannot be pasted with the wrong cloud.
@@ -77,6 +84,31 @@ public class AgentInstallScriptController {
      * in a {@code curl} URL, and the bare form guards against any future change to suffix-pattern
      * handling silently 404ing the documented one.
      */
+    /**
+     * GET /api/v1/agent/install/{aks,eks,gke}.sh.sha256
+     *
+     * <p>Digest of the exact bytes the matching endpoint serves, so the documented command can be
+     * download → verify → run instead of piping straight into a shell. Deliberately a separate
+     * request: a customer fetching both notices a mismatch, whereas a checksum embedded in the
+     * same response an attacker controls proves nothing.
+     */
+    @GetMapping(value = {"/aks.sh.sha256", "/eks.sh.sha256", "/gke.sh.sha256"},
+                produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> scriptDigest(javax.servlet.http.HttpServletRequest request) {
+        String path = request.getRequestURI();
+        String provider = path.contains("/eks") ? "eks" : path.contains("/gke") ? "gke" : "aks";
+        ResponseEntity<String> served = serve(provider, "xamops-install-" + provider + ".sh");
+        if (!served.getStatusCode().is2xxSuccessful() || served.getBody() == null) {
+            return ResponseEntity.status(served.getStatusCode())
+                    .contentType(MediaType.TEXT_PLAIN)
+                    .body("# unavailable\n");
+        }
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_PLAIN)
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache")
+                .body(integrity.sha256(served.getBody()) + "  xamops-install-" + provider + ".sh\n");
+    }
+
     private ResponseEntity<String> serve(String provider, String filename) {
         ClassPathResource resource = new ClassPathResource(SCRIPT);
         if (!resource.exists()) {
@@ -93,6 +125,23 @@ public class AgentInstallScriptController {
 
         try (InputStream in = resource.getInputStream()) {
             String body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+
+            // Last gate before a customer's root shell. Checked on every request rather than at
+            // startup, so a swapped file cannot be served even by an already-running instance,
+            // and verified on the raw resource so the pinned digest is the same for all three
+            // providers. Fails closed: no script is better than someone else's script.
+            try {
+                integrity.verify(body);
+            } catch (InstallScriptIntegrity.TamperedScriptException e) {
+                log.error("REFUSING to serve the {} install script — {}. This endpoint is public "
+                        + "and the guide pipes it into bash, so it is being withheld until the "
+                        + "content is restored.", provider, e.getMessage());
+                return ResponseEntity.status(500)
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .body("# XamOps install script failed its integrity check and was NOT served.\n"
+                            + "# Do not attempt to work around this. Contact XamOps support.\n"
+                            + "exit 1\n");
+            }
 
             if (!body.contains(PROVIDER_TOKEN)) {
                 // The script and this controller have to agree on the token. Failing loudly beats

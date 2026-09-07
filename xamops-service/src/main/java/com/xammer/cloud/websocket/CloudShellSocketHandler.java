@@ -4,11 +4,16 @@ import com.xammer.cloud.config.AwsConfig;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import java.security.Principal;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
@@ -25,8 +30,15 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     // Connection timeout in milliseconds (30 minutes)
     private static final int SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
+    /**
+     * Deliberately identical for "no such account" and "not your account" so the socket
+     * cannot be used to enumerate which account IDs exist.
+     */
+    private static final String ACCOUNT_DENIED_MESSAGE = "Error: Account not found.\r\n";
+
     private final AwsConfig awsConfig;
     private final CloudAccountRepository cloudAccountRepository;
+    private final CloudAccountAccessService cloudAccountAccessService;
 
     private final Map<String, Process> sessions = new ConcurrentHashMap<>();
     private final Map<String, Thread> outputThreads = new ConcurrentHashMap<>();
@@ -34,9 +46,62 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     // Locks for synchronized message sending per session (prevents TEXT_PARTIAL_WRITING errors)
     private final Map<String, Object> sessionLocks = new ConcurrentHashMap<>();
 
-    public CloudShellSocketHandler(AwsConfig awsConfig, CloudAccountRepository cloudAccountRepository) {
+    public CloudShellSocketHandler(AwsConfig awsConfig,
+            CloudAccountRepository cloudAccountRepository,
+            CloudAccountAccessService cloudAccountAccessService) {
         this.awsConfig = awsConfig;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.cloudAccountAccessService = cloudAccountAccessService;
+    }
+
+    /**
+     * Pulls the authenticated user off the WebSocket session.
+     *
+     * The HTTP upgrade request passes through the Spring Security filter chain, so
+     * {@code DefaultHandshakeHandler} copies {@code HttpServletRequest#getUserPrincipal}
+     * onto the session. Spring Security returns null there for anonymous requests, so a
+     * null principal here means "no valid session presented".
+     *
+     * Note the browser WebSocket API cannot set request headers, so the X-Impersonate-User
+     * and X-Tenant-ID headers that {@code apiClient} sends on normal API calls are absent
+     * here — authorization is therefore evaluated against the real session user.
+     *
+     * @return the authenticated user, or null if the handshake carried no valid session.
+     */
+    private ClientUserDetails resolveUser(WebSocketSession session) {
+        Principal principal = session.getPrincipal();
+        if (principal instanceof Authentication authentication) {
+            if (!authentication.isAuthenticated()) {
+                return null;
+            }
+            if (authentication.getPrincipal() instanceof ClientUserDetails clientUserDetails) {
+                return clientUserDetails;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Strips CR/LF so a caller-supplied identifier cannot forge extra log lines.
+     */
+    private static String forLog(String value) {
+        if (value == null) {
+            return "null";
+        }
+        String cleaned = value.replaceAll("[\r\n\t]", "_");
+        return cleaned.length() > 128 ? cleaned.substring(0, 128) + "..." : cleaned;
+    }
+
+    /**
+     * Closes the socket after delivering a message the terminal UI can display.
+     */
+    private void reject(WebSocketSession session, String message) {
+        sendMessageSafe(session, message);
+        try {
+            session.close(CloseStatus.NOT_ACCEPTABLE);
+        } catch (IOException e) {
+            log.warn("Failed to close rejected session {}: {}", session.getId(), e.getMessage());
+        }
     }
 
     /**
@@ -68,28 +133,56 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
         // Initialize session lock for thread-safe message sending
         sessionLocks.put(session.getId(), new Object());
 
-        if (accountId == null) {
-            sendMessageSafe(session, "Error: No accountId provided.\r\n");
-            session.close();
+        // ── Gate 1: authentication ─────────────────────────────────────────────
+        // Nothing below this point may run for an anonymous caller: the setup path
+        // assumes a customer's cloud role and hands the resulting credentials to an
+        // interactive shell, so an unauthenticated socket is a full account takeover.
+        ClientUserDetails userDetails = resolveUser(session);
+        if (userDetails == null) {
+            log.warn("Rejected unauthenticated CloudShell handshake: session={}, requestedAccount={}",
+                    session.getId(), forLog(accountId));
+            reject(session, "Error: Not signed in. Please log in to XamOps and reopen the shell.\r\n");
             return;
         }
 
+        if (accountId == null) {
+            reject(session, "Error: No accountId provided.\r\n");
+            return;
+        }
+
+        // The tenant hint is caller-supplied and only steers tenant-scoped data access.
+        // It is NOT trusted for authorization — Gate 2 below re-checks ownership against
+        // the authenticated principal, so a forged tenantId cannot widen access.
         if (tenantId != null && !tenantId.equals("null")) {
             TenantContext.setCurrentTenant(tenantId);
         }
 
         try {
-            log.info("WS Connecting: Session={}, Account={}", session.getId(), accountId);
+            log.info("WS Connecting: Session={}, User={}, Account={}",
+                    session.getId(), userDetails.getId(), forLog(accountId));
 
             // Track session start time
             sessionStartTimes.put(session.getId(), System.currentTimeMillis());
 
             CloudAccount account = findAccount(accountId);
             if (account == null) {
-                sendMessageSafe(session, "Error: Account not found.\r\n");
-                session.close();
+                reject(session, ACCOUNT_DENIED_MESSAGE);
                 return;
             }
+
+            // ── Gate 2: ownership ──────────────────────────────────────────────
+            // findAccount resolves by provider/AWS/GCP/Azure identifier across every
+            // tenant, so without this check any signed-in user could name any other
+            // customer's account and be handed a shell in it.
+            if (!cloudAccountAccessService.canAccess(userDetails, account)) {
+                log.warn("Blocked cross-tenant CloudShell attempt: session={}, user={}, client={}, requestedAccount={}",
+                        session.getId(), userDetails.getId(), userDetails.getClientId(), forLog(accountId));
+                reject(session, ACCOUNT_DENIED_MESSAGE);
+                return;
+            }
+
+            log.info("CloudShell access granted: user={} account={} provider={}",
+                    userDetails.getId(), account.getId(), forLog(account.getProvider()));
 
             String provider = account.getProvider();
             log.info("Identified Provider: {}", provider);
