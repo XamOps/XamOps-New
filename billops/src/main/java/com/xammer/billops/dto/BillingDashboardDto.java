@@ -13,6 +13,14 @@ public class BillingDashboardDto {
     private List<CostHistory> costHistory;
     private List<ServiceBreakdown> serviceBreakdown;
 
+    /**
+     * Which AWS source produced these figures: {@code "CUR"} (reconciled against the
+     * customer's Cost and Usage Report), {@code "COST_EXPLORER"} (estimated), or
+     * {@code "MIXED"} when an aggregate spans accounts or months served by both.
+     * Null on cached payloads written before this field existed.
+     */
+    private String dataSource;
+
     public double getCurrentMonthCost() { return currentMonthCost; }
     public void setCurrentMonthCost(double currentMonthCost) { this.currentMonthCost = currentMonthCost; }
     public double getPreviousMonthCost() { return previousMonthCost; }
@@ -27,6 +35,8 @@ public class BillingDashboardDto {
     public void setCostHistory(List<CostHistory> costHistory) { this.costHistory = costHistory; }
     public List<ServiceBreakdown> getServiceBreakdown() { return serviceBreakdown; }
     public void setServiceBreakdown(List<ServiceBreakdown> serviceBreakdown) { this.serviceBreakdown = serviceBreakdown; }
+    public String getDataSource() { return dataSource; }
+    public void setDataSource(String dataSource) { this.dataSource = dataSource; }
 
     @Data
     public static class CostHistory {

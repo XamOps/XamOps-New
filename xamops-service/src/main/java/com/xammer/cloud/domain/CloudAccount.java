@@ -135,6 +135,23 @@ public class CloudAccount {
     @JsonIgnore
     private Client client;
 
+    /**
+     * Location of the account's AWS Cost and Usage Report (CUR 2.0) export, created
+     * by the nested CUR stack in the onboarding template.
+     *
+     * Mapped here read-only in practice: BillOps owns detection and ingestion, and
+     * writes the aggregated result into cached_data under AWS_CUR_* keys. XamOps
+     * reads those aggregates via CurSnapshotReader to serve FinOps pages reconciled
+     * figures for closed months. The columns already exist on the shared
+     * cloud_account table (BillOps has mapped them since before this), so adding
+     * them here is a mapping change only — no migration.
+     */
+    @Column(name = "cur_s3_bucket")
+    private String curS3Bucket;
+
+    @Column(name = "cur_report_path")
+    private String curReportPath;
+
     @Column(name = "grafana_ip")
     private String grafanaIp;
 

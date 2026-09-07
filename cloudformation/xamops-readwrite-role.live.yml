@@ -140,12 +140,31 @@ Parameters:
     Description: S3 URL of the nested inventory-events template.
     Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-inventory-events-nested.yaml'
 
+  # CUR 2.0 Data Export (billing reconciliation for BillOps invoicing). On by
+  # default, same reasoning as EnableInventoryEvents — see xamops-readwrite-role.yml.
+  EnableCurExport:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Set up an AWS Cost and Usage Report (CUR 2.0) export to a dedicated S3
+      bucket in this account, so BillOps can reconcile invoices from AWS's
+      billing source of truth instead of Cost Explorer's aggregated totals.
+
+  XamOpsCurExportTemplateUrl:
+    Type: String
+    Description: S3 URL of the nested CUR export template.
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-export-nested.yaml'
+
 Conditions:
   IsAutoSpottingEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
 
   # Guards the nested stack. With inventory events off, nothing below is created
   # and the account simply relies on 60s polling.
   DeployInventoryEvents: !Equals [!Ref EnableInventoryEvents, 'true']
+
+  # Guards the CUR export nested stack.
+  DeployCurExport: !Equals [!Ref EnableCurExport, 'true']
 
 Resources:
   # =================================================================
@@ -574,6 +593,20 @@ Resources:
                   - 'servicequotas:RequestServiceQuotaIncrease'
                   - 'servicequotas:PutServiceQuotaIncreaseRequestIntoTemplate'
                 Resource: '*'
+
+              # ------------------------------------------------------------------
+              # BillOps CUR read access — scoped to the dedicated
+              # xamops-cur-{accountId} bucket created by the nested
+              # XamOpsCurExport stack below, not a wildcard.
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsCurReadAccess'
+                Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
 
   # =================================================================
   # 2. IAM Role for the EKS ConfigMap Automation Lambda
@@ -1189,6 +1222,18 @@ Resources:
         XamOpsRegion: !Ref XamOpsInventoryRegion
         IncludeSecurityFindings: !Ref IncludeSecurityFindings
 
+  # =================================================================
+  # CUR 2.0 DATA EXPORT (nested)
+  # =================================================================
+  XamOpsCurExport:
+    Type: AWS::CloudFormation::Stack
+    Condition: DeployCurExport
+    Properties:
+      TemplateURL: !Ref XamOpsCurExportTemplateUrl
+      TimeoutInMinutes: 15
+      Parameters:
+        XamOpsAccountId: !Ref XamOpsAccountId
+
 Outputs:
   XamOpsRoleArn:
     Description: ARN of the IAM role created for the XamOps platform (Read-Write access).
@@ -1197,6 +1242,24 @@ Outputs:
   XamOpsRoleName:
     Description: Name of the IAM role created for the XamOps platform.
     Value: !Ref XamOpsReadWriteRole
+
+  CurExportEnabled:
+    Description: Whether a CUR 2.0 Data Export was configured for BillOps.
+    Value: !Ref EnableCurExport
+
+  CurBucketName:
+    Description: S3 bucket receiving CUR 2.0 exports.
+    Value: !If
+      - DeployCurExport
+      - !GetAtt XamOpsCurExport.Outputs.CurBucketName
+      - 'disabled — BillOps will use Cost Explorer instead'
+
+  CurReportPrefix:
+    Description: S3 key prefix under which CUR 2.0 files are delivered.
+    Value: !If
+      - DeployCurExport
+      - !GetAtt XamOpsCurExport.Outputs.CurReportPrefix
+      - 'disabled'
 
   AutoSpottingForwarderFunctionArn:
     Description: ARN of the AutoSpotting event forwarder Lambda function.
