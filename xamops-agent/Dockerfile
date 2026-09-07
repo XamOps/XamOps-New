@@ -12,7 +12,9 @@
 # build only produced /xamops-agent_linux_amd64 and _arm64 — any image built from it
 # failed to start with "no such file or directory". Keep the ENTRYPOINT and the copy
 # below in agreement.
-FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+# Tracks the go directive in go.mod. Raised from 1.21 alongside golang.org/x/crypto
+# v0.52.0, which requires 1.25; an older builder image fails outright on the directive.
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 
 WORKDIR /app
 

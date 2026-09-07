@@ -845,7 +845,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          # Must track the go directive in xamops-agent/go.mod. Raised from 1.21 when
+          # golang.org/x/crypto moved to v0.52.0 for the SSH advisories -- that release
+          # requires 1.25, and go get bumped the module directive to match.
+          go-version: '1.25'
           cache-dependency-path: xamops-agent/go.sum
 
       - name: Compile and vet
