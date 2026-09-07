@@ -147,6 +147,77 @@ class CloudFrontPricingServiceTest {
         assertThat(bill.getLines().get(0).getAmount()).isEqualByComparingTo("10.90");
     }
 
+    /**
+     * The exclusion half of the case above, which is the half that actually costs money.
+     *
+     * "Asia Pacific (Mumbai)" is billed under India, but the string also contains "Asia
+     * Pacific". A containment check matched the AP geography as well, and because both
+     * candidates were non-wildcard the winner came down to row order -- so Asia Pacific
+     * egress was billed at India's rate. India is several times more expensive to serve,
+     * so this overcharged, looked entirely plausible on the invoice, and was only visible
+     * to someone who knew both rates.
+     */
+    @Test
+    @DisplayName("a Mumbai rate must not price Asia Pacific traffic")
+    void legacyRegionNameDoesNotLeakIntoTheSurroundingGeography() {
+        withRates(rate("Asia Pacific (Mumbai)", "Bandwidth", "GB", "0.109"));
+
+        CloudFrontBill bill = service.price(
+                List.of(usage("AP-DataTransfer-Out-Bytes", 40.0, 100.0, "GB")), CLIENT);
+
+        assertThat(bill.getLines().get(0).isPriced()).isFalse();
+        assertThat(bill.getLines().get(0).getNote()).contains("No private rate configured");
+        // Passed through at AWS cost, not billed at India's 0.109.
+        assertThat(bill.getLines().get(0).getAmount()).isEqualByComparingTo("40.00");
+    }
+
+    /**
+     * "US" is a substring of "Australia & New Zealand". Comparing the matcher against the
+     * geography name in both directions let a US rate capture Australian egress.
+     */
+    @Test
+    @DisplayName("a short matcher must not match inside an unrelated geography name")
+    void shortMatcherDoesNotMatchInsideAnotherGeographyName() {
+        withRates(rate("US", "Bandwidth", "GB", "0.060"));
+
+        CloudFrontBill bill = service.price(
+                List.of(usage("AU-DataTransfer-Out-Bytes", 33.0, 100.0, "GB")), CLIENT);
+
+        assertThat(bill.getLines().get(0).getGeographyName()).isEqualTo("Australia & New Zealand");
+        assertThat(bill.getLines().get(0).isPriced()).isFalse();
+        assertThat(bill.getLines().get(0).getAmount()).isEqualByComparingTo("33.00");
+    }
+
+    /**
+     * An AWS region code is not a viewer geography. "APS1" is ap-south-1, which scopes
+     * region-specific CloudFront charges; it used to be reduced to "APS", which then
+     * matched the "AP" rate. Region-scoped usage got billed at a viewer-egress rate.
+     */
+    @Test
+    @DisplayName("an AWS region prefix must not be priced as a viewer geography")
+    void awsRegionPrefixIsNotTreatedAsAGeography() {
+        withRates(rate("AP", "Bandwidth", "GB", "0.090"));
+
+        CloudFrontBill bill = service.price(
+                List.of(usage("APS1-DataTransfer-Out-Bytes", 25.0, 100.0, "GB")), CLIENT);
+
+        assertThat(bill.getLines().get(0).getGeographyCode()).isEqualTo("APS1");
+        assertThat(bill.getLines().get(0).isPriced()).isFalse();
+        assertThat(bill.getLines().get(0).getAmount()).isEqualByComparingTo("25.00");
+    }
+
+    /** A genuine AP geography rate must still price AP traffic after the tightening. */
+    @Test
+    void explicitGeographyCodeStillPricesItsOwnTraffic() {
+        withRates(rate("AP", "Bandwidth", "GB", "0.090"));
+
+        CloudFrontBill bill = service.price(
+                List.of(usage("AP-DataTransfer-Out-Bytes", 25.0, 100.0, "GB")), CLIENT);
+
+        assertThat(bill.getLines().get(0).isPriced()).isTrue();
+        assertThat(bill.getLines().get(0).getAmount()).isEqualByComparingTo("9.00");
+    }
+
     @Test
     void geographyDisplayNameAlsoMatches() {
         withRates(rate("India", "Bandwidth", "GB", "0.100"));

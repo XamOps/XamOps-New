@@ -91,15 +91,23 @@ public final class CloudFrontUsageParser {
             return GLOBAL;
         }
         String prefix = s.substring(0, dash).toUpperCase();
-
-        // Some prefixes carry a numeric suffix for a specific edge grouping
-        // (e.g. "APS1"). The leading letters are the billing geography; the digits
-        // narrow it further than pricing does, so they are dropped.
-        String letters = prefix.replaceAll("[0-9]+$", "");
-        if (letters.isEmpty()) {
+        if (prefix.isEmpty()) {
             return GLOBAL;
         }
-        return letters;
+
+        // CloudFront viewer-geography codes are exactly two letters: AWS replaces the
+        // region in a CloudFront usage type with a two-letter abbreviation ("IN", "AP",
+        // "EU"). A longer prefix carrying digits is an AWS *region* code -- "APS1" is
+        // ap-south-1 -- which scopes region-specific CloudFront charges such as origin
+        // shield rather than naming a billing geography.
+        //
+        // Such a prefix is returned unchanged rather than reduced to its letters. An
+        // earlier version stripped the trailing digits, which turned "APS1" into "APS":
+        // not a real CloudFront geography, but close enough to "AP" that it matched the
+        // Asia Pacific rate and quietly billed region-scoped usage at a viewer-egress
+        // rate. Leaving it intact keeps it out of geography pricing, where it surfaces
+        // as an unpriced line for review instead.
+        return prefix;
     }
 
     /** Human-readable geography, falling back to the raw code when unrecognised. */

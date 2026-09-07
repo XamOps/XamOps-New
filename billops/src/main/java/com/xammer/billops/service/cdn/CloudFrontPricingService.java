@@ -233,16 +233,38 @@ public class CloudFrontPricingService {
         }
         String m = regionMatcher.trim().toLowerCase();
         String code = geoCode == null ? "" : geoCode.trim().toLowerCase();
+
+        // An exact geography code is unambiguous.
         if (m.equals(code)) {
             return true;
         }
-        String name = CloudFrontUsageParser.geographyName(geoCode).toLowerCase();
-        if (m.equals(name) || m.contains(name) || name.contains(m)) {
-            return true;
+
+        // A legacy AWS region name is STRICTLY MORE SPECIFIC than a geography name, so
+        // when the matcher names one it decides the geography outright.
+        //
+        // This has to come before any name comparison. "Asia Pacific (Mumbai)" is billed
+        // under India, but it also literally contains "Asia Pacific", so a containment
+        // check would match the AP geography too -- and since both candidates are
+        // non-wildcard, which one won came down to row order. That silently billed Asia
+        // Pacific traffic at India's rate.
+        String legacyGeo = legacyGeoFor(m);
+        if (legacyGeo != null) {
+            return legacyGeo.equalsIgnoreCase(code);
         }
-        // Legacy AWS region display names, mapped to the CloudFront geography that bills them.
-        return LEGACY_REGION_TO_GEO.entrySet().stream()
-                .anyMatch(e -> m.contains(e.getKey()) && e.getValue().equalsIgnoreCase(code));
+
+        // Beyond that, compare against the geography's display name -- but only for a
+        // geography we actually recognise. An unknown code has no meaningful display
+        // name, and comparing against the raw code lets an "AP" rate capture an "APS1"
+        // bucket.
+        if (!CloudFrontUsageParser.isKnownGeography(geoCode)) {
+            return false;
+        }
+        String name = CloudFrontUsageParser.geographyName(geoCode).toLowerCase();
+
+        // Only the matcher-contains-name direction is safe. The reverse lets a short
+        // matcher match inside an unrelated name: "US" appears in "Australia & New
+        // Zealand", which would price Australian egress at the US rate.
+        return m.equals(name) || m.contains(name);
     }
 
     /**
@@ -270,6 +292,21 @@ public class CloudFrontPricingService {
             Map.entry("bahrain", "ME"),
             Map.entry("cape town", "AF"),
             Map.entry("canada", "CA"));
+
+    /**
+     * The CloudFront geography a matcher's legacy AWS region name refers to, or null when
+     * it names none.
+     *
+     * Longest fragment first, so "us east" is preferred over a bare substring match and a
+     * matcher naming two regions resolves to the more specific one.
+     */
+    private static String legacyGeoFor(String lowercaseMatcher) {
+        return LEGACY_REGION_TO_GEO.entrySet().stream()
+                .filter(e -> lowercaseMatcher.contains(e.getKey()))
+                .max(Comparator.comparingInt(e -> e.getKey().length()))
+                .map(Map.Entry::getValue)
+                .orElse(null);
+    }
 
     private static boolean isWildcardRegion(String regionMatcher) {
         return regionMatcher == null || WILDCARD_REGIONS.contains(regionMatcher.trim().toLowerCase());
