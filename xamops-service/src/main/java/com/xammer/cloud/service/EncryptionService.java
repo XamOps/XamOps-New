@@ -35,26 +35,53 @@ public class EncryptionService {
     private static final int GCM_TAG_LENGTH = 128; // GCM Authentication Tag length
     private static final String KEY_ALGORITHM = "AES";
 
-    // Initialize the SecretKey once on startup
+    /** Environment variable the key is supplied through in every deployed profile. */
+    private static final String KEY_ENV_VAR = "APP_ENCRYPTION_SECRET_KEY";
+    private static final String KEY_PROPERTY = "app.encryption.secret-key";
+    private static final String HOW_TO_GENERATE = "Generate one with: openssl rand -base64 32";
+
+    /**
+     * Validates the key and fails startup if it is unusable.
+     *
+     * Failing fast is correct -- a service that boots without a working key would hand
+     * out unencrypted credentials -- but it means this message is the only thing an
+     * operator sees when the whole service is crash-looping. It therefore names the
+     * property, the environment variable that supplies it, and what a valid value looks
+     * like, and distinguishes "not configured" from "configured but wrong".
+     *
+     * The earlier version reported only "Invalid secret key length ... got 0", which
+     * gave no indication of which of several keys was empty or where it came from.
+     *
+     * The key itself is never logged.
+     */
     @PostConstruct
     private void init() {
-        try {
-            // Decode the Base64 key string into bytes
-            byte[] decodedKey = Base64.getDecoder().decode(secretKeyString);
-            if (decodedKey.length != 32) { // Check for AES-256 key length
-                logger.error("Invalid secret key length. Expected 32 bytes for AES-256, but got {}.", decodedKey.length);
-                throw new IllegalArgumentException("Invalid secret key length. Requires a 32-byte (Base64 encoded) key for AES-256.");
-            }
-            this.secretKey = new SecretKeySpec(decodedKey, 0, decodedKey.length, KEY_ALGORITHM);
-            logger.info("EncryptionService initialized successfully.");
-        } catch (IllegalArgumentException e) {
-             logger.error("Error decoding Base64 secret key: {}", e.getMessage(), e);
-             // Fail fast if the key is invalid
-             throw new IllegalStateException("Failed to initialize EncryptionService due to invalid secret key.", e);
-        } catch (Exception e) {
-            logger.error("Unexpected error initializing EncryptionService: {}", e.getMessage(), e);
-            throw new IllegalStateException("Failed to initialize EncryptionService.", e);
+        if (secretKeyString == null || secretKeyString.isBlank()) {
+            throw new IllegalStateException(String.format(
+                    "%s is not set. Supply a 32-byte AES-256 key, Base64 encoded, via the %s "
+                            + "environment variable. %s",
+                    KEY_PROPERTY, KEY_ENV_VAR, HOW_TO_GENERATE));
         }
+
+        byte[] decodedKey;
+        try {
+            // Trimmed because a key pasted into a secret store commonly carries a trailing
+            // newline, which is not valid Base64 and would otherwise fail confusingly.
+            decodedKey = Base64.getDecoder().decode(secretKeyString.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(String.format(
+                    "%s is not valid Base64 (supplied via %s). %s",
+                    KEY_PROPERTY, KEY_ENV_VAR, HOW_TO_GENERATE), e);
+        }
+
+        if (decodedKey.length != 32) {
+            throw new IllegalStateException(String.format(
+                    "%s decodes to %d byte(s); AES-256 requires exactly 32. Supplied via %s. %s",
+                    KEY_PROPERTY, decodedKey.length, KEY_ENV_VAR, HOW_TO_GENERATE));
+        }
+
+        this.secretKey = new SecretKeySpec(decodedKey, 0, decodedKey.length, KEY_ALGORITHM);
+        logger.info("EncryptionService initialized (AES-256/GCM).");
     }
 
     /**
